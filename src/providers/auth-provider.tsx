@@ -1,12 +1,7 @@
-﻿"use client";
+"use client";
 
 import { createContext, useContext } from "react";
-
-type AuthUser = {
-  id: string;
-  name: string;
-  role: "local_owner";
-};
+import type { AuthUser } from "@/domains/auth/types";
 
 const defaultUser: AuthUser = {
   id: "local-user",

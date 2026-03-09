@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import clsx from "clsx";
 import { useProjectMeta } from "@/providers/project-provider";
 
 const items = [
@@ -11,7 +13,8 @@ const items = [
 ] as const;
 
 export function Sidebar() {
-  const { projectName, setProjectName } = useProjectMeta();
+  const pathname = usePathname();
+  const { projectName, setProjectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
 
   return (
     <aside className="sidebar">
@@ -24,18 +27,27 @@ export function Sidebar() {
           placeholder="프로젝트명을 입력하세요"
           value={projectName}
         />
-        <p className="sidebar__copy">project 단일 구조 / local-first / 직접 입력형</p>
+        <p className="sidebar__copy">단일 project 구조 / local-first / 직접 입력 중심</p>
+        <p className="sidebar__status">
+          {projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "local"}`) : "프로젝트 메타 불러오는 중"}
+        </p>
       </div>
+
       <nav className="sidebar__nav">
         {items.map((item) => (
-          <Link className="sidebar__link" key={item.href} href={item.href}>
+          <Link
+            className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
+            key={item.href}
+            href={item.href}
+          >
             {item.label}
           </Link>
         ))}
       </nav>
+
       <div className="sidebar__note">
         <p>로그인은 후순위입니다.</p>
-        <p>프로젝트명과 todo 데이터는 직접 입력해서 시작합니다.</p>
+        <p>프로젝트명과 todo 데이터는 직접 붙여넣거나 입력하면서 검증합니다.</p>
       </div>
     </aside>
   );

@@ -8,6 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
+import { randomUUID } from "node:crypto";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import type {
   CreateTaskInput,
@@ -56,11 +57,23 @@ const toIsoString = (value: FirestoreValue) => {
   return String(value);
 };
 
-const sortByDueDate = (items: TaskRecord[]) =>
-  [...items].sort((left, right) => left.dueDate.localeCompare(right.dueDate));
-
+const sortByDueDate = (items: TaskRecord[]) => [...items].sort((left, right) => left.dueDate.localeCompare(right.dueDate));
 const sortByDeletedAt = <T extends { deletedAt: string | null }>(items: T[]) =>
   [...items].sort((left, right) => (right.deletedAt ?? "").localeCompare(left.deletedAt ?? ""));
+
+function latestFiles(items: FileRecord[]) {
+  const latestByGroup = new Map<string, FileRecord>();
+
+  items.forEach((file) => {
+    const current = latestByGroup.get(file.fileGroupId);
+
+    if (!current || file.versionNumber > current.versionNumber) {
+      latestByGroup.set(file.fileGroupId, file);
+    }
+  });
+
+  return [...latestByGroup.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
 
 const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => ({
   id,
@@ -79,15 +92,22 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
   deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
 });
 
-const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => ({
-  id,
-  taskId: String(data.taskId ?? ""),
-  originalName: String(data.originalName ?? ""),
-  storedName: String(data.storedName ?? ""),
-  storedPath: String(data.storedPath ?? ""),
-  createdAt: toIsoString(data.createdAt as FirestoreValue),
-  deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
-});
+const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => {
+  const versionNumber = Number(data.versionNumber ?? 1);
+
+  return {
+    id,
+    taskId: String(data.taskId ?? ""),
+    fileGroupId: String(data.fileGroupId ?? id),
+    originalName: String(data.originalName ?? ""),
+    storedName: String(data.storedName ?? ""),
+    storedPath: String(data.storedPath ?? ""),
+    versionNumber,
+    versionLabel: String(data.versionLabel ?? `v${versionNumber}`),
+    createdAt: toIsoString(data.createdAt as FirestoreValue),
+    deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
+  };
+};
 
 async function nextTaskNumber() {
   if (!db) {
@@ -96,38 +116,28 @@ async function nextTaskNumber() {
 
   const sequenceRef = doc(db, "meta", sequenceDocName);
   const snapshot = await getDoc(sequenceRef);
-  const current = snapshot.exists() ? Number(snapshot.data().value ?? 700) : 700;
+  const current = snapshot.exists() ? Number(snapshot.data().value ?? 1) : 1;
   const next = current + 1;
 
   await setDoc(sequenceRef, { value: next }, { merge: true });
 
-  return `MIL-${current}`;
+  return `#${current}`;
 }
 
 class FirestoreTaskRepository implements TaskRepository {
   async listActiveTasks() {
-    if (!db) {
-      return [];
-    }
+    if (!db) return [];
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
-    const items = snapshot.docs
-      .map((entry) => toTaskRecord(entry.id, entry.data()))
-      .filter((task) => !task.deletedAt);
-
+    const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => !task.deletedAt);
     return sortByDueDate(items);
   }
 
   async listTrashTasks() {
-    if (!db) {
-      return [];
-    }
+    if (!db) return [];
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
-    const items = snapshot.docs
-      .map((entry) => toTaskRecord(entry.id, entry.data()))
-      .filter((task) => Boolean(task.deletedAt));
-
+    const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => Boolean(task.deletedAt));
     return sortByDeletedAt(items);
   }
 
@@ -183,20 +193,18 @@ class FirestoreTaskRepository implements TaskRepository {
 
 class FirestoreFileRepository implements FileRepository {
   async listActiveFiles(taskId?: string) {
-    if (!db) {
-      return [];
-    }
+    if (!db) return [];
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
-    return snapshot.docs
+    const items = snapshot.docs
       .map((entry) => toFileRecord(entry.id, entry.data()))
       .filter((file) => !file.deletedAt && (!taskId || file.taskId === taskId));
+
+    return latestFiles(items);
   }
 
   async listTrashFiles(taskId?: string) {
-    if (!db) {
-      return [];
-    }
+    if (!db) return [];
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
     const items = snapshot.docs
@@ -206,21 +214,36 @@ class FirestoreFileRepository implements FileRepository {
     return sortByDeletedAt(items);
   }
 
+  async findFileById(fileId: string) {
+    if (!db) return null;
+
+    const snapshot = await getDoc(doc(db, fileCollectionName, fileId));
+    if (!snapshot.exists()) return null;
+
+    return toFileRecord(snapshot.id, snapshot.data());
+  }
+
   async attachFile(input: {
     taskId: string;
     originalName: string;
     storedName: string;
     storedPath: string;
+    fileGroupId?: string;
+    versionNumber?: number;
   }) {
     if (!db) {
       throw new Error("Firestore is not configured");
     }
 
+    const versionNumber = input.versionNumber ?? 1;
     const record = {
       taskId: input.taskId,
+      fileGroupId: input.fileGroupId ?? randomUUID(),
       originalName: input.originalName,
       storedName: input.storedName,
       storedPath: input.storedPath,
+      versionNumber,
+      versionLabel: `v${versionNumber}`,
       createdAt: new Date().toISOString(),
       deletedAt: null,
     };
@@ -262,36 +285,24 @@ class FirestoreFileRepository implements FileRepository {
   }
 
   async moveFilesToTrashByTask(taskId: string) {
-    if (!db) {
-      return;
-    }
+    if (!db) return;
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
 
     await Promise.all(
-      targets.map((entry) =>
-        updateDoc(doc(db, fileCollectionName, entry.id), {
-          deletedAt: new Date().toISOString(),
-        }),
-      ),
+      targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: new Date().toISOString() })),
     );
   }
 
   async restoreFilesByTask(taskId: string) {
-    if (!db) {
-      return;
-    }
+    if (!db) return;
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
 
     await Promise.all(
-      targets.map((entry) =>
-        updateDoc(doc(db, fileCollectionName, entry.id), {
-          deletedAt: null,
-        }),
-      ),
+      targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null })),
     );
   }
 }

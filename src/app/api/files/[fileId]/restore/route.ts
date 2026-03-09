@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
-import { fileRepository } from "@/repositories";
+import { handleRouteError } from "@/lib/api/route-error";
+import { restoreFile } from "@/use-cases/file-service";
 
 export async function POST(
   _request: Request,
   context: { params: Promise<{ fileId: string }> },
 ) {
-  const { fileId } = await context.params;
-  const file = await fileRepository.restoreFile(fileId);
+  try {
+    const { fileId } = await context.params;
+    const file = await restoreFile(fileId);
 
-  return NextResponse.json({ data: file });
+    return NextResponse.json({ data: file });
+  } catch (error) {
+    return handleRouteError(error);
+  }
 }

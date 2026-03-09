@@ -1,11 +1,16 @@
-﻿import { NextResponse } from "next/server";
-import { fileRepository } from "@/repositories";
+import { NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/api/route-error";
+import { listFiles } from "@/use-cases/file-service";
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const taskId = searchParams.get("taskId") ?? undefined;
-  const scope = searchParams.get("scope");
-  const data = scope === "trash" ? await fileRepository.listTrashFiles(taskId) : await fileRepository.listActiveFiles(taskId);
+  try {
+    const { searchParams } = new URL(request.url);
+    const taskId = searchParams.get("taskId") ?? undefined;
+    const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
+    const data = await listFiles(scope, taskId);
 
-  return NextResponse.json({ data });
+    return NextResponse.json({ data });
+  } catch (error) {
+    return handleRouteError(error);
+  }
 }

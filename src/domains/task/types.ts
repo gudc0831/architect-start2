@@ -1,4 +1,4 @@
-﻿export type TaskStatus = "todo" | "in_progress" | "done" | "blocked";
+export type TaskStatus = "todo" | "in_progress" | "done" | "blocked";
 
 export type TaskRecord = {
   id: string;
@@ -20,9 +20,12 @@ export type TaskRecord = {
 export type FileRecord = {
   id: string;
   taskId: string;
+  fileGroupId: string;
   originalName: string;
   storedName: string;
   storedPath: string;
+  versionNumber: number;
+  versionLabel: string;
   createdAt: string;
   deletedAt: string | null;
 };
