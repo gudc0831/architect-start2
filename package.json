@@ -1,0 +1,29 @@
+{
+  "name": "architect-start2",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "firebase": "12.9.0",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "16.1.6",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
+  }
+}
