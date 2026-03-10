@@ -5,7 +5,7 @@ import type { AuthUser } from "@/domains/auth/types";
 
 const defaultUser: AuthUser = {
   id: "local-user",
-  name: "Local User",
+  name: "로컬 사용자",
   role: "local_owner",
 };
 

@@ -7,26 +7,41 @@ export type CreateTaskInput = {
   requester: string;
   assignee: string;
   title: string;
+  createdAt?: string;
   isDaily: boolean;
   description: string;
+  fileMemo?: string;
+  parentTaskId?: string | null;
+  parentTaskNumber?: string | null;
+  rootTaskId?: string;
+  depth?: number;
+  siblingOrder?: number;
 };
 
 export type UpdateTaskInput = Partial<
   Pick<
     TaskRecord,
+    | "parentTaskId"
+    | "rootTaskId"
+    | "depth"
+    | "siblingOrder"
     | "dueDate"
     | "category"
     | "requester"
     | "assignee"
     | "title"
+    | "createdAt"
     | "isDaily"
     | "description"
     | "status"
     | "progressNote"
     | "conclusion"
+    | "fileMemo"
     | "deletedAt"
   >
->;
+> & {
+  parentTaskNumber?: string | null;
+};
 
 export type UpdateProjectInput = Pick<ProjectRecord, "name">;
 

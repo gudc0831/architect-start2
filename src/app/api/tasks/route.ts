@@ -25,6 +25,8 @@ export async function POST(request: Request) {
       title: body.title,
       isDaily: Boolean(body.isDaily),
       description: body.description ?? "",
+      parentTaskId: body.parentTaskId ?? null,
+      parentTaskNumber: body.parentTaskNumber ?? undefined,
     });
 
     return NextResponse.json({ data: task }, { status: 201 });

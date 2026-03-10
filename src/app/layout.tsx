@@ -4,8 +4,8 @@ import { ProjectProvider } from "@/providers/project-provider";
 import { ProjectShell } from "@/components/layout/project-shell";
 
 export const metadata = {
-  title: "Architect Start",
-  description: "Local-first rebuild scaffold",
+  title: "아키텍트 스타트",
+  description: "로컬 우선 설계 협업 도구",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

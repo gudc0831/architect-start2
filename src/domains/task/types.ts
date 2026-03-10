@@ -1,8 +1,12 @@
-export type TaskStatus = "todo" | "in_progress" | "done" | "blocked";
+export type TaskStatus = "waiting" | "todo" | "in_progress" | "done" | "blocked";
 
 export type TaskRecord = {
   id: string;
   taskNumber: string;
+  parentTaskId: string | null;
+  rootTaskId: string;
+  depth: number;
+  siblingOrder: number;
   dueDate: string;
   category: string;
   requester: string;
@@ -14,6 +18,7 @@ export type TaskRecord = {
   status: TaskStatus;
   progressNote: string;
   conclusion: string;
+  fileMemo: string;
   deletedAt: string | null;
 };
 

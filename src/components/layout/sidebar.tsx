@@ -19,7 +19,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <p className="sidebar__eyebrow">Architect Start</p>
+        <p className="sidebar__eyebrow">아키텍트 스타트</p>
         <input
           aria-label="프로젝트명"
           className="sidebar__title-input"
@@ -27,9 +27,9 @@ export function Sidebar() {
           placeholder="프로젝트명을 입력하세요"
           value={projectName}
         />
-        <p className="sidebar__copy">단일 project 구조 / local-first / 직접 입력 중심</p>
+        <p className="sidebar__copy">단일 프로젝트 구조 / 로컬 우선 / 직접 입력 중심</p>
         <p className="sidebar__status">
-          {projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "local"}`) : "프로젝트 메타 불러오는 중"}
+          {projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "로컬"}`) : "프로젝트 메타 불러오는 중"}
         </p>
       </div>
 
