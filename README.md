@@ -15,3 +15,14 @@ Local-first rebuild scaffold.
 - Default: memory repository
 - Optional: Firestore repository
 - File upload: local copy to `LOCAL_UPLOAD_ROOT`
+
+## Git
+
+This repo is set up for `main` tracking with local defaults that reduce multi-machine friction:
+
+- `pull.rebase=true`
+- `rebase.autoStash=true`
+- `fetch.prune=true`
+- `push.autoSetupRemote=true`
+
+Use the workflow in `GIT_WORKFLOW.md`.
