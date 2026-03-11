@@ -1,20 +1,62 @@
-"use client";
+﻿"use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthUser } from "@/domains/auth/types";
 
-const defaultUser: AuthUser = {
-  id: "local-user",
-  name: "로컬 사용자",
-  role: "local_owner",
+type AuthContextValue = {
+  user: AuthUser | null;
+  loading: boolean;
+  refreshUser: () => Promise<void>;
+  clearUser: () => void;
 };
 
-const AuthContext = createContext<AuthUser>(defaultUser);
+const AuthContext = createContext<AuthContextValue>({
+  user: null,
+  loading: true,
+  refreshUser: async () => {},
+  clearUser: () => {},
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  return <AuthContext.Provider value={defaultUser}>{children}</AuthContext.Provider>;
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function refreshUser() {
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) {
+        setUser(null);
+        return;
+      }
+
+      const json = (await response.json()) as { data: AuthUser };
+      setUser(json.data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshUser();
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      refreshUser,
+      clearUser: () => setUser(null),
+    }),
+    [loading, user],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuthState() {
+  return useContext(AuthContext);
 }
 
 export function useAuthUser() {
-  return useContext(AuthContext);
+  return useContext(AuthContext).user;
 }

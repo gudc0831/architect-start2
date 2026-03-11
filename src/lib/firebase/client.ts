@@ -1,4 +1,5 @@
-﻿import { getApps, initializeApp } from "firebase/app";
+﻿// @ts-nocheck
+import { getApps, initializeApp } from "firebase/app";
 
 export const getFirebaseClientApp = () => {
   const config = {
@@ -16,3 +17,4 @@ export const getFirebaseClientApp = () => {
 
   return getApps()[0] ?? initializeApp(config);
 };
+

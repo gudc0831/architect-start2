@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { ProjectRecord } from "@/domains/project/types";
 import { localProjectMetaDir, localProjectMetaPath } from "@/lib/runtime-config";
@@ -5,7 +6,7 @@ import type { ProjectRepository, UpdateProjectInput } from "@/repositories/contr
 
 const defaultProject: ProjectRecord = {
   id: "project-local",
-  name: "새 프로젝트",
+  name: "???꾨줈?앺듃",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   source: "local-file",

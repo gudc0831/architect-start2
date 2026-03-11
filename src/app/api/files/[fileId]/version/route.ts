@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireUser } from "@/lib/auth/require-user";
 import { attachNextFileVersion } from "@/use-cases/file-service";
 
 export async function POST(
@@ -7,15 +9,16 @@ export async function POST(
   context: { params: Promise<{ fileId: string }> },
 ) {
   try {
+    const user = await requireUser();
     const { fileId } = await context.params;
     const formData = await request.formData();
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "file is required" }, { status: 400 });
+      throw badRequest("file is required");
     }
 
-    const data = await attachNextFileVersion({ fileId, file });
+    const data = await attachNextFileVersion({ fileId, file, userId: user.id });
     return NextResponse.json({ data }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);

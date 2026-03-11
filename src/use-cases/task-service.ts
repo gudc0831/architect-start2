@@ -1,22 +1,31 @@
-import type { TaskRecord, TaskStatus } from "@/domains/task/types";
-import { fileRepository, taskRepository } from "@/repositories";
+﻿import type { TaskRecord, TaskStatus } from "@/domains/task/types";
+import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { fileRepository, projectRepository, taskRepository } from "@/repositories";
 import type { CreateTaskInput, UpdateTaskInput } from "@/repositories/contracts";
 
 export type TaskScope = "active" | "trash";
 
+type UpdateTaskCommand = UpdateTaskInput & { version?: number };
+
 const taskStatusSet = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 export async function listTasks(scope: TaskScope) {
-  const tasks = scope === "trash" ? await taskRepository.listTrashTasks() : await taskRepository.listActiveTasks();
+  const project = await projectRepository.getProject();
+  const tasks =
+    scope === "trash"
+      ? await taskRepository.listTrashTasks(project.id)
+      : await taskRepository.listActiveTasks(project.id);
   return scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
 }
 
-export async function createTask(input: CreateTaskInput) {
-  const activeTasks = await taskRepository.listActiveTasks();
+export async function createTask(input: Omit<CreateTaskInput, "projectId">, userId?: string | null) {
+  const project = await projectRepository.getProject();
+  const activeTasks = await taskRepository.listActiveTasks(project.id);
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
 
   return taskRepository.createTask({
+    projectId: project.id,
     dueDate: normalizeDate(input.dueDate),
     category: normalizeText(input.category),
     requester: normalizeText(input.requester),
@@ -30,38 +39,67 @@ export async function createTask(input: CreateTaskInput) {
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
     siblingOrder: nextSiblingOrder(activeTasks, parentTaskId),
+    createdBy: userId ?? null,
+    updatedBy: userId ?? null,
   });
 }
 
-export async function updateTask(taskId: string, input: UpdateTaskInput) {
-  const activeTasks = await taskRepository.listActiveTasks();
+export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
+  const project = await projectRepository.getProject();
+  const activeTasks = await taskRepository.listActiveTasks(project.id);
   const currentTask = activeTasks.find((task) => task.id === taskId);
 
   if (!currentTask) {
-    throw new Error("Task not found");
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const expectedVersion = Number(input.version);
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw badRequest("version is required", "TASK_VERSION_REQUIRED");
   }
 
   const sanitized = sanitizeTaskUpdate(input);
-  if (Object.prototype.hasOwnProperty.call(input, "parentTaskNumber") || Object.prototype.hasOwnProperty.call(input, "parentTaskId")) {
+  if (
+    Object.prototype.hasOwnProperty.call(input, "parentTaskNumber") ||
+    Object.prototype.hasOwnProperty.call(input, "parentTaskId")
+  ) {
     const nextParentId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
-    return reparentTask(currentTask, nextParentId, sanitized, activeTasks);
+    return reparentTask(currentTask, nextParentId, sanitized, activeTasks, expectedVersion, userId ?? null);
   }
 
-  return taskRepository.updateTask(taskId, sanitized);
+  const updated = await taskRepository.updateTaskWithVersion(taskId, {
+    ...sanitized,
+    expectedVersion,
+    updatedBy: userId ?? null,
+  });
+
+  if (updated) {
+    return updated;
+  }
+
+  const latest = await taskRepository.findTaskById(taskId);
+  if (!latest) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  throw conflict(
+    "다른 사용자가 먼저 수정했습니다. 최신 내용을 불러와 다시 시도하세요.",
+    "TASK_VERSION_CONFLICT",
+  );
 }
 
-export async function moveTaskToTrash(taskId: string) {
+export async function moveTaskToTrash(taskId: string, userId?: string | null) {
   const allTasks = await listAllTasks();
   const subtree = collectSubtree(allTasks, taskId);
 
   if (subtree.length === 0) {
-    throw new Error("Task not found");
+    throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
   let updatedRoot = subtree[0];
 
   for (const task of subtree) {
-    const updatedTask = await taskRepository.moveTaskToTrash(task.id);
+    const updatedTask = await taskRepository.moveTaskToTrash(task.id, userId ?? null);
     await fileRepository.moveFilesToTrashByTask(task.id);
 
     if (task.id === taskId) {
@@ -72,12 +110,12 @@ export async function moveTaskToTrash(taskId: string) {
   return updatedRoot;
 }
 
-export async function restoreTask(taskId: string) {
+export async function restoreTask(taskId: string, userId?: string | null) {
   const allTasks = await listAllTasks();
   const subtree = collectSubtree(allTasks, taskId);
 
   if (subtree.length === 0) {
-    throw new Error("Task not found");
+    throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
   const target = subtree[0];
@@ -85,7 +123,7 @@ export async function restoreTask(taskId: string) {
   const currentParent = target.parentTaskId ? allTasks.find((task) => task.id === target.parentTaskId) ?? null : null;
   const shouldDetach = Boolean(currentParent?.deletedAt && !subtreeIds.has(currentParent.id));
 
-  let restoredRoot = await taskRepository.restoreTask(target.id);
+  let restoredRoot = await taskRepository.restoreTask(target.id, userId ?? null);
   await fileRepository.restoreFilesByTask(target.id);
 
   if (shouldDetach) {
@@ -93,6 +131,7 @@ export async function restoreTask(taskId: string) {
       parentTaskId: null,
       rootTaskId: target.id,
       depth: 0,
+      updatedBy: userId ?? null,
     });
   }
 
@@ -100,7 +139,7 @@ export async function restoreTask(taskId: string) {
   byId.set(restoredRoot.id, { ...target, ...restoredRoot, deletedAt: null });
 
   for (const task of subtree.slice(1)) {
-    await taskRepository.restoreTask(task.id);
+    await taskRepository.restoreTask(task.id, userId ?? null);
     await fileRepository.restoreFilesByTask(task.id);
 
     const parent = byId.get(task.parentTaskId ?? "") ?? null;
@@ -108,6 +147,7 @@ export async function restoreTask(taskId: string) {
       rootTaskId: parent ? parent.rootTaskId : task.id,
       depth: parent ? parent.depth + 1 : 0,
       deletedAt: null,
+      updatedBy: userId ?? null,
     });
 
     byId.set(task.id, { ...task, ...updated, deletedAt: null });
@@ -116,34 +156,60 @@ export async function restoreTask(taskId: string) {
   return restoredRoot;
 }
 
-async function reparentTask(task: TaskRecord, nextParentId: string | null, input: UpdateTaskInput, activeTasks: TaskRecord[]) {
+async function reparentTask(
+  task: TaskRecord,
+  nextParentId: string | null,
+  input: UpdateTaskInput,
+  activeTasks: TaskRecord[],
+  expectedVersion: number,
+  userId: string | null,
+) {
   const descendants = new Set(collectDescendantIds(activeTasks, task.id));
 
   if (nextParentId === task.id || (nextParentId && descendants.has(nextParentId))) {
-    throw new Error("Invalid parent task");
+    throw badRequest("Invalid parent task", "INVALID_PARENT_TASK");
   }
 
   const parent = nextParentId ? activeTasks.find((entry) => entry.id === nextParentId) ?? null : null;
   if (nextParentId && !parent) {
-    throw new Error("Parent task not found");
+    throw notFound("Parent task not found", "PARENT_TASK_NOT_FOUND");
   }
 
   const parentChanged = (task.parentTaskId ?? null) !== nextParentId;
-  const siblingOrder = parentChanged ? nextSiblingOrder(activeTasks.filter((entry) => entry.id !== task.id && !descendants.has(entry.id)), nextParentId) : task.siblingOrder;
+  const siblingOrder = parentChanged
+    ? nextSiblingOrder(
+        activeTasks.filter((entry) => entry.id !== task.id && !descendants.has(entry.id)),
+        nextParentId,
+      )
+    : task.siblingOrder;
 
-  const updatedTask = await taskRepository.updateTask(task.id, {
+  const updatedTask = await taskRepository.updateTaskWithVersion(task.id, {
     ...input,
     parentTaskId: nextParentId,
     rootTaskId: parent ? parent.rootTaskId : task.id,
     depth: parent ? parent.depth + 1 : 0,
     siblingOrder,
+    expectedVersion,
+    updatedBy: userId,
   });
 
-  await syncDescendantHierarchy(activeTasks, { ...task, ...updatedTask });
+  if (!updatedTask) {
+    const latest = await taskRepository.findTaskById(task.id);
+    if (!latest) {
+      throw notFound("Task not found", "TASK_NOT_FOUND");
+    }
+
+    throw conflict(
+      "다른 사용자가 먼저 수정했습니다. 최신 내용을 불러와 다시 시도하세요.",
+      "TASK_VERSION_CONFLICT",
+    );
+  }
+
+  await syncDescendantHierarchy(activeTasks, updatedTask, userId);
   return updatedTask;
 }
 
-async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord) {
+async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord, userId: string | null) {
   const childrenByParent = groupChildren(tasks.filter((task) => task.id !== rootTask.id));
 
   const visit = async (parent: TaskRecord) => {
@@ -153,6 +219,7 @@ async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord
       const updatedChild = await taskRepository.updateTask(child.id, {
         rootTaskId: parent.rootTaskId,
         depth: parent.depth + 1,
+        updatedBy: userId,
       });
 
       await visit({ ...child, ...updatedChild });
@@ -195,10 +262,10 @@ function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, 
     return null;
   }
 
-  if (normalizedNumber) {
+  if (typeof normalizedNumber === "number") {
     const parent = tasks.find((task) => task.taskNumber === normalizedNumber);
     if (!parent) {
-      throw new Error("Parent task number not found");
+      throw notFound("Parent task number not found", "PARENT_TASK_NOT_FOUND");
     }
     return parent.id;
   }
@@ -209,7 +276,7 @@ function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, 
 
     const parent = tasks.find((task) => task.id === normalizedId);
     if (!parent) {
-      throw new Error("Parent task not found");
+      throw notFound("Parent task not found", "PARENT_TASK_NOT_FOUND");
     }
     return parent.id;
   }
@@ -223,7 +290,7 @@ function normalizeTaskNumberInput(value: string | null | undefined) {
   }
 
   if (typeof value !== "string") {
-    return "";
+    return undefined;
   }
 
   const normalized = normalizeText(value);
@@ -232,21 +299,21 @@ function normalizeTaskNumberInput(value: string | null | undefined) {
   }
 
   if (/^#\d+$/.test(normalized)) {
-    return normalized;
+    return Number(normalized.slice(1));
   }
 
   if (/^\d+$/.test(normalized)) {
-    return `#${normalized}`;
+    return Number(normalized);
   }
 
-  throw new Error("Parent task number format is invalid");
+  throw badRequest("Parent task number format is invalid", "PARENT_TASK_NUMBER_INVALID");
 }
 
 function normalizeRequiredText(value: string, fieldName: string) {
   const normalized = normalizeText(value);
 
   if (!normalized) {
-    throw new Error(`${fieldName} is required`);
+    throw badRequest(`${fieldName} is required`, `${fieldName.toUpperCase()}_REQUIRED`);
   }
 
   return normalized;
@@ -265,7 +332,11 @@ function normalizeStoredDate(value?: string | null) {
 }
 
 async function listAllTasks() {
-  const [activeTasks, trashTasks] = await Promise.all([taskRepository.listActiveTasks(), taskRepository.listTrashTasks()]);
+  const project = await projectRepository.getProject();
+  const [activeTasks, trashTasks] = await Promise.all([
+    taskRepository.listActiveTasks(project.id),
+    taskRepository.listTrashTasks(project.id),
+  ]);
   return [...activeTasks, ...trashTasks];
 }
 
@@ -330,7 +401,9 @@ function collectDescendantIds(tasks: TaskRecord[], rootTaskId: string) {
 }
 
 function nextSiblingOrder(tasks: TaskRecord[], parentTaskId: string | null) {
-  const siblingOrders = tasks.filter((task) => (task.parentTaskId ?? null) === parentTaskId).map((task) => task.siblingOrder);
+  const siblingOrders = tasks
+    .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
+    .map((task) => task.siblingOrder);
   return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
 }
 
@@ -353,7 +426,6 @@ function sortByTaskNumber(tasks: TaskRecord[]) {
   });
 }
 
-function taskNumberValue(taskNumber: string) {
-  const match = /^#(\d+)$/.exec(taskNumber) ?? /^MIL-(\d+)$/.exec(taskNumber);
-  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+function taskNumberValue(taskNumber: number) {
+  return taskNumber;
 }

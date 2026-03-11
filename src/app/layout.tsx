@@ -1,11 +1,10 @@
-import "./globals.css";
+﻿import "./globals.css";
 import { AuthProvider } from "@/providers/auth-provider";
-import { ProjectProvider } from "@/providers/project-provider";
-import { ProjectShell } from "@/components/layout/project-shell";
+import { AppShell } from "@/components/layout/app-shell";
 
 export const metadata = {
   title: "아키텍트 스타트",
-  description: "로컬 우선 설계 협업 도구",
+  description: "협업 작업 관리 도구",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -13,9 +12,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ko">
       <body>
         <AuthProvider>
-          <ProjectProvider>
-            <ProjectShell>{children}</ProjectShell>
-          </ProjectProvider>
+          <AppShell>{children}</AppShell>
         </AuthProvider>
       </body>
     </html>

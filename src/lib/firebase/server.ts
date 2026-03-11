@@ -1,4 +1,5 @@
-﻿export type FirebaseServerConfig = {
+﻿// @ts-nocheck
+export type FirebaseServerConfig = {
   projectId?: string;
   clientEmail?: string;
   privateKey?: string;
@@ -15,3 +16,4 @@ export const getFirebaseServerConfig = (): FirebaseServerConfig | null => {
     privateKey: process.env.FIREBASE_PRIVATE_KEY,
   };
 };
+

@@ -1,7 +1,7 @@
-export type ProjectRecord = {
+﻿export type ProjectRecord = {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
-  source: "local-file";
+  source: "postgres" | "local-file" | "firestore";
 };

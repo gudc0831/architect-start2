@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireUser } from "@/lib/auth/require-user";
 import { updateTask } from "@/use-cases/task-service";
 
 export async function PATCH(
@@ -7,9 +8,10 @@ export async function PATCH(
   context: { params: Promise<{ taskId: string }> },
 ) {
   try {
+    const user = await requireUser();
     const { taskId } = await context.params;
     const body = await request.json();
-    const task = await updateTask(taskId, body);
+    const task = await updateTask(taskId, body, user.id);
 
     return NextResponse.json({ data: task });
   } catch (error) {
