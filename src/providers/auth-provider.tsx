@@ -1,7 +1,9 @@
 ﻿"use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { AuthUser } from "@/domains/auth/types";
+import { previewAuthUser } from "@/lib/preview/demo-data";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -18,10 +20,18 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isPreview = pathname.startsWith("/preview");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function refreshUser() {
+  const refreshUser = useCallback(async () => {
+    if (isPreview) {
+      setUser(previewAuthUser);
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch("/api/auth/me", { cache: "no-store" });
       if (!response.ok) {
@@ -34,11 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [isPreview]);
 
   useEffect(() => {
     void refreshUser();
-  }, []);
+  }, [refreshUser]);
 
   const value = useMemo(
     () => ({
@@ -47,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshUser,
       clearUser: () => setUser(null),
     }),
-    [loading, user],
+    [loading, refreshUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

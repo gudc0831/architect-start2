@@ -1,5 +1,6 @@
-"use client";
+﻿"use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -15,9 +16,14 @@ const items = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const isPreview = pathname.startsWith("/preview");
   const authUser = useAuthUser();
   const { clearUser } = useAuthState();
   const { projectName, setProjectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
+  const navItems = items.map((item) => ({
+    ...item,
+    href: (isPreview ? `/preview${item.href}` : item.href) as Route,
+  }));
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -29,13 +35,21 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand">
         <p className="sidebar__eyebrow">Architect Start</p>
-        <input aria-label="프로젝트명" className="sidebar__title-input" onChange={(event) => setProjectName(event.target.value)} placeholder="프로젝트명을 입력하세요" value={projectName} />
-        <p className="sidebar__copy">Supabase 기반 협업 작업 관리</p>
-        <p className="sidebar__status">{projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "unknown"}`) : "프로젝트 메타 불러오는 중"}</p>
+        <input
+          aria-label="프로젝트명"
+          className="sidebar__title-input"
+          onChange={(event) => setProjectName(event.target.value)}
+          placeholder="프로젝트명을 입력하세요"
+          value={projectName}
+        />
+        <p className="sidebar__copy">{isPreview ? "UI preview mode" : "Supabase 기반 협업 작업 관리"}</p>
+        <p className="sidebar__status">
+          {projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "unknown"}`) : "프로젝트 메타 불러오는 중"}
+        </p>
       </div>
 
       <nav className="sidebar__nav">
-        {items.map((item) => (
+        {navItems.map((item) => (
           <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
             {item.label}
           </Link>
@@ -43,8 +57,8 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar__note">
-        <p>{authUser ? `${authUser.displayName} (${authUser.role})` : "세션 확인 중"}</p>
-        <button className="secondary-button" onClick={() => void handleLogout()} type="button">로그아웃</button>
+        {isPreview ? <p>프리뷰 모드: 저장 없이 화면만 확인합니다.</p> : <p>{authUser ? `${authUser.displayName} (${authUser.role})` : "세션 확인 중"}</p>}
+        {!isPreview ? <button className="secondary-button" onClick={() => void handleLogout()} type="button">로그아웃</button> : null}
       </div>
     </aside>
   );

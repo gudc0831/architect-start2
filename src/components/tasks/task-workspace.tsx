@@ -13,10 +13,12 @@ import {
 } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import type { Route } from "next";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
+import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 type TaskWorkspaceProps = { mode: DashboardMode };
@@ -63,6 +65,9 @@ const defaultForm = (): TaskFormState => ({
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
+  const pathname = usePathname();
+  const isPreview = pathname.startsWith("/preview");
+  const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
   const { projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
@@ -87,6 +92,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const loadData = useCallback(async () => {
     setLoading(true);
     setErrorMessage(null);
+
+    if (isPreview) {
+      const nextTasks = scope === "trash" ? previewTasks.filter((task) => task.deletedAt) : previewTasks.filter((task) => !task.deletedAt);
+      const nextFiles = scope === "trash" ? previewFiles.filter((file) => file.deletedAt) : previewFiles.filter((file) => !file.deletedAt);
+
+      setTasks(nextTasks);
+      setFiles(nextFiles);
+      setSystemMode(previewSystemMode);
+      setSelectedTaskId((prev) => {
+        if (focusTaskId && nextTasks.some((task) => task.id === focusTaskId)) return focusTaskId;
+        if (prev && nextTasks.some((task) => task.id === prev)) return prev;
+        return nextTasks[0]?.id ?? null;
+      });
+      setLoading(false);
+      return;
+    }
 
     try {
       const [taskResponse, fileResponse, statusResponse] = await Promise.all([
@@ -121,7 +142,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     } finally {
       setLoading(false);
     }
-  }, [focusTaskId, scope]);
+  }, [focusTaskId, isPreview, scope]);
 
   useEffect(() => {
     void loadData();
@@ -198,6 +219,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   async function createTaskFromForm(nextForm: TaskFormState, parentTaskNumber?: string) {
     setErrorMessage(null);
+
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -223,6 +250,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     if (!draft) return;
     setSaving(true);
     setErrorMessage(null);
+
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      setSaving(false);
+      return;
+    }
 
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(draft.id)}`, {
@@ -253,6 +286,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function patchTask(task: TaskRecord, payload: Partial<TaskRecord>) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -279,6 +317,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function moveToTrash(taskId: string) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "휴지통 이동에 실패했습니다."));
@@ -288,6 +331,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreTask(taskId: string) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/restore`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "복원에 실패했습니다."));
@@ -297,6 +345,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ????? ????.");
+      return;
+    }
+
     const body = new FormData();
     body.append("file", file);
     body.append("taskId", taskId);
@@ -316,6 +369,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   async function uploadNextVersion() {
     if (!versionTargetId || !pendingVersionUpload) return;
+    if (isPreview) {
+      setErrorMessage("??? ????? ????? ????.");
+      return;
+    }
 
     const body = new FormData();
     body.append("file", pendingVersionUpload);
@@ -333,6 +390,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     await loadData();
   }
   async function moveFileToTrash(fileId: string) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/trash`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "파일 삭제에 실패했습니다."));
@@ -342,6 +404,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreFile(fileId: string) {
+    if (isPreview) {
+      setErrorMessage("??? ????? ???? ????.");
+      return;
+    }
+
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/restore`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "파일 복원에 실패했습니다."));
@@ -497,7 +564,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </header>
                     <div className="calendar-cell__items">
                       {dayTasks.map((task) => (
-                        <Link className="calendar-link" href={`/daily?taskId=${task.id}`} key={task.id}>
+                        <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
                           {formatTaskNumber(task.taskNumber)} {task.title}
                         </Link>
                       ))}

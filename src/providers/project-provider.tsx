@@ -1,6 +1,8 @@
-"use client";
+﻿"use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { previewProjectName } from "@/lib/preview/demo-data";
 
 type ProjectContextValue = {
   projectName: string;
@@ -30,13 +32,20 @@ function getInitialProjectName() {
 }
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isPreview = pathname.startsWith("/preview");
   const [projectName, setProjectNameState] = useState(getInitialProjectName);
+  const [previewName, setPreviewName] = useState(previewProjectName);
   const [projectLoaded, setProjectLoaded] = useState(false);
   const [projectSource, setProjectSource] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const lastSyncedNameRef = useRef(getInitialProjectName());
 
   useEffect(() => {
+    if (isPreview) {
+      return;
+    }
+
     let isMounted = true;
 
     void fetch("/api/project", { cache: "no-store" })
@@ -66,10 +75,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isPreview]);
 
   useEffect(() => {
-    if (!projectLoaded || projectName === lastSyncedNameRef.current) {
+    if (isPreview || !projectLoaded || projectName === lastSyncedNameRef.current) {
       return;
     }
 
@@ -94,20 +103,37 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [projectLoaded, projectName]);
+  }, [isPreview, projectLoaded, projectName]);
 
   function setProjectName(value: string) {
+    if (isPreview) {
+      setPreviewName(value);
+      return;
+    }
+
     setProjectNameState(value);
-    window.localStorage.setItem(storageKey, value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(storageKey, value);
+    }
   }
 
-  return (
-    <ProjectContext.Provider
-      value={{ projectName, setProjectName, projectLoaded, projectSource, isSyncing }}
-    >
-      {children}
-    </ProjectContext.Provider>
-  );
+  const value = isPreview
+    ? {
+        projectName: previewName,
+        setProjectName,
+        projectLoaded: true,
+        projectSource: "preview",
+        isSyncing: false,
+      }
+    : {
+        projectName,
+        setProjectName,
+        projectLoaded,
+        projectSource,
+        isSyncing,
+      };
+
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }
 
 export function useProjectMeta() {

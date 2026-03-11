@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig } from "@/lib/auth/auth-config";
 import { updateSession } from "@/lib/supabase/middleware";
 
-const publicPaths = new Set(["/login"]);
+const publicPaths = new Set(["/login", "/preview"]);
 const publicApiPrefixes = ["/api/auth/login"];
 
 function isStaticAsset(pathname: string) {
@@ -18,6 +18,10 @@ function isStaticAsset(pathname: string) {
 
 function isPublicRoute(pathname: string) {
   if (publicPaths.has(pathname)) {
+    return true;
+  }
+
+  if (pathname.startsWith("/preview")) {
     return true;
   }
 
