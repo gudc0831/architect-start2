@@ -1,4 +1,4 @@
-﻿import { isPostgresPrimary } from "@/lib/runtime-config";
+import { isPostgresPrimary } from "@/lib/runtime-config";
 import type { StorageProvider } from "@/storage/contracts";
 import { LocalDevStorageProvider } from "@/storage/local-dev-storage";
 import { SupabaseStorageProvider } from "@/storage/supabase-storage";

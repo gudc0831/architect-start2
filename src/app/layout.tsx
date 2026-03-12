@@ -1,4 +1,4 @@
-﻿import "./globals.css";
+import "./globals.css";
 import { AuthProvider } from "@/providers/auth-provider";
 import { AppShell } from "@/components/layout/app-shell";
 

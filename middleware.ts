@@ -1,4 +1,4 @@
-﻿import type { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig } from "@/lib/auth/auth-config";
 import { updateSession } from "@/lib/supabase/middleware";

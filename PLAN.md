@@ -1,4 +1,4 @@
-﻿# Architect Start 재구축 PLAN
+# Architect Start 재구축 PLAN
 
 ## 방향 판단
 

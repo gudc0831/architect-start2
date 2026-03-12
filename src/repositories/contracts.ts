@@ -1,4 +1,4 @@
-﻿import type { ProjectRecord } from "@/domains/project/types";
+import type { ProjectRecord } from "@/domains/project/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 
 export type CreateTaskInput = {

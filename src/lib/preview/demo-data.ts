@@ -1,4 +1,4 @@
-﻿import type { AuthUser } from "@/domains/auth/types";
+import type { AuthUser } from "@/domains/auth/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 
 export const previewAuthUser: AuthUser = {

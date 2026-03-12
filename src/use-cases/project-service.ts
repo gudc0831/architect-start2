@@ -1,4 +1,4 @@
-﻿import { badRequest } from "@/lib/api/errors";
+import { badRequest } from "@/lib/api/errors";
 import { projectRepository } from "@/repositories";
 
 export async function getProject() {

@@ -1,4 +1,4 @@
-﻿import { redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
 import { getAuthRuntimeConfigErrorMessage } from "@/lib/auth/auth-config";
 import { getOptionalUser } from "@/lib/auth/require-user";

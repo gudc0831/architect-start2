@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { collection, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";

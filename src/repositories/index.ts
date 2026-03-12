@@ -1,4 +1,4 @@
-﻿import type { FileRepository, ProjectRepository, TaskRepository } from "@/repositories/contracts";
+import type { FileRepository, ProjectRepository, TaskRepository } from "@/repositories/contracts";
 import {
   firestoreFileRepository,
   firestoreTaskRepository,

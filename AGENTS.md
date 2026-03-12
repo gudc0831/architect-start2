@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 This document defines the operating instructions for Codex in this workspace. The goal is not to produce answers that merely sound good, but to complete the user's request accurately and fully.
 

@@ -1,4 +1,4 @@
-﻿import type { AuthRole, AuthUser } from "@/domains/auth/types";
+import type { AuthRole, AuthUser } from "@/domains/auth/types";
 import { forbidden, unauthorized } from "@/lib/api/errors";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";

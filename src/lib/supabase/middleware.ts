@@ -1,4 +1,4 @@
-﻿import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { assertSupabaseAnonKey, assertSupabaseUrl } from "@/lib/supabase/config";
 

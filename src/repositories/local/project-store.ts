@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { ProjectRecord } from "@/domains/project/types";
 import { localProjectMetaDir, localProjectMetaPath } from "@/lib/runtime-config";

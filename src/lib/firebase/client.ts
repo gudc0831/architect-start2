@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { getApps, initializeApp } from "firebase/app";
 
 export const getFirebaseClientApp = () => {

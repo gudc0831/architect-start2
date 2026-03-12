@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { isFirestoreEnabled, isPostgresPrimary } from "@/lib/runtime-config";
 import { storageProvider } from "@/storage";
 

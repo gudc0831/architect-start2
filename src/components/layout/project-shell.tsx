@@ -1,4 +1,4 @@
-﻿import { Sidebar } from "@/components/layout/sidebar";
+import { Sidebar } from "@/components/layout/sidebar";
 
 export function ProjectShell({ children }: { children: React.ReactNode }) {
   return (

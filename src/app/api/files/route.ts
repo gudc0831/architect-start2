@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { listFiles } from "@/use-cases/file-service";

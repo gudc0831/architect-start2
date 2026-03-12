@@ -1,4 +1,4 @@
-﻿const authRuntimeEnvKeys = ["DATABASE_URL"] as const;
+const authRuntimeEnvKeys = ["DATABASE_URL"] as const;
 
 import { getMissingSupabaseClientEnv } from "@/lib/supabase/config";
 

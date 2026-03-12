@@ -1,4 +1,4 @@
-﻿node_modules
+node_modules
 .next
 .next-build
 .next-verify
@@ -11,3 +11,6 @@ uploads
 
 *.tsbuildinfo
 *.log
+.playwright-cli/
+.dev-check.*
+output/playwright/
