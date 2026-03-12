@@ -102,6 +102,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isDetailDocked = viewportWidth >= DETAIL_PANEL_BREAKPOINT;
   const usesAgendaView = viewportWidth < TABLET_BREAKPOINT;
   const canCollapseCreateForm = viewportWidth < TABLET_BREAKPOINT;
+  const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
 
   useEffect(() => {
     function syncViewport() {
@@ -117,6 +118,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   useEffect(() => {
     if (!hasViewportSync || hasInitializedCreateForm) return;
+    // Only decide the initial composer state once so mobile and desktop do not fight each other on first paint.
     setIsCreateFormOpen(viewportWidth >= TABLET_BREAKPOINT);
     setHasInitializedCreateForm(true);
   }, [hasInitializedCreateForm, hasViewportSync, viewportWidth]);
@@ -133,6 +135,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setErrorMessage(null);
 
     if (isPreview) {
+      // Preview mode never hits live APIs. It should stay stable even when auth or backend config is missing.
       const nextTasks = scope === "trash" ? previewTasks.filter((task) => task.deletedAt) : previewTasks.filter((task) => !task.deletedAt);
       const nextFiles = scope === "trash" ? previewFiles.filter((file) => file.deletedAt) : previewFiles.filter((file) => !file.deletedAt);
 
@@ -491,6 +494,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               <p className="workspace__meta">
                 Project metadata: {projectLoaded ? (isSyncing ? "Syncing..." : projectSource ?? "unknown") : "Loading..."} / Supabase {systemMode.hasSupabase ? "configured" : "missing"}
               </p>
+              {isLocalAuthPlaceholder && !isPreview ? (
+                <p className="workspace__meta">Authentication is running in local placeholder mode. Real sign-in can be connected later without changing this screen flow.</p>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -1056,3 +1062,4 @@ function sortTasksByNumber(tasks: TaskRecord[]) {
 function fileSafeDate(value: string | null) {
   return value ? value.slice(0, 10) : "-";
 }
+

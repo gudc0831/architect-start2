@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { badRequest, unauthorized } from "@/lib/api/errors";
+import { badRequest, serviceUnavailable, unauthorized } from "@/lib/api/errors";
+import { getAuthRuntimeConfigErrorMessage, isAuthStubMode } from "@/lib/auth/auth-config";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
@@ -12,6 +13,10 @@ export async function POST(request: Request) {
 
     if (!email || !password) {
       throw badRequest("Invalid email or password", "INVALID_CREDENTIALS");
+    }
+
+    if (isAuthStubMode()) {
+      throw serviceUnavailable(getAuthRuntimeConfigErrorMessage() ?? "Authentication provider is not connected yet.", "AUTH_NOT_CONFIGURED");
     }
 
     const supabase = await createSupabaseServerClient();
@@ -39,4 +44,3 @@ export async function POST(request: Request) {
     return handleRouteError(error);
   }
 }
-

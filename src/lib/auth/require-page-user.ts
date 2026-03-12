@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import type { AuthUser } from "@/domains/auth/types";
 import { getOptionalUser } from "@/lib/auth/require-user";
-import { getAuthRuntimeConfigErrorMessage } from "@/lib/auth/auth-config";
 
 function buildLoginRedirect(pathname: string, reason?: string) {
   const searchParams = new URLSearchParams();
@@ -23,12 +22,6 @@ function redirectToLogin(pathname: string, reason?: string): never {
 }
 
 export async function requirePageUser(pathname: string): Promise<AuthUser> {
-  const configError = getAuthRuntimeConfigErrorMessage();
-
-  if (configError) {
-    redirectToLogin(pathname, "config");
-  }
-
   const user = await getOptionalUser();
 
   if (!user) {

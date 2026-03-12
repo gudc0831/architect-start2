@@ -1,9 +1,15 @@
 import type { AuthRole, AuthUser } from "@/domains/auth/types";
 import { forbidden, unauthorized } from "@/lib/api/errors";
+import { getAuthFallbackUser, hasAuthRuntimeConfig } from "@/lib/auth/auth-config";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function getOptionalUser(): Promise<AuthUser | null> {
+  // When auth is not configured yet, return the shared placeholder user instead of hard-failing.
+  if (!hasAuthRuntimeConfig()) {
+    return getAuthFallbackUser();
+  }
+
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },

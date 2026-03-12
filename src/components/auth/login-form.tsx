@@ -36,7 +36,7 @@ export function LoginForm({ disabledReason = null, nextPath = null }: LoginFormP
       const json = (await response.json()) as { error?: { message?: string } };
 
       if (!response.ok) {
-        setError(json.error?.message ?? "로그인에 실패했습니다.");
+        setError(json.error?.message ?? "Login failed.");
         return;
       }
 
@@ -51,12 +51,18 @@ export function LoginForm({ disabledReason = null, nextPath = null }: LoginFormP
     <form className="login-card" onSubmit={onSubmit}>
       <div className="login-card__header">
         <p className="login-card__eyebrow">Architect Start</p>
-        <h1>로그인</h1>
-        <p>관리자가 생성한 계정으로만 접근할 수 있습니다.</p>
+        <h1>Login</h1>
+        <p>Use this page when real authentication is connected. Until then, the app runs in local placeholder mode.</p>
       </div>
 
+      {isDisabled ? (
+        <p className="login-card__note">
+          Real sign-in is not connected yet. You can keep using the workspace locally, and wire Supabase auth later without changing the screen flow.
+        </p>
+      ) : null}
+
       <label className="login-card__field">
-        <span>이메일</span>
+        <span>Email</span>
         <input
           autoComplete="email"
           disabled={pending || isDisabled}
@@ -67,7 +73,7 @@ export function LoginForm({ disabledReason = null, nextPath = null }: LoginFormP
       </label>
 
       <label className="login-card__field">
-        <span>비밀번호</span>
+        <span>Password</span>
         <input
           autoComplete="current-password"
           disabled={pending || isDisabled}
@@ -81,7 +87,7 @@ export function LoginForm({ disabledReason = null, nextPath = null }: LoginFormP
       {error ? <p className="login-card__error">{error}</p> : null}
 
       <button className="primary-button login-card__submit" disabled={pending || isDisabled} type="submit">
-        {isDisabled ? "설정 필요" : pending ? "로그인 중..." : "로그인"}
+        {isDisabled ? "Auth not connected" : pending ? "Signing in..." : "Sign in"}
       </button>
     </form>
   );

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig } from "@/lib/auth/auth-config";
+import { hasAuthRuntimeConfig } from "@/lib/auth/auth-config";
 import { updateSession } from "@/lib/supabase/middleware";
 
 const publicPaths = new Set(["/login", "/preview"]);
@@ -35,32 +35,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Skip session enforcement entirely until the real auth provider is configured.
   if (!hasAuthRuntimeConfig()) {
-    const message = getAuthRuntimeConfigErrorMessage() ?? "필수 환경 변수가 없습니다.";
-
-    if (isPublicRoute(pathname)) {
-      return NextResponse.next();
-    }
-
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "SERVER_CONFIG_ERROR",
-            message,
-          },
-        },
-        { status: 503 },
-      );
-    }
-
-    const loginUrl = new URL("/login", request.url);
-    const next = `${pathname}${request.nextUrl.search}`;
-    if (next && next !== "/") {
-      loginUrl.searchParams.set("next", next);
-    }
-    loginUrl.searchParams.set("reason", "config");
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.next();
   }
 
   const { response, user } = await updateSession(request);
@@ -79,7 +56,7 @@ export async function middleware(request: NextRequest) {
         {
           error: {
             code: "UNAUTHORIZED",
-            message: "로그인이 필요합니다.",
+            message: "Login is required.",
           },
         },
         { status: 401 },

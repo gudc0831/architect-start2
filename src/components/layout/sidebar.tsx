@@ -18,6 +18,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const authUser = useAuthUser();
+  const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const { clearUser } = useAuthState();
   const { projectName, setProjectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = items.map((item) => ({
@@ -60,6 +61,7 @@ export function Sidebar() {
 
       <div className="sidebar__note">
         {isPreview ? <p>Preview mode uses demo data and disables mutations.</p> : <p>{authUser ? `${authUser.displayName} (${authUser.role})` : "Checking session..."}</p>}
+        {isLocalAuthPlaceholder && !isPreview ? <p>Authentication is currently using a local placeholder user. Connect Supabase later to enable real sign-in.</p> : null}
         {!isPreview ? (
           <button className="secondary-button" onClick={() => void handleLogout()} type="button">
             Log out
