@@ -8,10 +8,10 @@ import { useProjectMeta } from "@/providers/project-provider";
 import { useAuthState, useAuthUser } from "@/providers/auth-provider";
 
 const items = [
-  { href: "/board", label: "보드" },
-  { href: "/daily", label: "작업목록(일별)" },
-  { href: "/calendar", label: "작업목록(월별)" },
-  { href: "/trash", label: "휴지통" },
+  { href: "/board", label: "Board" },
+  { href: "/daily", label: "Daily List" },
+  { href: "/calendar", label: "Calendar" },
+  { href: "/trash", label: "Trash" },
 ] as const;
 
 export function Sidebar() {
@@ -36,19 +36,21 @@ export function Sidebar() {
       <div className="sidebar__brand">
         <p className="sidebar__eyebrow">Architect Start</p>
         <input
-          aria-label="프로젝트명"
+          aria-label="Project name"
           className="sidebar__title-input"
           onChange={(event) => setProjectName(event.target.value)}
-          placeholder="프로젝트명을 입력하세요"
+          placeholder="Enter a project name"
           value={projectName}
         />
-        <p className="sidebar__copy">{isPreview ? "UI preview mode" : "Supabase 기반 협업 작업 관리"}</p>
+        <p className="sidebar__copy">
+          {isPreview ? "Preview mode for responsive QA." : "Task tracking workspace for board, daily, calendar, and archive views."}
+        </p>
         <p className="sidebar__status">
-          {projectLoaded ? (isSyncing ? "프로젝트명 저장 중" : `프로젝트 메타 ${projectSource ?? "unknown"}`) : "프로젝트 메타 불러오는 중"}
+          {projectLoaded ? (isSyncing ? "Syncing project metadata..." : `Project metadata: ${projectSource ?? "unknown"}`) : "Loading project metadata..."}
         </p>
       </div>
 
-      <nav className="sidebar__nav">
+      <nav aria-label="Primary" className="sidebar__nav">
         {navItems.map((item) => (
           <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
             {item.label}
@@ -57,8 +59,12 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar__note">
-        {isPreview ? <p>프리뷰 모드: 저장 없이 화면만 확인합니다.</p> : <p>{authUser ? `${authUser.displayName} (${authUser.role})` : "세션 확인 중"}</p>}
-        {!isPreview ? <button className="secondary-button" onClick={() => void handleLogout()} type="button">로그아웃</button> : null}
+        {isPreview ? <p>Preview mode uses demo data and disables mutations.</p> : <p>{authUser ? `${authUser.displayName} (${authUser.role})` : "Checking session..."}</p>}
+        {!isPreview ? (
+          <button className="secondary-button" onClick={() => void handleLogout()} type="button">
+            Log out
+          </button>
+        ) : null}
       </div>
     </aside>
   );
