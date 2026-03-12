@@ -11,6 +11,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
+import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { Route } from "next";
@@ -22,6 +23,7 @@ import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/dem
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 type TaskWorkspaceProps = { mode: DashboardMode };
+type DetailPanelState = "collapsed" | "expanded";
 
 type TaskFormState = {
   dueDate: string;
@@ -96,6 +98,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [hasViewportSync, setHasViewportSync] = useState(false);
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(true);
   const [hasInitializedCreateForm, setHasInitializedCreateForm] = useState(false);
+  const [detailPanelState, setDetailPanelState] = useState<DetailPanelState>("collapsed");
+  const [canHoverDetails, setCanHoverDetails] = useState(false);
 
   const isTrashMode = mode === "trash";
   const scope = isTrashMode ? "trash" : "active";
@@ -103,6 +107,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const usesAgendaView = viewportWidth < TABLET_BREAKPOINT;
   const canCollapseCreateForm = viewportWidth < TABLET_BREAKPOINT;
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
+  const isDetailExpanded = detailPanelState === "expanded";
 
   useEffect(() => {
     function syncViewport() {
@@ -114,6 +119,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     syncViewport();
     window.addEventListener("resize", syncViewport);
     return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+
+    function syncHoverPreference() {
+      setCanHoverDetails(mediaQuery.matches);
+    }
+
+    syncHoverPreference();
+    mediaQuery.addEventListener("change", syncHoverPreference);
+    return () => mediaQuery.removeEventListener("change", syncHoverPreference);
   }, []);
 
   useEffect(() => {
@@ -212,6 +229,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [sortedTasks]);
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
   const directChildren = useMemo(() => sortTasksByNumber(sortedTasks.filter((task) => task.parentTaskId === selectedTask?.id)), [selectedTask, sortedTasks]);
+  const detailSummary = selectedTask ? formatTaskNumber(selectedTask.taskNumber) : "Nothing selected";
 
   useEffect(() => {
     if (!selectedTask) {
@@ -480,6 +498,67 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     await loadData();
   }
 
+  function expandDetailPanel() {
+    setDetailPanelState("expanded");
+  }
+
+  function collapseDetailPanel() {
+    setDetailPanelState("collapsed");
+  }
+
+  function handleDetailPanelPointerEnter() {
+    if (!canHoverDetails) return;
+    expandDetailPanel();
+  }
+
+  function handleDetailPanelPointerLeave(event: ReactPointerEvent<HTMLElement>) {
+    if (!canHoverDetails) return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof Node && event.currentTarget.contains(activeElement)) {
+      return;
+    }
+    collapseDetailPanel();
+  }
+
+  function handleDetailPanelFocus() {
+    if (!canHoverDetails) return;
+    expandDetailPanel();
+  }
+
+  function handleDetailPanelBlur(event: ReactFocusEvent<HTMLElement>) {
+    if (!canHoverDetails) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+    collapseDetailPanel();
+  }
+
+  function handleDetailPanelToggle() {
+    if (canHoverDetails) {
+      expandDetailPanel();
+      return;
+    }
+
+    setDetailPanelState((prev) => (prev === "expanded" ? "collapsed" : "expanded"));
+  }
+
+  function handleDetailPanelKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (canHoverDetails) {
+        expandDetailPanel();
+        return;
+      }
+      handleDetailPanelToggle();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      collapseDetailPanel();
+    }
+  }
+
   return (
     <section className={clsx("workspace", `workspace--${mode}`)}>
       <header className="workspace__header">
@@ -508,7 +587,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           <h3>Loading workspace...</h3>
         </div>
       ) : (
-        <div className={clsx("workspace__body", mode !== "daily" && "workspace__body--single", mode === "daily" && !isDetailDocked && "workspace__body--stacked")}>
+        <div
+          className={clsx(
+            "workspace__body",
+            mode !== "daily" && "workspace__body--single",
+            mode === "daily" && !isDetailDocked && "workspace__body--stacked",
+            mode === "daily" && isDetailDocked && isDetailExpanded && "workspace__body--detail-expanded",
+            mode === "daily" && isDetailDocked && !isDetailExpanded && "workspace__body--detail-collapsed",
+          )}
+        >
           <div className="workspace__main">
             {sortedTasks.length === 0 && files.length === 0 ? (
               <div className="empty-state">
@@ -807,165 +894,189 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           </div>
 
           {mode === "daily" ? (
-            <aside className={clsx("detail-panel", !isDetailDocked && "detail-panel--below")}>
+            <aside
+              className={clsx(
+                "detail-panel",
+                isDetailDocked ? "detail-panel--docked" : "detail-panel--stacked",
+                !isDetailDocked && "detail-panel--below",
+                isDetailExpanded ? "detail-panel--expanded" : "detail-panel--collapsed",
+              )}
+              onBlurCapture={handleDetailPanelBlur}
+              onFocusCapture={handleDetailPanelFocus}
+              onPointerEnter={handleDetailPanelPointerEnter}
+              onPointerLeave={handleDetailPanelPointerLeave}
+            >
               <header className="detail-panel__header">
-                <div>
-                  <p className="workspace__eyebrow">Task details</p>
-                  <h3>{selectedTask ? formatTaskNumber(selectedTask.taskNumber) : "Nothing selected"}</h3>
-                </div>
-                {selectedTask && !isTrashMode ? (
+                <button
+                  aria-expanded={isDetailExpanded}
+                  className="detail-panel__toggle"
+                  onClick={handleDetailPanelToggle}
+                  onKeyDown={handleDetailPanelKeyDown}
+                  type="button"
+                >
+                  <div className="detail-panel__summary">
+                    <p className="workspace__eyebrow">Task details</p>
+                    <h3>{detailSummary}</h3>
+                  </div>
+                  <span aria-hidden="true" className="detail-panel__toggle-indicator">
+                    {isDetailExpanded ? "-" : "+"}
+                  </span>
+                </button>
+                {selectedTask && !isTrashMode && isDetailExpanded ? (
                   <button className="danger-button" onClick={() => void moveToTrash(selectedTask.id)} type="button">
                     Move to trash
                   </button>
                 ) : null}
               </header>
 
-              {draft ? (
-                <div className="detail-panel__body">
-                  <div className="status-rail">
-                    {statusOrder.map((status) => (
-                      <button
-                        className={clsx("status-pill", `status-pill--${status}`, draft.status === status && "status-pill--selected")}
-                        key={status}
-                        onClick={() => setDraft((prev) => (prev ? { ...prev, status } : prev))}
-                        type="button"
-                      >
-                        {statusLabel[status]}
-                      </button>
-                    ))}
-                  </div>
-
-                  <label>
-                    <span>Title</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))} value={draft.title} />
-                  </label>
-                  <label>
-                    <span>Due date</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, dueDate: event.target.value } : prev))} type="date" value={draft.dueDate} />
-                  </label>
-                  <label>
-                    <span>Created date</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, createdAt: event.target.value } : prev))} type="date" value={draft.createdAt} />
-                  </label>
-                  <label>
-                    <span>Category</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, category: event.target.value } : prev))} value={draft.category} />
-                  </label>
-                  <label>
-                    <span>Requester</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, requester: event.target.value } : prev))} value={draft.requester} />
-                  </label>
-                  <label>
-                    <span>Assignee</span>
-                    <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, assignee: event.target.value } : prev))} value={draft.assignee} />
-                  </label>
-                  <label>
-                    <span>Description</span>
-                    <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, description: event.target.value } : prev))} rows={4} value={draft.description} />
-                  </label>
-                  <label>
-                    <span>Progress note</span>
-                    <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, progressNote: event.target.value } : prev))} rows={4} value={draft.progressNote} />
-                  </label>
-                  <label>
-                    <span>Conclusion</span>
-                    <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, conclusion: event.target.value } : prev))} rows={4} value={draft.conclusion} />
-                  </label>
-                  <label>
-                    <span>File note</span>
-                    <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, fileMemo: event.target.value } : prev))} rows={3} value={draft.fileMemo} />
-                  </label>
-                  <label>
-                    <span>Parent task number</span>
-                    <input onChange={(event) => setParentTaskNumberDraft(event.target.value)} placeholder="#12 or 12" value={parentTaskNumberDraft} />
-                  </label>
-
-                  <div className="detail-actions">
-                    <button className="primary-button" disabled={saving} onClick={() => void saveSelectedTask()} type="button">
-                      {saving ? "Saving..." : "Save"}
-                    </button>
-                    <button className="secondary-button" onClick={() => setDraft(selectedTask ? { ...selectedTask } : null)} type="button">
-                      Reset changes
-                    </button>
-                  </div>
-
-                  <section className="detail-section">
-                    <div className="detail-section__header">
-                      <h4>Child tasks</h4>
-                    </div>
-                    <p>
-                      Current parent: {selectedParentTask ? `${formatTaskNumber(selectedParentTask.taskNumber)} ${selectedParentTask.title}` : "None"}
-                    </p>
-                    {directChildren.length > 0 ? (
-                      <ul className="detail-tree-list">
-                        {directChildren.map((child) => (
-                          <li key={child.id}>
-                            {formatTaskNumber(child.taskNumber)} {child.title}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>No child tasks yet.</p>
-                    )}
-                    <TaskFormFields form={childForm} onChange={updateChildForm} />
-                    <button className="primary-button" onClick={() => void createTaskFromForm(childForm, selectedTask ? String(selectedTask.taskNumber) : undefined)} type="button">
-                      Create child task
-                    </button>
-                  </section>
-
-                  <section className="detail-section">
-                    <div className="detail-section__header">
-                      <h4>Files</h4>
-                    </div>
-                    <div className="upload-box">
-                      <input onChange={(event) => setPendingUpload(event.target.files?.[0] ?? null)} type="file" />
-                      <button className="primary-button" onClick={() => void uploadSelectedFile()} type="button">
-                        Upload file
-                      </button>
-                    </div>
-                    {selectedFiles.length > 0 ? (
-                      <div className="upload-box upload-box--version">
-                        <select onChange={(event) => setVersionTargetId(event.target.value)} value={versionTargetId}>
-                          {selectedFiles.map((file) => (
-                            <option key={file.id} value={file.id}>
-                              {file.originalName} {file.versionLabel}
-                            </option>
-                          ))}
-                        </select>
-                        <input onChange={(event) => setPendingVersionUpload(event.target.files?.[0] ?? null)} type="file" />
-                        <button className="secondary-button" onClick={() => void uploadNextVersion()} type="button">
-                          Upload next version
+              {isDetailExpanded ? (
+                draft ? (
+                  <div className="detail-panel__body">
+                    <div className="status-rail">
+                      {statusOrder.map((status) => (
+                        <button
+                          className={clsx("status-pill", `status-pill--${status}`, draft.status === status && "status-pill--selected")}
+                          key={status}
+                          onClick={() => setDraft((prev) => (prev ? { ...prev, status } : prev))}
+                          type="button"
+                        >
+                          {statusLabel[status]}
                         </button>
-                      </div>
-                    ) : null}
-                    <div className="file-list">
-                      {selectedFiles.length === 0 ? <p>No files linked to this task.</p> : null}
-                      {selectedFiles.map((file) => (
-                        <article className="file-pill" key={file.id}>
-                          <div>
-                            <strong>
-                              {file.originalName} <span className="file-pill__version">{file.versionLabel}</span>
-                            </strong>
-                            <small>{file.downloadUrl ? "Download available" : "Private storage"}</small>
-                          </div>
-                          <div className="file-pill__actions">
-                            {file.downloadUrl ? (
-                              <a className="secondary-button" href={file.downloadUrl} rel="noreferrer" target="_blank">
-                                Download
-                              </a>
-                            ) : null}
-                            <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
-                              Remove
-                            </button>
-                          </div>
-                        </article>
                       ))}
                     </div>
-                  </section>
-                </div>
-              ) : (
-                <div className="detail-panel__empty">Select a task from the list to edit its details and manage files.</div>
-              )}
+
+                    <label>
+                      <span>Title</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))} value={draft.title} />
+                    </label>
+                    <label>
+                      <span>Due date</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, dueDate: event.target.value } : prev))} type="date" value={draft.dueDate} />
+                    </label>
+                    <label>
+                      <span>Created date</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, createdAt: event.target.value } : prev))} type="date" value={draft.createdAt} />
+                    </label>
+                    <label>
+                      <span>Category</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, category: event.target.value } : prev))} value={draft.category} />
+                    </label>
+                    <label>
+                      <span>Requester</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, requester: event.target.value } : prev))} value={draft.requester} />
+                    </label>
+                    <label>
+                      <span>Assignee</span>
+                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, assignee: event.target.value } : prev))} value={draft.assignee} />
+                    </label>
+                    <label>
+                      <span>Description</span>
+                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, description: event.target.value } : prev))} rows={4} value={draft.description} />
+                    </label>
+                    <label>
+                      <span>Progress note</span>
+                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, progressNote: event.target.value } : prev))} rows={4} value={draft.progressNote} />
+                    </label>
+                    <label>
+                      <span>Conclusion</span>
+                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, conclusion: event.target.value } : prev))} rows={4} value={draft.conclusion} />
+                    </label>
+                    <label>
+                      <span>File note</span>
+                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, fileMemo: event.target.value } : prev))} rows={3} value={draft.fileMemo} />
+                    </label>
+                    <label>
+                      <span>Parent task number</span>
+                      <input onChange={(event) => setParentTaskNumberDraft(event.target.value)} placeholder="#12 or 12" value={parentTaskNumberDraft} />
+                    </label>
+
+                    <div className="detail-actions">
+                      <button className="primary-button" disabled={saving} onClick={() => void saveSelectedTask()} type="button">
+                        {saving ? "Saving..." : "Save"}
+                      </button>
+                      <button className="secondary-button" onClick={() => setDraft(selectedTask ? { ...selectedTask } : null)} type="button">
+                        Reset changes
+                      </button>
+                    </div>
+
+                    <section className="detail-section">
+                      <div className="detail-section__header">
+                        <h4>Child tasks</h4>
+                      </div>
+                      <p>
+                        Current parent: {selectedParentTask ? `${formatTaskNumber(selectedParentTask.taskNumber)} ${selectedParentTask.title}` : "None"}
+                      </p>
+                      {directChildren.length > 0 ? (
+                        <ul className="detail-tree-list">
+                          {directChildren.map((child) => (
+                            <li key={child.id}>
+                              {formatTaskNumber(child.taskNumber)} {child.title}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No child tasks yet.</p>
+                      )}
+                      <TaskFormFields form={childForm} onChange={updateChildForm} />
+                      <button className="primary-button" onClick={() => void createTaskFromForm(childForm, selectedTask ? String(selectedTask.taskNumber) : undefined)} type="button">
+                        Create child task
+                      </button>
+                    </section>
+
+                    <section className="detail-section">
+                      <div className="detail-section__header">
+                        <h4>Files</h4>
+                      </div>
+                      <div className="upload-box">
+                        <input onChange={(event) => setPendingUpload(event.target.files?.[0] ?? null)} type="file" />
+                        <button className="primary-button" onClick={() => void uploadSelectedFile()} type="button">
+                          Upload file
+                        </button>
+                      </div>
+                      {selectedFiles.length > 0 ? (
+                        <div className="upload-box upload-box--version">
+                          <select onChange={(event) => setVersionTargetId(event.target.value)} value={versionTargetId}>
+                            {selectedFiles.map((file) => (
+                              <option key={file.id} value={file.id}>
+                                {file.originalName} {file.versionLabel}
+                              </option>
+                            ))}
+                          </select>
+                          <input onChange={(event) => setPendingVersionUpload(event.target.files?.[0] ?? null)} type="file" />
+                          <button className="secondary-button" onClick={() => void uploadNextVersion()} type="button">
+                            Upload next version
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="file-list">
+                        {selectedFiles.length === 0 ? <p>No files linked to this task.</p> : null}
+                        {selectedFiles.map((file) => (
+                          <article className="file-pill" key={file.id}>
+                            <div>
+                              <strong>
+                                {file.originalName} <span className="file-pill__version">{file.versionLabel}</span>
+                              </strong>
+                              <small>{file.downloadUrl ? "Download available" : "Private storage"}</small>
+                            </div>
+                            <div className="file-pill__actions">
+                              {file.downloadUrl ? (
+                                <a className="secondary-button" href={file.downloadUrl} rel="noreferrer" target="_blank">
+                                  Download
+                                </a>
+                              ) : null}
+                              <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
+                                Remove
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                ) : (
+                  <div className="detail-panel__empty">Select a task from the list to edit its details and manage files.</div>
+                )
+              ) : null}
             </aside>
           ) : null}
         </div>
