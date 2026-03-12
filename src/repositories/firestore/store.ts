@@ -2,7 +2,7 @@
 import { collection, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
-import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput } from "@/repositories/contracts";
+import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 
 const app = getFirebaseClientApp();
@@ -36,52 +36,92 @@ const normalizeStoredDate = (value?: string | null) => (value ? value.slice(0, 1
 function latestFiles(items: FileRecord[]) {
   const latestByGroup = new Map<string, FileRecord>();
 
-  items.forEach((file) => {
+  for (const file of items) {
     const current = latestByGroup.get(file.fileGroupId);
     if (!current || file.versionNumber > current.versionNumber) {
       latestByGroup.set(file.fileGroupId, file);
     }
-  });
+  }
 
   return [...latestByGroup.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
-const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => ({
-  id,
-  taskNumber: normalizeTaskNumber(String(data.taskNumber ?? ""), id),
-  parentTaskId: typeof data.parentTaskId === "string" && data.parentTaskId ? String(data.parentTaskId) : null,
-  rootTaskId: String(data.rootTaskId ?? id),
-  depth: Number(data.depth ?? 0),
-  siblingOrder: Number(data.siblingOrder ?? 0),
-  dueDate: String(data.dueDate ?? ""),
-  category: String(data.category ?? ""),
-  requester: String(data.requester ?? ""),
-  assignee: String(data.assignee ?? ""),
-  title: String(data.title ?? ""),
-  createdAt: normalizeStoredDate(toIsoString(data.createdAt as FirestoreValue)),
-  isDaily: Boolean(data.isDaily),
-  description: String(data.description ?? ""),
-  status: validStatus.has(String(data.status ?? "waiting") as TaskStatus) ? (String(data.status ?? "waiting") as TaskStatus) : "waiting",
-  progressNote: String(data.progressNote ?? ""),
-  conclusion: String(data.conclusion ?? ""),
-  fileMemo: String(data.fileMemo ?? ""),
-  deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
-});
+function parseNumeric(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^#\d+$/.test(trimmed)) return Number(trimmed.slice(1));
+    if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  }
+  return null;
+}
 
-const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => {
-  const versionNumber = Number(data.versionNumber ?? 1);
+function normalizeStatus(status: unknown): TaskStatus {
+  return validStatus.has(status as TaskStatus) ? (status as TaskStatus) : "waiting";
+}
+
+const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => {
+  const taskNumber = parseNumeric(data.taskNumber) ?? 1;
+  const actionId = parseNumeric(data.actionId) ?? taskNumber;
+  const status = normalizeStatus(data.status);
+  const updatedAt = toIsoString(data.updatedAt as FirestoreValue) || new Date().toISOString();
 
   return {
     id,
+    projectId: String(data.projectId ?? "firebase-project"),
+    taskNumber,
+    actionId,
+    issueId: String(data.issueId ?? `ISSUE-${id}`),
+    parentTaskId: typeof data.parentTaskId === "string" && data.parentTaskId ? String(data.parentTaskId) : null,
+    rootTaskId: String(data.rootTaskId ?? id),
+    depth: Number(data.depth ?? 0),
+    siblingOrder: Number(data.siblingOrder ?? 0),
+    dueDate: String(data.dueDate ?? ""),
+    workType: String(data.workType ?? data.category ?? ""),
+    coordinationScope: String(data.coordinationScope ?? ""),
+    ownerDiscipline: String(data.ownerDiscipline ?? ""),
+    requestedBy: String(data.requestedBy ?? data.requester ?? ""),
+    relatedDisciplines: String(data.relatedDisciplines ?? ""),
+    assignee: String(data.assignee ?? ""),
+    issueTitle: String(data.issueTitle ?? data.title ?? ""),
+    reviewedAt: String(data.reviewedAt ?? ""),
+    createdAt: normalizeStoredDate(toIsoString(data.createdAt as FirestoreValue)),
+    createdBy: typeof data.createdBy === "string" ? String(data.createdBy) : null,
+    isDaily: Boolean(data.isDaily),
+    locationRef: String(data.locationRef ?? ""),
+    calendarLinked: Boolean(data.calendarLinked),
+    issueDetailNote: String(data.issueDetailNote ?? data.description ?? ""),
+    status,
+    statusHistory: String(data.statusHistory ?? `${updatedAt} - ${status}`),
+    decision: String(data.decision ?? data.conclusion ?? ""),
+    completedAt: data.completedAt ? toIsoString(data.completedAt as FirestoreValue) : status === "done" ? updatedAt : null,
+    version: Number(data.version ?? 1),
+    updatedAt,
+    updatedBy: typeof data.updatedBy === "string" ? String(data.updatedBy) : null,
+    deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
+  };
+};
+
+const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => {
+  const versionNumber = Number(data.versionNumber ?? data.version ?? 1);
+  return {
+    id,
     taskId: String(data.taskId ?? ""),
+    projectId: String(data.projectId ?? "firebase-project"),
     fileGroupId: String(data.fileGroupId ?? id),
     originalName: String(data.originalName ?? ""),
-    storedName: String(data.storedName ?? ""),
-    storedPath: String(data.storedPath ?? ""),
+    mimeType: data.mimeType ? String(data.mimeType) : null,
+    sizeBytes: Number(data.sizeBytes ?? 0),
+    storageBucket: String(data.storageBucket ?? "firebase-bucket"),
+    objectPath: String(data.objectPath ?? data.storedPath ?? ""),
+    version: Number(data.version ?? versionNumber),
     versionNumber,
     versionLabel: String(data.versionLabel ?? `v${versionNumber}`),
     createdAt: toIsoString(data.createdAt as FirestoreValue),
+    updatedAt: toIsoString(data.updatedAt as FirestoreValue) || toIsoString(data.createdAt as FirestoreValue),
+    uploadedBy: typeof data.uploadedBy === "string" ? String(data.uploadedBy) : null,
     deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
+    downloadUrl: null,
   };
 };
 
@@ -96,14 +136,14 @@ async function nextTaskNumber() {
   ]);
 
   const maxExisting = taskSnapshot.docs.reduce((max, entry) => {
-    const value = parseTaskNumber(String(entry.data().taskNumber ?? ""));
+    const value = parseNumeric(entry.data().taskNumber);
     return value ? Math.max(max, value) : max;
   }, 0);
   const storedCurrent = sequenceSnapshot.exists() ? Number(sequenceSnapshot.data().value ?? 1) : 1;
   const nextValue = Math.max(storedCurrent, maxExisting + 1);
 
   await setDoc(doc(db, "meta", sequenceDocName), { value: nextValue + 1 }, { merge: true });
-  return `#${nextValue}`;
+  return nextValue;
 }
 
 class FirestoreTaskRepository implements TaskRepository {
@@ -112,8 +152,7 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
     const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => !task.deletedAt);
-    await normalizeStoredTasks(snapshot.docs.map((entry) => ({ id: entry.id, data: entry.data() })), items);
-    return items;
+    return items.sort((left, right) => left.actionId - right.actionId || left.createdAt.localeCompare(right.createdAt));
   }
 
   async listTrashTasks() {
@@ -121,8 +160,18 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
     const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => Boolean(task.deletedAt));
-    await normalizeStoredTasks(snapshot.docs.map((entry) => ({ id: entry.id, data: entry.data() })), items);
     return sortByDeletedAt(items);
+  }
+
+  async findTaskById(taskId: string) {
+    if (!db) return null;
+    const snapshot = await getDoc(doc(db, taskCollectionName, taskId));
+    if (!snapshot.exists()) return null;
+    return toTaskRecord(snapshot.id, snapshot.data());
+  }
+
+  async getNextTaskNumber() {
+    return nextTaskNumber();
   }
 
   async createTask(input: CreateTaskInput) {
@@ -131,24 +180,39 @@ class FirestoreTaskRepository implements TaskRepository {
     }
 
     const ref = doc(collection(db, taskCollectionName));
+    const actionId = await nextTaskNumber();
+    const timestamp = new Date().toISOString();
     const record = {
-      taskNumber: await nextTaskNumber(),
+      projectId: input.projectId,
+      taskNumber: actionId,
+      actionId,
+      issueId: `ISSUE-${randomUUID()}`,
       parentTaskId: input.parentTaskId ?? null,
       rootTaskId: input.rootTaskId?.trim() || ref.id,
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      category: input.category,
-      requester: input.requester,
+      workType: input.workType,
+      coordinationScope: input.coordinationScope,
+      ownerDiscipline: input.ownerDiscipline,
+      requestedBy: input.requestedBy,
+      relatedDisciplines: input.relatedDisciplines,
       assignee: input.assignee,
-      title: input.title,
+      issueTitle: input.issueTitle,
+      reviewedAt: input.reviewedAt ?? "",
       createdAt: normalizeStoredDate(input.createdAt),
+      createdBy: input.createdBy ?? null,
       isDaily: input.isDaily,
-      description: input.description,
-      status: "waiting",
-      progressNote: "",
-      conclusion: "",
-      fileMemo: input.fileMemo ?? "",
+      locationRef: input.locationRef,
+      calendarLinked: input.calendarLinked,
+      issueDetailNote: input.issueDetailNote,
+      status: input.status,
+      statusHistory: input.statusHistory ?? `${timestamp} - ${input.status}`,
+      decision: input.decision,
+      completedAt: input.completedAt ?? null,
+      version: 1,
+      updatedAt: timestamp,
+      updatedBy: input.updatedBy ?? input.createdBy ?? null,
       deletedAt: null,
     };
 
@@ -163,7 +227,11 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const { parentTaskNumber: _parentTaskNumber, ...persistedInput } = input;
     const targetRef = doc(db, taskCollectionName, taskId);
-    await updateDoc(targetRef, persistedInput as Record<string, unknown>);
+    await updateDoc(targetRef, {
+      ...persistedInput,
+      updatedAt: new Date().toISOString(),
+      deletedAt: input.deletedAt === undefined ? undefined : input.deletedAt,
+    } as Record<string, unknown>);
     const snapshot = await getDoc(targetRef);
 
     if (!snapshot.exists()) {
@@ -173,12 +241,24 @@ class FirestoreTaskRepository implements TaskRepository {
     return toTaskRecord(snapshot.id, snapshot.data());
   }
 
-  async moveTaskToTrash(taskId: string) {
-    return this.updateTask(taskId, { deletedAt: new Date().toISOString() });
+  async updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput) {
+    const current = await this.findTaskById(taskId);
+    if (!current || current.version !== input.expectedVersion) {
+      return null;
+    }
+
+    return this.updateTask(taskId, {
+      ...input,
+      version: undefined,
+    });
   }
 
-  async restoreTask(taskId: string) {
-    return this.updateTask(taskId, { deletedAt: null });
+  async moveTaskToTrash(taskId: string, updatedBy?: string | null) {
+    return this.updateTask(taskId, { deletedAt: new Date().toISOString(), updatedBy: updatedBy ?? null });
+  }
+
+  async restoreTask(taskId: string, updatedBy?: string | null) {
+    return this.updateTask(taskId, { deletedAt: null, updatedBy: updatedBy ?? null });
   }
 }
 
@@ -201,28 +281,32 @@ class FirestoreFileRepository implements FileRepository {
 
   async findFileById(fileId: string) {
     if (!db) return null;
-
     const snapshot = await getDoc(doc(db, fileCollectionName, fileId));
     if (!snapshot.exists()) return null;
-
     return toFileRecord(snapshot.id, snapshot.data());
   }
 
-  async attachFile(input: { taskId: string; originalName: string; storedName: string; storedPath: string; fileGroupId?: string; versionNumber?: number }) {
+  async attachFile(input: CreateFileInput) {
     if (!db) {
       throw new Error("Firestore is not configured");
     }
 
-    const versionNumber = input.versionNumber ?? 1;
+    const versionNumber = input.versionNumber ?? input.version ?? 1;
     const record = {
       taskId: input.taskId,
+      projectId: input.projectId,
       fileGroupId: input.fileGroupId ?? randomUUID(),
       originalName: input.originalName,
-      storedName: input.storedName,
-      storedPath: input.storedPath,
+      mimeType: input.mimeType ?? null,
+      sizeBytes: input.sizeBytes,
+      storageBucket: input.storageBucket,
+      objectPath: input.objectPath,
+      version: input.version ?? versionNumber,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
     };
 
@@ -237,7 +321,7 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const targetRef = doc(db, fileCollectionName, fileId);
-    await updateDoc(targetRef, { deletedAt: new Date().toISOString() });
+    await updateDoc(targetRef, { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     const snapshot = await getDoc(targetRef);
 
     if (!snapshot.exists()) {
@@ -253,7 +337,7 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const targetRef = doc(db, fileCollectionName, fileId);
-    await updateDoc(targetRef, { deletedAt: null });
+    await updateDoc(targetRef, { deletedAt: null, updatedAt: new Date().toISOString() });
     const snapshot = await getDoc(targetRef);
 
     if (!snapshot.exists()) {
@@ -268,8 +352,8 @@ class FirestoreFileRepository implements FileRepository {
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
-
-    await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: new Date().toISOString() })));
+    const deletedAt = new Date().toISOString();
+    await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt, updatedAt: deletedAt })));
   }
 
   async restoreFilesByTask(taskId: string) {
@@ -277,48 +361,9 @@ class FirestoreFileRepository implements FileRepository {
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
-
-    await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null })));
+    const updatedAt = new Date().toISOString();
+    await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null, updatedAt })));
   }
-}
-
-async function normalizeStoredTasks(entries: Array<{ id: string; data: Record<string, unknown> }>, tasks: TaskRecord[]) {
-  if (!db) return;
-
-  await Promise.all(entries.map(async (entry) => {
-    const task = tasks.find((item) => item.id === entry.id);
-    if (!task) return;
-
-    const next: Record<string, unknown> = {};
-    if (String(entry.data.taskNumber ?? "") !== task.taskNumber) next.taskNumber = task.taskNumber;
-    if (String(entry.data.rootTaskId ?? entry.id) !== task.rootTaskId) next.rootTaskId = task.rootTaskId;
-    if (Number(entry.data.depth ?? 0) !== task.depth) next.depth = task.depth;
-    if (Number(entry.data.siblingOrder ?? 0) !== task.siblingOrder) next.siblingOrder = task.siblingOrder;
-    if ((typeof entry.data.parentTaskId === "string" && entry.data.parentTaskId ? String(entry.data.parentTaskId) : null) !== task.parentTaskId) next.parentTaskId = task.parentTaskId;
-    if (!validStatus.has(String(entry.data.status ?? "waiting") as TaskStatus)) next.status = task.status;
-    if (normalizeStoredDate(toIsoString(entry.data.createdAt as FirestoreValue)) !== task.createdAt) next.createdAt = task.createdAt;
-    if (String(entry.data.fileMemo ?? "") !== task.fileMemo) next.fileMemo = task.fileMemo;
-
-    if (Object.keys(next).length > 0) {
-      await updateDoc(doc(db, taskCollectionName, entry.id), next);
-    }
-  }));
-}
-
-function normalizeTaskNumber(taskNumber: string, taskId: string) {
-  const parsed = parseTaskNumber(taskNumber);
-  if (parsed) return `#${parsed}`;
-  return `#${fallbackNumericId(taskId)}`;
-}
-
-function parseTaskNumber(taskNumber: string) {
-  const match = /^#(\d+)$/.exec(taskNumber) ?? /^MIL-(\d+)$/.exec(taskNumber);
-  return match ? Number(match[1]) : null;
-}
-
-function fallbackNumericId(taskId: string) {
-  const digits = taskId.replace(/\D+/g, "");
-  return digits ? Number(digits.slice(-6)) : 1;
 }
 
 export const firestoreTaskRepository = new FirestoreTaskRepository();

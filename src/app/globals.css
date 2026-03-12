@@ -20,7 +20,7 @@
   --detail-panel-collapsed-width: 136px;
   --page-pad: clamp(1rem, 2vw, 2rem);
   --section-gap: 1rem;
-  --table-min-width: 900px;
+  --table-min-width: 2280px;
 }
 
 * {
@@ -506,9 +506,11 @@ a {
 
 .sheet-wrapper {
   overflow: auto;
+  padding-bottom: 0.25rem;
   border: 1px solid rgba(165, 179, 167, 0.35);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.76);
+  overscroll-behavior-x: contain;
 }
 
 .sheet-table {
@@ -516,6 +518,30 @@ a {
   min-width: var(--table-min-width);
   border-collapse: collapse;
   font-size: 0.82rem;
+}
+
+.sheet-table--expanded {
+  min-width: max(var(--table-min-width), 2280px);
+  table-layout: fixed;
+}
+
+.sheet-table--expanded th,
+.sheet-table--expanded td {
+  white-space: nowrap;
+}
+
+.sheet-table--expanded .sheet-table__title,
+.sheet-table--expanded .sheet-table__wide {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.sheet-table--expanded .sheet-table__title {
+  min-width: 240px;
+}
+
+.sheet-table--expanded .sheet-table__wide {
+  min-width: 280px;
 }
 
 .sheet-table th,
@@ -800,14 +826,33 @@ a {
   color: var(--muted);
 }
 
+.detail-form-grid,
 .detail-child-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
+.detail-form-grid textarea,
+.detail-field--wide,
 .detail-child-grid textarea {
   grid-column: 1 / -1;
+}
+
+.detail-checkbox-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.detail-checkbox-field input {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  padding: 0;
+  accent-color: var(--accent);
+  box-shadow: none;
 }
 
 .upload-box {
@@ -956,7 +1001,7 @@ a {
 @media (max-width: 768px) {
   :root {
     --page-pad: 1rem;
-    --table-min-width: 820px;
+    --table-min-width: 1800px;
   }
 
   .workspace__header,
@@ -978,6 +1023,7 @@ a {
     padding: 1rem;
   }
 
+  .detail-form-grid,
   .detail-child-grid,
   .detail-actions,
   .detail-actions--inline,

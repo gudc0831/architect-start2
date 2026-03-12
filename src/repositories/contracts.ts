@@ -1,17 +1,26 @@
 import type { ProjectRecord } from "@/domains/project/types";
-import type { FileRecord, TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 export type CreateTaskInput = {
   projectId: string;
   dueDate: string;
-  category: string;
-  requester: string;
+  workType: string;
+  coordinationScope: string;
+  ownerDiscipline: string;
+  requestedBy: string;
+  relatedDisciplines: string;
   assignee: string;
-  title: string;
-  createdAt?: string;
+  issueTitle: string;
+  reviewedAt?: string;
   isDaily: boolean;
-  description: string;
-  fileMemo?: string;
+  locationRef: string;
+  calendarLinked: boolean;
+  issueDetailNote: string;
+  status: TaskStatus;
+  decision: string;
+  createdAt?: string;
+  completedAt?: string | null;
+  statusHistory?: string;
   parentTaskId?: string | null;
   parentTaskNumber?: string | null;
   rootTaskId?: string;
@@ -29,17 +38,22 @@ export type UpdateTaskInput = Partial<
     | "depth"
     | "siblingOrder"
     | "dueDate"
-    | "category"
-    | "requester"
+    | "workType"
+    | "coordinationScope"
+    | "ownerDiscipline"
+    | "requestedBy"
+    | "relatedDisciplines"
     | "assignee"
-    | "title"
-    | "createdAt"
+    | "issueTitle"
+    | "reviewedAt"
     | "isDaily"
-    | "description"
+    | "locationRef"
+    | "calendarLinked"
+    | "issueDetailNote"
     | "status"
-    | "progressNote"
-    | "conclusion"
-    | "fileMemo"
+    | "statusHistory"
+    | "decision"
+    | "completedAt"
     | "deletedAt"
   >
 > & {

@@ -26,15 +26,48 @@ type TaskWorkspaceProps = { mode: DashboardMode };
 type DetailPanelState = "collapsed" | "expanded";
 
 type TaskFormState = {
+  actionId: string;
   dueDate: string;
-  category: string;
-  requester: string;
+  workType: string;
+  coordinationScope: string;
+  ownerDiscipline: string;
+  requestedBy: string;
+  relatedDisciplines: string;
   assignee: string;
-  title: string;
-  createdAt: string;
+  issueTitle: string;
+  reviewedAt: string;
+  updatedAt: string;
+  locationRef: string;
+  calendarLinked: boolean;
+  issueDetailNote: string;
+  status: TaskStatus;
+  completedAt: string;
+  statusHistory: string;
+  decision: string;
   isDaily: boolean;
-  description: string;
-  fileMemo: string;
+};
+
+type TaskFormReadonly = Partial<Record<Exclude<keyof TaskFormState, "isDaily">, boolean>>;
+
+type TaskFormDisplayState = {
+  actionId?: string | number | null;
+  dueDate: string;
+  workType: string;
+  coordinationScope: string;
+  ownerDiscipline: string;
+  requestedBy: string;
+  relatedDisciplines: string;
+  assignee: string;
+  issueTitle: string;
+  reviewedAt: string;
+  updatedAt?: string | null;
+  locationRef: string;
+  calendarLinked: boolean;
+  issueDetailNote: string;
+  status: TaskStatus;
+  completedAt?: string | null;
+  statusHistory: string;
+  decision: string;
 };
 
 type SystemMode = {
@@ -44,11 +77,26 @@ type SystemMode = {
   hasFirebaseProjectId: boolean;
 };
 
-type TaskFormChangeHandler = <K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) => void;
+type EditableTaskFormKey =
+  | "dueDate"
+  | "workType"
+  | "coordinationScope"
+  | "ownerDiscipline"
+  | "requestedBy"
+  | "relatedDisciplines"
+  | "assignee"
+  | "issueTitle"
+  | "reviewedAt"
+  | "locationRef"
+  | "calendarLinked"
+  | "issueDetailNote"
+  | "status"
+  | "decision";
+
+type TaskFormChangeHandler = <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => void;
 
 const WIDE_BREAKPOINT = 1440;
 const TABLET_BREAKPOINT = 1100;
-const MOBILE_BREAKPOINT = 768;
 const DETAIL_PANEL_BREAKPOINT = 1360;
 const statusOrder: TaskStatus[] = ["waiting", "todo", "in_progress", "blocked", "done"];
 const statusLabel: Record<TaskStatus, string> = {
@@ -61,16 +109,33 @@ const statusLabel: Record<TaskStatus, string> = {
 const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const defaultForm = (): TaskFormState => ({
+  actionId: "",
   dueDate: todayKey(),
-  category: "",
-  requester: "",
+  workType: "",
+  coordinationScope: "",
+  ownerDiscipline: "",
+  requestedBy: "",
+  relatedDisciplines: "",
   assignee: "",
-  title: "",
-  createdAt: todayKey(),
+  issueTitle: "",
+  reviewedAt: "",
+  updatedAt: "",
+  locationRef: "",
+  calendarLinked: false,
+  issueDetailNote: "",
+  status: "waiting",
+  completedAt: "",
+  statusHistory: "",
+  decision: "",
   isDaily: true,
-  description: "",
-  fileMemo: "",
 });
+
+const createReadonlyFields: TaskFormReadonly = {
+  actionId: true,
+  updatedAt: true,
+  completedAt: true,
+  statusHistory: true,
+};
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
@@ -205,7 +270,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     void loadData();
   }, [loadData]);
 
-  const sortedTasks = useMemo(() => sortTasksByNumber(tasks), [tasks]);
+  const sortedTasks = useMemo(() => sortTasksByActionId(tasks), [tasks]);
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
   const selectedTask = useMemo(() => sortedTasks.find((task) => task.id === selectedTaskId) ?? null, [selectedTaskId, sortedTasks]);
   const selectedParentTask = useMemo(() => {
@@ -228,8 +293,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }, {});
   }, [sortedTasks]);
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
-  const directChildren = useMemo(() => sortTasksByNumber(sortedTasks.filter((task) => task.parentTaskId === selectedTask?.id)), [selectedTask, sortedTasks]);
-  const detailSummary = selectedTask ? formatTaskNumber(selectedTask.taskNumber) : "Nothing selected";
+  const directChildren = useMemo(() => sortTasksByActionId(sortedTasks.filter((task) => task.parentTaskId === selectedTask?.id)), [selectedTask, sortedTasks]);
+  const detailSummary = selectedTask ? formatActionId(selectedTask.actionId) : "Nothing selected";
 
   useEffect(() => {
     if (!selectedTask) {
@@ -239,7 +304,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     setDraft({ ...selectedTask });
-    setParentTaskNumberDraft(selectedParentTask ? String(selectedParentTask.taskNumber) : "");
+    setParentTaskNumberDraft(selectedParentTask ? String(selectedParentTask.actionId) : "");
   }, [selectedParentTask, selectedTask]);
 
   useEffect(() => {
@@ -282,16 +347,20 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       .map(([dayKey, items]) => ({
         dayKey,
         date: parseISO(dayKey),
-        items: sortTasksByNumber(items),
+        items: sortTasksByActionId(items),
       }));
   }, [tasksByDueDate]);
 
-  function updateForm<K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) {
+  function updateForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateChildForm<K extends keyof TaskFormState>(key: K, value: TaskFormState[K]) {
+  function updateChildForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
     setChildForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateDraftForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
+    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
   async function createTaskFromForm(nextForm: TaskFormState, parentTaskNumber?: string) {
@@ -658,16 +727,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               tabIndex={0}
                             >
                               <div className="task-card__top">
-                                <strong>{formatTaskNumber(task.taskNumber)}</strong>
+                                <strong>{formatActionId(task.actionId)}</strong>
                                 <span className={clsx("status-pill", `status-pill--${task.status}`)}>{statusLabel[task.status]}</span>
                               </div>
                               <div className="task-card__main">
-                                <h4>{task.title}</h4>
-                                <p>{task.description || "No description"}</p>
+                                <h4>{task.issueTitle}</h4>
+                                <p>{task.issueDetailNote || "No description"}</p>
                               </div>
                               <div className="task-card__meta">
                                 <span>Due {task.dueDate || "-"}</span>
-                                <span>{task.category || "Uncategorized"}</span>
+                                <span>{task.workType || "Uncategorized"}</span>
                                 <span>{task.assignee || "Unassigned"}</span>
                                 <span>{taskFiles.length} files</span>
                               </div>
@@ -712,7 +781,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     <div>
                       <p className="workspace__eyebrow">Quick Create</p>
                       <h3>Add a task</h3>
-                      <p className="workspace__meta">Keep the creation form compact on narrow widths so the list remains readable.</p>
+                      <p className="workspace__meta">The form follows your requested field order and keeps linked_documents as a post-create file flow.</p>
                     </div>
                     <button className="secondary-button composer-card__toggle" onClick={() => setIsCreateFormOpen((prev) => !prev)} type="button">
                       {isCreateFormOpen ? "Hide form" : "Show form"}
@@ -721,7 +790,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                   {isCreateFormOpen ? (
                     <div className="composer-card__body">
-                      <TaskFormFields form={form} onChange={updateForm} />
+                      <TaskFormFields form={form} onChange={updateForm} readonly={createReadonlyFields} />
                       <div className="detail-actions detail-actions--inline">
                         <button className="primary-button" onClick={() => void createTaskFromForm(form)} type="button">
                           Create task
@@ -737,17 +806,28 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 </section>
 
                 <div className="sheet-wrapper">
-                  <table className="sheet-table">
+                  <table className="sheet-table sheet-table--expanded">
                     <thead>
                       <tr>
-                        <th>Task</th>
-                        <th>Due</th>
-                        <th>Category</th>
-                        <th>Requester</th>
-                        <th>Assignee</th>
-                        <th>Title</th>
-                        <th>Status</th>
-                        <th>Files</th>
+                        <th>action_id</th>
+                        <th>due_date</th>
+                        <th>work_type</th>
+                        <th>Coordination Scope</th>
+                        <th>Owner Discipline</th>
+                        <th>requested_by</th>
+                        <th>Related Disciplines</th>
+                        <th>assignee</th>
+                        <th className="sheet-table__title">issue_title</th>
+                        <th>reviewed_at</th>
+                        <th>Updated At</th>
+                        <th>Location Ref</th>
+                        <th>Calendar Linked</th>
+                        <th className="sheet-table__wide">ISSUE Detail Note</th>
+                        <th>status</th>
+                        <th>Completed At</th>
+                        <th className="sheet-table__wide">status_history</th>
+                        <th className="sheet-table__wide">decision</th>
+                        <th>linked_documents</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -755,15 +835,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         const taskFiles = filesByTaskId[task.id] ?? [];
                         return (
                           <tr className={clsx(task.id === selectedTaskId && "sheet-row--active")} key={task.id} onClick={() => setSelectedTaskId(task.id)}>
-                            <td>{formatTaskNumber(task.taskNumber)}</td>
+                            <td>{formatActionId(task.actionId)}</td>
                             <td>{task.dueDate || "-"}</td>
-                            <td>{task.category || "-"}</td>
-                            <td>{task.requester || "-"}</td>
+                            <td>{task.workType || "-"}</td>
+                            <td>{task.coordinationScope || "-"}</td>
+                            <td>{task.ownerDiscipline || "-"}</td>
+                            <td>{task.requestedBy || "-"}</td>
+                            <td>{task.relatedDisciplines || "-"}</td>
                             <td>{task.assignee || "-"}</td>
-                            <td className="sheet-table__title">{task.title}</td>
+                            <td className="sheet-table__title">{task.issueTitle}</td>
+                            <td>{task.reviewedAt || "-"}</td>
+                            <td>{formatDateTimeField(task.updatedAt)}</td>
+                            <td>{task.locationRef || "-"}</td>
+                            <td>{task.calendarLinked ? "Yes" : "No"}</td>
+                            <td className="sheet-table__wide">{task.issueDetailNote || "-"}</td>
                             <td>
                               <span className={clsx("status-pill", `status-pill--${task.status}`)}>{statusLabel[task.status]}</span>
                             </td>
+                            <td>{formatDateTimeField(task.completedAt)}</td>
+                            <td className="sheet-table__wide">{task.statusHistory || "-"}</td>
+                            <td className="sheet-table__wide">{task.decision || "-"}</td>
                             <td>{taskFiles.length}</td>
                           </tr>
                         );
@@ -795,8 +886,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <div className="calendar-agenda__items">
                           {group.items.map((task) => (
                             <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                              <strong>{formatTaskNumber(task.taskNumber)}</strong>
-                              <span>{task.title}</span>
+                              <strong>{formatActionId(task.actionId)}</strong>
+                              <span>{task.issueTitle}</span>
                               <small>
                                 {statusLabel[task.status]} / {task.assignee || "Unassigned"}
                               </small>
@@ -830,7 +921,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           <div className="calendar-cell__items">
                             {dayTasks.map((task) => (
                               <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                                {formatTaskNumber(task.taskNumber)} {task.title}
+                                {formatActionId(task.actionId)} {task.issueTitle}
                               </Link>
                             ))}
                           </div>
@@ -854,8 +945,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     {sortedTasks.map((task) => (
                       <article className="trash-card" key={task.id}>
                         <div>
-                          <strong>{formatTaskNumber(task.taskNumber)}</strong>
-                          <p>{task.title}</p>
+                          <strong>{formatActionId(task.actionId)}</strong>
+                          <p>{task.issueTitle}</p>
                           <small>Deleted {fileSafeDate(task.deletedAt)}</small>
                         </div>
                         <button className="primary-button" onClick={() => void restoreTask(task.id)} type="button">
@@ -932,61 +1023,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               {isDetailExpanded ? (
                 draft ? (
                   <div className="detail-panel__body">
-                    <div className="status-rail">
-                      {statusOrder.map((status) => (
-                        <button
-                          className={clsx("status-pill", `status-pill--${status}`, draft.status === status && "status-pill--selected")}
-                          key={status}
-                          onClick={() => setDraft((prev) => (prev ? { ...prev, status } : prev))}
-                          type="button"
-                        >
-                          {statusLabel[status]}
-                        </button>
-                      ))}
-                    </div>
+                    <TaskFormFields form={draft} onChange={updateDraftForm} readonly={createReadonlyFields} />
 
                     <label>
-                      <span>Title</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))} value={draft.title} />
-                    </label>
-                    <label>
-                      <span>Due date</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, dueDate: event.target.value } : prev))} type="date" value={draft.dueDate} />
-                    </label>
-                    <label>
-                      <span>Created date</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, createdAt: event.target.value } : prev))} type="date" value={draft.createdAt} />
-                    </label>
-                    <label>
-                      <span>Category</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, category: event.target.value } : prev))} value={draft.category} />
-                    </label>
-                    <label>
-                      <span>Requester</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, requester: event.target.value } : prev))} value={draft.requester} />
-                    </label>
-                    <label>
-                      <span>Assignee</span>
-                      <input onChange={(event) => setDraft((prev) => (prev ? { ...prev, assignee: event.target.value } : prev))} value={draft.assignee} />
-                    </label>
-                    <label>
-                      <span>Description</span>
-                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, description: event.target.value } : prev))} rows={4} value={draft.description} />
-                    </label>
-                    <label>
-                      <span>Progress note</span>
-                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, progressNote: event.target.value } : prev))} rows={4} value={draft.progressNote} />
-                    </label>
-                    <label>
-                      <span>Conclusion</span>
-                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, conclusion: event.target.value } : prev))} rows={4} value={draft.conclusion} />
-                    </label>
-                    <label>
-                      <span>File note</span>
-                      <textarea onChange={(event) => setDraft((prev) => (prev ? { ...prev, fileMemo: event.target.value } : prev))} rows={3} value={draft.fileMemo} />
-                    </label>
-                    <label>
-                      <span>Parent task number</span>
+                      <span>Parent action_id</span>
                       <input onChange={(event) => setParentTaskNumberDraft(event.target.value)} placeholder="#12 or 12" value={parentTaskNumberDraft} />
                     </label>
 
@@ -1004,28 +1044,28 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <h4>Child tasks</h4>
                       </div>
                       <p>
-                        Current parent: {selectedParentTask ? `${formatTaskNumber(selectedParentTask.taskNumber)} ${selectedParentTask.title}` : "None"}
+                        Current parent: {selectedParentTask ? formatActionId(selectedParentTask.actionId) + " " + selectedParentTask.issueTitle : "None"}
                       </p>
                       {directChildren.length > 0 ? (
                         <ul className="detail-tree-list">
                           {directChildren.map((child) => (
                             <li key={child.id}>
-                              {formatTaskNumber(child.taskNumber)} {child.title}
+                              {formatActionId(child.actionId)} {child.issueTitle}
                             </li>
                           ))}
                         </ul>
                       ) : (
                         <p>No child tasks yet.</p>
                       )}
-                      <TaskFormFields form={childForm} onChange={updateChildForm} />
-                      <button className="primary-button" onClick={() => void createTaskFromForm(childForm, selectedTask ? String(selectedTask.taskNumber) : undefined)} type="button">
+                      <TaskFormFields form={childForm} onChange={updateChildForm} readonly={createReadonlyFields} />
+                      <button className="primary-button" onClick={() => void createTaskFromForm(childForm, selectedTask ? String(selectedTask.actionId) : undefined)} type="button">
                         Create child task
                       </button>
                     </section>
 
                     <section className="detail-section">
                       <div className="detail-section__header">
-                        <h4>Files</h4>
+                        <h4>linked_documents</h4>
                       </div>
                       <div className="upload-box">
                         <input onChange={(event) => setPendingUpload(event.target.files?.[0] ?? null)} type="file" />
@@ -1049,7 +1089,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         </div>
                       ) : null}
                       <div className="file-list">
-                        {selectedFiles.length === 0 ? <p>No files linked to this task.</p> : null}
+                        {selectedFiles.length === 0 ? <p>No linked_documents attached to this task.</p> : null}
                         {selectedFiles.map((file) => (
                           <article className="file-pill" key={file.id}>
                             <div>
@@ -1074,7 +1114,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </section>
                   </div>
                 ) : (
-                  <div className="detail-panel__empty">Select a task from the list to edit its details and manage files.</div>
+                  <div className="detail-panel__empty">Select a task from the list to edit its details and manage linked_documents.</div>
                 )
               ) : null}
             </aside>
@@ -1085,17 +1125,95 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 }
 
-function TaskFormFields({ form, onChange }: { form: TaskFormState; onChange: TaskFormChangeHandler }) {
+function TaskFormFields({
+  form,
+  onChange,
+  readonly = {},
+}: {
+  form: TaskFormDisplayState;
+  onChange: TaskFormChangeHandler;
+  readonly?: TaskFormReadonly;
+}) {
   return (
-    <div className="detail-child-grid">
-      <input onChange={(event) => onChange("title", event.target.value)} placeholder="Title" value={form.title} />
-      <input onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
-      <input onChange={(event) => onChange("createdAt", event.target.value)} type="date" value={form.createdAt} />
-      <input onChange={(event) => onChange("category", event.target.value)} placeholder="Category" value={form.category} />
-      <input onChange={(event) => onChange("requester", event.target.value)} placeholder="Requester" value={form.requester} />
-      <input onChange={(event) => onChange("assignee", event.target.value)} placeholder="Assignee" value={form.assignee} />
-      <textarea onChange={(event) => onChange("description", event.target.value)} placeholder="Description" rows={3} value={form.description} />
-      <input onChange={(event) => onChange("fileMemo", event.target.value)} placeholder="File note" value={form.fileMemo} />
+    <div className="detail-form-grid">
+      <label>
+        <span>action_id</span>
+        <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyActionId(form.actionId)} />
+      </label>
+      <label>
+        <span>due_date</span>
+        <input onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
+      </label>
+      <label>
+        <span>work_type</span>
+        <input onChange={(event) => onChange("workType", event.target.value)} value={form.workType} />
+      </label>
+      <label>
+        <span>Coordination Scope</span>
+        <input onChange={(event) => onChange("coordinationScope", event.target.value)} value={form.coordinationScope} />
+      </label>
+      <label>
+        <span>Owner Discipline</span>
+        <input onChange={(event) => onChange("ownerDiscipline", event.target.value)} value={form.ownerDiscipline} />
+      </label>
+      <label>
+        <span>requested_by</span>
+        <input onChange={(event) => onChange("requestedBy", event.target.value)} value={form.requestedBy} />
+      </label>
+      <label>
+        <span>Related Disciplines</span>
+        <input onChange={(event) => onChange("relatedDisciplines", event.target.value)} value={form.relatedDisciplines} />
+      </label>
+      <label>
+        <span>assignee</span>
+        <input onChange={(event) => onChange("assignee", event.target.value)} value={form.assignee} />
+      </label>
+      <label className="detail-field--wide">
+        <span>issue_title</span>
+        <input onChange={(event) => onChange("issueTitle", event.target.value)} value={form.issueTitle} />
+      </label>
+      <label>
+        <span>reviewed_at</span>
+        <input onChange={(event) => onChange("reviewedAt", event.target.value)} type="date" value={form.reviewedAt} />
+      </label>
+      <label>
+        <span>Updated At</span>
+        <input readOnly={Boolean(readonly.updatedAt)} value={formatReadonlyValue(form.updatedAt)} />
+      </label>
+      <label>
+        <span>Location Ref</span>
+        <input onChange={(event) => onChange("locationRef", event.target.value)} value={form.locationRef} />
+      </label>
+      <label className="detail-checkbox-field">
+        <span>Calendar Linked</span>
+        <input checked={form.calendarLinked} onChange={(event) => onChange("calendarLinked", event.target.checked)} type="checkbox" />
+      </label>
+      <label className="detail-field--wide">
+        <span>ISSUE Detail Note</span>
+        <textarea onChange={(event) => onChange("issueDetailNote", event.target.value)} rows={5} value={form.issueDetailNote} />
+      </label>
+      <label>
+        <span>status</span>
+        <select onChange={(event) => onChange("status", event.target.value as TaskStatus)} value={form.status}>
+          {statusOrder.map((status) => (
+            <option key={status} value={status}>
+              {statusLabel[status]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Completed At</span>
+        <input readOnly={Boolean(readonly.completedAt)} value={formatReadonlyValue(form.completedAt)} />
+      </label>
+      <label className="detail-field--wide">
+        <span>status_history</span>
+        <textarea readOnly={Boolean(readonly.statusHistory)} rows={4} value={form.statusHistory || "Tracked automatically after the first save."} />
+      </label>
+      <label className="detail-field--wide">
+        <span>decision</span>
+        <textarea onChange={(event) => onChange("decision", event.target.value)} rows={4} value={form.decision} />
+      </label>
     </div>
   );
 }
@@ -1119,17 +1237,22 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
   return {
     version: draft.version ?? 1,
     dueDate: draft.dueDate ?? "",
-    category: draft.category ?? "",
-    requester: draft.requester ?? "",
+    workType: draft.workType ?? "",
+    coordinationScope: draft.coordinationScope ?? "",
+    ownerDiscipline: draft.ownerDiscipline ?? "",
+    requestedBy: draft.requestedBy ?? "",
+    relatedDisciplines: draft.relatedDisciplines ?? "",
     assignee: draft.assignee ?? "",
-    title: draft.title ?? "",
-    createdAt: draft.createdAt ?? todayKey(),
+    issueTitle: draft.issueTitle ?? "",
+    reviewedAt: draft.reviewedAt ?? "",
     isDaily: Boolean(draft.isDaily),
-    description: draft.description ?? "",
+    locationRef: draft.locationRef ?? "",
+    calendarLinked: Boolean(draft.calendarLinked),
+    issueDetailNote: draft.issueDetailNote ?? "",
     status: (draft.status ?? "waiting") as TaskStatus,
-    progressNote: draft.progressNote ?? "",
-    conclusion: draft.conclusion ?? "",
-    fileMemo: draft.fileMemo ?? "",
+    statusHistory: draft.statusHistory ?? "",
+    decision: draft.decision ?? "",
+    completedAt: draft.completedAt ?? null,
   };
 }
 
@@ -1142,15 +1265,29 @@ async function readErrorMessage(response: Response, fallback: string) {
   }
 }
 
-function formatTaskNumber(taskNumber: number) {
-  return `#${taskNumber}`;
+function formatActionId(actionId: number | string | null | undefined) {
+  const raw = String(actionId ?? "").trim();
+  if (!raw) return "#-";
+  if (raw.startsWith("#")) return raw;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? "#" + numeric : raw;
+}
+
+function formatReadonlyActionId(actionId: number | string | null | undefined) {
+  const raw = String(actionId ?? "").trim();
+  return raw ? formatActionId(raw) : "Auto after create";
+}
+
+function formatReadonlyValue(value: string | null | undefined) {
+  const formatted = formatDateTimeField(value);
+  return formatted === "-" ? "Auto" : formatted;
 }
 
 function normalizeParentTaskNumberInput(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (/^#\d+$/.test(trimmed)) return trimmed;
-  if (/^\d+$/.test(trimmed)) return `#${trimmed}`;
+  if (/^#d+$/.test(trimmed)) return trimmed;
+  if (/^d+$/.test(trimmed)) return "#" + trimmed;
   return trimmed;
 }
 
@@ -1162,10 +1299,16 @@ function formatDay(date: Date) {
   return format(date, "EEE");
 }
 
-function sortTasksByNumber(tasks: TaskRecord[]) {
+function formatDateTimeField(value: string | null | undefined) {
+  if (!value) return "-";
+  if (/^d{4}-d{2}-d{2}$/.test(value)) return value;
+  return value.replace("T", " ").slice(0, 16);
+}
+
+function sortTasksByActionId(tasks: TaskRecord[]) {
   return [...tasks].sort((left, right) => {
-    const numberCompare = left.taskNumber - right.taskNumber;
-    if (numberCompare !== 0) return numberCompare;
+    const actionCompare = (left.actionId ?? left.taskNumber) - (right.actionId ?? right.taskNumber);
+    if (actionCompare !== 0) return actionCompare;
     return left.createdAt.localeCompare(right.createdAt);
   });
 }
@@ -1173,4 +1316,3 @@ function sortTasksByNumber(tasks: TaskRecord[]) {
 function fileSafeDate(value: string | null) {
   return value ? value.slice(0, 10) : "-";
 }
-

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput } from "@/repositories/contracts";
+import type { CreateFileInput, CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { localFileStorePath, localSequenceStorePath, localTaskStorePath } from "@/lib/runtime-config";
 
@@ -11,24 +11,6 @@ const nextId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice
 const validStatus = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 type SequenceState = { current: number };
-
-type PartialTaskRecord = Partial<TaskRecord> & Pick<TaskRecord, "id" | "taskNumber" | "title" | "createdAt">;
-
-const normalizeStoredDate = (value?: string | null) => (value ? value.slice(0, 10) : todayKey());
-
-function latestFiles(items: FileRecord[]) {
-  const latestByGroup = new Map<string, FileRecord>();
-
-  items.forEach((file) => {
-    const current = latestByGroup.get(file.fileGroupId);
-
-    if (!current || file.versionNumber > current.versionNumber) {
-      latestByGroup.set(file.fileGroupId, file);
-    }
-  });
-
-  return [...latestByGroup.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-}
 
 async function ensureParent(path: string) {
   await mkdir(dirname(path), { recursive: true });
@@ -50,101 +32,97 @@ async function writeJsonFile<T>(path: string, value: T) {
   await writeFile(path, JSON.stringify(value, null, 2), "utf8");
 }
 
-function normalizeTaskRecords(tasks: TaskRecord[]) {
-  const byId = new Map(tasks.map((task) => [task.id, task]));
-  const ordered = [...tasks].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  const maxExisting = ordered.reduce((max, task) => {
-    const value = parseTaskNumber(task.taskNumber);
-    return value ? Math.max(max, value) : max;
-  }, 0);
-  const usedNumbers = new Set<number>();
-  let nextAssigned = maxExisting + 1;
-  let changed = false;
-  const normalizedNumberById = new Map<string, string>();
-
-  for (const task of ordered) {
-    const parsed = parseTaskNumber(task.taskNumber);
-    let normalizedTaskNumber = "";
-
-    if (parsed && !usedNumbers.has(parsed)) {
-      normalizedTaskNumber = `#${parsed}`;
-      usedNumbers.add(parsed);
-    } else {
-      while (usedNumbers.has(nextAssigned)) {
-        nextAssigned += 1;
-      }
-
-      normalizedTaskNumber = `#${nextAssigned}`;
-      usedNumbers.add(nextAssigned);
-      nextAssigned += 1;
-      changed = true;
-    }
-
-    if (normalizedTaskNumber !== task.taskNumber) {
-      changed = true;
-    }
-
-    normalizedNumberById.set(task.id, normalizedTaskNumber);
+function parseNumeric(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^#\d+$/.test(trimmed)) return Number(trimmed.slice(1));
+    if (/^\d+$/.test(trimmed)) return Number(trimmed);
   }
+  return null;
+}
 
-  const normalized = tasks.map((task) => {
-    const raw = task as PartialTaskRecord;
-    const parentTaskId = typeof raw.parentTaskId === "string" && byId.has(raw.parentTaskId) ? raw.parentTaskId : null;
-    if (parentTaskId !== (raw.parentTaskId ?? null)) changed = true;
+function normalizeStatus(status: unknown): TaskStatus {
+  return validStatus.has(status as TaskStatus) ? (status as TaskStatus) : "waiting";
+}
 
-    const status = validStatus.has(task.status) ? task.status : "waiting";
-    if (status !== task.status) changed = true;
-
-    const depth = parentTaskId ? computeDepth(byId, parentTaskId) + 1 : 0;
-    if (depth !== (raw.depth ?? 0)) changed = true;
-
-    const rootTaskId = parentTaskId ? computeRootTaskId(byId, parentTaskId) : task.id;
-    if (rootTaskId !== (raw.rootTaskId ?? task.id)) changed = true;
-
-    const siblingOrder = Number.isFinite(raw.siblingOrder) ? Number(raw.siblingOrder) : 0;
-    if (siblingOrder !== (raw.siblingOrder ?? 0)) changed = true;
-
-    const createdAt = normalizeStoredDate(raw.createdAt);
-    if (createdAt !== raw.createdAt) changed = true;
-
-    const fileMemo = typeof raw.fileMemo === "string" ? raw.fileMemo : "";
-    if (fileMemo !== (raw.fileMemo ?? "")) changed = true;
+function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
+  const ordered = [...tasks].sort((left, right) => String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? "")));
+  let nextNumber = 1;
+  const normalized = ordered.map((raw) => {
+    const taskNumber = parseNumeric(raw.taskNumber) ?? nextNumber;
+    nextNumber = Math.max(nextNumber, taskNumber + 1);
+    const actionId = parseNumeric(raw.actionId) ?? taskNumber;
+    const status = normalizeStatus(raw.status);
+    const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : now();
+    const completedAt = typeof raw.completedAt === "string" ? raw.completedAt : status === "done" ? updatedAt : null;
 
     return {
-      ...task,
-      taskNumber: normalizedNumberById.get(task.id) ?? task.taskNumber,
-      parentTaskId,
-      rootTaskId,
-      depth,
-      siblingOrder,
-      createdAt,
-      fileMemo,
+      id: String(raw.id ?? nextId("task")),
+      projectId: String(raw.projectId ?? "local-project"),
+      taskNumber,
+      actionId,
+      issueId: typeof raw.issueId === "string" && raw.issueId ? raw.issueId : `ISSUE-${String(raw.id ?? nextId("issue"))}`,
+      parentTaskId: typeof raw.parentTaskId === "string" && raw.parentTaskId ? raw.parentTaskId : null,
+      rootTaskId: typeof raw.rootTaskId === "string" && raw.rootTaskId ? raw.rootTaskId : String(raw.id ?? nextId("task")),
+      depth: Number(raw.depth ?? 0),
+      siblingOrder: Number(raw.siblingOrder ?? 0),
+      dueDate: String(raw.dueDate ?? ""),
+      workType: String(raw.workType ?? raw.category ?? ""),
+      coordinationScope: String(raw.coordinationScope ?? ""),
+      ownerDiscipline: String(raw.ownerDiscipline ?? ""),
+      requestedBy: String(raw.requestedBy ?? raw.requester ?? ""),
+      relatedDisciplines: String(raw.relatedDisciplines ?? ""),
+      assignee: String(raw.assignee ?? ""),
+      issueTitle: String(raw.issueTitle ?? raw.title ?? ""),
+      reviewedAt: String(raw.reviewedAt ?? ""),
+      createdAt: String(raw.createdAt ?? todayKey()).slice(0, 10),
+      createdBy: typeof raw.createdBy === "string" ? raw.createdBy : null,
+      isDaily: Boolean(raw.isDaily),
+      locationRef: String(raw.locationRef ?? ""),
+      calendarLinked: Boolean(raw.calendarLinked),
+      issueDetailNote: String(raw.issueDetailNote ?? raw.description ?? ""),
       status,
+      statusHistory: String(raw.statusHistory ?? `${updatedAt} - ${status}`),
+      decision: String(raw.decision ?? raw.conclusion ?? ""),
+      completedAt,
+      version: Number(raw.version ?? 1),
+      updatedAt,
+      updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
+      deletedAt: typeof raw.deletedAt === "string" ? raw.deletedAt : raw.deletedAt === null ? null : null,
     } satisfies TaskRecord;
   });
 
-  return { tasks: normalized, changed };
+  return normalized;
 }
 
 async function readTasks() {
-  const tasks = await readJsonFile<TaskRecord[]>(localTaskStorePath, []);
+  const tasks = await readJsonFile<Array<Record<string, unknown>>>(localTaskStorePath, []);
   const normalized = normalizeTaskRecords(tasks);
-
-  if (normalized.changed) {
-    await writeJsonFile(localTaskStorePath, normalized.tasks);
-  }
-
-  return normalized.tasks;
+  await writeJsonFile(localTaskStorePath, normalized);
+  return normalized;
 }
 
 async function nextTaskNumber() {
   const tasks = await readTasks();
-  const maxExisting = getMaxTaskNumber(tasks);
+  const maxExisting = tasks.reduce((max, task) => Math.max(max, task.taskNumber), 0);
   const sequence = await readJsonFile<SequenceState>(localSequenceStorePath, { current: maxExisting + 1 });
   const nextValue = Math.max(Number(sequence.current) || 1, maxExisting + 1);
-
   await writeJsonFile<SequenceState>(localSequenceStorePath, { current: nextValue + 1 });
-  return `#${nextValue}`;
+  return nextValue;
+}
+
+function latestFiles(items: FileRecord[]) {
+  const latestByGroup = new Map<string, FileRecord>();
+
+  for (const file of items) {
+    const current = latestByGroup.get(file.fileGroupId);
+    if (!current || file.versionNumber > current.versionNumber) {
+      latestByGroup.set(file.fileGroupId, file);
+    }
+  }
+
+  return [...latestByGroup.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 class MemoryTaskRepository implements TaskRepository {
@@ -158,28 +136,52 @@ class MemoryTaskRepository implements TaskRepository {
     return tasks.filter((task) => !!task.deletedAt);
   }
 
+  async findTaskById(taskId: string) {
+    const tasks = await readTasks();
+    return tasks.find((task) => task.id === taskId) ?? null;
+  }
+
+  async getNextTaskNumber() {
+    return nextTaskNumber();
+  }
+
   async createTask(input: CreateTaskInput) {
     const tasks = await readTasks();
     const id = nextId("task");
+    const taskNumber = await nextTaskNumber();
+    const timestamp = now();
     const record: TaskRecord = {
       id,
-      taskNumber: await nextTaskNumber(),
+      projectId: input.projectId,
+      taskNumber,
+      actionId: taskNumber,
+      issueId: `ISSUE-${nextId("issue")}`,
       parentTaskId: input.parentTaskId ?? null,
       rootTaskId: input.rootTaskId?.trim() || id,
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      category: input.category,
-      requester: input.requester,
+      workType: input.workType,
+      coordinationScope: input.coordinationScope,
+      ownerDiscipline: input.ownerDiscipline,
+      requestedBy: input.requestedBy,
+      relatedDisciplines: input.relatedDisciplines,
       assignee: input.assignee,
-      title: input.title,
-      createdAt: normalizeStoredDate(input.createdAt),
+      issueTitle: input.issueTitle,
+      reviewedAt: input.reviewedAt ?? "",
+      createdAt: (input.createdAt ?? todayKey()).slice(0, 10),
+      createdBy: input.createdBy ?? null,
       isDaily: input.isDaily,
-      description: input.description,
-      status: "waiting",
-      progressNote: "",
-      conclusion: "",
-      fileMemo: input.fileMemo ?? "",
+      locationRef: input.locationRef,
+      calendarLinked: input.calendarLinked,
+      issueDetailNote: input.issueDetailNote,
+      status: input.status,
+      statusHistory: input.statusHistory ?? `${timestamp} - ${input.status}`,
+      decision: input.decision,
+      completedAt: input.completedAt ?? null,
+      version: 1,
+      updatedAt: timestamp,
+      updatedBy: input.updatedBy ?? input.createdBy ?? null,
       deletedAt: null,
     };
 
@@ -196,19 +198,36 @@ class MemoryTaskRepository implements TaskRepository {
       throw new Error("Task not found");
     }
 
-    const { parentTaskNumber: _parentTaskNumber, ...persistedInput } = input;
-    const next = { ...tasks[index], ...persistedInput };
+    const current = tasks[index];
+    const { parentTaskNumber: _parentTaskNumber, updatedBy, ...persistedInput } = input;
+    const next = {
+      ...current,
+      ...persistedInput,
+      updatedAt: now(),
+      updatedBy: updatedBy ?? current.updatedBy,
+      version: current.version + 1,
+    } satisfies TaskRecord;
+
     tasks[index] = next;
     await writeJsonFile(localTaskStorePath, tasks);
     return next;
   }
 
-  async moveTaskToTrash(taskId: string) {
-    return this.updateTask(taskId, { deletedAt: now() });
+  async updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput) {
+    const current = await this.findTaskById(taskId);
+    if (!current || current.version !== input.expectedVersion) {
+      return null;
+    }
+
+    return this.updateTask(taskId, input);
   }
 
-  async restoreTask(taskId: string) {
-    return this.updateTask(taskId, { deletedAt: null });
+  async moveTaskToTrash(taskId: string, updatedBy?: string | null) {
+    return this.updateTask(taskId, { deletedAt: now(), updatedBy: updatedBy ?? null });
+  }
+
+  async restoreTask(taskId: string, updatedBy?: string | null) {
+    return this.updateTask(taskId, { deletedAt: null, updatedBy: updatedBy ?? null });
   }
 }
 
@@ -230,20 +249,27 @@ class MemoryFileRepository implements FileRepository {
     return files.find((file) => file.id === fileId) ?? null;
   }
 
-  async attachFile(input: { taskId: string; originalName: string; storedName: string; storedPath: string; fileGroupId?: string; versionNumber?: number }) {
+  async attachFile(input: CreateFileInput) {
     const files = await readJsonFile<FileRecord[]>(localFileStorePath, []);
-    const versionNumber = input.versionNumber ?? 1;
+    const versionNumber = input.versionNumber ?? input.version ?? 1;
     const record: FileRecord = {
       id: nextId("file"),
       taskId: input.taskId,
+      projectId: input.projectId,
       fileGroupId: input.fileGroupId ?? nextId("file_group"),
       originalName: input.originalName,
-      storedName: input.storedName,
-      storedPath: input.storedPath,
+      mimeType: input.mimeType ?? null,
+      sizeBytes: input.sizeBytes,
+      storageBucket: input.storageBucket,
+      objectPath: input.objectPath,
+      version: input.version ?? versionNumber,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: now(),
+      updatedAt: now(),
+      uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
+      downloadUrl: null,
     };
 
     files.unshift(record);
@@ -259,7 +285,7 @@ class MemoryFileRepository implements FileRepository {
       throw new Error("File not found");
     }
 
-    const next = { ...files[index], deletedAt: now() };
+    const next = { ...files[index], deletedAt: now(), updatedAt: now() };
     files[index] = next;
     await writeJsonFile(localFileStorePath, files);
     return next;
@@ -273,7 +299,7 @@ class MemoryFileRepository implements FileRepository {
       throw new Error("File not found");
     }
 
-    const next = { ...files[index], deletedAt: null };
+    const next = { ...files[index], deletedAt: null, updatedAt: now() };
     files[index] = next;
     await writeJsonFile(localFileStorePath, files);
     return next;
@@ -282,73 +308,16 @@ class MemoryFileRepository implements FileRepository {
   async moveFilesToTrashByTask(taskId: string) {
     const files = await readJsonFile<FileRecord[]>(localFileStorePath, []);
     const deletedAt = now();
-    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt } : file));
+    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt, updatedAt: deletedAt } : file));
     await writeJsonFile(localFileStorePath, next);
   }
 
   async restoreFilesByTask(taskId: string) {
     const files = await readJsonFile<FileRecord[]>(localFileStorePath, []);
-    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt: null } : file));
+    const restoredAt = now();
+    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt: null, updatedAt: restoredAt } : file));
     await writeJsonFile(localFileStorePath, next);
   }
-}
-
-function parseTaskNumber(taskNumber: string) {
-  const match = /^#(\d+)$/.exec(taskNumber) ?? /^MIL-(\d+)$/.exec(taskNumber);
-  return match ? Number(match[1]) : null;
-}
-
-function getMaxTaskNumber(tasks: TaskRecord[]) {
-  return tasks.reduce((max, task) => {
-    const value = parseTaskNumber(task.taskNumber);
-    return value ? Math.max(max, value) : max;
-  }, 0);
-}
-
-function computeDepth(byId: Map<string, TaskRecord>, parentId: string) {
-  let depth = 0;
-  let currentId: string | null = parentId;
-  const seen = new Set<string>();
-
-  while (currentId && byId.has(currentId) && !seen.has(currentId)) {
-    seen.add(currentId);
-    const currentTask = byId.get(currentId);
-
-    if (!currentTask) {
-      break;
-    }
-
-    if (!currentTask.parentTaskId) {
-      return depth;
-    }
-
-    currentId = currentTask.parentTaskId;
-    depth += 1;
-  }
-
-  return depth;
-}
-
-function computeRootTaskId(byId: Map<string, TaskRecord>, parentId: string) {
-  let currentId = parentId;
-  const seen = new Set<string>();
-
-  while (byId.has(currentId) && !seen.has(currentId)) {
-    seen.add(currentId);
-    const currentTask = byId.get(currentId);
-
-    if (!currentTask) {
-      break;
-    }
-
-    if (!currentTask.parentTaskId) {
-      return currentTask.id;
-    }
-
-    currentId = currentTask.parentTaskId;
-  }
-
-  return parentId;
 }
 
 export const memoryTaskRepository = new MemoryTaskRepository();

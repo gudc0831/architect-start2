@@ -52,38 +52,46 @@ model Project {
 }
 
 model Task {
-  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId    String      @map("project_id") @db.Uuid
-  taskNumber   Int         @map("task_number")
-  parentTaskId String?     @map("parent_task_id") @db.Uuid
-  rootTaskId   String      @map("root_task_id") @db.Uuid
-  depth        Int         @default(0)
-  siblingOrder Int         @default(0) @map("sibling_order")
-  dueDate      String      @default("") @map("due_date")
-  category     String      @default("")
-  requester    String      @default("")
-  assignee     String      @default("")
-  title        String
-  isDaily      Boolean     @default(false) @map("is_daily")
-  description  String      @default("")
-  status       TaskStatus  @default(waiting)
-  progressNote String      @default("") @map("progress_note")
-  conclusion   String      @default("")
-  fileMemo     String      @default("") @map("file_memo")
-  version      Int         @default(1)
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdBy    String?     @map("created_by") @db.Uuid
-  updatedBy    String?     @map("updated_by") @db.Uuid
-  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz(6)
-  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent       Task?       @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  children     Task[]      @relation("TaskHierarchy")
-  rootTask     Task        @relation("TaskRoot", fields: [rootTaskId], references: [id], onDelete: Restrict)
-  rootRefs     Task[]      @relation("TaskRoot")
-  creator      Profile?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
-  updater      Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
-  files        File[]
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId          String      @map("project_id") @db.Uuid
+  taskNumber         Int         @map("task_number")
+  actionId           Int         @default(0) @map("action_id")
+  issueId            String      @default("") @map("issue_id")
+  parentTaskId       String?     @map("parent_task_id") @db.Uuid
+  rootTaskId         String      @map("root_task_id") @db.Uuid
+  depth              Int         @default(0)
+  siblingOrder       Int         @default(0) @map("sibling_order")
+  dueDate            String      @default("") @map("due_date")
+  category           String      @default("")
+  coordinationScope  String      @default("") @map("coordination_scope")
+  ownerDiscipline    String      @default("") @map("owner_discipline")
+  requester          String      @default("")
+  relatedDisciplines String      @default("") @map("related_disciplines")
+  assignee           String      @default("")
+  title              String
+  reviewedAt         String      @default("") @map("reviewed_at")
+  isDaily            Boolean     @default(false) @map("is_daily")
+  locationRef        String      @default("") @map("location_ref")
+  calendarLinked     Boolean     @default(false) @map("calendar_linked")
+  description        String      @default("")
+  status             TaskStatus  @default(waiting)
+  statusHistory      String      @default("") @map("status_history")
+  conclusion         String      @default("")
+  completedAt        DateTime?   @map("completed_at") @db.Timestamptz(6)
+  version            Int         @default(1)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy          String?     @map("created_by") @db.Uuid
+  updatedBy          String?     @map("updated_by") @db.Uuid
+  deletedAt          DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  project            Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent             Task?       @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  children           Task[]      @relation("TaskHierarchy")
+  rootTask           Task        @relation("TaskRoot", fields: [rootTaskId], references: [id], onDelete: Restrict)
+  rootRefs           Task[]      @relation("TaskRoot")
+  creator            Profile?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  files              File[]
 
   @@unique([projectId, taskNumber])
   @@index([projectId, deletedAt])

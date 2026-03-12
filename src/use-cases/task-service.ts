@@ -23,18 +23,28 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId">, user
   const activeTasks = await taskRepository.listActiveTasks(project.id);
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
+  const status = normalizeStatus(input.status);
 
   return taskRepository.createTask({
     projectId: project.id,
     dueDate: normalizeDate(input.dueDate),
-    category: normalizeText(input.category),
-    requester: normalizeText(input.requester),
+    workType: normalizeText(input.workType),
+    coordinationScope: normalizeText(input.coordinationScope),
+    ownerDiscipline: normalizeText(input.ownerDiscipline),
+    requestedBy: normalizeText(input.requestedBy),
+    relatedDisciplines: normalizeText(input.relatedDisciplines),
     assignee: normalizeText(input.assignee),
-    title: normalizeRequiredText(input.title, "title"),
+    issueTitle: normalizeRequiredText(input.issueTitle, "issueTitle"),
+    reviewedAt: normalizeDate(input.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(input.createdAt),
     isDaily: Boolean(input.isDaily),
-    description: normalizeText(input.description),
-    fileMemo: normalizeText(input.fileMemo ?? ""),
+    locationRef: normalizeText(input.locationRef),
+    calendarLinked: Boolean(input.calendarLinked),
+    issueDetailNote: normalizeText(input.issueDetailNote),
+    status,
+    statusHistory: buildInitialStatusHistory(status),
+    decision: normalizeText(input.decision),
+    completedAt: status === "done" ? nowIso() : null,
     parentTaskId,
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
@@ -59,6 +69,8 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
   }
 
   const sanitized = sanitizeTaskUpdate(input);
+  applyStatusSideEffects(currentTask, sanitized);
+
   if (
     Object.prototype.hasOwnProperty.call(input, "parentTaskNumber") ||
     Object.prototype.hasOwnProperty.call(input, "parentTaskId")
@@ -83,7 +95,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
   }
 
   throw conflict(
-    "다른 사용자가 먼저 수정했습니다. 최신 내용을 불러와 다시 시도하세요.",
+    "Another user updated this task first. Reload the latest data and try again.",
     "TASK_VERSION_CONFLICT",
   );
 }
@@ -200,7 +212,7 @@ async function reparentTask(
     }
 
     throw conflict(
-      "다른 사용자가 먼저 수정했습니다. 최신 내용을 불러와 다시 시도하세요.",
+      "Another user updated this task first. Reload the latest data and try again.",
       "TASK_VERSION_CONFLICT",
     );
   }
@@ -213,7 +225,7 @@ async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord
   const childrenByParent = groupChildren(tasks.filter((task) => task.id !== rootTask.id));
 
   const visit = async (parent: TaskRecord) => {
-    const children = sortByTaskNumber(childrenByParent.get(parent.id) ?? []);
+    const children = sortByActionId(childrenByParent.get(parent.id) ?? []);
 
     for (const child of children) {
       const updatedChild = await taskRepository.updateTask(child.id, {
@@ -233,26 +245,54 @@ function sanitizeTaskUpdate(input: UpdateTaskInput): UpdateTaskInput {
   const next: UpdateTaskInput = {};
 
   if (typeof input.dueDate === "string") next.dueDate = normalizeDate(input.dueDate);
-  if (typeof input.category === "string") next.category = normalizeText(input.category);
-  if (typeof input.requester === "string") next.requester = normalizeText(input.requester);
+  if (typeof input.workType === "string") next.workType = normalizeText(input.workType);
+  if (typeof input.coordinationScope === "string") next.coordinationScope = normalizeText(input.coordinationScope);
+  if (typeof input.ownerDiscipline === "string") next.ownerDiscipline = normalizeText(input.ownerDiscipline);
+  if (typeof input.requestedBy === "string") next.requestedBy = normalizeText(input.requestedBy);
+  if (typeof input.relatedDisciplines === "string") next.relatedDisciplines = normalizeText(input.relatedDisciplines);
   if (typeof input.assignee === "string") next.assignee = normalizeText(input.assignee);
-  if (typeof input.title === "string") next.title = normalizeRequiredText(input.title, "title");
-  if (typeof input.createdAt === "string") next.createdAt = normalizeStoredDate(input.createdAt);
-  if (typeof input.description === "string") next.description = normalizeText(input.description);
-  if (typeof input.progressNote === "string") next.progressNote = normalizeText(input.progressNote);
-  if (typeof input.conclusion === "string") next.conclusion = normalizeText(input.conclusion);
-  if (typeof input.fileMemo === "string") next.fileMemo = normalizeText(input.fileMemo);
+  if (typeof input.issueTitle === "string") next.issueTitle = normalizeRequiredText(input.issueTitle, "issueTitle");
+  if (typeof input.reviewedAt === "string") next.reviewedAt = normalizeDate(input.reviewedAt);
+  if (typeof input.locationRef === "string") next.locationRef = normalizeText(input.locationRef);
+  if (typeof input.calendarLinked === "boolean") next.calendarLinked = input.calendarLinked;
+  if (typeof input.issueDetailNote === "string") next.issueDetailNote = normalizeText(input.issueDetailNote);
+  if (typeof input.decision === "string") next.decision = normalizeText(input.decision);
   if (typeof input.isDaily === "boolean") next.isDaily = input.isDaily;
   if (typeof input.deletedAt === "string" || input.deletedAt === null) next.deletedAt = input.deletedAt;
   if (typeof input.rootTaskId === "string") next.rootTaskId = normalizeText(input.rootTaskId);
   if (typeof input.depth === "number") next.depth = Math.max(0, Math.trunc(input.depth));
   if (typeof input.siblingOrder === "number") next.siblingOrder = Math.max(0, Math.trunc(input.siblingOrder));
 
-  if (typeof input.status === "string" && taskStatusSet.has(input.status as TaskStatus)) {
-    next.status = input.status as TaskStatus;
+  if (typeof input.status === "string") {
+    next.status = normalizeStatus(input.status);
   }
 
   return next;
+}
+
+function applyStatusSideEffects(currentTask: TaskRecord, next: UpdateTaskInput) {
+  const nextStatus = next.status ?? currentTask.status;
+  if (nextStatus !== currentTask.status) {
+    next.statusHistory = appendStatusHistory(currentTask.statusHistory, nextStatus);
+  }
+
+  if (nextStatus === "done") {
+    next.completedAt = currentTask.status === "done" ? currentTask.completedAt : nowIso();
+    return;
+  }
+
+  if (currentTask.status === "done") {
+    next.completedAt = null;
+  }
+}
+
+function buildInitialStatusHistory(status: TaskStatus) {
+  return `${nowIso()} - ${status}`;
+}
+
+function appendStatusHistory(current: string, nextStatus: TaskStatus) {
+  const entry = `${nowIso()} - ${nextStatus}`;
+  return current ? `${current}\n${entry}` : entry;
 }
 
 function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, parentTaskNumber?: string | null) {
@@ -263,9 +303,9 @@ function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, 
   }
 
   if (typeof normalizedNumber === "number") {
-    const parent = tasks.find((task) => task.taskNumber === normalizedNumber);
+    const parent = tasks.find((task) => task.actionId === normalizedNumber);
     if (!parent) {
-      throw notFound("Parent task number not found", "PARENT_TASK_NOT_FOUND");
+      throw notFound("Parent action_id not found", "PARENT_TASK_NOT_FOUND");
     }
     return parent.id;
   }
@@ -306,7 +346,7 @@ function normalizeTaskNumberInput(value: string | null | undefined) {
     return Number(normalized);
   }
 
-  throw badRequest("Parent task number format is invalid", "PARENT_TASK_NUMBER_INVALID");
+  throw badRequest("Parent action_id format is invalid", "PARENT_TASK_NUMBER_INVALID");
 }
 
 function normalizeRequiredText(value: string, fieldName: string) {
@@ -331,6 +371,18 @@ function normalizeStoredDate(value?: string | null) {
   return normalizeDate(value ?? new Date().toISOString());
 }
 
+function normalizeStatus(value: string | TaskStatus) {
+  if (!taskStatusSet.has(value as TaskStatus)) {
+    throw badRequest("status is invalid", "TASK_STATUS_INVALID");
+  }
+
+  return value as TaskStatus;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
 async function listAllTasks() {
   const project = await projectRepository.getProject();
   const [activeTasks, trashTasks] = await Promise.all([
@@ -342,13 +394,13 @@ async function listAllTasks() {
 
 function flattenTaskTree(tasks: TaskRecord[]) {
   const byParent = groupChildren(tasks);
-  const roots = sortByTaskNumber(byParent.get(null) ?? []);
+  const roots = sortByActionId(byParent.get(null) ?? []);
   const ordered: TaskRecord[] = [];
 
   const visit = (task: TaskRecord) => {
     ordered.push(task);
 
-    for (const child of sortByTaskNumber(byParent.get(task.id) ?? [])) {
+    for (const child of sortByActionId(byParent.get(task.id) ?? [])) {
       visit(child);
     }
   };
@@ -376,7 +428,7 @@ function collectSubtree(tasks: TaskRecord[], rootTaskId: string) {
   const visit = (task: TaskRecord) => {
     ordered.push(task);
 
-    for (const child of sortByTaskNumber(byParent.get(task.id) ?? [])) {
+    for (const child of sortByActionId(byParent.get(task.id) ?? [])) {
       visit(child);
     }
   };
@@ -417,15 +469,10 @@ function groupChildren(tasks: TaskRecord[]) {
   }, new Map<string | null, TaskRecord[]>());
 }
 
-function sortByTaskNumber(tasks: TaskRecord[]) {
+function sortByActionId(tasks: TaskRecord[]) {
   return [...tasks].sort((left, right) => {
-    const numberCompare = taskNumberValue(left.taskNumber) - taskNumberValue(right.taskNumber);
+    const numberCompare = left.actionId - right.actionId;
     if (numberCompare !== 0) return numberCompare;
-
     return left.createdAt.localeCompare(right.createdAt);
   });
-}
-
-function taskNumberValue(taskNumber: number) {
-  return taskNumber;
 }

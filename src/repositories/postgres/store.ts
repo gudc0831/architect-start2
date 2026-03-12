@@ -34,23 +34,31 @@ function toTaskRecord(task: {
   id: string;
   projectId: string;
   taskNumber: number;
+  actionId: number;
+  issueId: string;
   parentTaskId: string | null;
   rootTaskId: string;
   depth: number;
   siblingOrder: number;
   dueDate: string;
   category: string;
+  coordinationScope: string;
+  ownerDiscipline: string;
   requester: string;
+  relatedDisciplines: string;
   assignee: string;
   title: string;
+  reviewedAt: string;
   createdAt: Date;
   createdBy: string | null;
   isDaily: boolean;
+  locationRef: string;
+  calendarLinked: boolean;
   description: string;
   status: string;
-  progressNote: string;
+  statusHistory: string;
   conclusion: string;
-  fileMemo: string;
+  completedAt: Date | null;
   version: number;
   updatedAt: Date;
   updatedBy: string | null;
@@ -60,23 +68,31 @@ function toTaskRecord(task: {
     id: task.id,
     projectId: task.projectId,
     taskNumber: task.taskNumber,
+    actionId: task.actionId || task.taskNumber,
+    issueId: task.issueId || `ISSUE-${task.id}`,
     parentTaskId: task.parentTaskId,
     rootTaskId: task.rootTaskId,
     depth: task.depth,
     siblingOrder: task.siblingOrder,
     dueDate: task.dueDate,
-    category: task.category,
-    requester: task.requester,
+    workType: task.category,
+    coordinationScope: task.coordinationScope,
+    ownerDiscipline: task.ownerDiscipline,
+    requestedBy: task.requester,
+    relatedDisciplines: task.relatedDisciplines,
     assignee: task.assignee,
-    title: task.title,
+    issueTitle: task.title,
+    reviewedAt: task.reviewedAt,
     createdAt: task.createdAt.toISOString().slice(0, 10),
     createdBy: task.createdBy,
     isDaily: task.isDaily,
-    description: task.description,
+    locationRef: task.locationRef,
+    calendarLinked: task.calendarLinked,
+    issueDetailNote: task.description,
     status: task.status as TaskRecord["status"],
-    progressNote: task.progressNote,
-    conclusion: task.conclusion,
-    fileMemo: task.fileMemo,
+    statusHistory: task.statusHistory,
+    decision: task.conclusion,
+    completedAt: task.completedAt ? task.completedAt.toISOString() : null,
     version: task.version,
     updatedAt: task.updatedAt.toISOString(),
     updatedBy: task.updatedBy,
@@ -128,6 +144,27 @@ async function toFileRecord(file: {
   };
 }
 
+function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
+  return {
+    dueDate: input.dueDate ?? undefined,
+    category: input.workType ?? undefined,
+    coordinationScope: input.coordinationScope ?? undefined,
+    ownerDiscipline: input.ownerDiscipline ?? undefined,
+    requester: input.requestedBy ?? undefined,
+    relatedDisciplines: input.relatedDisciplines ?? undefined,
+    assignee: input.assignee ?? undefined,
+    title: input.issueTitle ?? "",
+    reviewedAt: input.reviewedAt ?? undefined,
+    locationRef: input.locationRef ?? undefined,
+    calendarLinked: input.calendarLinked ?? undefined,
+    description: input.issueDetailNote ?? undefined,
+    status: input.status ?? undefined,
+    statusHistory: input.statusHistory ?? undefined,
+    conclusion: input.decision ?? undefined,
+    completedAt: input.completedAt ? new Date(input.completedAt) : input.completedAt === null ? null : undefined,
+  };
+}
+
 async function getOrCreateProject() {
   const existing = await prisma.project.findFirst({
     orderBy: { createdAt: "asc" },
@@ -172,7 +209,7 @@ class PostgresTaskRepository implements TaskRepository {
         projectId: project.id,
         deletedAt: null,
       },
-      orderBy: [{ taskNumber: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ actionId: "asc" }, { createdAt: "asc" }],
     });
 
     return tasks.map(toTaskRecord);
@@ -185,7 +222,7 @@ class PostgresTaskRepository implements TaskRepository {
         projectId: project.id,
         deletedAt: { not: null },
       },
-      orderBy: [{ deletedAt: "desc" }, { taskNumber: "asc" }],
+      orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
     });
 
     return tasks.map(toTaskRecord);
@@ -215,22 +252,15 @@ class PostgresTaskRepository implements TaskRepository {
         id,
         projectId: input.projectId,
         taskNumber,
+        actionId: taskNumber,
+        issueId: `ISSUE-${randomUUID()}`,
         parentTaskId: input.parentTaskId ?? null,
         rootTaskId: input.rootTaskId?.trim() || id,
         depth: input.depth ?? 0,
         siblingOrder: input.siblingOrder ?? 0,
-        dueDate: input.dueDate,
-        category: input.category,
-        requester: input.requester,
-        assignee: input.assignee,
-        title: input.title,
+        ...taskWriteData(input),
         createdAt,
         isDaily: input.isDaily,
-        description: input.description,
-        status: "waiting",
-        progressNote: "",
-        conclusion: "",
-        fileMemo: input.fileMemo ?? "",
         createdBy: input.createdBy ?? null,
         updatedBy: input.updatedBy ?? input.createdBy ?? null,
       },
@@ -244,8 +274,12 @@ class PostgresTaskRepository implements TaskRepository {
     const record = await prisma.task.update({
       where: { id: taskId },
       data: {
-        ...data,
-        createdAt: input.createdAt ? new Date(input.createdAt) : undefined,
+        ...taskWriteData(data as UpdateTaskInput),
+        parentTaskId: data.parentTaskId,
+        rootTaskId: data.rootTaskId,
+        depth: data.depth,
+        siblingOrder: data.siblingOrder,
+        isDaily: data.isDaily,
         deletedAt: input.deletedAt === null ? null : input.deletedAt ? new Date(input.deletedAt) : undefined,
         updatedBy: updatedBy ?? undefined,
         version: { increment: 1 },
@@ -263,8 +297,12 @@ class PostgresTaskRepository implements TaskRepository {
         version: expectedVersion,
       },
       data: {
-        ...data,
-        createdAt: input.createdAt ? new Date(input.createdAt) : undefined,
+        ...taskWriteData(data as UpdateTaskInput),
+        parentTaskId: data.parentTaskId,
+        rootTaskId: data.rootTaskId,
+        depth: data.depth,
+        siblingOrder: data.siblingOrder,
+        isDaily: data.isDaily,
         deletedAt: input.deletedAt === null ? null : input.deletedAt ? new Date(input.deletedAt) : undefined,
         updatedBy: updatedBy ?? undefined,
         version: {
@@ -401,6 +439,3 @@ class PostgresFileRepository implements FileRepository {
 export const postgresProjectRepository = new PostgresProjectRepository();
 export const postgresTaskRepository = new PostgresTaskRepository();
 export const postgresFileRepository = new PostgresFileRepository();
-
-
-
