@@ -24,6 +24,7 @@ import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domain
 
 type TaskWorkspaceProps = { mode: DashboardMode };
 type DetailPanelState = "collapsed" | "expanded";
+type TaskFormLayoutVariant = "detail" | "composer";
 
 type TaskFormState = {
   actionId: string;
@@ -852,7 +853,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                   {isCreateFormOpen ? (
                     <div className="composer-card__body">
-                      <TaskFormFields form={form} onChange={updateForm} readonly={createReadonlyFields} showOwnerDiscipline={false} showUpdatedAt={false} />
+                      <TaskFormFields
+                        form={form}
+                        layout="composer"
+                        onChange={updateForm}
+                        readonly={createReadonlyFields}
+                        showOwnerDiscipline={false}
+                        showUpdatedAt={false}
+                      />
                       <div className="detail-actions detail-actions--inline">
                         <button className="primary-button" onClick={() => void createTaskFromForm(form)} type="button">
                           Create task
@@ -1195,79 +1203,83 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 function TaskFormFields({
   form,
   onChange,
+  layout = "detail",
   readonly = {},
   showOwnerDiscipline = true,
   showUpdatedAt = true,
 }: {
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
+  layout?: TaskFormLayoutVariant;
   readonly?: TaskFormReadonly;
   showOwnerDiscipline?: boolean;
   showUpdatedAt?: boolean;
 }) {
+  const gridClassName = layout === "composer" ? "composer-form-grid" : "detail-form-grid";
+
   return (
-    <div className="detail-form-grid">
-      <label>
+    <div className={gridClassName}>
+      <label className="form-field--compact">
         <span>action_id</span>
         <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyActionId(form.actionId)} />
       </label>
-      <label>
+      <label className="form-field--compact">
         <span>due_date</span>
         <input className="detail-date-field" onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
       </label>
-      <label>
+      <label className="form-field--stretch">
         <span>work_type</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("workType", event.target.value)} rows={1} value={form.workType} />
       </label>
-      <label>
+      <label className="form-field--stretch">
         <span>Coordination Scope</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("coordinationScope", event.target.value)} rows={1} value={form.coordinationScope} />
       </label>
       {showOwnerDiscipline ? (
-        <label>
+        <label className="form-field--stretch">
           <span>Owner Discipline</span>
           <textarea className="detail-text-field" onChange={(event) => onChange("ownerDiscipline", event.target.value)} rows={1} value={form.ownerDiscipline} />
         </label>
       ) : null}
-      <label>
+      <label className="form-field--stretch">
         <span>requested_by</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("requestedBy", event.target.value)} rows={1} value={form.requestedBy} />
       </label>
-      <label>
+      <label className="form-field--stretch">
         <span>Related Disciplines</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("relatedDisciplines", event.target.value)} rows={1} value={form.relatedDisciplines} />
       </label>
-      <label>
+      <label className="form-field--stretch">
         <span>assignee</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("assignee", event.target.value)} rows={1} value={form.assignee} />
       </label>
-      <label className="detail-field--wide">
+      <label className="form-field--wide">
         <span>issue_title</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("issueTitle", event.target.value)} rows={1} value={form.issueTitle} />
       </label>
-      <label>
+      <label className="form-field--compact">
         <span>reviewed_at</span>
         <input className="detail-date-field" onChange={(event) => onChange("reviewedAt", event.target.value)} type="date" value={form.reviewedAt} />
       </label>
       {showUpdatedAt ? (
-        <label>
+        <label className="form-field--compact">
           <span>Updated At</span>
           <input readOnly={Boolean(readonly.updatedAt)} value={formatReadonlyValue(form.updatedAt)} />
         </label>
       ) : null}
-      <label>
+      <label className="form-field--stretch">
         <span>Location Ref</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("locationRef", event.target.value)} rows={1} value={form.locationRef} />
       </label>
-      <label className="detail-checkbox-field">
+      <label className="detail-checkbox-field form-field--compact">
         <span>Calendar Linked</span>
         <input checked={form.calendarLinked} onChange={(event) => onChange("calendarLinked", event.target.checked)} type="checkbox" />
       </label>
-      <label className="detail-field--wide">
+      <label className="form-field--wide">
         <span>ISSUE Detail Note</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("issueDetailNote", event.target.value)} rows={1} value={form.issueDetailNote} />
       </label>
-      <label>
+      <label className="form-field--compact">
         <span>status</span>
         <select onChange={(event) => onChange("status", event.target.value as TaskStatus)} value={form.status}>
           {statusOrder.map((status) => (
@@ -1277,15 +1289,15 @@ function TaskFormFields({
           ))}
         </select>
       </label>
-      <label>
+      <label className="form-field--compact">
         <span>Completed At</span>
         <input readOnly={Boolean(readonly.completedAt)} value={formatReadonlyValue(form.completedAt)} />
       </label>
-      <label className="detail-field--wide">
+      <label className="form-field--wide">
         <span>status_history</span>
         <textarea className="detail-text-field" readOnly={Boolean(readonly.statusHistory)} rows={1} value={form.statusHistory || "Tracked automatically after the first save."} />
       </label>
-      <label className="detail-field--wide">
+      <label className="form-field--wide">
         <span>decision</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("decision", event.target.value)} rows={1} value={form.decision} />
       </label>
@@ -1403,3 +1415,4 @@ function sortTasksByActionId(tasks: TaskRecord[]) {
 function fileSafeDate(value: string | null) {
   return value ? value.slice(0, 10) : "-";
 }
+

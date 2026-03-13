@@ -781,7 +781,8 @@ a {
   padding: 1rem;
 }
 
-.detail-panel__body label {
+.detail-panel__body label,
+.composer-form-grid label {
   display: grid;
   gap: 0.4rem;
   padding: 0.78rem 0.82rem;
@@ -790,20 +791,25 @@ a {
   background: rgba(255, 255, 255, 0.84);
 }
 
-.detail-panel__body label span {
+.detail-panel__body label span,
+.composer-form-grid label span {
   font-size: 0.82rem;
   font-weight: 600;
   color: #536257;
 }
 
-.detail-panel__body label:focus-within {
+.detail-panel__body label:focus-within,
+.composer-form-grid label:focus-within {
   border-color: rgba(41, 92, 67, 0.42);
   box-shadow: 0 0 0 3px rgba(41, 92, 67, 0.08);
 }
 
 .detail-panel__body input,
 .detail-panel__body select,
-.detail-panel__body textarea {
+.detail-panel__body textarea,
+.composer-form-grid input,
+.composer-form-grid select,
+.composer-form-grid textarea {
   border-color: rgba(126, 141, 130, 0.54);
   background: #f9fbf8;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
@@ -851,9 +857,33 @@ a {
   gap: 0.75rem;
 }
 
+.composer-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.composer-form-grid > label {
+  min-width: 0;
+}
+
+.form-field--compact {
+  flex: 0 1 10rem;
+}
+
+.form-field--stretch {
+  flex: 1 1 15rem;
+}
+
+.composer-form-grid .form-field--wide {
+  flex: 1 1 100%;
+}
+
 .detail-form-grid textarea,
-.detail-field--wide,
-.detail-child-grid textarea {
+.detail-form-grid .form-field--wide,
+.detail-child-grid textarea,
+.detail-child-grid .form-field--wide {
   grid-column: 1 / -1;
 }
 
@@ -1070,6 +1100,14 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .composer-form-grid {
+    flex-direction: column;
+  }
+
+  .composer-form-grid > label {
+    flex-basis: 100%;
+  }
+
   .task-card__actions,
   .upload-box,
   .file-pill__actions,
@@ -1094,5 +1132,4 @@ a {
     height: auto;
   }
 }
-
 
