@@ -6,6 +6,7 @@ import { ProjectShell } from "@/components/layout/project-shell";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const contentWidth = pathname === "/daily" || pathname === "/preview/daily" ? "wide" : "default";
 
   if (pathname === "/login") {
     return <>{children}</>;
@@ -13,7 +14,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ProjectProvider>
-      <ProjectShell>{children}</ProjectShell>
+      <ProjectShell contentWidth={contentWidth}>{children}</ProjectShell>
     </ProjectProvider>
   );
 }

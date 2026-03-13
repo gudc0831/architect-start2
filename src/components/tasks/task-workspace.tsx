@@ -113,7 +113,7 @@ const defaultForm = (): TaskFormState => ({
   dueDate: todayKey(),
   workType: "",
   coordinationScope: "",
-  ownerDiscipline: "",
+  ownerDiscipline: "\uAC74\uCD95",
   requestedBy: "",
   relatedDisciplines: "",
   assignee: "",
@@ -164,6 +164,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(true);
   const [hasInitializedCreateForm, setHasInitializedCreateForm] = useState(false);
   const [detailPanelState, setDetailPanelState] = useState<DetailPanelState>("collapsed");
+  const [isDetailPanelSticky, setIsDetailPanelSticky] = useState(false);
   const [canHoverDetails, setCanHoverDetails] = useState(false);
 
   const isTrashMode = mode === "trash";
@@ -303,7 +304,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    setDraft({ ...selectedTask });
+    setDraft({ ...selectedTask, ownerDiscipline: selectedTask.ownerDiscipline || "\uAC74\uCD95" });
     setParentTaskNumberDraft(selectedParentTask ? String(selectedParentTask.actionId) : "");
   }, [selectedParentTask, selectedTask]);
 
@@ -575,6 +576,59 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setDetailPanelState("collapsed");
   }
 
+  function closeDetailPanel() {
+    setIsDetailPanelSticky(false);
+    setDetailPanelState("collapsed");
+  }
+
+  function selectTask(taskId: string) {
+    setSelectedTaskId(taskId);
+  }
+
+  function toggleTaskDetails(taskId: string) {
+    if (selectedTaskId === taskId && isDetailExpanded) {
+      closeDetailPanel();
+      return;
+    }
+
+    setSelectedTaskId(taskId);
+    setIsDetailPanelSticky(true);
+    expandDetailPanel();
+  }
+
+  function handleWorkspaceBackgroundClick(event: ReactPointerEvent<HTMLElement>) {
+    if (mode !== "daily" || !isDetailExpanded) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const keepOpenSelector = [
+      ".detail-panel",
+      "tr",
+      "td",
+      "th",
+      ".task-card",
+      "button",
+      "a",
+      "input",
+      "select",
+      "textarea",
+      "label",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "p",
+      "span",
+      "strong",
+      "small",
+      ".detail-actions",
+      ".composer-card__toggle",
+    ].join(", ");
+
+    if (target.closest(keepOpenSelector)) return;
+    closeDetailPanel();
+  }
+
   function handleDetailPanelPointerEnter() {
     if (!canHoverDetails) return;
     expandDetailPanel();
@@ -582,6 +636,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   function handleDetailPanelPointerLeave(event: ReactPointerEvent<HTMLElement>) {
     if (!canHoverDetails) return;
+    if (isDetailPanelSticky) return;
     const activeElement = document.activeElement;
     if (activeElement instanceof Node && event.currentTarget.contains(activeElement)) {
       return;
@@ -596,6 +651,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   function handleDetailPanelBlur(event: ReactFocusEvent<HTMLElement>) {
     if (!canHoverDetails) return;
+    if (isDetailPanelSticky) return;
     const nextTarget = event.relatedTarget;
     if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
       return;
@@ -605,11 +661,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   function handleDetailPanelToggle() {
     if (canHoverDetails) {
+      setIsDetailPanelSticky(false);
       expandDetailPanel();
       return;
     }
 
-    setDetailPanelState((prev) => (prev === "expanded" ? "collapsed" : "expanded"));
+    setDetailPanelState((prev) => {
+      const next = prev === "expanded" ? "collapsed" : "expanded";
+      setIsDetailPanelSticky(false);
+      return next;
+    });
   }
 
   function handleDetailPanelKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
@@ -624,7 +685,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     if (event.key === "Escape") {
-      collapseDetailPanel();
+      closeDetailPanel();
     }
   }
 
@@ -664,8 +725,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             mode === "daily" && isDetailDocked && isDetailExpanded && "workspace__body--detail-expanded",
             mode === "daily" && isDetailDocked && !isDetailExpanded && "workspace__body--detail-collapsed",
           )}
+          onClickCapture={handleWorkspaceBackgroundClick}
         >
-          <div className="workspace__main">
+          <div className="workspace__main" onClickCapture={handleWorkspaceBackgroundClick}>
             {sortedTasks.length === 0 && files.length === 0 ? (
               <div className="empty-state">
                 <h3>No items yet.</h3>
@@ -716,11 +778,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <article
                               className={clsx("task-card", task.id === selectedTaskId && "task-card--active")}
                               key={task.id}
-                              onClick={() => setSelectedTaskId(task.id)}
+                              onClick={() => selectTask(task.id)}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter" || event.key === " ") {
                                   event.preventDefault();
-                                  setSelectedTaskId(task.id);
+                                  selectTask(task.id);
                                 }
                               }}
                               role="button"
@@ -790,7 +852,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                   {isCreateFormOpen ? (
                     <div className="composer-card__body">
-                      <TaskFormFields form={form} onChange={updateForm} readonly={createReadonlyFields} />
+                      <TaskFormFields form={form} onChange={updateForm} readonly={createReadonlyFields} showOwnerDiscipline={false} showUpdatedAt={false} />
                       <div className="detail-actions detail-actions--inline">
                         <button className="primary-button" onClick={() => void createTaskFromForm(form)} type="button">
                           Create task
@@ -813,13 +875,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <th>due_date</th>
                         <th>work_type</th>
                         <th>Coordination Scope</th>
-                        <th>Owner Discipline</th>
                         <th>requested_by</th>
                         <th>Related Disciplines</th>
                         <th>assignee</th>
                         <th className="sheet-table__title">issue_title</th>
                         <th>reviewed_at</th>
-                        <th>Updated At</th>
                         <th>Location Ref</th>
                         <th>Calendar Linked</th>
                         <th className="sheet-table__wide">ISSUE Detail Note</th>
@@ -827,25 +887,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <th>Completed At</th>
                         <th className="sheet-table__wide">status_history</th>
                         <th className="sheet-table__wide">decision</th>
-                        <th>linked_documents</th>
+                        <th className="sheet-table__files">linked_documents</th>
                       </tr>
                     </thead>
                     <tbody>
                       {sortedTasks.map((task) => {
                         const taskFiles = filesByTaskId[task.id] ?? [];
+                        const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
                         return (
-                          <tr className={clsx(task.id === selectedTaskId && "sheet-row--active")} key={task.id} onClick={() => setSelectedTaskId(task.id)}>
+                          <tr
+                            className={clsx(task.id === selectedTaskId && "sheet-row--active")}
+                            key={task.id}
+                            onClick={() => selectTask(task.id)}
+                            onDoubleClick={() => toggleTaskDetails(task.id)}
+                          >
                             <td>{formatActionId(task.actionId)}</td>
                             <td>{task.dueDate || "-"}</td>
                             <td>{task.workType || "-"}</td>
                             <td>{task.coordinationScope || "-"}</td>
-                            <td>{task.ownerDiscipline || "-"}</td>
                             <td>{task.requestedBy || "-"}</td>
                             <td>{task.relatedDisciplines || "-"}</td>
                             <td>{task.assignee || "-"}</td>
                             <td className="sheet-table__title">{task.issueTitle}</td>
                             <td>{task.reviewedAt || "-"}</td>
-                            <td>{formatDateTimeField(task.updatedAt)}</td>
                             <td>{task.locationRef || "-"}</td>
                             <td>{task.calendarLinked ? "Yes" : "No"}</td>
                             <td className="sheet-table__wide">{task.issueDetailNote || "-"}</td>
@@ -855,7 +919,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <td>{formatDateTimeField(task.completedAt)}</td>
                             <td className="sheet-table__wide">{task.statusHistory || "-"}</td>
                             <td className="sheet-table__wide">{task.decision || "-"}</td>
-                            <td>{taskFiles.length}</td>
+                            <td className="sheet-table__files">
+                              <strong>{linkedDocumentsDisplay.primary}</strong>
+                              {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1057,7 +1124,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       ) : (
                         <p>No child tasks yet.</p>
                       )}
-                      <TaskFormFields form={childForm} onChange={updateChildForm} readonly={createReadonlyFields} />
+                      <TaskFormFields form={childForm} onChange={updateChildForm} readonly={createReadonlyFields} showOwnerDiscipline={false} showUpdatedAt={false} />
                       <button className="primary-button" onClick={() => void createTaskFromForm(childForm, selectedTask ? String(selectedTask.actionId) : undefined)} type="button">
                         Create child task
                       </button>
@@ -1129,10 +1196,14 @@ function TaskFormFields({
   form,
   onChange,
   readonly = {},
+  showOwnerDiscipline = true,
+  showUpdatedAt = true,
 }: {
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
   readonly?: TaskFormReadonly;
+  showOwnerDiscipline?: boolean;
+  showUpdatedAt?: boolean;
 }) {
   return (
     <div className="detail-form-grid">
@@ -1142,47 +1213,51 @@ function TaskFormFields({
       </label>
       <label>
         <span>due_date</span>
-        <input onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
+        <input className="detail-date-field" onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
       </label>
       <label>
         <span>work_type</span>
-        <input onChange={(event) => onChange("workType", event.target.value)} value={form.workType} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("workType", event.target.value)} rows={1} value={form.workType} />
       </label>
       <label>
         <span>Coordination Scope</span>
-        <input onChange={(event) => onChange("coordinationScope", event.target.value)} value={form.coordinationScope} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("coordinationScope", event.target.value)} rows={1} value={form.coordinationScope} />
       </label>
-      <label>
-        <span>Owner Discipline</span>
-        <input onChange={(event) => onChange("ownerDiscipline", event.target.value)} value={form.ownerDiscipline} />
-      </label>
+      {showOwnerDiscipline ? (
+        <label>
+          <span>Owner Discipline</span>
+          <textarea className="detail-text-field" onChange={(event) => onChange("ownerDiscipline", event.target.value)} rows={1} value={form.ownerDiscipline} />
+        </label>
+      ) : null}
       <label>
         <span>requested_by</span>
-        <input onChange={(event) => onChange("requestedBy", event.target.value)} value={form.requestedBy} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("requestedBy", event.target.value)} rows={1} value={form.requestedBy} />
       </label>
       <label>
         <span>Related Disciplines</span>
-        <input onChange={(event) => onChange("relatedDisciplines", event.target.value)} value={form.relatedDisciplines} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("relatedDisciplines", event.target.value)} rows={1} value={form.relatedDisciplines} />
       </label>
       <label>
         <span>assignee</span>
-        <input onChange={(event) => onChange("assignee", event.target.value)} value={form.assignee} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("assignee", event.target.value)} rows={1} value={form.assignee} />
       </label>
       <label className="detail-field--wide">
         <span>issue_title</span>
-        <input onChange={(event) => onChange("issueTitle", event.target.value)} value={form.issueTitle} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("issueTitle", event.target.value)} rows={1} value={form.issueTitle} />
       </label>
       <label>
         <span>reviewed_at</span>
-        <input onChange={(event) => onChange("reviewedAt", event.target.value)} type="date" value={form.reviewedAt} />
+        <input className="detail-date-field" onChange={(event) => onChange("reviewedAt", event.target.value)} type="date" value={form.reviewedAt} />
       </label>
-      <label>
-        <span>Updated At</span>
-        <input readOnly={Boolean(readonly.updatedAt)} value={formatReadonlyValue(form.updatedAt)} />
-      </label>
+      {showUpdatedAt ? (
+        <label>
+          <span>Updated At</span>
+          <input readOnly={Boolean(readonly.updatedAt)} value={formatReadonlyValue(form.updatedAt)} />
+        </label>
+      ) : null}
       <label>
         <span>Location Ref</span>
-        <input onChange={(event) => onChange("locationRef", event.target.value)} value={form.locationRef} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("locationRef", event.target.value)} rows={1} value={form.locationRef} />
       </label>
       <label className="detail-checkbox-field">
         <span>Calendar Linked</span>
@@ -1190,7 +1265,7 @@ function TaskFormFields({
       </label>
       <label className="detail-field--wide">
         <span>ISSUE Detail Note</span>
-        <textarea onChange={(event) => onChange("issueDetailNote", event.target.value)} rows={5} value={form.issueDetailNote} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("issueDetailNote", event.target.value)} rows={1} value={form.issueDetailNote} />
       </label>
       <label>
         <span>status</span>
@@ -1208,14 +1283,26 @@ function TaskFormFields({
       </label>
       <label className="detail-field--wide">
         <span>status_history</span>
-        <textarea readOnly={Boolean(readonly.statusHistory)} rows={4} value={form.statusHistory || "Tracked automatically after the first save."} />
+        <textarea className="detail-text-field" readOnly={Boolean(readonly.statusHistory)} rows={1} value={form.statusHistory || "Tracked automatically after the first save."} />
       </label>
       <label className="detail-field--wide">
         <span>decision</span>
-        <textarea onChange={(event) => onChange("decision", event.target.value)} rows={4} value={form.decision} />
+        <textarea className="detail-text-field" onChange={(event) => onChange("decision", event.target.value)} rows={1} value={form.decision} />
       </label>
     </div>
   );
+}
+
+function formatLinkedDocumentsSummary(taskFiles: FileRecord[]) {
+  if (taskFiles.length === 0) {
+    return { primary: "\uD30C\uC77C\uC744 \uB4F1\uB85D\uD558\uC138\uC694", secondary: null as string | null };
+  }
+
+  const [firstFile, ...restFiles] = taskFiles;
+  return {
+    primary: restFiles.length > 0 ? `${firstFile.originalName} \uC678 ${restFiles.length}\uAC1C` : firstFile.originalName,
+    secondary: "\uCD94\uAC00 \uD30C\uC77C \uB4F1\uB85D \uAC00\uB2A5",
+  };
 }
 
 function titleByMode(mode: DashboardMode) {
@@ -1239,7 +1326,7 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     dueDate: draft.dueDate ?? "",
     workType: draft.workType ?? "",
     coordinationScope: draft.coordinationScope ?? "",
-    ownerDiscipline: draft.ownerDiscipline ?? "",
+    ownerDiscipline: draft.ownerDiscipline?.trim() || "\uAC74\uCD95",
     requestedBy: draft.requestedBy ?? "",
     relatedDisciplines: draft.relatedDisciplines ?? "",
     assignee: draft.assignee ?? "",
