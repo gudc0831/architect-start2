@@ -26,7 +26,7 @@ export async function listProjectsForSession() {
   const selection = await adminRepository.getProjectSelection();
   const sessionProjectId = await getProjectSessionProjectId();
   const currentProjectId =
-    (backendMode !== "local" && sessionProjectId && selection.availableProjects.some((project) => project.id === sessionProjectId)
+    (sessionProjectId && selection.availableProjects.some((project) => project.id === sessionProjectId)
       ? sessionProjectId
       : null) ??
     selection.currentProjectId ??

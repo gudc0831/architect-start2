@@ -21,14 +21,15 @@ export function Sidebar() {
   const authUser = useAuthUser();
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const { clearUser } = useAuthState();
-  const { currentProjectId, availableProjects, switchProject, projectName, setProjectName, projectLoaded, projectSource, isSyncing } =
-    useProjectMeta();
+  const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = items.map((item) => ({
     ...item,
     label: labelForMode(item.mode),
     href: (isPreview ? `/preview${item.href}` : item.href) as Route,
   }));
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
+  const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
+  const showProjectSwitcher = availableProjects.length > 1;
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -46,31 +47,78 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand">
         <p className="sidebar__eyebrow">{t("brand.appName")}</p>
-        {!isPreview && availableProjects.length > 0 ? (
-          <select
-            aria-label="현재 프로젝트 선택"
-            className="sidebar__title-input"
-            disabled={isSyncing}
-            onChange={(event) => void switchProject(event.target.value)}
-            value={currentProjectId ?? ""}
-          >
-            {availableProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+        {showProjectSwitcher ? (
+          <label style={{ display: "grid", gap: "0.4rem" }}>
+            <span style={{ fontSize: "0.78rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Projects
+            </span>
+            <select
+              aria-label="Select current project"
+              className="sidebar__title-input"
+              disabled={isSyncing}
+              onChange={(event) => void switchProject(event.target.value)}
+              value={currentProjectId ?? ""}
+            >
+              {availableProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
-        <input
-          aria-label={t("sidebar.projectNameAriaLabel")}
-          className="sidebar__title-input"
-          onChange={(event) => setProjectName(event.target.value)}
-          placeholder={t("sidebar.projectNamePlaceholder")}
-          value={projectName}
-        />
+        {showProjectSwitcher ? (
+          <div
+            style={{
+              display: "grid",
+              gap: "0.4rem",
+              maxHeight: "9.5rem",
+              overflowY: "auto",
+            }}
+          >
+            {availableProjects.map((project) => {
+              const isCurrent = project.id === currentProjectId;
+              return (
+                <button
+                  key={project.id}
+                  className={isCurrent ? "primary-button" : "secondary-button"}
+                  disabled={isCurrent || isSyncing}
+                  onClick={() => void switchProject(project.id)}
+                  style={{
+                    justifyContent: "space-between",
+                    minHeight: "2.4rem",
+                    fontSize: "0.92rem",
+                    paddingInline: "0.8rem",
+                  }}
+                  type="button"
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
+                  <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>{isCurrent ? "Current" : "Open"}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="sidebar__project-panel">
+          <div className="sidebar__project-heading">
+            <span className="sidebar__project-label">Current project</span>
+            {showProjectSwitcher ? <span className="sidebar__project-count">{availableProjects.length}</span> : null}
+          </div>
+          <div className="sidebar__project-name">{projectName}</div>
+          {!isPreview && authUser?.role === "admin" ? (
+            <Link className="secondary-button" href={adminHref}>
+              Manage projects
+            </Link>
+          ) : null}
+        </div>
         <div className="sidebar__brand-meta">
           <p className="sidebar__copy">{isPreview ? t("sidebar.previewCopy") : t("sidebar.workspaceCopy")}</p>
           <p className="sidebar__status">{sourceLabel}</p>
+          {showProjectSwitcher && selectedProject ? (
+            <p className="sidebar__status" style={{ opacity: 0.85 }}>
+              {availableProjects.length} projects, viewing {selectedProject.name}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -88,7 +136,11 @@ export function Sidebar() {
       </nav>
 
       <div className={clsx("sidebar__note", isPreview && "sidebar__note--preview")}>
-        {isPreview ? <p>{t("sidebar.previewNote")}</p> : <p>{authUser ? `${authUser.displayName} (${labelForRole(authUser.role)})` : t("sidebar.checkingSession")}</p>}
+        {isPreview ? (
+          <p>{t("sidebar.previewNote")}</p>
+        ) : (
+          <p>{authUser ? `${authUser.displayName} (${labelForRole(authUser.role)})` : t("sidebar.checkingSession")}</p>
+        )}
         {isLocalAuthPlaceholder && !isPreview ? <p>{t("sidebar.localAuthNote")}</p> : null}
         {!isPreview ? (
           <button className="secondary-button" onClick={() => void handleLogout()} type="button">

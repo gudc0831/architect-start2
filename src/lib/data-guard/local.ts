@@ -183,6 +183,33 @@ function defaultState(): LocalGuardState {
   };
 }
 
+function buildFingerprintSignature(input: Omit<LocalFingerprint, "signature" | "projectId">) {
+  return hashValue(JSON.stringify(input));
+}
+
+function normalizeFingerprint(input: LocalFingerprint | null | undefined) {
+  if (!input) {
+    return null;
+  }
+
+  const stableFingerprint = {
+    backendMode: input.backendMode,
+    localDataRoot: input.localDataRoot,
+    localUploadRoot: input.localUploadRoot,
+    projectMetaPath: input.projectMetaPath,
+    taskStorePath: input.taskStorePath,
+    fileStorePath: input.fileStorePath,
+    preferenceStorePath: input.preferenceStorePath,
+    sequenceStorePath: input.sequenceStorePath,
+    adminStorePath: input.adminStorePath,
+  };
+
+  return {
+    ...input,
+    signature: buildFingerprintSignature(stableFingerprint),
+  } satisfies LocalFingerprint;
+}
+
 async function loadState() {
   try {
     const raw = await readFile(localGuardStatePath, "utf8");
@@ -190,6 +217,7 @@ async function loadState() {
     return {
       ...defaultState(),
       ...parsed,
+      fingerprint: normalizeFingerprint(parsed.fingerprint as LocalFingerprint | null | undefined),
       stores: {
         ...defaultState().stores,
         ...(parsed.stores ?? {}),
@@ -234,7 +262,7 @@ async function readProjectId() {
 
 async function computeFingerprint(): Promise<LocalFingerprint> {
   const projectId = await readProjectId();
-  const payload = {
+  const stablePayload = {
     backendMode,
     localDataRoot,
     localUploadRoot,
@@ -244,12 +272,12 @@ async function computeFingerprint(): Promise<LocalFingerprint> {
     preferenceStorePath: localPreferenceStorePath,
     sequenceStorePath: localSequenceStorePath,
     adminStorePath: localAdminStorePath,
-    projectId,
   };
 
   return {
-    ...payload,
-    signature: hashValue(JSON.stringify(payload)),
+    ...stablePayload,
+    projectId,
+    signature: buildFingerprintSignature(stablePayload),
   };
 }
 
@@ -332,58 +360,74 @@ async function maybeBlockWrite(
   nextRecordCount: number,
 ) {
   const guardMode = getDataGuardMode();
+  let currentState = state;
 
-  if (state.writeLock) {
-    if (isConfirmationAccepted(state.writeLock, state)) {
-      return state.writeLock;
+  if (
+    currentState.writeLock?.reasonCode === "LOCAL_DATA_FINGERPRINT_CHANGED" &&
+    currentState.fingerprint?.signature === fingerprint.signature
+  ) {
+    currentState = {
+      ...currentState,
+      writeLock: null,
+    };
+    await saveState(currentState);
+  }
+
+  if (currentState.writeLock) {
+    if (isConfirmationAccepted(currentState.writeLock, currentState)) {
+      return currentState.writeLock;
     }
 
     if (guardMode === "warn") {
-      return state.writeLock;
+      return currentState.writeLock;
     }
 
     throw serviceUnavailable(
-      `${state.writeLock.message} Run \`${state.writeLock.recommendedCommand}\` and retry with DATA_GUARD_CONFIRM=${state.writeLock.confirmToken} if the change is intentional.`,
+      `${currentState.writeLock.message} Run \`${currentState.writeLock.recommendedCommand}\` and retry with DATA_GUARD_CONFIRM=${currentState.writeLock.confirmToken} if the change is intentional.`,
       "LOCAL_DATA_WRITE_LOCKED",
     );
   }
 
   let lock: LocalWriteLock | null = null;
 
-  if (state.fingerprint && state.fingerprint.signature !== fingerprint.signature && hasHistoricalData(state)) {
-    lock = buildWriteLock(state, {
+  if (currentState.fingerprint && currentState.fingerprint.signature !== fingerprint.signature && hasHistoricalData(currentState)) {
+    lock = buildWriteLock(currentState, {
       store,
       reasonCode: "LOCAL_DATA_FINGERPRINT_CHANGED",
-      message: `Local data fingerprint changed from ${state.fingerprint.localDataRoot} to ${fingerprint.localDataRoot}.`,
+      message: `Local data fingerprint changed from ${currentState.fingerprint.localDataRoot} to ${fingerprint.localDataRoot}.`,
       fingerprintSignature: fingerprint.signature,
-      previousPath: state.stores[store]?.path ?? null,
+      previousPath: currentState.stores[store]?.path ?? null,
       currentPath: current.path,
     });
-  } else if (state.stores[store]?.path && state.stores[store].path !== current.path && state.stores[store].recordCount > 0) {
-    lock = buildWriteLock(state, {
+  } else if (
+    currentState.stores[store]?.path &&
+    currentState.stores[store].path !== current.path &&
+    currentState.stores[store].recordCount > 0
+  ) {
+    lock = buildWriteLock(currentState, {
       store,
       reasonCode: "LOCAL_STORE_PATH_CHANGED",
-      message: `Tracked local store path changed from ${state.stores[store].path} to ${current.path}.`,
+      message: `Tracked local store path changed from ${currentState.stores[store].path} to ${current.path}.`,
       fingerprintSignature: fingerprint.signature,
-      previousPath: state.stores[store].path,
+      previousPath: currentState.stores[store].path,
       currentPath: current.path,
     });
-  } else if (!current.exists && state.stores[store].exists && state.stores[store].recordCount > 0) {
-    lock = buildWriteLock(state, {
+  } else if (!current.exists && currentState.stores[store].exists && currentState.stores[store].recordCount > 0) {
+    lock = buildWriteLock(currentState, {
       store,
       reasonCode: "LOCAL_STORE_MISSING",
       message: `Tracked local store is missing at ${current.path} even though previous data exists.`,
       fingerprintSignature: fingerprint.signature,
-      previousPath: state.stores[store].path,
+      previousPath: currentState.stores[store].path,
       currentPath: current.path,
     });
-  } else if (Math.max(current.recordCount, state.stores[store].recordCount) > 0 && nextRecordCount === 0) {
-    lock = buildWriteLock(state, {
+  } else if (Math.max(current.recordCount, currentState.stores[store].recordCount) > 0 && nextRecordCount === 0) {
+    lock = buildWriteLock(currentState, {
       store,
       reasonCode: "LOCAL_EMPTY_OVERWRITE",
       message: `Blocked an empty overwrite for ${store} at ${current.path}.`,
       fingerprintSignature: fingerprint.signature,
-      previousPath: state.stores[store].path,
+      previousPath: currentState.stores[store].path,
       currentPath: current.path,
     });
   }
@@ -393,7 +437,7 @@ async function maybeBlockWrite(
   }
 
   const nextState = {
-    ...state,
+    ...currentState,
     writeLock: lock,
   };
   await saveState(nextState);

@@ -11,6 +11,17 @@ type ProjectOption = {
   source: string;
 };
 
+type ProjectSelectionPayload = {
+  currentProjectId: string | null;
+  availableProjects: Array<{ id: string; name: string; source?: string }>;
+  source?: string | null;
+};
+
+type WorkTypePayload = {
+  currentProjectId: string | null;
+  definitions: WorkTypeDefinition[];
+};
+
 type ProjectContextValue = {
   currentProjectId: string | null;
   availableProjects: ProjectOption[];
@@ -52,6 +63,17 @@ function toProjectOption(project: { id: string; name: string; source?: string },
     name: project.name || defaultProjectName,
     source: project.source || fallbackSource || "local-file",
   };
+}
+
+async function readApiData<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, init);
+  const json = (await response.json().catch(() => ({}))) as { data?: T; error?: { message?: string } };
+
+  if (!response.ok || !json.data) {
+    throw new Error(json.error?.message || `Request failed (${response.status})`);
+  }
+
+  return json.data;
 }
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
@@ -119,28 +141,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshProjects = useCallback(async () => {
-    const response = await fetch("/api/projects", { cache: "no-store" });
-    const json = (await response.json()) as {
-      data: {
-        currentProjectId: string | null;
-        availableProjects: Array<{ id: string; name: string; source?: string }>;
-        source?: string | null;
-      };
-    };
-
-    applyProjectSelection(json.data);
+    const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
+    applyProjectSelection(data);
   }, [applyProjectSelection]);
 
   const refreshWorkTypes = useCallback(async () => {
-    const response = await fetch("/api/work-types", { cache: "no-store" });
-    const json = (await response.json()) as {
-      data: {
-        currentProjectId: string | null;
-        definitions: WorkTypeDefinition[];
-      };
-    };
-
-    setWorkTypeDefinitions(Array.isArray(json.data?.definitions) ? json.data.definitions : []);
+    const data = await readApiData<WorkTypePayload>("/api/work-types", { cache: "no-store" });
+    setWorkTypeDefinitions(Array.isArray(data.definitions) ? data.definitions : []);
     setWorkTypesLoaded(true);
   }, []);
 
@@ -152,26 +159,22 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
-    void fetch("/api/projects", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((json: {
-        data: {
-          currentProjectId: string | null;
-          availableProjects: Array<{ id: string; name: string; source?: string }>;
-          source?: string | null;
-        };
-      }) => {
+    void readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" })
+      .then((data) => {
         if (!isMounted) {
           return;
         }
 
-        applyProjectSelection(json.data);
+        applyProjectSelection(data);
       })
       .catch(() => {
         if (!isMounted) {
           return;
         }
 
+        setAvailableProjects([]);
+        setCurrentProjectId(null);
+        setProjectNameState(defaultProjectName);
         setProjectSource(null);
         setProjectLoaded(true);
       });
@@ -191,14 +194,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true;
     setWorkTypesLoaded(false);
 
-    void fetch("/api/work-types", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((json: { data: { definitions: WorkTypeDefinition[] } }) => {
+    void readApiData<WorkTypePayload>("/api/work-types", { cache: "no-store" })
+      .then((data) => {
         if (!isMounted) {
           return;
         }
 
-        setWorkTypeDefinitions(Array.isArray(json.data?.definitions) ? json.data.definitions : []);
+        setWorkTypeDefinitions(Array.isArray(data.definitions) ? data.definitions : []);
         setWorkTypesLoaded(true);
       })
       .catch(() => {
@@ -215,59 +217,6 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     };
   }, [currentProjectId, isPreview]);
 
-  useEffect(() => {
-    if (
-      isPreview ||
-      !projectLoaded ||
-      !currentProjectId ||
-      currentProjectId !== lastCommittedRef.current.projectId ||
-      projectName === lastCommittedRef.current.projectName
-    ) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setIsSyncing(true);
-      void fetch("/api/project", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: currentProjectId, name: projectName }),
-      })
-        .then((response) => response.json())
-        .then((json: {
-          data: {
-            id: string;
-            name: string;
-            source: string;
-            currentProjectId: string;
-          };
-        }) => {
-          const nextProject = {
-            id: json.data.id,
-            name: json.data.name || projectName,
-            source: json.data.source,
-          };
-
-          setAvailableProjects((previous) =>
-            previous.map((project) => (project.id === nextProject.id ? { ...project, ...nextProject } : project)),
-          );
-          setCurrentProjectId(json.data.currentProjectId || nextProject.id);
-          setProjectNameState(nextProject.name);
-          setProjectSource(nextProject.source);
-          lastCommittedRef.current = {
-            projectId: json.data.currentProjectId || nextProject.id,
-            projectName: nextProject.name,
-          };
-          persistLocalSelection(json.data.currentProjectId || nextProject.id, nextProject.name);
-        })
-        .finally(() => setIsSyncing(false));
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [currentProjectId, isPreview, projectLoaded, projectName]);
-
   const switchProject = useCallback(async (projectId: string) => {
     if (isPreview || !projectId || projectId === currentProjectId) {
       return;
@@ -276,20 +225,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setIsSyncing(true);
 
     try {
-      const response = await fetch("/api/projects/select", {
+      const data = await readApiData<ProjectSelectionPayload>("/api/projects/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId }),
       });
-      const json = (await response.json()) as {
-        data: {
-          currentProjectId: string | null;
-          availableProjects: Array<{ id: string; name: string; source?: string }>;
-          source?: string | null;
-        };
-      };
-
-      applyProjectSelection(json.data, { loaded: true });
+      applyProjectSelection(data, { loaded: true });
     } finally {
       setIsSyncing(false);
     }
@@ -300,10 +241,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       setPreviewName(value);
       return;
     }
-
-    setProjectNameState(value);
-    persistLocalSelection(currentProjectId, value);
-  }, [currentProjectId, isPreview]);
+  }, [isPreview]);
 
   const value = isPreview
     ? {
@@ -335,7 +273,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         isSyncing,
       };
 
-  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+  // Remount consumers when the selected project changes so task/file fetch effects re-run against the new project scope.
+  const providerKey = isPreview ? `preview:${previewProjectId}` : `project:${currentProjectId ?? "none"}`;
+
+  return <ProjectContext.Provider key={providerKey} value={value}>{children}</ProjectContext.Provider>;
 }
 
 export function useProjectMeta() {

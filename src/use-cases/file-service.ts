@@ -4,11 +4,29 @@ import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-confi
 import { badRequest, notFound } from "@/lib/api/errors";
 import { fileRepository, taskRepository } from "@/repositories";
 import { storageProvider } from "@/storage";
+import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 
 export type FileScope = "active" | "trash";
 
 export async function listFiles(scope: FileScope, taskId?: string) {
-  return scope === "trash" ? fileRepository.listTrashFiles(taskId) : fileRepository.listActiveFiles(taskId);
+  const project = await getSelectedTaskProject();
+
+  if (taskId) {
+    const task = await taskRepository.findTaskById(taskId);
+    if (!task || task.projectId !== project.id) {
+      return [];
+    }
+
+    return scope === "trash" ? fileRepository.listTrashFiles(taskId) : fileRepository.listActiveFiles(taskId);
+  }
+
+  const [projectTasks, files] = await Promise.all([
+    scope === "trash" ? taskRepository.listTrashTasks(project.id) : taskRepository.listActiveTasks(project.id),
+    scope === "trash" ? fileRepository.listTrashFiles() : fileRepository.listActiveFiles(),
+  ]);
+  const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+
+  return files.filter((file) => file.projectId === project.id || projectTaskIds.has(file.taskId));
 }
 
 export async function attachUploadedFile(input: { taskId: string; file: File; userId?: string | null }) {

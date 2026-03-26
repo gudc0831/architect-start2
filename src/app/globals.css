@@ -200,6 +200,37 @@ a {
   gap: 0.35rem;
 }
 
+.sidebar__project-panel {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(165, 179, 167, 0.35);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sidebar__project-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sidebar__project-label,
+.sidebar__project-count {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.sidebar__project-name {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .sidebar__nav {
   display: grid;
   gap: 0.55rem;
@@ -1774,7 +1805,6 @@ a {
     height: auto;
   }
 }
-
 
 
 

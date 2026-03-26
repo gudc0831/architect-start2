@@ -7,6 +7,12 @@ import { useProjectMeta } from "@/providers/project-provider";
 
 type MembershipPayload = Pick<ProjectMembershipRecord, "profileId" | "displayName" | "email" | "role">;
 
+type ProjectOption = {
+  id: string;
+  name: string;
+  source: string;
+};
+
 async function readJson<T>(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, init);
   const json = (await response.json()) as { data?: T; error?: { message?: string } };
@@ -52,19 +58,19 @@ function WorkTypeEditor({
       </div>
       <div className="composer-card__body" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
         <label>
-          <span>한글</span>
+          <span>Korean label</span>
           <input value={labelKo} onChange={(event) => setLabelKo(event.target.value)} />
         </label>
         <label>
-          <span>English</span>
+          <span>English label</span>
           <input value={labelEn} onChange={(event) => setLabelEn(event.target.value)} />
         </label>
         <label>
-          <span>정렬 순서</span>
+          <span>Sort order</span>
           <input value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} />
         </label>
         <label style={{ display: "grid", gap: "0.5rem", alignContent: "end" }}>
-          <span>활성</span>
+          <span>Active</span>
           <input checked={isActive} onChange={(event) => setIsActive(event.target.checked)} type="checkbox" />
         </label>
       </div>
@@ -83,8 +89,59 @@ function WorkTypeEditor({
           }}
           type="button"
         >
-          저장
+          {saving ? "Saving..." : "Save"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectQuickSwitch({
+  projects,
+  currentProjectId,
+  switchingProjectId,
+  onSwitch,
+}: {
+  projects: ProjectOption[];
+  currentProjectId: string | null;
+  switchingProjectId: string | null;
+  onSwitch: (projectId: string) => void;
+}) {
+  if (projects.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: "0.65rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+        <strong>Quick switch</strong>
+        <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{projects.length} projects</span>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gap: "0.5rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        }}
+      >
+        {projects.map((project) => {
+          const isCurrent = project.id === currentProjectId;
+          const isSwitching = project.id === switchingProjectId;
+
+          return (
+            <button
+              key={project.id}
+              className={isCurrent ? "primary-button" : "secondary-button"}
+              disabled={isCurrent || Boolean(switchingProjectId)}
+              onClick={() => onSwitch(project.id)}
+              style={{ justifyContent: "space-between", minHeight: "3rem", opacity: isSwitching ? 0.7 : 1 }}
+              type="button"
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
+              <span style={{ fontSize: "0.82rem", opacity: 0.75 }}>{isCurrent ? "Current" : isSwitching ? "Switching" : "Open"}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -95,6 +152,9 @@ export function AdminFoundationShell() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectDraftName, setProjectDraftName] = useState("");
   const [selectedProjectName, setSelectedProjectName] = useState("");
+  const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
+  const [renamingProject, setRenamingProject] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [members, setMembers] = useState<MembershipPayload[]>([]);
   const [availableProfiles, setAvailableProfiles] = useState<AdminProfileSummary[]>([]);
   const [newMember, setNewMember] = useState<MembershipPayload>({
@@ -162,7 +222,7 @@ export function AdminFoundationShell() {
           return;
         }
 
-        setStatusMessage(error instanceof Error ? error.message : "관리자 데이터를 불러오지 못했습니다.");
+        setStatusMessage(error instanceof Error ? error.message : "Failed to load admin data.");
       } finally {
         if (isMounted) {
           setProjectsLoading(false);
@@ -189,18 +249,76 @@ export function AdminFoundationShell() {
     }
 
     void loadProjectScopedData(currentProjectId).catch((error) => {
-      setStatusMessage(error instanceof Error ? error.message : "프로젝트 데이터를 불러오지 못했습니다.");
+      setStatusMessage(error instanceof Error ? error.message : "Failed to load project data.");
     });
   }, [availableProjects, currentProjectId]);
+
+  const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
+
+  async function handleProjectSwitch(projectId: string) {
+    if (!projectId || projectId === currentProjectId) {
+      return;
+    }
+
+    setSwitchingProjectId(projectId);
+    try {
+      await switchProject(projectId);
+      setStatusMessage("Switched current project.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to switch project.");
+    } finally {
+      setSwitchingProjectId(null);
+    }
+  }
+
+  async function handleRenameProject() {
+    if (!currentProjectId) {
+      return;
+    }
+
+    setRenamingProject(true);
+    try {
+      await readJson("/api/project", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: currentProjectId, name: selectedProjectName }),
+      });
+      await refreshProjects();
+      setStatusMessage("Project name updated.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to update project name.");
+    } finally {
+      setRenamingProject(false);
+    }
+  }
+
+  async function handleCreateProject() {
+    setCreatingProject(true);
+    try {
+      const project = await readJson<{ id: string }>("/api/admin/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: projectDraftName }),
+      });
+      setProjectDraftName("");
+      await refreshProjects();
+      await handleProjectSwitch(project.id);
+      setStatusMessage("Project created.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to create project.");
+    } finally {
+      setCreatingProject(false);
+    }
+  }
 
   return (
     <section className="workspace">
       <header className="workspace__header">
         <div>
           <p className="workspace__eyebrow">ADMIN</p>
-          <h2>관리자 시트 Foundation</h2>
+          <h2>Admin Foundation</h2>
           <p className="workspace__copy">
-            현재 프로젝트 선택과 프로젝트별 사용자 배정, 전역 기본 작업유형과 프로젝트별 추가 작업유형을 분리해서 관리합니다.
+            Manage project switching, members, base work types, and project-only work types from one place.
           </p>
         </div>
         {statusMessage ? <p className="workspace__meta">{statusMessage}</p> : null}
@@ -209,17 +327,27 @@ export function AdminFoundationShell() {
       <div className="composer-card">
         <div className="composer-card__header">
           <div>
-            <h3>프로젝트</h3>
-            <p style={{ margin: 0, color: "var(--muted)" }}>현재 프로젝트를 선택하고, 새 프로젝트를 만들거나 이름을 변경합니다.</p>
+            <h3>Project Navigation</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>
+              Switch the current project here. Editing and creation are split into dedicated sections below.
+            </p>
           </div>
         </div>
-        <div className="composer-card__body" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <div className="composer-card__body" style={{ gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)" }}>
+          <ProjectQuickSwitch
+            currentProjectId={currentProjectId}
+            onSwitch={(projectId) => {
+              void handleProjectSwitch(projectId);
+            }}
+            projects={availableProjects}
+            switchingProjectId={switchingProjectId}
+          />
           <label>
-            <span>현재 프로젝트</span>
+            <span>Current project</span>
             <select
-              disabled={projectsLoading || availableProjects.length === 0}
+              disabled={projectsLoading || availableProjects.length === 0 || Boolean(switchingProjectId)}
               onChange={(event) => {
-                void switchProject(event.target.value).then(() => setStatusMessage("현재 프로젝트를 변경했습니다."));
+                void handleProjectSwitch(event.target.value);
               }}
               value={currentProjectId ?? ""}
             >
@@ -230,58 +358,54 @@ export function AdminFoundationShell() {
               ))}
             </select>
           </label>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ color: "var(--muted)" }}>
+            {selectedProject ? `Selected: ${selectedProject.name}` : "No project selected"}
+          </span>
+          <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+            {switchingProjectId
+              ? `Switching to ${availableProjects.find((project) => project.id === switchingProjectId)?.name ?? "project"}...`
+              : "Admin can see all projects."}
+          </span>
+        </div>
+      </div>
+
+      <div className="composer-card">
+        <div className="composer-card__header">
+          <div>
+            <h3>Edit Selected Project</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>Rename only the project currently selected above.</p>
+          </div>
+        </div>
+        <div className="composer-card__body" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
           <label>
-            <span>선택한 프로젝트 이름</span>
-            <input value={selectedProjectName} onChange={(event) => setSelectedProjectName(event.target.value)} />
+            <span>Selected project</span>
+            <input disabled value={selectedProject?.name ?? ""} />
           </label>
           <label>
-            <span>새 프로젝트 이름</span>
-            <input value={projectDraftName} onChange={(event) => setProjectDraftName(event.target.value)} />
+            <span>New display name</span>
+            <input value={selectedProjectName} onChange={(event) => setSelectedProjectName(event.target.value)} />
           </label>
         </div>
         <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button
             className="secondary-button"
-            disabled={!currentProjectId}
+            disabled={!currentProjectId || renamingProject}
             onClick={() => {
-              if (!currentProjectId) {
-                return;
-              }
-
-              void readJson("/api/project", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ projectId: currentProjectId, name: selectedProjectName }),
-              })
-                .then(async () => {
-                  await refreshProjects();
-                  setStatusMessage("프로젝트 이름을 수정했습니다.");
-                })
-                .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 이름 수정에 실패했습니다."));
+              void handleRenameProject();
             }}
             type="button"
           >
-            이름 수정
-          </button>
-          <button
-            className="primary-button"
-            onClick={() => {
-              void readJson<{ id: string }>("/api/admin/projects", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: projectDraftName }),
-              })
-                .then(async (project) => {
-                  setProjectDraftName("");
-                  await refreshProjects();
-                  await switchProject(project.id);
-                  setStatusMessage("새 프로젝트를 생성했습니다.");
-                })
-                .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 생성에 실패했습니다."));
-            }}
-            type="button"
-          >
-            프로젝트 생성
+            {renamingProject ? "Saving..." : "Rename Project"}
           </button>
         </div>
       </div>
@@ -289,8 +413,37 @@ export function AdminFoundationShell() {
       <div className="composer-card">
         <div className="composer-card__header">
           <div>
-            <h3>프로젝트 멤버십</h3>
-            <p style={{ margin: 0, color: "var(--muted)" }}>선택한 프로젝트의 사용자 배정을 전체 교체 방식으로 저장합니다.</p>
+            <h3>Create Project</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>
+              Create a new project without mixing creation controls into the project editing form.
+            </p>
+          </div>
+        </div>
+        <div className="composer-card__body" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+          <label>
+            <span>New project name</span>
+            <input value={projectDraftName} onChange={(event) => setProjectDraftName(event.target.value)} />
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button
+            className="primary-button"
+            disabled={creatingProject}
+            onClick={() => {
+              void handleCreateProject();
+            }}
+            type="button"
+          >
+            {creatingProject ? "Creating..." : "Create Project"}
+          </button>
+        </div>
+      </div>
+
+      <div className="composer-card">
+        <div className="composer-card__header">
+          <div>
+            <h3>Project Members</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>Replace the selected project&apos;s member assignment list.</p>
           </div>
         </div>
         <div className="composer-card__body">
@@ -306,7 +459,7 @@ export function AdminFoundationShell() {
                 }}
               >
                 <label>
-                  <span>이름</span>
+                  <span>Name</span>
                   <input
                     value={member.displayName}
                     onChange={(event) =>
@@ -352,7 +505,7 @@ export function AdminFoundationShell() {
                   onClick={() => setMembers((previous) => previous.filter((entry) => entry.profileId !== member.profileId))}
                   type="button"
                 >
-                  제거
+                  Remove
                 </button>
               </div>
             ))}
@@ -360,7 +513,7 @@ export function AdminFoundationShell() {
 
           <div style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", alignItems: "end" }}>
             <label>
-              <span>기존 사용자</span>
+              <span>Existing user</span>
               <select
                 onChange={(event) => {
                   const profile = availableProfiles.find((entry) => entry.id === event.target.value);
@@ -377,7 +530,7 @@ export function AdminFoundationShell() {
                 }}
                 value={newMember.profileId}
               >
-                <option value="">직접 입력 또는 선택</option>
+                <option value="">Choose or enter manually</option>
                 {availableProfiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.displayName} ({profile.email})
@@ -390,7 +543,7 @@ export function AdminFoundationShell() {
               <input value={newMember.profileId} onChange={(event) => setNewMember((previous) => ({ ...previous, profileId: event.target.value }))} />
             </label>
             <label>
-              <span>이름</span>
+              <span>Name</span>
               <input value={newMember.displayName} onChange={(event) => setNewMember((previous) => ({ ...previous, displayName: event.target.value }))} />
             </label>
             <label>
@@ -401,7 +554,7 @@ export function AdminFoundationShell() {
               className="secondary-button"
               onClick={() => {
                 if (!newMember.profileId || !newMember.displayName) {
-                  setStatusMessage("멤버를 추가하려면 profileId와 이름이 필요합니다.");
+                  setStatusMessage("profileId and display name are required.");
                   return;
                 }
 
@@ -413,7 +566,7 @@ export function AdminFoundationShell() {
               }}
               type="button"
             >
-              멤버 추가
+              Add Member
             </button>
           </div>
 
@@ -434,14 +587,14 @@ export function AdminFoundationShell() {
                 })
                   .then(async () => {
                     await loadProjectScopedData(currentProjectId);
-                    setStatusMessage("프로젝트 멤버십을 저장했습니다.");
+                    setStatusMessage("Project members updated.");
                   })
-                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 멤버십 저장에 실패했습니다."))
+                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "Failed to update project members."))
                   .finally(() => setSavingMembers(false));
               }}
               type="button"
             >
-              멤버십 저장
+              {savingMembers ? "Saving..." : "Save Members"}
             </button>
           </div>
         </div>
@@ -450,8 +603,8 @@ export function AdminFoundationShell() {
       <div className="composer-card">
         <div className="composer-card__header">
           <div>
-            <h3>전역 Work Types</h3>
-            <p style={{ margin: 0, color: "var(--muted)" }}>모든 프로젝트에서 공통으로 보이는 기본 작업유형을 관리합니다.</p>
+            <h3>Global Work Types</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>Manage base work types visible across every project.</p>
           </div>
         </div>
         <div className="composer-card__body">
@@ -467,7 +620,7 @@ export function AdminFoundationShell() {
                 });
                 await reloadGlobalWorkTypes();
                 await refreshWorkTypes();
-                setStatusMessage("전역 work type을 저장했습니다.");
+                setStatusMessage("Global work type updated.");
               }}
               title={definition.labelKo}
             />
@@ -479,21 +632,21 @@ export function AdminFoundationShell() {
               <input value={newGlobalWorkType.code} onChange={(event) => setNewGlobalWorkType((previous) => ({ ...previous, code: event.target.value }))} />
             </label>
             <label>
-              <span>한글</span>
+              <span>Korean label</span>
               <input
                 value={newGlobalWorkType.labelKo}
                 onChange={(event) => setNewGlobalWorkType((previous) => ({ ...previous, labelKo: event.target.value }))}
               />
             </label>
             <label>
-              <span>English</span>
+              <span>English label</span>
               <input
                 value={newGlobalWorkType.labelEn}
                 onChange={(event) => setNewGlobalWorkType((previous) => ({ ...previous, labelEn: event.target.value }))}
               />
             </label>
             <label>
-              <span>정렬 순서</span>
+              <span>Sort order</span>
               <input
                 value={newGlobalWorkType.sortOrder}
                 onChange={(event) => setNewGlobalWorkType((previous) => ({ ...previous, sortOrder: event.target.value }))}
@@ -514,13 +667,13 @@ export function AdminFoundationShell() {
                     setNewGlobalWorkType({ code: "", labelKo: "", labelEn: "", sortOrder: "0" });
                     await reloadGlobalWorkTypes();
                     await refreshWorkTypes();
-                    setStatusMessage("전역 work type을 추가했습니다.");
+                    setStatusMessage("Global work type added.");
                   })
-                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "전역 work type 추가에 실패했습니다."));
+                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "Failed to add global work type."));
               }}
               type="button"
             >
-              추가
+              Add
             </button>
           </div>
         </div>
@@ -529,8 +682,8 @@ export function AdminFoundationShell() {
       <div className="composer-card">
         <div className="composer-card__header">
           <div>
-            <h3>프로젝트 추가 Work Types</h3>
-            <p style={{ margin: 0, color: "var(--muted)" }}>선택한 프로젝트에서만 보이는 추가 작업유형을 관리합니다.</p>
+            <h3>Project Work Types</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>Manage work types visible only inside the selected project.</p>
           </div>
         </div>
         <div className="composer-card__body">
@@ -548,7 +701,7 @@ export function AdminFoundationShell() {
                   await reloadProjectWorkTypes(currentProjectId);
                 }
                 await refreshWorkTypes();
-                setStatusMessage("프로젝트 work type을 저장했습니다.");
+                setStatusMessage("Project work type updated.");
               }}
               title={definition.labelKo}
             />
@@ -563,21 +716,21 @@ export function AdminFoundationShell() {
               />
             </label>
             <label>
-              <span>한글</span>
+              <span>Korean label</span>
               <input
                 value={newProjectWorkType.labelKo}
                 onChange={(event) => setNewProjectWorkType((previous) => ({ ...previous, labelKo: event.target.value }))}
               />
             </label>
             <label>
-              <span>English</span>
+              <span>English label</span>
               <input
                 value={newProjectWorkType.labelEn}
                 onChange={(event) => setNewProjectWorkType((previous) => ({ ...previous, labelEn: event.target.value }))}
               />
             </label>
             <label>
-              <span>정렬 순서</span>
+              <span>Sort order</span>
               <input
                 value={newProjectWorkType.sortOrder}
                 onChange={(event) => setNewProjectWorkType((previous) => ({ ...previous, sortOrder: event.target.value }))}
@@ -603,13 +756,13 @@ export function AdminFoundationShell() {
                     setNewProjectWorkType({ code: "", labelKo: "", labelEn: "", sortOrder: "0" });
                     await reloadProjectWorkTypes(currentProjectId);
                     await refreshWorkTypes();
-                    setStatusMessage("프로젝트 work type을 추가했습니다.");
+                    setStatusMessage("Project work type added.");
                   })
-                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 work type 추가에 실패했습니다."));
+                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "Failed to add project work type."));
               }}
               type="button"
             >
-              추가
+              Add
             </button>
           </div>
         </div>
