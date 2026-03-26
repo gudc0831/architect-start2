@@ -5,6 +5,7 @@ import { serviceUnavailable } from "@/lib/api/errors";
 import { backendMode } from "@/lib/backend-mode";
 import {
   defaultProjectName,
+  localAdminStorePath,
   localDataRoot,
   localFileStorePath,
   localPreferenceStorePath,
@@ -30,7 +31,7 @@ import {
   writeJsonFile,
 } from "@/lib/data-guard/shared";
 
-export type LocalStoreName = "project" | "tasks" | "files" | "sequence" | "preferences";
+export type LocalStoreName = "project" | "tasks" | "files" | "sequence" | "preferences" | "admin";
 
 type LocalGuardStoreState = {
   exists: boolean;
@@ -49,6 +50,7 @@ type LocalFingerprint = {
   fileStorePath: string;
   preferenceStorePath: string;
   sequenceStorePath: string;
+  adminStorePath: string;
   projectId: string | null;
 };
 
@@ -153,6 +155,14 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
       return value && typeof value === "object" ? Object.keys(value as Record<string, unknown>).length : 0;
     },
   },
+  admin: {
+    path: localAdminStorePath,
+    snapshotName: "admin-foundation.json",
+    fallback: {},
+    countRecords(value) {
+      return value && typeof value === "object" ? Object.keys(value as Record<string, unknown>).length : 0;
+    },
+  },
 };
 
 function defaultState(): LocalGuardState {
@@ -165,6 +175,7 @@ function defaultState(): LocalGuardState {
       files: { exists: false, path: localFileStorePath, recordCount: 0, updatedAt: null },
       sequence: { exists: false, path: localSequenceStorePath, recordCount: 0, updatedAt: null },
       preferences: { exists: false, path: localPreferenceStorePath, recordCount: 0, updatedAt: null },
+      admin: { exists: false, path: localAdminStorePath, recordCount: 0, updatedAt: null },
     },
     lastSnapshotId: null,
     writeLock: null,
@@ -232,6 +243,7 @@ async function computeFingerprint(): Promise<LocalFingerprint> {
     fileStorePath: localFileStorePath,
     preferenceStorePath: localPreferenceStorePath,
     sequenceStorePath: localSequenceStorePath,
+    adminStorePath: localAdminStorePath,
     projectId,
   };
 

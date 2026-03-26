@@ -21,12 +21,14 @@ export function Sidebar() {
   const authUser = useAuthUser();
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const { clearUser } = useAuthState();
-  const { projectName, setProjectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
+  const { currentProjectId, availableProjects, switchProject, projectName, setProjectName, projectLoaded, projectSource, isSyncing } =
+    useProjectMeta();
   const navItems = items.map((item) => ({
     ...item,
     label: labelForMode(item.mode),
     href: (isPreview ? `/preview${item.href}` : item.href) as Route,
   }));
+  const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -44,6 +46,21 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand">
         <p className="sidebar__eyebrow">{t("brand.appName")}</p>
+        {!isPreview && availableProjects.length > 0 ? (
+          <select
+            aria-label="현재 프로젝트 선택"
+            className="sidebar__title-input"
+            disabled={isSyncing}
+            onChange={(event) => void switchProject(event.target.value)}
+            value={currentProjectId ?? ""}
+          >
+            {availableProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <input
           aria-label={t("sidebar.projectNameAriaLabel")}
           className="sidebar__title-input"
@@ -63,6 +80,11 @@ export function Sidebar() {
             {item.label}
           </Link>
         ))}
+        {!isPreview && authUser?.role === "admin" ? (
+          <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
+            Admin
+          </Link>
+        ) : null}
       </nav>
 
       <div className={clsx("sidebar__note", isPreview && "sidebar__note--preview")}>

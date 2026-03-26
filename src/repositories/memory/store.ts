@@ -1,17 +1,22 @@
 // @ts-nocheck
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { buildProjectIssueId } from "@/domains/task/identifiers";
 import type { CreateFileInput, CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
+import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const nextId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const validStatus = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
-type SequenceState = { current: number };
+type SequenceState = {
+  current?: number;
+  projects?: Record<string, number>;
+};
 
 function parseNumeric(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
@@ -29,10 +34,12 @@ function normalizeStatus(status: unknown): TaskStatus {
 
 function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
   const ordered = [...tasks].sort((left, right) => String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? "")));
-  let nextNumber = 1;
+  const nextNumberByProject = new Map<string, number>();
   const normalized = ordered.map((raw) => {
-    const taskNumber = parseNumeric(raw.taskNumber) ?? nextNumber;
-    nextNumber = Math.max(nextNumber, taskNumber + 1);
+    const projectId = String(raw.projectId ?? "local-project");
+    const projectNextNumber = nextNumberByProject.get(projectId) ?? 1;
+    const taskNumber = parseNumeric(raw.taskNumber) ?? projectNextNumber;
+    nextNumberByProject.set(projectId, Math.max(projectNextNumber, taskNumber + 1));
     const actionId = parseNumeric(raw.actionId) ?? taskNumber;
     const status = normalizeStatus(raw.status);
     const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : now();
@@ -40,10 +47,10 @@ function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
 
     return {
       id: String(raw.id ?? nextId("task")),
-      projectId: String(raw.projectId ?? "local-project"),
+      projectId,
       taskNumber,
       actionId,
-      issueId: typeof raw.issueId === "string" && raw.issueId ? raw.issueId : `ISSUE-${String(raw.id ?? nextId("issue"))}`,
+      issueId: typeof raw.issueId === "string" && raw.issueId ? raw.issueId : `#${taskNumber}`,
       parentTaskId: typeof raw.parentTaskId === "string" && raw.parentTaskId ? raw.parentTaskId : null,
       rootTaskId: typeof raw.rootTaskId === "string" && raw.rootTaskId ? raw.rootTaskId : String(raw.id ?? nextId("task")),
       depth: Number(raw.depth ?? 0),
@@ -82,12 +89,26 @@ async function readTasks() {
   return normalizeTaskRecords(tasks);
 }
 
-async function nextTaskNumber() {
+async function nextTaskNumber(projectId: string) {
   const tasks = await readTasks();
-  const maxExisting = tasks.reduce((max, task) => Math.max(max, task.taskNumber), 0);
-  const sequence = (await readLocalStore<SequenceState>("sequence", { current: maxExisting + 1 })).value;
-  const nextValue = maxExisting > 0 ? Math.max(Number(sequence.current) || 1, maxExisting + 1) : 1;
-  await writeLocalStore("sequence", { current: nextValue + 1 }, { reason: "sequence.advance" });
+  const maxExisting = tasks
+    .filter((task) => task.projectId === projectId)
+    .reduce((max, task) => Math.max(max, task.taskNumber), 0);
+  const sequence = (await readLocalStore<SequenceState>("sequence", { current: maxExisting + 1, projects: {} })).value;
+  const storedCurrent = Number(sequence.projects?.[projectId] ?? 1);
+  const nextValue = maxExisting > 0 ? Math.max(storedCurrent || 1, maxExisting + 1) : 1;
+  await writeLocalStore(
+    "sequence",
+    {
+      ...sequence,
+      current: nextValue + 1,
+      projects: {
+        ...(sequence.projects ?? {}),
+        [projectId]: nextValue + 1,
+      },
+    },
+    { reason: "sequence.advance" },
+  );
   return nextValue;
 }
 
@@ -105,14 +126,14 @@ function latestFiles(items: FileRecord[]) {
 }
 
 class MemoryTaskRepository implements TaskRepository {
-  async listActiveTasks() {
+  async listActiveTasks(projectId?: string) {
     const tasks = await readTasks();
-    return tasks.filter((task) => !task.deletedAt);
+    return tasks.filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId));
   }
 
-  async listTrashTasks() {
+  async listTrashTasks(projectId?: string) {
     const tasks = await readTasks();
-    return tasks.filter((task) => !!task.deletedAt);
+    return tasks.filter((task) => !!task.deletedAt && (!projectId || task.projectId === projectId));
   }
 
   async findTaskById(taskId: string) {
@@ -120,27 +141,27 @@ class MemoryTaskRepository implements TaskRepository {
     return tasks.find((task) => task.id === taskId) ?? null;
   }
 
-  async getNextTaskNumber(_projectId?: string) {
-    return nextTaskNumber();
+  async getNextTaskNumber(projectId?: string) {
+    return nextTaskNumber(projectId ?? "local-project");
   }
 
   async createTask(input: CreateTaskInput) {
     const tasks = await readTasks();
     const id = nextId("task");
-    const taskNumber = await nextTaskNumber();
+    const taskNumber = await nextTaskNumber(input.projectId);
     const timestamp = now();
     const record: TaskRecord = {
       id,
       projectId: input.projectId,
       taskNumber,
       actionId: taskNumber,
-      issueId: `ISSUE-${nextId("issue")}`,
+      issueId: buildProjectIssueId(input.projectName, taskNumber),
       parentTaskId: input.parentTaskId ?? null,
       rootTaskId: input.rootTaskId?.trim() || id,
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      workType: input.workType,
+      workType: requireStoredWorkTypeCode(input.workType),
       coordinationScope: input.coordinationScope,
       ownerDiscipline: input.ownerDiscipline,
       requestedBy: input.requestedBy,
@@ -179,9 +200,14 @@ class MemoryTaskRepository implements TaskRepository {
 
     const current = tasks[index];
     const { parentTaskNumber: _parentTaskNumber, updatedBy, ...persistedInput } = input;
+    const normalizedPersistedInput = {
+      ...persistedInput,
+      workType:
+        persistedInput.workType === undefined ? undefined : requireStoredWorkTypeCode(persistedInput.workType),
+    };
     const next = {
       ...current,
-      ...persistedInput,
+      ...normalizedPersistedInput,
       updatedAt: now(),
       updatedBy: updatedBy ?? current.updatedBy,
       version: current.version + 1,

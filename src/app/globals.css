@@ -231,6 +231,11 @@ a {
   gap: 0.75rem;
 }
 
+.sidebar__note .secondary-button {
+  width: fit-content;
+  white-space: nowrap;
+}
+
 .workspace {
   display: grid;
   gap: var(--section-gap);
@@ -1769,7 +1774,6 @@ a {
     height: auto;
   }
 }
-
 
 
 

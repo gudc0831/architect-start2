@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { badRequest } from "@/lib/api/errors";
-import { projectRepository } from "@/repositories";
+import { listEffectiveWorkTypesForSession } from "@/use-cases/admin/admin-service";
 import { getTaskListLayout } from "@/use-cases/preference-service";
 import { listFiles } from "@/use-cases/file-service";
+import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { listTasks } from "@/use-cases/task-service";
 import {
   buildTaskExportFilename,
@@ -20,12 +21,15 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const body = await readRequestBody(request);
-    const [project, tasks, files, storedLayout] = await Promise.all([
-      projectRepository.getProject(),
+    const [project, tasks, allFiles, storedLayout, workTypes] = await Promise.all([
+      getSelectedTaskProject(),
       listTasks("active"),
       listFiles("active"),
       getTaskListLayout(user.id),
+      listEffectiveWorkTypesForSession(),
     ]);
+    const taskIds = new Set(tasks.map((task) => task.id));
+    const files = allFiles.filter((file) => taskIds.has(file.taskId));
 
     const layout = mergeTaskExportLayout(body, storedLayout);
     const workbook = await buildTaskExportWorkbook({
@@ -33,6 +37,7 @@ export async function POST(request: Request) {
       tasks,
       files,
       layout,
+      workTypeDefinitions: workTypes.displayDefinitions,
     });
     const buffer = await serializeTaskExportWorkbook(workbook);
     const filename = buildTaskExportFilename(project.name);

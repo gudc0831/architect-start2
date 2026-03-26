@@ -1,9 +1,11 @@
 // @ts-nocheck
 import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
+import { buildProjectIssueId } from "@/domains/task/identifiers";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
+import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
 
 function getDb() {
   const app = getFirebaseClientApp();
@@ -73,7 +75,7 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
     projectId: String(data.projectId ?? "firebase-project"),
     taskNumber,
     actionId,
-    issueId: String(data.issueId ?? `ISSUE-${id}`),
+    issueId: String(data.issueId ?? `#${actionId}`),
     parentTaskId: typeof data.parentTaskId === "string" && data.parentTaskId ? String(data.parentTaskId) : null,
     rootTaskId: String(data.rootTaskId ?? id),
     depth: Number(data.depth ?? 0),
@@ -127,44 +129,55 @@ const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => 
   };
 };
 
-async function nextTaskNumber() {
+function sequenceDocId(projectId: string) {
+  return `${sequenceDocName}-${projectId}`;
+}
+
+async function nextTaskNumber(projectId: string) {
   const db = getDb();
   if (!db) {
     throw new Error("Firestore is not configured");
   }
 
   const [sequenceSnapshot, taskSnapshot] = await Promise.all([
-    getDoc(doc(db, "meta", sequenceDocName)),
+    getDoc(doc(db, "meta", sequenceDocId(projectId))),
     getDocs(collection(db, taskCollectionName)),
   ]);
 
   const maxExisting = taskSnapshot.docs.reduce((max, entry) => {
+    if (String(entry.data().projectId ?? "") !== projectId) {
+      return max;
+    }
     const value = parseNumeric(entry.data().taskNumber);
     return value ? Math.max(max, value) : max;
   }, 0);
   const storedCurrent = sequenceSnapshot.exists() ? Number(sequenceSnapshot.data().value ?? 1) : 1;
   const nextValue = maxExisting > 0 ? Math.max(storedCurrent, maxExisting + 1) : 1;
 
-  await setDoc(doc(db, "meta", sequenceDocName), { value: nextValue + 1 }, { merge: true });
+  await setDoc(doc(db, "meta", sequenceDocId(projectId)), { value: nextValue + 1 }, { merge: true });
   return nextValue;
 }
 
 class FirestoreTaskRepository implements TaskRepository {
-  async listActiveTasks() {
+  async listActiveTasks(projectId?: string) {
     const db = getDb();
     if (!db) return [];
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
-    const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => !task.deletedAt);
+    const items = snapshot.docs
+      .map((entry) => toTaskRecord(entry.id, entry.data()))
+      .filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId));
     return items.sort((left, right) => left.actionId - right.actionId || left.createdAt.localeCompare(right.createdAt));
   }
 
-  async listTrashTasks() {
+  async listTrashTasks(projectId?: string) {
     const db = getDb();
     if (!db) return [];
 
     const snapshot = await getDocs(collection(db, taskCollectionName));
-    const items = snapshot.docs.map((entry) => toTaskRecord(entry.id, entry.data())).filter((task) => Boolean(task.deletedAt));
+    const items = snapshot.docs
+      .map((entry) => toTaskRecord(entry.id, entry.data()))
+      .filter((task) => Boolean(task.deletedAt) && (!projectId || task.projectId === projectId));
     return sortByDeletedAt(items);
   }
 
@@ -176,8 +189,8 @@ class FirestoreTaskRepository implements TaskRepository {
     return toTaskRecord(snapshot.id, snapshot.data());
   }
 
-  async getNextTaskNumber() {
-    return nextTaskNumber();
+  async getNextTaskNumber(projectId: string) {
+    return nextTaskNumber(projectId);
   }
 
   async createTask(input: CreateTaskInput) {
@@ -187,19 +200,19 @@ class FirestoreTaskRepository implements TaskRepository {
     }
 
     const ref = doc(collection(db, taskCollectionName));
-    const actionId = await nextTaskNumber();
+    const actionId = await nextTaskNumber(input.projectId);
     const timestamp = new Date().toISOString();
     const record = {
       projectId: input.projectId,
       taskNumber: actionId,
       actionId,
-      issueId: `ISSUE-${randomUUID()}`,
+      issueId: buildProjectIssueId(input.projectName, actionId),
       parentTaskId: input.parentTaskId ?? null,
       rootTaskId: input.rootTaskId?.trim() || ref.id,
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      workType: input.workType,
+      workType: requireStoredWorkTypeCode(input.workType),
       coordinationScope: input.coordinationScope,
       ownerDiscipline: input.ownerDiscipline,
       requestedBy: input.requestedBy,
@@ -235,6 +248,11 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const rawInput = input as UpdateTaskInput & { expectedVersion?: number; version?: number };
     const { parentTaskNumber: _parentTaskNumber, expectedVersion: _expectedVersion, version: _version, ...persistedInput } = rawInput;
+    const normalizedPersistedInput = {
+      ...persistedInput,
+      workType:
+        persistedInput.workType === undefined ? undefined : requireStoredWorkTypeCode(persistedInput.workType),
+    };
     const targetRef = doc(db, taskCollectionName, taskId);
     const currentSnapshot = await getDoc(targetRef);
 
@@ -245,9 +263,9 @@ class FirestoreTaskRepository implements TaskRepository {
     const currentTask = toTaskRecord(currentSnapshot.id, currentSnapshot.data());
     const updatedAt = new Date().toISOString();
     await updateDoc(targetRef, {
-      ...persistedInput,
+      ...normalizedPersistedInput,
       updatedAt,
-      updatedBy: persistedInput.updatedBy ?? currentTask.updatedBy,
+      updatedBy: normalizedPersistedInput.updatedBy ?? currentTask.updatedBy,
       version: currentTask.version + 1,
       deletedAt: input.deletedAt === undefined ? undefined : input.deletedAt,
     } as Record<string, unknown>);
@@ -424,4 +442,3 @@ class FirestoreFileRepository implements FileRepository {
 
 export const firestoreTaskRepository = new FirestoreTaskRepository();
 export const firestoreFileRepository = new FirestoreFileRepository();
-

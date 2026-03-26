@@ -19,6 +19,7 @@
     "import:legacy:safe": "tsx scripts/import-legacy-safe.ts",
     "data:doctor": "tsx scripts/data-doctor.ts",
     "data:backup": "tsx scripts/data-backup.ts",
+    "data:rekey-issue-ids": "tsx scripts/rekey-project-issue-ids.ts",
     "data:restore": "tsx scripts/data-restore.ts",
     "task-export:verify": "tsx scripts/task-export-verify.ts",
     "codex:skills:list": "powershell -ExecutionPolicy Bypass -File scripts/sync-project-skills.ps1 -List",

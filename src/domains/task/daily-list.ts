@@ -1,5 +1,6 @@
 import type { TaskListColumnKey } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
+import { looksLikeProjectIssueId } from "@/domains/task/identifiers";
 import { t } from "@/lib/ui-copy";
 
 export type DailyTaskListColumnConfig = {
@@ -41,6 +42,15 @@ export function formatActionId(actionId: number | string | null | undefined) {
   if (raw.startsWith("#")) return raw;
   const numeric = Number(raw);
   return Number.isFinite(numeric) ? "#" + numeric : raw;
+}
+
+export function formatTaskBacklogId(task: Pick<TaskRecord, "issueId" | "actionId" | "taskNumber">) {
+  const issueId = String(task.issueId ?? "").trim();
+  if (issueId && looksLikeProjectIssueId(issueId)) {
+    return issueId;
+  }
+
+  return formatActionId(task.actionId ?? task.taskNumber);
 }
 
 export function formatDateTimeField(value: string | null | undefined) {

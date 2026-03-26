@@ -7,17 +7,18 @@ import {
   type TaskListLayoutPreference,
   type TaskListRowHeightMap,
 } from "@/domains/preferences/types";
+import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import {
   buildTaskHierarchyPathMap,
   buildTaskTreeRows,
   dailyTaskListColumns,
-  formatActionId,
+  formatTaskBacklogId,
   formatDateTimeField,
   joinLatestFileNames,
   summarizeLinkedDocumentsForExport,
 } from "@/domains/task/daily-list";
-import { formatStatusHistoryForDisplay, labelForField, labelForMode, labelForStatus, t } from "@/lib/ui-copy";
+import { formatStatusHistoryForDisplay, labelForField, labelForMode, labelForStatus, labelForWorkType, t } from "@/lib/ui-copy";
 
 export type TaskExportLayoutInput = {
   columnWidths?: unknown;
@@ -29,6 +30,7 @@ type TaskExportWorkbookInput = {
   tasks: TaskRecord[];
   files: FileRecord[];
   layout: TaskListLayoutPreference;
+  workTypeDefinitions?: readonly Pick<WorkTypeDefinition, "code" | "labelKo" | "isActive" | "sortOrder">[];
 };
 
 const MAIN_SHEET_NAME = labelForMode("daily");
@@ -125,9 +127,9 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     const exportRowIndex = rowIndex + 2;
     const parentTask = task.parentTaskId ? taskById.get(task.parentTaskId) ?? null : null;
     const nextRow = worksheet.addRow([
-      formatActionId(task.actionId || task.taskNumber),
+      formatTaskBacklogId(task),
       toExcelDateCell(task.dueDate),
-      task.workType || "",
+      labelForWorkType(task.workType, input.workTypeDefinitions),
       task.coordinationScope || "",
       task.requestedBy || "",
       task.relatedDisciplines || "",
@@ -186,9 +188,9 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     metaWorksheet.addRow([
       exportRowIndex,
       task.id,
-      formatActionId(task.actionId || task.taskNumber),
+      formatTaskBacklogId(task),
       task.parentTaskId ?? "",
-      parentTask ? formatActionId(parentTask.actionId || parentTask.taskNumber) : "",
+      parentTask ? formatTaskBacklogId(parentTask) : "",
       task.rootTaskId,
       row.depth,
       task.siblingOrder,

@@ -294,7 +294,7 @@ export const uiCopyCatalog = {
       detailPanelEmpty: "목록에서 작업을 선택해 상세 정보를 수정하고 첨부 문서를 관리하세요.",
       dateInputPlaceholder: "YYYY-MM-DD",
       datePickerAria: "{{label}} 달력 열기",
-      parentTaskNumberPlaceholder: "#12 또는 12",
+      parentTaskNumberPlaceholder: "MIL-001, #12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
       autoAfterCreate: "생성 후 자동 지정",
       autoValue: "자동",
@@ -326,7 +326,7 @@ export const uiCopyCatalog = {
       previewLoading: "미리보기를 불러오는 중...",
     },
     fields: {
-      actionId: "작업 번호",
+      actionId: "이슈 ID",
       dueDate: "마감일",
       workType: "작업 유형",
       coordinationScope: "협업 범위",
@@ -345,7 +345,7 @@ export const uiCopyCatalog = {
       statusHistory: "상태 변경 이력",
       decision: "결정 사항",
       linkedDocuments: "첨부 문서",
-      parentActionId: "상위 작업 번호",
+      parentActionId: "상위 이슈 ID",
     },
     status: {
       labels: {
@@ -466,7 +466,7 @@ export const uiCopyCatalog = {
       taskVersionConflict: "다른 사용자가 먼저 수정했습니다. 최신 데이터를 불러온 뒤 다시 시도하세요.",
       invalidParentTask: "올바르지 않은 상위 작업입니다.",
       parentTaskNotFound: "상위 작업을 찾을 수 없습니다.",
-      parentTaskNumberInvalid: "상위 작업 번호 형식이 올바르지 않습니다.",
+      parentTaskNumberInvalid: "상위 이슈 ID 또는 번호 형식이 올바르지 않습니다.",
       taskStatusInvalid: "상태 값이 올바르지 않습니다.",
       projectNameRequired: "프로젝트명을 입력하세요.",
       taskIdRequired: "작업 ID가 필요합니다.",
@@ -547,7 +547,7 @@ export const uiCopyCatalog = {
       detailPanelEmpty: "Select a task from the list to edit its details and manage linked_documents.",
       dateInputPlaceholder: "YYYY-MM-DD",
       datePickerAria: "{{label}} calendar",
-      parentTaskNumberPlaceholder: "#12 or 12",
+      parentTaskNumberPlaceholder: "MIL-001, #12, or 12",
       resizeFieldAria: "Resize {{field}}",
       autoAfterCreate: "Auto after create",
       autoValue: "Auto",
@@ -579,7 +579,7 @@ export const uiCopyCatalog = {
       previewLoading: "Loading preview...",
     },
     fields: {
-      actionId: "Action ID",
+      actionId: "Issue ID",
       dueDate: "Due Date",
       workType: "Work Type",
       coordinationScope: "Coordination Scope",
@@ -598,7 +598,7 @@ export const uiCopyCatalog = {
       statusHistory: "Status History",
       decision: "Decision",
       linkedDocuments: "Linked Documents",
-      parentActionId: "Parent Action ID",
+      parentActionId: "Parent Issue ID",
     },
     status: {
       labels: {
@@ -719,7 +719,7 @@ export const uiCopyCatalog = {
       taskVersionConflict: "Another user updated this task first. Reload the latest data and try again.",
       invalidParentTask: "Invalid parent task.",
       parentTaskNotFound: "Parent task not found.",
-      parentTaskNumberInvalid: "Parent action_id format is invalid.",
+      parentTaskNumberInvalid: "Parent issue ID or numeric reference format is invalid.",
       taskStatusInvalid: "Status is invalid.",
       projectNameRequired: "Project name is required.",
       taskIdRequired: "Task ID is required.",
@@ -735,4 +735,3 @@ export const uiCopyCatalog = {
     },
   },
 } satisfies Record<UiLocale, UICatalog>;
-

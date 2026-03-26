@@ -4,6 +4,7 @@ import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 export type CreateTaskInput = {
   projectId: string;
+  projectName: string;
   dueDate: string;
   workType: string;
   coordinationScope: string;
@@ -38,6 +39,7 @@ export type UpdateTaskInput = Partial<
     | "rootTaskId"
     | "depth"
     | "siblingOrder"
+    | "issueId"
     | "dueDate"
     | "workType"
     | "coordinationScope"

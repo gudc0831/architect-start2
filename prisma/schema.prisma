@@ -12,6 +12,11 @@ enum ProfileRole {
   member
 }
 
+enum ProjectMembershipRole {
+  manager
+  member
+}
+
 enum TaskStatus {
   waiting
   todo
@@ -32,6 +37,7 @@ model Profile {
   createdTasks    Task[]             @relation("TaskCreatedBy")
   updatedTasks    Task[]             @relation("TaskUpdatedBy")
   uploadedFiles   File[]             @relation("FileUploadedBy")
+  projectMemberships ProjectMembership[]
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -46,8 +52,10 @@ model Project {
   updatedBy String?   @map("updated_by") @db.Uuid
   creator   Profile?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   updater   Profile?  @relation("ProjectUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  memberships ProjectMembership[]
   tasks     Task[]
   files     File[]
+  workTypeDefinitions WorkTypeDefinition[]
 
   @@map("projects")
 }
@@ -135,4 +143,43 @@ model ProfilePreference {
   profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@map("profile_preferences")
+}
+
+model ProjectMembership {
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String                @map("project_id") @db.Uuid
+  profileId   String                @map("profile_id") @db.Uuid
+  role        ProjectMembershipRole @default(member)
+  displayName String                @default("") @map("display_name")
+  email       String                @default("")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy   String?               @map("created_by") @db.Uuid
+  updatedBy   String?               @map("updated_by") @db.Uuid
+  project     Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profile     Profile               @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, profileId])
+  @@index([profileId])
+  @@map("project_memberships")
+}
+
+model WorkTypeDefinition {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String?   @map("project_id") @db.Uuid
+  code      String
+  labelKo   String    @map("label_ko")
+  labelEn   String    @map("label_en")
+  isSystem  Boolean   @default(false) @map("is_system")
+  isActive  Boolean   @default(true) @map("is_active")
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, isActive])
+  @@index([projectId, sortOrder])
+  @@map("work_type_definitions")
 }

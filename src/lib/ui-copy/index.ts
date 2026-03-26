@@ -2,6 +2,8 @@
 import type { DashboardMode, TaskStatus } from "@/domains/task/types";
 import { uiCopyCatalog, type ProjectSourceLabelKey, type UICatalog, type UiLocale, type UploadModeLabelKey } from "@/lib/ui-copy/catalog";
 
+export { getWorkTypeOptions, getWorkTypeSelectOptions, getWorkTypeSelectValue, labelForWorkType } from "@/lib/ui-copy/work-types";
+
 export const DEFAULT_UI_LOCALE: UiLocale = "ko";
 export const DEFAULT_UI_LOCALE_TAG = DEFAULT_UI_LOCALE === "ko" ? "ko-KR" : "en-US";
 
@@ -149,6 +151,5 @@ export function getWeekdayLabelByIndex(index: number, long = false) {
 }
 
 export { getCatalog, uiCopyCatalog };
-
 
 

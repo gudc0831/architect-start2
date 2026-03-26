@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import * as ExcelJS from "exceljs";
+import { looksLikeProjectIssueId } from "../src/domains/task/identifiers";
 import { uiCopyCatalog, type UiLocale } from "../src/lib/ui-copy/catalog";
 import { taskListColumnKeys } from "../src/domains/preferences/types";
 
@@ -330,10 +331,10 @@ function verifyMetaRow(row: SheetRow, expectedExportRowIndex: number, failures: 
     });
   }
 
-  if (!actionId.startsWith("#")) {
+  if (!looksLikeProjectIssueId(actionId)) {
     failures.push({
       row: row.rowIndex,
-      message: `actionId should be formatted with '#', got '${actionId}'`,
+      message: `actionId should use the project issue format, got '${actionId}'`,
     });
   }
 
@@ -420,10 +421,10 @@ function verifyMainRow(
   const calendarLinkedCell = row.values.calendarLinked;
   const worksheetRow = actionIdCell?.worksheet.getRow(row.rowIndex);
 
-  if (!actionId.startsWith("#")) {
+  if (!looksLikeProjectIssueId(actionId)) {
     failures.push({
       row: row.rowIndex,
-      message: `actionId should be formatted with '#', got '${actionId}'`,
+      message: `actionId should use the project issue format, got '${actionId}'`,
     });
   }
 

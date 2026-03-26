@@ -5,6 +5,8 @@ import { loadEnvConfig } from "@next/env";
 import type { PrismaClient } from "@prisma/client";
 import { initializeApp, getApps } from "firebase/app";
 import { collection, getDocs, getFirestore } from "firebase/firestore";
+import { buildProjectIssueId } from "../src/domains/task/identifiers";
+import { classifyLegacyWorkType } from "../src/lib/task-work-type-write";
 
 loadEnvConfig(process.cwd());
 
@@ -67,6 +69,7 @@ type NormalizedTask = {
   parentTaskId: string | null;
   rootTaskId: string;
   depth: number;
+  workType: string;
 };
 
 type NormalizedFile = {
@@ -93,6 +96,7 @@ async function main() {
   const { prisma } = await import("../src/lib/prisma");
   const { backendMode, defaultProjectName, localFileStorePath, localProjectMetaPath, localTaskStorePath, localUploadRoot } = await import("../src/lib/runtime-config");
   const { storageProvider } = await import("../src/storage");
+  const normalizedProjectName = normalizeText(bundle.project.name) || defaultProjectName;
 
   if (backendMode !== "cloud") {
     throw new Error("import:legacy requires APP_BACKEND_MODE=cloud");
@@ -159,11 +163,11 @@ async function main() {
         depth: task.depth,
         siblingOrder: Number.isFinite(task.legacy.siblingOrder) ? Number(task.legacy.siblingOrder) : 0,
         dueDate: normalizeDateOnly(task.legacy.dueDate),
-        category: normalizeText(task.legacy.category),
+        category: task.workType,
         requester: normalizeText(task.legacy.requester),
         assignee: normalizeText(task.legacy.assignee),
         actionId: task.taskNumber,
-        issueId: `ISSUE-${task.id}`,
+        issueId: buildProjectIssueId(normalizedProjectName, task.taskNumber),
         title: normalizeText(task.legacy.title) || "Untitled task",
         createdAt: new Date(createdAt),
         isDaily: Boolean(task.legacy.isDaily),
@@ -182,11 +186,11 @@ async function main() {
         depth: task.depth,
         siblingOrder: Number.isFinite(task.legacy.siblingOrder) ? Number(task.legacy.siblingOrder) : 0,
         dueDate: normalizeDateOnly(task.legacy.dueDate),
-        category: normalizeText(task.legacy.category),
+        category: task.workType,
         requester: normalizeText(task.legacy.requester),
         assignee: normalizeText(task.legacy.assignee),
         actionId: task.taskNumber,
-        issueId: `ISSUE-${task.id}`,
+        issueId: buildProjectIssueId(normalizedProjectName, task.taskNumber),
         title: normalizeText(task.legacy.title) || "Untitled task",
         createdAt: new Date(createdAt),
         isDaily: Boolean(task.legacy.isDaily),
@@ -406,6 +410,7 @@ function normalizeTasks(bundle: LegacyBundle, projectId: string) {
       parentTaskId: parentLegacyId ? stableUuid(`task:${bundle.source}:${parentLegacyId}`) : null,
       rootTaskId: stableUuid(`task:${bundle.source}:${findRootLegacyTaskId(tasksByLegacyId, task.id)}`),
       depth: countTaskDepth(tasksByLegacyId, task.id),
+      workType: normalizeLegacyTaskWorkType(task),
     } satisfies NormalizedTask;
   });
 }
@@ -507,6 +512,15 @@ function parseLegacyTaskNumber(value: unknown) {
   const trimmed = value.trim();
   const match = /^#?(\d+)$/.exec(trimmed) ?? /^MIL-(\d+)$/.exec(trimmed);
   return match ? Number(match[1]) : null;
+}
+
+function normalizeLegacyTaskWorkType(task: LegacyTask) {
+  const decision = classifyLegacyWorkType(task.category);
+  if (decision.nextCode) {
+    return decision.nextCode;
+  }
+
+  throw new Error(`Legacy task ${task.id} has unmappable workType: ${decision.rawValue || "<empty>"}`);
 }
 
 function parseLegacyFileVersion(file: LegacyFile) {
@@ -674,4 +688,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

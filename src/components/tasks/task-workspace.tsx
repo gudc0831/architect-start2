@@ -17,14 +17,17 @@ import clsx from "clsx";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { WorkTypeSelect } from "@/components/tasks/work-type-select";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
+import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import {
   buildTaskTreeRows,
   dailyTaskListColumns,
   formatActionId,
+  formatTaskBacklogId,
   formatDateTimeField,
   sortTasksByActionId,
   type DailyTaskListColumnConfig as TaskListColumnConfig,
@@ -60,6 +63,7 @@ import {
   labelForMode,
   labelForProjectSource,
   labelForStatus,
+  labelForWorkType,
   labelForUploadMode,
   localizeError,
   t,
@@ -72,6 +76,7 @@ type TaskFormLayoutVariant = "detail" | "composer";
 
 type TaskFormState = {
   actionId: string;
+  issueId: string;
   dueDate: string;
   workType: string;
   coordinationScope: string;
@@ -98,6 +103,7 @@ type DraftDirtyFieldMap = Partial<Record<DraftDirtyField, true>>;
 
 type TaskFormDisplayState = {
   actionId?: string | number | null;
+  issueId?: string | null;
   dueDate: string;
   workType: string;
   coordinationScope: string;
@@ -174,6 +180,7 @@ type TaskListRowPresentationContext = {
   row: TaskTreeRow;
   rowDraft: TaskRecord | null;
   linkedDocumentsDisplay: LinkedDocumentsDisplay;
+  workTypeDefinitions: readonly WorkTypeDefinition[];
 };
 
 type TaskListCellPresentation =
@@ -301,8 +308,9 @@ const editableTaskListFieldByColumn = {
 } as const satisfies Partial<Record<TaskListColumnKey, EditableTaskFormKey>>;
 const defaultForm = (): TaskFormState => ({
   actionId: "",
+  issueId: "",
   dueDate: todayKey(),
-  workType: "",
+  workType: "coordination",
   coordinationScope: "",
   ownerDiscipline: "\uAC74\uCD95",
   requestedBy: "",
@@ -335,7 +343,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
-  const { projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
+  const { projectName, projectLoaded, projectSource, isSyncing, workTypeDefinitions } = useProjectMeta();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedTrashTaskIds, setSelectedTrashTaskIds] = useState<string[]>([]);
@@ -753,12 +761,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           row,
           rowDraft,
           linkedDocumentsDisplay,
+          workTypeDefinitions,
         }),
         taskListColumnWidthsRef.current,
       );
       setTaskListRowHeight(taskId, nextHeight, true);
     },
-    [draft, selectedTaskId, setTaskListRowHeight],
+    [draft, selectedTaskId, setTaskListRowHeight, workTypeDefinitions],
   );
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(
@@ -1027,7 +1036,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }, {});
   }, [calendarTasks]);
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
-  const detailSummary = selectedTask ? formatActionId(selectedTask.actionId) : t("empty.nothingSelected");
+  const detailSummary = selectedTask ? formatTaskBacklogId(selectedTask) : t("empty.nothingSelected");
   const trashTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
   const trashFileIdSet = useMemo(() => new Set(files.map((file) => file.id)), [files]);
   const selectedTrashTaskIdSet = useMemo(() => new Set(selectedTrashTaskIds), [selectedTrashTaskIds]);
@@ -1073,7 +1082,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const nextParentTaskNumber = selectedParentTask ? String(selectedParentTask.actionId) : "";
+    const nextParentTaskNumber = selectedParentTask ? formatTaskBacklogId(selectedParentTask) : "";
     const isSelectionChange = previousSelectedTaskIdRef.current !== selectedTask.id;
     previousSelectedTaskIdRef.current = selectedTask.id;
 
@@ -1168,7 +1177,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     if (!selectedTask) return;
     resetDraftDirtyFields();
     setDraft(toDraftTask(selectedTask));
-    setParentTaskNumberDraft(selectedParentTask ? String(selectedParentTask.actionId) : "");
+    setParentTaskNumberDraft(selectedParentTask ? formatTaskBacklogId(selectedParentTask) : "");
   }
   async function createTaskFromForm(nextForm: TaskFormState) {
     setErrorMessage(null);
@@ -1201,6 +1210,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   async function saveSelectedTask() {
     const currentDraft = draftRef.current;
     if (!currentDraft) return false;
+    const dirtyFields = getDirtyDraftFields(draftDirtyFieldsRef.current);
+    if (dirtyFields.length === 0) {
+      return true;
+    }
     setSaving(true);
     setErrorMessage(null);
 
@@ -1211,13 +1224,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     try {
+      const payload = buildTaskPatchPayloadFromDraft(currentDraft, draftDirtyFieldsRef.current, parentTaskNumberDraftRef.current);
       const response = await fetch(`/api/tasks/${encodeURIComponent(currentDraft.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...taskPayloadFromDraft(currentDraft),
-          parentTaskNumber: normalizeParentTaskNumberInput(parentTaskNumberDraftRef.current),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -1229,7 +1240,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       const json = (await response.json()) as { data: TaskRecord };
-      applyTaskServerUpdate(json.data, allDraftDirtyFields);
+      applyTaskServerUpdate(json.data, dirtyFields);
       return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "saveTaskFailed" }));
@@ -1490,7 +1501,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const confirmed = window.confirm(
       t("workspace.deleteTaskPermanentlyConfirm", {
-        name: `${formatActionId(task.actionId)} ${task.issueTitle}`.trim(),
+        name: `${formatTaskBacklogId(task)} ${task.issueTitle}`.trim(),
       }),
     );
 
@@ -1672,7 +1683,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
     }
 
-    const selectedParentTaskNumber = selectedParentTaskRef.current ? String(selectedParentTaskRef.current.actionId) : "";
+    const selectedParentTaskNumber = selectedParentTaskRef.current ? formatTaskBacklogId(selectedParentTaskRef.current) : "";
     return normalizeParentTaskNumberInput(parentTaskNumberDraftRef.current) !== normalizeParentTaskNumberInput(selectedParentTaskNumber);
   }
 
@@ -1970,7 +1981,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               tabIndex={0}
                             >
                               <div className="task-card__top">
-                                <strong>{formatActionId(task.actionId)}</strong>
+                                <strong>{formatTaskBacklogId(task)}</strong>
                                 <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
                               </div>
                               <div className="task-card__main">
@@ -1979,7 +1990,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               </div>
                               <div className="task-card__meta">
                                 <span>{t("workspace.dueDateMeta", { date: task.dueDate || "-" })}</span>
-                                <span>{task.workType || t("empty.uncategorized")}</span>
+                                <span>{labelForWorkType(task.workType, workTypeDefinitions)}</span>
                                 <span>{task.assignee || t("empty.unassigned")}</span>
                                 <span>{t("workspace.fileCount", { count: taskFiles.length })}</span>
                               </div>
@@ -2043,6 +2054,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           readonly={createReadonlyFields}
                           showOwnerDiscipline={false}
                           showUpdatedAt={false}
+                          workTypeDefinitions={workTypeDefinitions}
                         />
                       </div>
                       <div className="detail-actions detail-actions--inline">
@@ -2099,7 +2111,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   isBranchTask && "task-tree__badge--branch",
                                 )}
                               >
-                                {formatActionId(task.actionId)}
+                                {formatTaskBacklogId(task)}
                               </span>
                               <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
                             </div>
@@ -2118,7 +2130,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             </div>
                             <div className="daily-task-card__meta-item">
                               <dt>{labelForField("workType")}</dt>
-                              <dd>{task.workType || t("empty.uncategorized")}</dd>
+                              <dd>{labelForWorkType(task.workType, workTypeDefinitions)}</dd>
                             </div>
                             <div className="daily-task-card__meta-item">
                               <dt>{labelForField("requestedBy")}</dt>
@@ -2166,7 +2178,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           const taskFiles = filesByTaskId[task.id] ?? [];
                           const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
                           const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
-                          const rowResizeAria = t("workspace.resizeFieldAria", { field: formatActionId(task.actionId) });
+                          const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskBacklogId(task) });
                           const rowAutoFitAria = rowResizeAria;
                           const isSelectedRow = task.id === selectedTaskId;
                           const rowDraft = isSelectedRow && draft?.id === task.id ? draft : null;
@@ -2175,6 +2187,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             row,
                             rowDraft,
                             linkedDocumentsDisplay,
+                            workTypeDefinitions,
                           });
 
                           const renderTaskListCellContent = (columnKey: TaskListColumnKey, presentation: TaskListCellPresentation) => {
@@ -2243,6 +2256,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     onChange={updateDraftForm}
                                     onCommit={saveInlineTaskListField}
                                     saving={Boolean(inlineSavingFields[columnKey])}
+                                    workTypeDefinitions={workTypeDefinitions}
                                   />
                                 );
                               case "editable-checkbox":
@@ -2345,7 +2359,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <div className="calendar-agenda__items">
                           {group.items.map((task) => (
                             <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                              <strong>{formatActionId(task.actionId)}</strong>
+                              <strong>{formatTaskBacklogId(task)}</strong>
                               <span>{task.issueTitle}</span>
                               <small>
                                 {t("workspace.agendaMeta", { status: statusLabel[task.status], assignee: task.assignee || t("empty.unassigned") })}
@@ -2380,7 +2394,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           <div className="calendar-cell__items">
                             {dayTasks.map((task) => (
                               <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                                {formatActionId(task.actionId)} {task.issueTitle}
+                                {formatTaskBacklogId(task)} {task.issueTitle}
                               </Link>
                             ))}
                           </div>
@@ -2421,7 +2435,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           <>
                             <div className="trash-card__meta-row">
                               <span className="trash-card__type trash-card__type--task">{t("workspace.trashItemTask")}</span>
-                              <strong>{formatActionId(item.task.actionId)}</strong>
+                              <strong>{formatTaskBacklogId(item.task)}</strong>
                             </div>
                             <p>{item.task.issueTitle || t("empty.noDescription")}</p>
                             <small>{t("workspace.deletedDateMeta", { date: fileSafeDate(item.task.deletedAt) })}</small>
@@ -2533,6 +2547,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       form={draft}
                       onChange={updateSelectedTaskForm}
                       readonly={{ ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) }}
+                      workTypeDefinitions={workTypeDefinitions}
                     />
 
                     <label>
@@ -2678,6 +2693,7 @@ function TaskListInlineEditor({
   onChange,
   onCommit,
   saving = false,
+  workTypeDefinitions = [],
 }: {
   columnKey: TaskListColumnKey;
   fieldKey: EditableTaskFormKey;
@@ -2685,6 +2701,7 @@ function TaskListInlineEditor({
   onChange: TaskFormChangeHandler;
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
   saving?: boolean;
+  workTypeDefinitions?: readonly WorkTypeDefinition[];
 }) {
   const sharedProps = {
     "aria-label": labelForField(fieldKey),
@@ -2744,6 +2761,21 @@ function TaskListInlineEditor({
     );
   }
 
+  if (fieldKey === "workType") {
+    return (
+      <WorkTypeSelect
+        {...sharedProps}
+        className="sheet-table__inline-input sheet-table__inline-select"
+        definitions={workTypeDefinitions}
+        onChange={(event) => {
+          onChange("workType", event.target.value);
+          void onCommit(columnKey);
+        }}
+        value={form.workType}
+      />
+    );
+  }
+
   return (
     <textarea
       {...sharedProps}
@@ -2765,6 +2797,7 @@ function TaskFormFields({
   showUpdatedAt = true,
   quickCreateWidths,
   onComposerResizeStart,
+  workTypeDefinitions = [],
 }: {
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
@@ -2774,6 +2807,7 @@ function TaskFormFields({
   showUpdatedAt?: boolean;
   quickCreateWidths?: ResolvedQuickCreateWidthMap;
   onComposerResizeStart?: (fieldKey: QuickCreateFieldKey, event: ReactPointerEvent<HTMLButtonElement>) => void;
+  workTypeDefinitions?: readonly WorkTypeDefinition[];
 }) {
   const gridClassName = layout === "composer" ? "composer-form-grid composer-scroll-track" : "detail-form-grid";
   const composerWidths = quickCreateWidths ?? quickCreateDefaultWidths;
@@ -2811,7 +2845,7 @@ function TaskFormFields({
     <div className={gridClassName}>
       <label {...getLabelProps("actionId", "form-field--compact")}>
         <span>{labelForField("actionId")}</span>
-        <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyActionId(form.actionId)} />
+        <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyActionId(form.actionId, form.issueId)} />
         {renderResizeHandle("actionId")}
       </label>
       <label {...getLabelProps("dueDate", "form-field--compact form-field--date")}>
@@ -2825,7 +2859,12 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("workType", "form-field--stretch")}>
         <span>{labelForField("workType")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("workType", event.target.value)} rows={1} value={form.workType} />
+        <WorkTypeSelect
+          className="detail-select-field"
+          definitions={workTypeDefinitions}
+          onChange={(event) => onChange("workType", event.target.value)}
+          value={form.workType}
+        />
         {renderResizeHandle("workType")}
       </label>
       <label {...getLabelProps("coordinationScope", "form-field--stretch")}>
@@ -3057,7 +3096,7 @@ function createTaskListRowPresentationContext(context: TaskListRowPresentationCo
 }
 
 function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: TaskListRowPresentationContext): TaskListCellPresentation {
-  const { task, row, rowDraft, linkedDocumentsDisplay } = context;
+  const { task, row, rowDraft, linkedDocumentsDisplay, workTypeDefinitions } = context;
   const isChildTask = row.depth > 0;
   const isParentTask = row.hasChildren;
   const isBranchTask = isChildTask && isParentTask;
@@ -3067,7 +3106,7 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
     case "actionId":
       return {
         kind: "tree",
-        actionId: formatActionId(task.actionId),
+        actionId: formatTaskBacklogId(task),
         isChildTask,
         isParentTask,
         isBranchTask,
@@ -3077,7 +3116,9 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
     case "dueDate":
       return rowDraft ? { kind: "editable-date", fieldKey: "dueDate", value: rowDraft.dueDate } : { kind: "text", text: task.dueDate || "-" };
     case "workType":
-      return rowDraft ? { kind: "editable-text", fieldKey: "workType", value: rowDraft.workType } : { kind: "text", text: task.workType || "-" };
+      return rowDraft
+        ? { kind: "editable-text", fieldKey: "workType", value: rowDraft.workType }
+        : { kind: "text", text: labelForWorkType(task.workType, workTypeDefinitions) };
     case "coordinationScope":
       return rowDraft
         ? { kind: "editable-text", fieldKey: "coordinationScope", value: rowDraft.coordinationScope }
@@ -3347,6 +3388,26 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
   };
 }
 
+function getDirtyDraftFields(dirtyFields: DraftDirtyFieldMap) {
+  return allDraftDirtyFields.filter((field) => Boolean(dirtyFields[field]));
+}
+
+function buildTaskPatchPayloadFromDraft(draft: Partial<TaskRecord>, dirtyFields: DraftDirtyFieldMap, parentTaskNumber: string) {
+  const normalizedDraft = taskPayloadFromDraft(draft) as Record<string, unknown>;
+  const payload: Record<string, unknown> = { version: normalizedDraft.version };
+
+  for (const field of editableTaskFormKeys) {
+    if (!dirtyFields[field]) continue;
+    payload[field] = normalizedDraft[field];
+  }
+
+  if (dirtyFields.parentTaskNumber) {
+    payload.parentTaskNumber = normalizeParentTaskNumberInput(parentTaskNumber);
+  }
+
+  return payload;
+}
+
 async function readErrorMessage(response: Response, fallbackKey: ErrorCopyKey) {
   try {
     const json = (await response.json()) as { error?: { code?: string | null } };
@@ -3389,7 +3450,12 @@ function resolveExportFilename(contentDisposition: string | null) {
   return `daily-tasks-export-${todayKey()}.xlsx`;
 }
 
-function formatReadonlyActionId(actionId: number | string | null | undefined) {
+function formatReadonlyActionId(actionId: number | string | null | undefined, issueId?: string | null) {
+  const normalizedIssueId = String(issueId ?? "").trim();
+  if (normalizedIssueId) {
+    return normalizedIssueId;
+  }
+
   const raw = String(actionId ?? "").trim();
   return raw ? formatActionId(raw) : t("workspace.autoAfterCreate");
 }
@@ -3404,7 +3470,7 @@ function normalizeParentTaskNumberInput(value: string) {
   if (!trimmed) return "";
   if (/^#\d+$/.test(trimmed)) return trimmed;
   if (/^\d+$/.test(trimmed)) return "#" + trimmed;
-  return trimmed;
+  return trimmed.toUpperCase();
 }
 
 function todayKey() {

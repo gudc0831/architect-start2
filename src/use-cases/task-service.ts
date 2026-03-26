@@ -1,7 +1,10 @@
 import type { TaskRecord, TaskStatus } from "@/domains/task/types";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
-import { fileRepository, projectRepository, taskRepository } from "@/repositories";
+import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
+import { adminRepository } from "@/repositories/admin";
+import { fileRepository, taskRepository } from "@/repositories";
 import type { CreateTaskInput, UpdateTaskInput } from "@/repositories/contracts";
+import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { permanentlyDeleteTrashSelection } from "@/use-cases/trash-service";
 
 export type TaskScope = "active" | "trash";
@@ -11,7 +14,7 @@ type UpdateTaskCommand = UpdateTaskInput & { version?: number };
 const taskStatusSet = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 export async function listTasks(scope: TaskScope) {
-  const project = await projectRepository.getProject();
+  const project = await getSelectedTaskProject();
   const tasks =
     scope === "trash"
       ? await taskRepository.listTrashTasks(project.id)
@@ -19,17 +22,19 @@ export async function listTasks(scope: TaskScope) {
   return scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
 }
 
-export async function createTask(input: Omit<CreateTaskInput, "projectId">, userId?: string | null) {
-  const project = await projectRepository.getProject();
+export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
+  const project = await getSelectedTaskProject();
   const activeTasks = await taskRepository.listActiveTasks(project.id);
+  const effectiveWorkTypes = await adminRepository.listEffectiveWorkTypeDefinitions(project.id);
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
 
   return taskRepository.createTask({
     projectId: project.id,
+    projectName: project.name,
     dueDate: normalizeDate(input.dueDate),
-    workType: normalizeText(input.workType),
+    workType: requireAllowedWorkType(input.workType, effectiveWorkTypes),
     coordinationScope: normalizeText(input.coordinationScope),
     ownerDiscipline: normalizeText(input.ownerDiscipline),
     requestedBy: normalizeText(input.requestedBy),
@@ -56,7 +61,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId">, user
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
-  const project = await projectRepository.getProject();
+  const project = await getSelectedTaskProject();
   const activeTasks = await taskRepository.listActiveTasks(project.id);
   const currentTask = activeTasks.find((task) => task.id === taskId);
 
@@ -69,7 +74,8 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     throw badRequest("version is required", "TASK_VERSION_REQUIRED");
   }
 
-  const sanitized = sanitizeTaskUpdate(input);
+  const effectiveWorkTypes = await adminRepository.listEffectiveWorkTypeDefinitions(currentTask.projectId);
+  const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveWorkTypes);
   applyStatusSideEffects(currentTask, sanitized);
 
   if (
@@ -246,11 +252,23 @@ async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord
   await visit(rootTask);
 }
 
-function sanitizeTaskUpdate(input: UpdateTaskInput): UpdateTaskInput {
+function sanitizeTaskUpdate(
+  input: UpdateTaskInput,
+  currentTask: TaskRecord,
+  effectiveWorkTypes: Awaited<ReturnType<typeof adminRepository.listEffectiveWorkTypeDefinitions>>,
+): UpdateTaskInput {
   const next: UpdateTaskInput = {};
 
   if (typeof input.dueDate === "string") next.dueDate = normalizeDate(input.dueDate);
-  if (typeof input.workType === "string") next.workType = normalizeText(input.workType);
+  if (Object.prototype.hasOwnProperty.call(input, "workType")) {
+    const normalizedWorkType = resolvePatchedWorkType(input.workType, {
+      currentValue: currentTask.workType,
+      allowedCodes: effectiveWorkTypes,
+    });
+    if (normalizedWorkType) {
+      next.workType = normalizedWorkType;
+    }
+  }
   if (typeof input.coordinationScope === "string") next.coordinationScope = normalizeText(input.coordinationScope);
   if (typeof input.ownerDiscipline === "string") next.ownerDiscipline = normalizeText(input.ownerDiscipline);
   if (typeof input.requestedBy === "string") next.requestedBy = normalizeText(input.requestedBy);
@@ -264,9 +282,6 @@ function sanitizeTaskUpdate(input: UpdateTaskInput): UpdateTaskInput {
   if (typeof input.decision === "string") next.decision = normalizeText(input.decision);
   if (typeof input.isDaily === "boolean") next.isDaily = input.isDaily;
   if (typeof input.deletedAt === "string" || input.deletedAt === null) next.deletedAt = input.deletedAt;
-  if (typeof input.rootTaskId === "string") next.rootTaskId = normalizeText(input.rootTaskId);
-  if (typeof input.depth === "number") next.depth = Math.max(0, Math.trunc(input.depth));
-  if (typeof input.siblingOrder === "number") next.siblingOrder = Math.max(0, Math.trunc(input.siblingOrder));
 
   if (typeof input.status === "string") {
     next.status = normalizeStatus(input.status);
@@ -301,18 +316,32 @@ function appendStatusHistory(current: string, nextStatus: TaskStatus) {
 }
 
 function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, parentTaskNumber?: string | null) {
-  const normalizedNumber = normalizeTaskNumberInput(parentTaskNumber);
+  const normalizedReference = normalizeTaskNumberInput(parentTaskNumber);
 
-  if (normalizedNumber === null) {
+  if (normalizedReference === null) {
     return null;
   }
 
-  if (typeof normalizedNumber === "number") {
-    const parent = tasks.find((task) => task.actionId === normalizedNumber);
+  if (typeof normalizedReference === "number") {
+    const parent = tasks.find((task) => task.actionId === normalizedReference);
     if (!parent) {
       throw notFound("Parent action_id not found", "PARENT_TASK_NOT_FOUND");
     }
     return parent.id;
+  }
+
+  if (typeof normalizedReference === "string") {
+    const parentByIssueId = tasks.find((task) => task.issueId.trim().toLowerCase() === normalizedReference.toLowerCase());
+    if (parentByIssueId) {
+      return parentByIssueId.id;
+    }
+
+    const parentById = tasks.find((task) => task.id === normalizedReference);
+    if (parentById) {
+      return parentById.id;
+    }
+
+    throw notFound("Parent task not found", "PARENT_TASK_NOT_FOUND");
   }
 
   if (typeof parentTaskId === "string") {
@@ -351,7 +380,7 @@ function normalizeTaskNumberInput(value: string | null | undefined) {
     return Number(normalized);
   }
 
-  throw badRequest("Parent action_id format is invalid", "PARENT_TASK_NUMBER_INVALID");
+  return normalized.toUpperCase();
 }
 
 function normalizeRequiredText(value: string, fieldName: string) {
@@ -389,7 +418,7 @@ function nowIso() {
 }
 
 async function listAllTasks() {
-  const project = await projectRepository.getProject();
+  const project = await getSelectedTaskProject();
   const [activeTasks, trashTasks] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     taskRepository.listTrashTasks(project.id),
@@ -481,6 +510,3 @@ function sortByActionId(tasks: TaskRecord[]) {
     return left.createdAt.localeCompare(right.createdAt);
   });
 }
-
-
-

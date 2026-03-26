@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { buildProjectIssueId } from "@/domains/task/identifiers";
 import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
 import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference } from "@/domains/preferences/types";
 import { defaultProjectName } from "@/lib/runtime-config";
+import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
 import type {
   CreateFileInput,
   CreateTaskInput,
@@ -72,7 +74,7 @@ function toTaskRecord(task: {
     projectId: task.projectId,
     taskNumber: task.taskNumber,
     actionId: task.actionId || task.taskNumber,
-    issueId: task.issueId || `ISSUE-${task.id}`,
+    issueId: task.issueId || `#${task.actionId || task.taskNumber}`,
     parentTaskId: task.parentTaskId,
     rootTaskId: task.rootTaskId,
     depth: task.depth,
@@ -150,7 +152,7 @@ async function toFileRecord(file: {
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
   return {
     dueDate: input.dueDate ?? undefined,
-    category: input.workType ?? undefined,
+    category: input.workType === undefined ? undefined : requireStoredWorkTypeCode(input.workType),
     coordinationScope: input.coordinationScope ?? undefined,
     ownerDiscipline: input.ownerDiscipline ?? undefined,
     requester: input.requestedBy ?? undefined,
@@ -256,12 +258,12 @@ class PostgresTaskRepository implements TaskRepository {
         projectId: input.projectId,
         taskNumber,
         actionId: taskNumber,
-        issueId: `ISSUE-${randomUUID()}`,
         parentTaskId: input.parentTaskId ?? null,
         rootTaskId: input.rootTaskId?.trim() || id,
         depth: input.depth ?? 0,
         siblingOrder: input.siblingOrder ?? 0,
         ...taskWriteData(input),
+        issueId: buildProjectIssueId(input.projectName, taskNumber),
         createdAt,
         isDaily: input.isDaily,
         createdBy: input.createdBy ?? null,
@@ -278,6 +280,7 @@ class PostgresTaskRepository implements TaskRepository {
       where: { id: taskId },
       data: {
         ...taskWriteData(data as UpdateTaskInput),
+        issueId: data.issueId ?? undefined,
         parentTaskId: data.parentTaskId,
         rootTaskId: data.rootTaskId,
         depth: data.depth,
@@ -301,6 +304,7 @@ class PostgresTaskRepository implements TaskRepository {
       },
       data: {
         ...taskWriteData(data as UpdateTaskInput),
+        issueId: data.issueId ?? undefined,
         parentTaskId: data.parentTaskId,
         rootTaskId: data.rootTaskId,
         depth: data.depth,
@@ -521,5 +525,3 @@ export const postgresProjectRepository = new PostgresProjectRepository();
 export const postgresTaskRepository = new PostgresTaskRepository();
 export const postgresFileRepository = new PostgresFileRepository();
 export const postgresPreferenceRepository = new PostgresPreferenceRepository();
-
-
