@@ -1,0 +1,25 @@
+import { NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/api/route-error";
+import { requireUser } from "@/lib/auth/require-user";
+import { getQuickCreateWidths, updateQuickCreateWidths } from "@/use-cases/preference-service";
+
+export async function GET() {
+  try {
+    const user = await requireUser();
+    const widths = await getQuickCreateWidths(user.id);
+    return NextResponse.json({ data: { widths } });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await requireUser();
+    const body = (await request.json()) as { widths?: unknown };
+    const widths = await updateQuickCreateWidths(user.id, body.widths);
+    return NextResponse.json({ data: { widths } });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}

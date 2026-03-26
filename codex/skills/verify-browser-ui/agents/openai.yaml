@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Browser UI"
+  short_description: "Inspect browser UI step by step on Windows"
+  default_prompt: "Use $verify-browser-ui to inspect a local dev page step by step and report visual issues."

@@ -1,0 +1,51 @@
+import { NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/api/route-error";
+import { requireUser } from "@/lib/auth/require-user";
+import { createTask, listTasks } from "@/use-cases/task-service";
+
+export async function GET(request: Request) {
+  try {
+    await requireUser();
+    const { searchParams } = new URL(request.url);
+    const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
+    const data = await listTasks(scope);
+
+    return NextResponse.json({ data });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireUser();
+    const body = await request.json();
+    const task = await createTask(
+      {
+        dueDate: body.dueDate ?? body.due_date ?? "",
+        workType: body.workType ?? body.work_type ?? "",
+        coordinationScope: body.coordinationScope ?? body["Coordination Scope"] ?? "",
+        ownerDiscipline: body.ownerDiscipline ?? body["Owner Discipline"] ?? "",
+        requestedBy: body.requestedBy ?? body.requested_by ?? "",
+        relatedDisciplines: body.relatedDisciplines ?? body["Related Disciplines"] ?? "",
+        assignee: body.assignee ?? "",
+        issueTitle: body.issueTitle ?? body.issue_title ?? "",
+        reviewedAt: body.reviewedAt ?? body.reviewed_at ?? "",
+        isDaily: Boolean(body.isDaily ?? true),
+        locationRef: body.locationRef ?? body["Location Ref"] ?? "",
+        calendarLinked: Boolean(body.calendarLinked ?? body["Calendar Linked"] ?? false),
+        issueDetailNote: body.issueDetailNote ?? body["ISSUE Detail Note"] ?? "",
+        status: body.status ?? "waiting",
+        decision: body.decision ?? "",
+        createdAt: body.createdAt,
+        parentTaskId: body.parentTaskId ?? null,
+        parentTaskNumber: body.parentTaskNumber ?? undefined,
+      },
+      user.id,
+    );
+
+    return NextResponse.json({ data: task }, { status: 201 });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}

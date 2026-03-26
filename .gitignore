@@ -1,0 +1,17 @@
+node_modules
+.next
+.next-build
+.next-verify
+out
+coverage
+.env.local
+.env
+uploads
+.data
+
+*.tsbuildinfo
+*.log
+.playwright-cli/
+.dev-check.*
+output/playwright/
+output/data-guard/

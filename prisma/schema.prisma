@@ -1,0 +1,138 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProfileRole {
+  admin
+  member
+}
+
+enum TaskStatus {
+  waiting
+  todo
+  in_progress
+  blocked
+  done
+}
+
+model Profile {
+  id              String             @id @db.Uuid
+  email           String             @unique
+  displayName     String             @map("display_name")
+  role            ProfileRole
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdProjects Project[]          @relation("ProjectCreatedBy")
+  updatedProjects Project[]          @relation("ProjectUpdatedBy")
+  createdTasks    Task[]             @relation("TaskCreatedBy")
+  updatedTasks    Task[]             @relation("TaskUpdatedBy")
+  uploadedFiles   File[]             @relation("FileUploadedBy")
+  preference      ProfilePreference?
+
+  @@map("profiles")
+}
+
+model Project {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  creator   Profile?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updater   Profile?  @relation("ProjectUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  tasks     Task[]
+  files     File[]
+
+  @@map("projects")
+}
+
+model Task {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId          String      @map("project_id") @db.Uuid
+  taskNumber         Int         @map("task_number")
+  actionId           Int         @default(0) @map("action_id")
+  issueId            String      @default("") @map("issue_id")
+  parentTaskId       String?     @map("parent_task_id") @db.Uuid
+  rootTaskId         String      @map("root_task_id") @db.Uuid
+  depth              Int         @default(0)
+  siblingOrder       Int         @default(0) @map("sibling_order")
+  dueDate            String      @default("") @map("due_date")
+  category           String      @default("")
+  coordinationScope  String      @default("") @map("coordination_scope")
+  ownerDiscipline    String      @default("") @map("owner_discipline")
+  requester          String      @default("")
+  relatedDisciplines String      @default("") @map("related_disciplines")
+  assignee           String      @default("")
+  title              String
+  reviewedAt         String      @default("") @map("reviewed_at")
+  isDaily            Boolean     @default(false) @map("is_daily")
+  locationRef        String      @default("") @map("location_ref")
+  calendarLinked     Boolean     @default(false) @map("calendar_linked")
+  description        String      @default("")
+  status             TaskStatus  @default(waiting)
+  statusHistory      String      @default("") @map("status_history")
+  conclusion         String      @default("")
+  completedAt        DateTime?   @map("completed_at") @db.Timestamptz(6)
+  version            Int         @default(1)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy          String?     @map("created_by") @db.Uuid
+  updatedBy          String?     @map("updated_by") @db.Uuid
+  deletedAt          DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  project            Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent             Task?       @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  children           Task[]      @relation("TaskHierarchy")
+  rootTask           Task        @relation("TaskRoot", fields: [rootTaskId], references: [id], onDelete: Restrict)
+  rootRefs           Task[]      @relation("TaskRoot")
+  creator            Profile?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  files              File[]
+
+  @@unique([projectId, taskNumber])
+  @@index([projectId, deletedAt])
+  @@index([parentTaskId])
+  @@map("tasks")
+}
+
+model File {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId          String    @map("task_id") @db.Uuid
+  projectId       String    @map("project_id") @db.Uuid
+  fileGroupId     String    @map("file_group_id") @db.Uuid
+  originalName    String    @map("original_name")
+  mimeType        String?   @map("mime_type")
+  sizeBytes       BigInt    @map("size_bytes")
+  storageProvider String    @default("supabase-storage") @map("storage_provider")
+  storageBucket   String    @map("storage_bucket")
+  objectPath      String    @map("object_path")
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  uploadedBy      String?   @map("uploaded_by") @db.Uuid
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([taskId, deletedAt])
+  @@index([fileGroupId, version])
+  @@map("files")
+}
+
+model ProfilePreference {
+  profileId            String   @id @map("profile_id") @db.Uuid
+  quickCreateWidths    Json     @default("{}") @map("quick_create_widths")
+  taskListColumnWidths Json     @default("{}") @map("task_list_column_widths")
+  taskListRowHeights   Json     @default("{}") @map("task_list_row_heights")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("profile_preferences")
+}
