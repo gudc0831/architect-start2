@@ -22,6 +22,15 @@ import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import {
+  buildTaskTreeRows,
+  dailyTaskListColumns,
+  formatActionId,
+  formatDateTimeField,
+  sortTasksByActionId,
+  type DailyTaskListColumnConfig as TaskListColumnConfig,
+  type TaskTreeRow,
+} from "@/domains/task/daily-list";
+import {
   TASK_LIST_ROW_MIN_HEIGHT,
   clampQuickCreateWidth,
   clampTaskListColumnWidth,
@@ -55,7 +64,6 @@ import {
   localizeError,
   t,
   type ErrorCopyKey,
-  type FieldLabelKey,
 } from "@/lib/ui-copy";
 
 type TaskWorkspaceProps = { mode: DashboardMode };
@@ -153,12 +161,6 @@ type TaskListRowResizeState = {
   startHeight: number;
 };
 
-type TaskListColumnConfig = {
-  key: TaskListColumnKey;
-  labelKey: FieldLabelKey;
-  className?: string;
-};
-
 type LinkedDocumentsDisplay = {
   primary: string;
   secondary: string | null;
@@ -232,14 +234,6 @@ type PendingTaskListFocusCell = {
   columnKey: TaskListColumnKey;
 };
 
-type TaskTreeRow = {
-  task: TaskRecord;
-  depth: number;
-  isLastChild: boolean;
-  ancestorHasNextSibling: boolean[];
-  hasChildren: boolean;
-};
-
 type TrashTaskItem = {
   kind: "task";
   id: string;
@@ -305,26 +299,6 @@ const editableTaskListFieldByColumn = {
   status: "status",
   decision: "decision",
 } as const satisfies Partial<Record<TaskListColumnKey, EditableTaskFormKey>>;
-const dailyTaskListColumns: readonly TaskListColumnConfig[] = [
-  { key: "actionId", labelKey: "actionId", className: "sheet-table__tree-cell" },
-  { key: "dueDate", labelKey: "dueDate" },
-  { key: "workType", labelKey: "workType" },
-  { key: "coordinationScope", labelKey: "coordinationScope" },
-  { key: "requestedBy", labelKey: "requestedBy" },
-  { key: "relatedDisciplines", labelKey: "relatedDisciplines" },
-  { key: "assignee", labelKey: "assignee" },
-  { key: "issueTitle", labelKey: "issueTitle", className: "sheet-table__title" },
-  { key: "reviewedAt", labelKey: "reviewedAt" },
-  { key: "locationRef", labelKey: "locationRef" },
-  { key: "calendarLinked", labelKey: "calendarLinked" },
-  { key: "issueDetailNote", labelKey: "issueDetailNote", className: "sheet-table__wide" },
-  { key: "status", labelKey: "status" },
-  { key: "completedAt", labelKey: "completedAt" },
-  { key: "statusHistory", labelKey: "statusHistory", className: "sheet-table__wide" },
-  { key: "decision", labelKey: "decision", className: "sheet-table__wide" },
-  { key: "linkedDocuments", labelKey: "linkedDocuments", className: "sheet-table__files" },
-];
-
 const defaultForm = (): TaskFormState => ({
   actionId: "",
   dueDate: todayKey(),
@@ -377,6 +351,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [systemMode, setSystemMode] = useState<SystemMode | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -414,12 +389,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const isTrashMode = mode === "trash";
   const scope = isTrashMode ? "trash" : "active";
+  const canExportTasks = mode === "daily" && !isPreview;
   const isMobileViewport = viewportWidth < MOBILE_BREAKPOINT;
   const isDetailDocked = viewportWidth >= DETAIL_PANEL_BREAKPOINT;
   const usesAgendaView = viewportWidth < TABLET_BREAKPOINT;
   const canCollapseCreateForm = viewportWidth < TABLET_BREAKPOINT;
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
+  const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
+  const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey = mode === "daily" && authUser?.id ? getTaskListLayoutStorageKey(authUser.id) : null;
   const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
@@ -1263,6 +1241,47 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   saveSelectedTaskRef.current = saveSelectedTask;
 
+  async function exportDailyTasks() {
+    if (isExportDisabled) {
+      return;
+    }
+
+    setIsExporting(true);
+    setErrorMessage(null);
+
+    try {
+      if (hasSelectedTaskDraftChanges()) {
+        const didSave = await saveSelectedTaskRef.current();
+        if (!didSave) {
+          return;
+        }
+      }
+
+      flushTaskListLayoutSave();
+
+      const response = await fetch("/api/tasks/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columnWidths: taskListColumnWidthsRef.current,
+          rowHeights: taskListRowHeightsRef.current,
+        }),
+      });
+
+      if (!response.ok) {
+        setErrorMessage(await readErrorMessage(response, "exportTasksFailed"));
+        return;
+      }
+
+      const blob = await response.blob();
+      downloadBlob(blob, resolveExportFilename(response.headers.get("content-disposition")));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : t("errors.exportTasksFailed"));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   async function patchTask(
     task: Pick<TaskRecord, "id" | "version">,
     payload: Partial<TaskRecord>,
@@ -1864,6 +1883,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             </button>
           </div>
         ) : null}
+        {canExportTasks ? (
+          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", justifyContent: "flex-end", marginLeft: "auto" }}>
+            <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
+              {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {errorMessage ? <p className="detail-panel__warning detail-panel__warning--error">{errorMessage}</p> : null}
@@ -2122,9 +2148,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           {dailyTaskListColumns.map((column) => (
                             <th className={column.className} key={column.key}>
                               <div className="sheet-table__head-inner">
-                                <span className="sheet-table__head-label">{labelForField(column.labelKey)}</span>
+                                <span className="sheet-table__head-label">{labelForField(column.key)}</span>
                                 <button
-                                  aria-label={t("workspace.resizeFieldAria", { field: labelForField(column.labelKey) })}
+                                  aria-label={t("workspace.resizeFieldAria", { field: labelForField(column.key) })}
                                   className="sheet-table__column-resize-handle"
                                   onPointerDown={(event) => handleTaskListColumnResizeStart(column.key, event)}
                                   type="button"
@@ -3330,12 +3356,37 @@ async function readErrorMessage(response: Response, fallbackKey: ErrorCopyKey) {
   }
 }
 
-function formatActionId(actionId: number | string | null | undefined) {
-  const raw = String(actionId ?? "").trim();
-  if (!raw) return "#-";
-  if (raw.startsWith("#")) return raw;
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? "#" + numeric : raw;
+function downloadBlob(blob: Blob, filename: string) {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.rel = "noreferrer";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0);
+}
+
+function resolveExportFilename(contentDisposition: string | null) {
+  if (contentDisposition) {
+    const encodedMatch = contentDisposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (encodedMatch?.[1]) {
+      try {
+        return decodeURIComponent(encodedMatch[1].trim().replace(/^"|"$/g, ""));
+      } catch {
+        return encodedMatch[1].trim().replace(/^"|"$/g, "");
+      }
+    }
+
+    const plainMatch = contentDisposition.match(/filename\s*=\s*"?([^"]+)"?/i);
+    if (plainMatch?.[1]) {
+      return plainMatch[1].trim();
+    }
+  }
+
+  return `daily-tasks-export-${todayKey()}.xlsx`;
 }
 
 function formatReadonlyActionId(actionId: number | string | null | undefined) {
@@ -3370,66 +3421,6 @@ function formatMonthDay(date: Date) {
 
 function formatWeekdayLong(date: Date) {
   return new Intl.DateTimeFormat(DEFAULT_UI_LOCALE_TAG, { weekday: "long" }).format(date);
-}
-
-function formatDateTimeField(value: string | null | undefined) {
-  if (!value) return "-";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  return value.replace("T", " ").slice(0, 16);
-}
-
-function buildTaskTreeRows(tasks: TaskRecord[]) {
-  const taskIds = new Set(tasks.map((task) => task.id));
-  const childrenByParent = tasks.reduce<Map<string | null, TaskRecord[]>>((acc, task) => {
-    const parentKey = task.parentTaskId && taskIds.has(task.parentTaskId) ? task.parentTaskId : null;
-    const next = acc.get(parentKey) ?? [];
-    next.push(task);
-    acc.set(parentKey, next);
-    return acc;
-  }, new Map<string | null, TaskRecord[]>());
-
-  for (const children of childrenByParent.values()) {
-    children.sort(compareTasksByActionId);
-  }
-
-  const rows: TaskTreeRow[] = [];
-  const visited = new Set<string>();
-
-  const appendNode = (task: TaskRecord, depth: number, isLastChild: boolean, ancestorHasNextSibling: boolean[]) => {
-    if (visited.has(task.id)) return;
-
-    visited.add(task.id);
-    const children = childrenByParent.get(task.id) ?? [];
-    const hasChildren = children.length > 0;
-    rows.push({ task, depth, isLastChild, ancestorHasNextSibling, hasChildren });
-
-    children.forEach((child, index) => {
-      appendNode(child, depth + 1, index === children.length - 1, [...ancestorHasNextSibling, !isLastChild]);
-    });
-  };
-
-  const roots = childrenByParent.get(null) ?? [];
-  roots.forEach((task, index) => {
-    appendNode(task, 0, index === roots.length - 1, []);
-  });
-
-  const remaining = sortTasksByActionId(tasks.filter((task) => !visited.has(task.id)));
-  remaining.forEach((task, index) => {
-    appendNode(task, 0, index === remaining.length - 1, []);
-  });
-
-  return rows;
-}
-
-
-function compareTasksByActionId(left: TaskRecord, right: TaskRecord) {
-  const actionCompare = (left.actionId ?? left.taskNumber) - (right.actionId ?? right.taskNumber);
-  if (actionCompare !== 0) return actionCompare;
-  return left.createdAt.localeCompare(right.createdAt);
-}
-
-function sortTasksByActionId(tasks: TaskRecord[]) {
-  return [...tasks].sort(compareTasksByActionId);
 }
 
 function fileSafeDate(value: string | null) {

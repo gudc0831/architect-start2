@@ -60,6 +60,8 @@ export type UICatalog = {
     selectedCount: string;
     taskDetailsTitle: string;
     downloadAvailable: string;
+    exportTasks: string;
+    exporting: string;
     privateStorage: string;
     detailPanelEmpty: string;
     dateInputPlaceholder: string;
@@ -183,6 +185,7 @@ export type UICatalog = {
     loadTasksFailed: string;
     loadFilesFailed: string;
     loadDashboardFailed: string;
+    exportTasksFailed: string;
     createTaskFailed: string;
     saveTaskFailed: string;
     updateTaskFailed: string;
@@ -285,6 +288,8 @@ export const uiCopyCatalog = {
       selectedCount: "{{count}}개 선택",
       taskDetailsTitle: "작업 상세",
       downloadAvailable: "다운로드 가능",
+      exportTasks: "엑셀로 내보내기",
+      exporting: "내보내는 중...",
       privateStorage: "비공개 저장소",
       detailPanelEmpty: "목록에서 작업을 선택해 상세 정보를 수정하고 첨부 문서를 관리하세요.",
       dateInputPlaceholder: "YYYY-MM-DD",
@@ -435,6 +440,7 @@ export const uiCopyCatalog = {
       loadTasksFailed: "작업을 불러오지 못했습니다.",
       loadFilesFailed: "파일을 불러오지 못했습니다.",
       loadDashboardFailed: "대시보드 데이터를 불러오지 못했습니다.",
+      exportTasksFailed: "엑셀 내보내기에 실패했습니다.",
       createTaskFailed: "작업을 생성하지 못했습니다.",
       saveTaskFailed: "작업을 저장하지 못했습니다.",
       updateTaskFailed: "작업을 업데이트하지 못했습니다.",
@@ -535,6 +541,8 @@ export const uiCopyCatalog = {
       selectedCount: "{{count}} selected",
       taskDetailsTitle: "Task details",
       downloadAvailable: "Download available",
+      exportTasks: "Export to Excel",
+      exporting: "Exporting...",
       privateStorage: "Private storage",
       detailPanelEmpty: "Select a task from the list to edit its details and manage linked_documents.",
       dateInputPlaceholder: "YYYY-MM-DD",
@@ -685,6 +693,7 @@ export const uiCopyCatalog = {
       loadTasksFailed: "Failed to load tasks.",
       loadFilesFailed: "Failed to load files.",
       loadDashboardFailed: "Failed to load dashboard data.",
+      exportTasksFailed: "Failed to export tasks.",
       createTaskFailed: "Failed to create the task.",
       saveTaskFailed: "Failed to save the task.",
       updateTaskFailed: "Failed to update the task.",
@@ -726,5 +735,4 @@ export const uiCopyCatalog = {
     },
   },
 } satisfies Record<UiLocale, UICatalog>;
-
 

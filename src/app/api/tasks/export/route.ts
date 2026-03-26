@@ -1,0 +1,67 @@
+import { NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/api/route-error";
+import { requireUser } from "@/lib/auth/require-user";
+import { badRequest } from "@/lib/api/errors";
+import { projectRepository } from "@/repositories";
+import { getTaskListLayout } from "@/use-cases/preference-service";
+import { listFiles } from "@/use-cases/file-service";
+import { listTasks } from "@/use-cases/task-service";
+import {
+  buildTaskExportFilename,
+  buildTaskExportWorkbook,
+  mergeTaskExportLayout,
+  serializeTaskExportWorkbook,
+  type TaskExportLayoutInput,
+} from "@/lib/tasks/task-export";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireUser();
+    const body = await readRequestBody(request);
+    const [project, tasks, files, storedLayout] = await Promise.all([
+      projectRepository.getProject(),
+      listTasks("active"),
+      listFiles("active"),
+      getTaskListLayout(user.id),
+    ]);
+
+    const layout = mergeTaskExportLayout(body, storedLayout);
+    const workbook = await buildTaskExportWorkbook({
+      projectName: project.name,
+      tasks,
+      files,
+      layout,
+    });
+    const buffer = await serializeTaskExportWorkbook(workbook);
+    const filename = buildTaskExportFilename(project.name);
+
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+async function readRequestBody(request: Request): Promise<TaskExportLayoutInput> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw badRequest("Content-Type must be application/json", "EXPORT_TASKS_CONTENT_TYPE_INVALID");
+  }
+
+  try {
+    const body = (await request.json()) as TaskExportLayoutInput;
+    return {
+      columnWidths: body.columnWidths,
+      rowHeights: body.rowHeights,
+    };
+  } catch {
+    throw badRequest("Invalid export payload", "EXPORT_TASKS_PAYLOAD_INVALID");
+  }
+}
