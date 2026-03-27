@@ -17,17 +17,27 @@ import clsx from "clsx";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { WorkTypeSelect } from "@/components/tasks/work-type-select";
+import {
+  labelForTaskCategoricalFieldValue,
+  TaskCategoricalFieldSelect,
+  type TaskCategoricalFieldKey,
+} from "@/components/tasks/task-categorical-fields";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
+import {
+  getTaskWorkTypeFilterOptions,
+  matchesTaskWorkTypeFilter,
+  normalizeTaskWorkTypeFilters,
+} from "@/lib/task-work-type-filter";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
+import { extractProjectIssueNumber } from "@/domains/task/identifiers";
 import {
   buildTaskTreeRows,
   dailyTaskListColumns,
   formatActionId,
-  formatTaskBacklogId,
+  formatTaskDisplayId,
   formatDateTimeField,
   sortTasksByActionId,
   type DailyTaskListColumnConfig as TaskListColumnConfig,
@@ -58,6 +68,7 @@ import {
   formatStatusHistoryForDisplay,
   getWeekdayLabels,
   getWeekdayLabelByIndex,
+  getWorkTypeSelectValue,
   labelForDataMode,
   labelForField,
   labelForMode,
@@ -172,8 +183,9 @@ type LinkedDocumentsDisplay = {
   secondary: string | null;
 };
 
+type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
-type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | "status" | "dueDate" | "reviewedAt">;
+type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt">;
 
 type TaskListRowPresentationContext = {
   task: TaskRecord;
@@ -233,8 +245,10 @@ type TaskListCellPresentation =
       checked: boolean;
     }
   | {
-      kind: "editable-status";
-      value: TaskStatus;
+      kind: "editable-categorical";
+      fieldKey: TaskCategoricalFormFieldKey;
+      value: string;
+      label: string;
     };
 type PendingTaskListFocusCell = {
   taskId: string;
@@ -272,6 +286,7 @@ const weekdayLabels = getWeekdayLabels();
 const QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX = "architect-start.quick-create-widths:";
 const QUICK_CREATE_SAVE_DELAY_MS = 250;
 const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
+const WORK_TYPE_FILTER_STORAGE_KEY_PREFIX = "architect-start.work-type-filter:";
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
 const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
 const editableTaskFormKeys = [
@@ -343,7 +358,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
-  const { projectName, projectLoaded, projectSource, isSyncing, workTypeDefinitions } = useProjectMeta();
+  const { currentProjectId, projectName, projectLoaded, projectSource, isSyncing, workTypeDefinitions, workTypesLoaded } = useProjectMeta();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedTrashTaskIds, setSelectedTrashTaskIds] = useState<string[]>([]);
@@ -353,6 +368,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [draftDirtyFields, setDraftDirtyFields] = useState<DraftDirtyFieldMap>({});
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
   const [form, setForm] = useState<TaskFormState>(defaultForm);
+  const [selectedWorkTypeFilters, setSelectedWorkTypeFilters] = useState<string[]>([]);
+  const [isWorkTypeFilterOpen, setIsWorkTypeFilterOpen] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [pendingVersionUpload, setPendingVersionUpload] = useState<File | null>(null);
   const [versionTargetId, setVersionTargetId] = useState("");
@@ -383,9 +400,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const dailyTreeRowsRef = useRef<TaskTreeRow[]>([]);
   const filesByTaskIdRef = useRef<Record<string, FileRecord[]>>({});
   const taskListVisibleTaskIdsRef = useRef<Set<string>>(new Set());
+  const workTypeFilterRef = useRef<HTMLDivElement | null>(null);
   const taskListLayoutInteractionVersionRef = useRef(0);
   const quickCreateSaveTimerRef = useRef<number | null>(null);
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
+  const workTypeFilterStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const parentTaskNumberDraftRef = useRef("");
@@ -408,8 +427,51 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey = mode === "daily" && authUser?.id ? getTaskListLayoutStorageKey(authUser.id) : null;
+  const workTypeFilterStorageKey =
+    mode === "daily" && currentProjectId && (authUser?.id || isPreview)
+      ? getWorkTypeFilterStorageKey(authUser?.id ?? "preview", currentProjectId)
+      : null;
   const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
+  const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
+  const workTypeFilterOptions = useMemo(() => {
+    if (mode !== "daily") {
+      return [] as Array<{ value: string; label: string }>;
+    }
+
+    if (!isPreview && !workTypesLoaded) {
+      return [] as Array<{ value: string; label: string }>;
+    }
+
+    return getTaskWorkTypeFilterOptions(workTypeDefinitions);
+  }, [isPreview, mode, workTypeDefinitions, workTypesLoaded]);
+  const workTypeFilterOptionValues = useMemo(() => workTypeFilterOptions.map((option) => option.value), [workTypeFilterOptions]);
+  const normalizedSelectedWorkTypeFilters = useMemo(() => {
+    if (workTypeFilterOptions.length === 0) {
+      return [] as string[];
+    }
+
+    return normalizeTaskWorkTypeFilters(selectedWorkTypeFilters, workTypeDefinitions);
+  }, [selectedWorkTypeFilters, workTypeDefinitions, workTypeFilterOptions.length]);
+  const effectiveSelectedWorkTypeFilters = useMemo(() => {
+    if (workTypeFilterOptionValues.length === 0) {
+      return [] as string[];
+    }
+
+    return normalizedSelectedWorkTypeFilters.length > 0 ? normalizedSelectedWorkTypeFilters : [...workTypeFilterOptionValues];
+  }, [normalizedSelectedWorkTypeFilters, workTypeFilterOptionValues]);
+  const hasCustomWorkTypeFilters = normalizedSelectedWorkTypeFilters.length > 0;
+  const workTypeFilterSummaryLabel = useMemo(() => {
+    if (!hasCustomWorkTypeFilters) {
+      return t("workspace.totalLabel");
+    }
+
+    if (effectiveSelectedWorkTypeFilters.length === 1) {
+      return workTypeFilterOptions.find((option) => option.value === effectiveSelectedWorkTypeFilters[0])?.label ?? t("workspace.totalLabel");
+    }
+
+    return t("workspace.selectedCount", { count: effectiveSelectedWorkTypeFilters.length });
+  }, [effectiveSelectedWorkTypeFilters, hasCustomWorkTypeFilters, workTypeFilterOptions]);
 
   const updateDraftDirtyFields = useCallback((updater: (previous: DraftDirtyFieldMap) => DraftDirtyFieldMap) => {
     setDraftDirtyFields((previous) => {
@@ -431,6 +493,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     draftDirtyFieldsRef.current = {};
     setDraftDirtyFields({});
   }, []);
+  const buildDefaultTaskForm = useCallback(
+    (): TaskFormState => ({
+      ...defaultForm(),
+      workType: defaultCreateWorkType,
+    }),
+    [defaultCreateWorkType],
+  );
 
   useEffect(() => {
     draftRef.current = draft;
@@ -502,6 +571,100 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setIsCreateFormOpen(true);
     }
   }, [hasInitializedCreateForm, viewportWidth]);
+
+  useEffect(() => {
+    setForm((previous) => {
+      const normalizedCurrentValue = getWorkTypeSelectValue(previous.workType, workTypeDefinitions);
+      const nextWorkType = normalizedCurrentValue || defaultCreateWorkType;
+      if (nextWorkType === previous.workType) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        workType: nextWorkType,
+      };
+    });
+  }, [defaultCreateWorkType, workTypeDefinitions]);
+
+  useEffect(() => {
+    if (mode !== "daily") {
+      setSelectedWorkTypeFilters([]);
+      workTypeFilterStorageReadyKeyRef.current = null;
+      return;
+    }
+
+    if (!isPreview && !workTypesLoaded) {
+      workTypeFilterStorageReadyKeyRef.current = null;
+      return;
+    }
+
+    if (!workTypeFilterStorageKey) {
+      setSelectedWorkTypeFilters([]);
+      workTypeFilterStorageReadyKeyRef.current = "__none__";
+      return;
+    }
+
+    setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(readWorkTypeFiltersFromStorage(workTypeFilterStorageKey), workTypeDefinitions));
+    workTypeFilterStorageReadyKeyRef.current = workTypeFilterStorageKey;
+  }, [isPreview, mode, workTypeDefinitions, workTypeFilterStorageKey, workTypesLoaded]);
+
+  useEffect(() => {
+    if (!workTypeFilterStorageKey) {
+      return;
+    }
+
+    if (workTypeFilterStorageReadyKeyRef.current !== workTypeFilterStorageKey) {
+      return;
+    }
+
+    writeWorkTypeFiltersToStorage(workTypeFilterStorageKey, normalizedSelectedWorkTypeFilters);
+  }, [normalizedSelectedWorkTypeFilters, workTypeFilterStorageKey]);
+
+  useEffect(() => {
+    if (!isWorkTypeFilterOpen) {
+      return;
+    }
+
+    function handleDocumentPointerDown(event: MouseEvent | TouchEvent) {
+      if (workTypeFilterRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsWorkTypeFilterOpen(false);
+    }
+
+    function handleDocumentFocusIn(event: FocusEvent) {
+      if (workTypeFilterRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsWorkTypeFilterOpen(false);
+    }
+
+    function handleWindowKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsWorkTypeFilterOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleDocumentPointerDown, true);
+    document.addEventListener("touchstart", handleDocumentPointerDown, true);
+    document.addEventListener("focusin", handleDocumentFocusIn);
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentPointerDown, true);
+      document.removeEventListener("touchstart", handleDocumentPointerDown, true);
+      document.removeEventListener("focusin", handleDocumentFocusIn);
+      window.removeEventListener("keydown", handleWindowKeyDown);
+    };
+  }, [isWorkTypeFilterOpen]);
+
+  useEffect(() => {
+    if (mode !== "daily" || workTypeFilterOptions.length === 0) {
+      setIsWorkTypeFilterOpen(false);
+    }
+  }, [mode, workTypeFilterOptions.length]);
 
 
   const handleQuickCreateResizeMove = useCallback((event: PointerEvent) => {
@@ -994,7 +1157,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [loadData]);
 
   const sortedTasks = useMemo(() => sortTasksByActionId(tasks), [tasks]);
-  const dailyTreeRows = useMemo(() => buildTaskTreeRows(tasks), [tasks]);
+  const visibleDailyTasks = useMemo(() => {
+    if (mode !== "daily" || normalizedSelectedWorkTypeFilters.length === 0) {
+      return tasks;
+    }
+
+    return tasks.filter((task) => matchesTaskWorkTypeFilter(task.workType, normalizedSelectedWorkTypeFilters, workTypeDefinitions));
+  }, [mode, normalizedSelectedWorkTypeFilters, tasks, workTypeDefinitions]);
+  const dailyTreeRows = useMemo(() => buildTaskTreeRows(visibleDailyTasks), [visibleDailyTasks]);
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -1003,6 +1173,20 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListTableWidth = useMemo(() => dailyTaskListColumns.reduce((total, column) => total + taskListColumnWidths[column.key], 0), [taskListColumnWidths]);
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
   const selectedTask = useMemo(() => sortedTasks.find((task) => task.id === selectedTaskId) ?? null, [selectedTaskId, sortedTasks]);
+
+  useEffect(() => {
+    if (mode !== "daily") {
+      return;
+    }
+
+    setSelectedTaskId((previous) => {
+      if (previous && visibleDailyTasks.some((task) => task.id === previous)) {
+        return previous;
+      }
+
+      return visibleDailyTasks[0]?.id ?? null;
+    });
+  }, [mode, visibleDailyTasks]);
 
   useEffect(() => {
     selectedTaskRef.current = selectedTask;
@@ -1036,7 +1220,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }, {});
   }, [calendarTasks]);
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
-  const detailSummary = selectedTask ? formatTaskBacklogId(selectedTask) : t("empty.nothingSelected");
+  const detailSummary = selectedTask ? formatTaskDisplayId(selectedTask) : t("empty.nothingSelected");
   const trashTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
   const trashFileIdSet = useMemo(() => new Set(files.map((file) => file.id)), [files]);
   const selectedTrashTaskIdSet = useMemo(() => new Set(selectedTrashTaskIds), [selectedTrashTaskIds]);
@@ -1057,8 +1241,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const allTrashSelected = trashItems.length > 0 && selectedTrashCount === trashItems.length;
 
   useEffect(() => {
-    taskListVisibleTaskIdsRef.current = new Set(dailyTreeRows.map((row) => row.task.id));
-  }, [dailyTreeRows]);
+    taskListVisibleTaskIdsRef.current = new Set(tasks.map((task) => task.id));
+  }, [tasks]);
 
 
   useEffect(() => {
@@ -1082,7 +1266,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const nextParentTaskNumber = selectedParentTask ? formatTaskBacklogId(selectedParentTask) : "";
+    const nextParentTaskNumber = selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "";
     const isSelectionChange = previousSelectedTaskIdRef.current !== selectedTask.id;
     previousSelectedTaskIdRef.current = selectedTask.id;
 
@@ -1177,8 +1361,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     if (!selectedTask) return;
     resetDraftDirtyFields();
     setDraft(toDraftTask(selectedTask));
-    setParentTaskNumberDraft(selectedParentTask ? formatTaskBacklogId(selectedParentTask) : "");
+    setParentTaskNumberDraft(selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "");
   }
+
+  const selectAllWorkTypeFilters = useCallback(() => {
+    setSelectedWorkTypeFilters([]);
+  }, []);
+
+  const resetWorkTypeFilters = useCallback(() => {
+    setSelectedWorkTypeFilters([]);
+  }, []);
+
+  const toggleWorkTypeFilterValue = useCallback(
+    (value: string) => {
+      const currentSelectedValues =
+        normalizedSelectedWorkTypeFilters.length > 0 ? normalizedSelectedWorkTypeFilters : workTypeFilterOptionValues;
+      const nextSelectedValues = currentSelectedValues.includes(value)
+        ? currentSelectedValues.filter((selectedValue) => selectedValue !== value)
+        : [...currentSelectedValues, value];
+
+      setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(nextSelectedValues, workTypeDefinitions));
+    },
+    [normalizedSelectedWorkTypeFilters, workTypeDefinitions, workTypeFilterOptionValues],
+  );
+
   async function createTaskFromForm(nextForm: TaskFormState) {
     setErrorMessage(null);
 
@@ -1187,10 +1393,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const payload: TaskFormState = {
+      ...nextForm,
+      workType: getWorkTypeSelectValue(nextForm.workType, workTypeDefinitions) || defaultCreateWorkType,
+    };
+
     const response = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(nextForm),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -1201,7 +1412,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const json = (await response.json()) as { data: TaskRecord };
     await loadData();
     setSelectedTaskId(json.data.id);
-    setForm(defaultForm());
+    setForm(buildDefaultTaskForm());
     if (canCollapseCreateForm) {
       setIsCreateFormOpen(false);
     }
@@ -1276,6 +1487,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         body: JSON.stringify({
           columnWidths: taskListColumnWidthsRef.current,
           rowHeights: taskListRowHeightsRef.current,
+          workTypeFilters: hasCustomWorkTypeFilters ? normalizedSelectedWorkTypeFilters : undefined,
         }),
       });
 
@@ -1291,6 +1503,28 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     } finally {
       setIsExporting(false);
     }
+  }
+
+  function renderTaskListHeaderControl(column: TaskListColumnConfig) {
+    if (column.headerControl?.kind !== "categoricalFilter" || column.headerControl.fieldKey !== "workType") {
+      return null;
+    }
+
+    return (
+      <TaskListCategoricalHeaderFilter
+        buttonLabel={workTypeFilterSummaryLabel}
+        containerRef={workTypeFilterRef}
+        fieldLabel={labelForField(column.headerControl.fieldKey)}
+        isActive={hasCustomWorkTypeFilters}
+        isOpen={isWorkTypeFilterOpen}
+        onReset={resetWorkTypeFilters}
+        onSelectAll={selectAllWorkTypeFilters}
+        onToggleOpen={() => setIsWorkTypeFilterOpen((previous) => !previous)}
+        onToggleValue={toggleWorkTypeFilterValue}
+        options={workTypeFilterOptions}
+        selectedValues={effectiveSelectedWorkTypeFilters}
+      />
+    );
   }
 
   async function patchTask(
@@ -1501,7 +1735,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const confirmed = window.confirm(
       t("workspace.deleteTaskPermanentlyConfirm", {
-        name: `${formatTaskBacklogId(task)} ${task.issueTitle}`.trim(),
+        name: `${formatTaskDisplayId(task)} ${task.issueTitle}`.trim(),
       }),
     );
 
@@ -1683,7 +1917,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
     }
 
-    const selectedParentTaskNumber = selectedParentTaskRef.current ? formatTaskBacklogId(selectedParentTaskRef.current) : "";
+    const selectedParentTaskNumber = selectedParentTaskRef.current ? formatTaskDisplayId(selectedParentTaskRef.current) : "";
     return normalizeParentTaskNumberInput(parentTaskNumberDraftRef.current) !== normalizeParentTaskNumberInput(selectedParentTaskNumber);
   }
 
@@ -1981,7 +2215,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               tabIndex={0}
                             >
                               <div className="task-card__top">
-                                <strong>{formatTaskBacklogId(task)}</strong>
+                                <strong>{formatTaskDisplayId(task)}</strong>
                                 <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
                               </div>
                               <div className="task-card__main">
@@ -2072,35 +2306,45 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 </section>
 
                 {isMobileViewport ? (
-                  <div className="daily-mobile-list">
-                    {dailyTreeRows.map((row) => {
-                      const task = row.task;
-                      const isChildTask = row.depth > 0;
-                      const isParentTask = row.hasChildren;
-                      const isBranchTask = isChildTask && isParentTask;
-                      const taskFiles = filesByTaskId[task.id] ?? [];
-                      const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
-                      const hierarchyDepth = Math.min(row.depth, 3);
+                  <>
+                    {workTypeFilterOptions.length > 0 ? (
+                      <div className="daily-task-list__filters">
+                        <span className="daily-task-list__filters-label">{labelForField("workType")}</span>
+                        {renderTaskListHeaderControl({
+                          key: "workType",
+                          headerControl: { kind: "categoricalFilter", fieldKey: "workType" },
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="daily-mobile-list">
+                      {dailyTreeRows.map((row) => {
+                        const task = row.task;
+                        const isChildTask = row.depth > 0;
+                        const isParentTask = row.hasChildren;
+                        const isBranchTask = isChildTask && isParentTask;
+                        const taskFiles = filesByTaskId[task.id] ?? [];
+                        const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+                        const hierarchyDepth = Math.min(row.depth, 3);
 
-                      return (
-                        <article
-                          className={clsx(
-                            "daily-task-card",
-                            task.id === selectedTaskId && "daily-task-card--active",
-                            isChildTask && "daily-task-card--child",
-                          )}
-                          key={task.id}
-                          onClick={() => toggleTaskDetails(task.id)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              toggleTaskDetails(task.id);
-                            }
-                          }}
-                          role="button"
-                          style={{ marginLeft: hierarchyDepth ? `${hierarchyDepth * 0.65}rem` : undefined }}
-                          tabIndex={0}
-                        >
+                        return (
+                          <article
+                            className={clsx(
+                              "daily-task-card",
+                              task.id === selectedTaskId && "daily-task-card--active",
+                              isChildTask && "daily-task-card--child",
+                            )}
+                            key={task.id}
+                            onClick={() => toggleTaskDetails(task.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                toggleTaskDetails(task.id);
+                              }
+                            }}
+                            role="button"
+                            style={{ marginLeft: hierarchyDepth ? `${hierarchyDepth * 0.65}rem` : undefined }}
+                            tabIndex={0}
+                          >
                           <div className="daily-task-card__header">
                             <div className="daily-task-card__badges">
                               <span
@@ -2111,7 +2355,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   isBranchTask && "task-tree__badge--branch",
                                 )}
                               >
-                                {formatTaskBacklogId(task)}
+                                {formatTaskDisplayId(task)}
                               </span>
                               <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
                             </div>
@@ -2143,10 +2387,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
                           </div>
-                        </article>
-                      );
-                    })}
-                  </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </>
                 ) : (
                   <div className="sheet-wrapper">
                     <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
@@ -2161,6 +2406,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <th className={column.className} key={column.key}>
                               <div className="sheet-table__head-inner">
                                 <span className="sheet-table__head-label">{labelForField(column.key)}</span>
+                                {renderTaskListHeaderControl(column)}
                                 <button
                                   aria-label={t("workspace.resizeFieldAria", { field: labelForField(column.key) })}
                                   className="sheet-table__column-resize-handle"
@@ -2178,7 +2424,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           const taskFiles = filesByTaskId[task.id] ?? [];
                           const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
                           const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
-                          const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskBacklogId(task) });
+                          const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
                           const rowAutoFitAria = rowResizeAria;
                           const isSelectedRow = task.id === selectedTaskId;
                           const rowDraft = isSelectedRow && draft?.id === task.id ? draft : null;
@@ -2271,16 +2517,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     saving={Boolean(inlineSavingFields[columnKey])}
                                   />
                                 );
-                              case "editable-status":
+                              case "editable-categorical":
                                 if (!rowDraft) return null;
                                 return (
                                   <TaskListInlineEditor
                                     columnKey={columnKey}
-                                    fieldKey="status"
+                                    fieldKey={presentation.fieldKey}
                                     form={rowDraft}
                                     onChange={updateDraftForm}
                                     onCommit={saveInlineTaskListField}
                                     saving={Boolean(inlineSavingFields[columnKey])}
+                                    workTypeDefinitions={workTypeDefinitions}
                                   />
                                 );
                             }
@@ -2359,7 +2606,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <div className="calendar-agenda__items">
                           {group.items.map((task) => (
                             <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                              <strong>{formatTaskBacklogId(task)}</strong>
+                              <strong>{formatTaskDisplayId(task)}</strong>
                               <span>{task.issueTitle}</span>
                               <small>
                                 {t("workspace.agendaMeta", { status: statusLabel[task.status], assignee: task.assignee || t("empty.unassigned") })}
@@ -2394,7 +2641,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           <div className="calendar-cell__items">
                             {dayTasks.map((task) => (
                               <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                                {formatTaskBacklogId(task)} {task.issueTitle}
+                                {formatTaskDisplayId(task)} {task.issueTitle}
                               </Link>
                             ))}
                           </div>
@@ -2435,7 +2682,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           <>
                             <div className="trash-card__meta-row">
                               <span className="trash-card__type trash-card__type--task">{t("workspace.trashItemTask")}</span>
-                              <strong>{formatTaskBacklogId(item.task)}</strong>
+                              <strong>{formatTaskDisplayId(item.task)}</strong>
                             </div>
                             <p>{item.task.issueTitle || t("empty.noDescription")}</p>
                             <small>{t("workspace.deletedDateMeta", { date: fileSafeDate(item.task.deletedAt) })}</small>
@@ -2635,6 +2882,72 @@ function DetailPanelPinIcon() {
   );
 }
 
+function TaskListCategoricalHeaderFilter({
+  buttonLabel,
+  containerRef,
+  fieldLabel,
+  isActive,
+  isOpen,
+  onReset,
+  onSelectAll,
+  onToggleOpen,
+  onToggleValue,
+  options,
+  selectedValues,
+}: {
+  buttonLabel: string;
+  containerRef: { current: HTMLDivElement | null };
+  fieldLabel: string;
+  isActive: boolean;
+  isOpen: boolean;
+  onReset: () => void;
+  onSelectAll: () => void;
+  onToggleOpen: () => void;
+  onToggleValue: (value: string) => void;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  selectedValues: readonly string[];
+}) {
+  return (
+    <div className="sheet-table__head-controls" ref={containerRef}>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label={t("workspace.headerFilterAria", { field: fieldLabel, label: buttonLabel })}
+        className={clsx("sheet-table__filter-trigger", isActive && "sheet-table__filter-trigger--active")}
+        disabled={options.length === 0}
+        onClick={onToggleOpen}
+        type="button"
+      >
+        <span className="sheet-table__filter-trigger-label">{buttonLabel}</span>
+      </button>
+      {isOpen ? (
+        <div aria-label={fieldLabel} className="sheet-table__filter-popover" role="dialog">
+          <div className="sheet-table__filter-actions">
+            <button className="sheet-table__filter-action" onClick={onSelectAll} type="button">
+              {t("actions.selectAll")}
+            </button>
+            <button className="sheet-table__filter-action" onClick={onReset} type="button">
+              {t("workspace.resetFilter")}
+            </button>
+          </div>
+          <div className="sheet-table__filter-options">
+            {options.map((option) => (
+              <label className="sheet-table__filter-option" key={option.value || "__empty__"}>
+                <input
+                  checked={selectedValues.includes(option.value)}
+                  onChange={() => onToggleValue(option.value)}
+                  type="checkbox"
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function QuickCreateDateField({
   label,
   value,
@@ -2741,37 +3054,18 @@ function TaskListInlineEditor({
     );
   }
 
-  if (fieldKey === "status") {
+  if (isTaskCategoricalFormFieldKey(fieldKey)) {
     return (
-      <select
+      <TaskCategoricalFieldSelect
         {...sharedProps}
         className="sheet-table__inline-input sheet-table__inline-select"
+        fieldKey={fieldKey}
         onChange={(event) => {
-          onChange("status", event.target.value as TaskStatus);
+          applyTaskCategoricalFieldChange(fieldKey, event.target.value, onChange);
           void onCommit(columnKey);
         }}
-        value={form.status}
-      >
-        {statusOrder.map((status) => (
-          <option key={status} value={status}>
-            {labelForStatus(status)}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  if (fieldKey === "workType") {
-    return (
-      <WorkTypeSelect
-        {...sharedProps}
-        className="sheet-table__inline-input sheet-table__inline-select"
-        definitions={workTypeDefinitions}
-        onChange={(event) => {
-          onChange("workType", event.target.value);
-          void onCommit(columnKey);
-        }}
-        value={form.workType}
+        value={form[fieldKey]}
+        workTypeDefinitions={workTypeDefinitions}
       />
     );
   }
@@ -2859,11 +3153,12 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("workType", "form-field--stretch")}>
         <span>{labelForField("workType")}</span>
-        <WorkTypeSelect
+        <TaskCategoricalFieldSelect
           className="detail-select-field"
-          definitions={workTypeDefinitions}
-          onChange={(event) => onChange("workType", event.target.value)}
+          fieldKey="workType"
+          onChange={(event) => applyTaskCategoricalFieldChange("workType", event.target.value, onChange)}
           value={form.workType}
+          workTypeDefinitions={workTypeDefinitions}
         />
         {renderResizeHandle("workType")}
       </label>
@@ -2930,13 +3225,12 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("status", "form-field--compact")}>
         <span>{labelForField("status")}</span>
-        <select onChange={(event) => onChange("status", event.target.value as TaskStatus)} value={form.status}>
-          {statusOrder.map((status) => (
-            <option key={status} value={status}>
-              {labelForStatus(status)}
-            </option>
-          ))}
-        </select>
+        <TaskCategoricalFieldSelect
+          className="detail-select-field"
+          fieldKey="status"
+          onChange={(event) => applyTaskCategoricalFieldChange("status", event.target.value, onChange)}
+          value={form.status}
+        />
         {renderResizeHandle("status")}
       </label>
       <label {...getLabelProps("completedAt", "form-field--compact")}>
@@ -2971,6 +3265,23 @@ function handleTaskListInlineTextKeyDown(event: ReactKeyboardEvent<HTMLInputElem
     event.preventDefault();
     event.currentTarget.blur();
   }
+}
+
+function isTaskCategoricalFormFieldKey(fieldKey: EditableTaskFormKey): fieldKey is TaskCategoricalFormFieldKey {
+  return fieldKey === "status" || fieldKey === "workType";
+}
+
+function applyTaskCategoricalFieldChange(
+  fieldKey: TaskCategoricalFormFieldKey,
+  rawValue: string,
+  onChange: TaskFormChangeHandler,
+) {
+  if (fieldKey === "status") {
+    onChange(fieldKey, rawValue as TaskStatus);
+    return;
+  }
+
+  onChange(fieldKey, rawValue);
 }
 
 function getEditableTaskListField(columnKey: TaskListColumnKey): EditableTaskFormKey | null {
@@ -3078,6 +3389,40 @@ function writeTaskListLayoutToStorage(storageKey: string, layout: TaskListLayout
   }
 }
 
+function getWorkTypeFilterStorageKey(userId: string, projectId: string) {
+  return `${WORK_TYPE_FILTER_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+}
+
+function readWorkTypeFiltersFromStorage(storageKey: string) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeWorkTypeFiltersToStorage(storageKey: string, values: readonly string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(new Set(values))));
+  } catch {
+    // Ignore storage write failures and keep the in-memory filters.
+  }
+}
+
 function pruneTaskListRowHeights(rowHeights: TaskListRowHeightMap, taskIds: Set<string>) {
   if (taskIds.size === 0) {
     return { ...rowHeights };
@@ -3106,7 +3451,7 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
     case "actionId":
       return {
         kind: "tree",
-        actionId: formatTaskBacklogId(task),
+        actionId: formatTaskDisplayId(task),
         isChildTask,
         isParentTask,
         isBranchTask,
@@ -3117,7 +3462,12 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
       return rowDraft ? { kind: "editable-date", fieldKey: "dueDate", value: rowDraft.dueDate } : { kind: "text", text: task.dueDate || "-" };
     case "workType":
       return rowDraft
-        ? { kind: "editable-text", fieldKey: "workType", value: rowDraft.workType }
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "workType",
+            value: rowDraft.workType,
+            label: labelForTaskCategoricalFieldValue("workType", rowDraft.workType, { workTypeDefinitions }),
+          }
         : { kind: "text", text: labelForWorkType(task.workType, workTypeDefinitions) };
     case "coordinationScope":
       return rowDraft
@@ -3152,7 +3502,14 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
         ? { kind: "editable-text", fieldKey: "issueDetailNote", value: rowDraft.issueDetailNote }
         : { kind: "text", text: task.issueDetailNote || "-" };
     case "status":
-      return rowDraft ? { kind: "editable-status", value: rowDraft.status } : { kind: "readonly-status", value: task.status };
+      return rowDraft
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "status",
+            value: rowDraft.status,
+            label: labelForTaskCategoricalFieldValue("status", rowDraft.status),
+          }
+        : { kind: "readonly-status", value: task.status };
     case "completedAt":
       return { kind: "text", text: formatDateTimeField(task.completedAt) };
     case "statusHistory":
@@ -3173,7 +3530,7 @@ function isEditableTaskListCellPresentation(presentation: TaskListCellPresentati
     presentation.kind === "editable-date" ||
     presentation.kind === "editable-text" ||
     presentation.kind === "editable-checkbox" ||
-    presentation.kind === "editable-status"
+    presentation.kind === "editable-categorical"
   );
 }
 
@@ -3297,11 +3654,11 @@ function appendTaskListCellMeasurementContent(container: HTMLElement, presentati
       container.appendChild(label);
       return;
     }
-    case "editable-status":
+    case "editable-categorical":
       container.appendChild(
         createTaskListMeasureTextNode(
           "sheet-table__inline-input sheet-table__measure-control sheet-table__measure-control--single-line",
-          labelForStatus(presentation.value),
+          presentation.label,
         ),
       );
       return;
@@ -3451,9 +3808,9 @@ function resolveExportFilename(contentDisposition: string | null) {
 }
 
 function formatReadonlyActionId(actionId: number | string | null | undefined, issueId?: string | null) {
-  const normalizedIssueId = String(issueId ?? "").trim();
-  if (normalizedIssueId) {
-    return normalizedIssueId;
+  const issueNumber = extractProjectIssueNumber(String(issueId ?? ""));
+  if (issueNumber) {
+    return issueNumber;
   }
 
   const raw = String(actionId ?? "").trim();

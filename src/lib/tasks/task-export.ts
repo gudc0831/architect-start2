@@ -23,6 +23,7 @@ import { formatStatusHistoryForDisplay, labelForField, labelForMode, labelForSta
 export type TaskExportLayoutInput = {
   columnWidths?: unknown;
   rowHeights?: unknown;
+  workTypeFilters?: string[];
 };
 
 type TaskExportWorkbookInput = {

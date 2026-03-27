@@ -265,7 +265,7 @@ function sanitizeTaskUpdate(
       currentValue: currentTask.workType,
       allowedCodes: effectiveWorkTypes,
     });
-    if (normalizedWorkType) {
+    if (normalizedWorkType !== undefined) {
       next.workType = normalizedWorkType;
     }
   }

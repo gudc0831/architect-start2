@@ -1,11 +1,17 @@
 import type { TaskListColumnKey } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
-import { looksLikeProjectIssueId } from "@/domains/task/identifiers";
+import { extractProjectIssueNumber, looksLikeProjectIssueId } from "@/domains/task/identifiers";
 import { t } from "@/lib/ui-copy";
+
+export type DailyTaskListHeaderControl = {
+  kind: "categoricalFilter";
+  fieldKey: "workType";
+};
 
 export type DailyTaskListColumnConfig = {
   key: TaskListColumnKey;
   className?: string;
+  headerControl?: DailyTaskListHeaderControl;
 };
 
 export type TaskTreeRow = {
@@ -19,7 +25,7 @@ export type TaskTreeRow = {
 export const dailyTaskListColumns: readonly DailyTaskListColumnConfig[] = [
   { key: "actionId", className: "sheet-table__tree-cell" },
   { key: "dueDate" },
-  { key: "workType" },
+  { key: "workType", headerControl: { kind: "categoricalFilter", fieldKey: "workType" } },
   { key: "coordinationScope" },
   { key: "requestedBy" },
   { key: "relatedDisciplines" },
@@ -48,6 +54,15 @@ export function formatTaskBacklogId(task: Pick<TaskRecord, "issueId" | "actionId
   const issueId = String(task.issueId ?? "").trim();
   if (issueId && looksLikeProjectIssueId(issueId)) {
     return issueId;
+  }
+
+  return formatActionId(task.actionId ?? task.taskNumber);
+}
+
+export function formatTaskDisplayId(task: Pick<TaskRecord, "issueId" | "actionId" | "taskNumber">) {
+  const issueNumber = extractProjectIssueNumber(String(task.issueId ?? ""));
+  if (issueNumber) {
+    return issueNumber;
   }
 
   return formatActionId(task.actionId ?? task.taskNumber);

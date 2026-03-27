@@ -8,6 +8,10 @@ import { listFiles } from "@/use-cases/file-service";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { listTasks } from "@/use-cases/task-service";
 import {
+  matchesTaskWorkTypeFilter,
+  normalizeTaskWorkTypeFilters,
+} from "@/lib/task-work-type-filter";
+import {
   buildTaskExportFilename,
   buildTaskExportWorkbook,
   mergeTaskExportLayout,
@@ -28,13 +32,17 @@ export async function POST(request: Request) {
       getTaskListLayout(user.id),
       listEffectiveWorkTypesForSession(),
     ]);
-    const taskIds = new Set(tasks.map((task) => task.id));
+    const selectedWorkTypeFilters = normalizeTaskWorkTypeFilters(body.workTypeFilters, workTypes.displayDefinitions);
+    const filteredTasks = tasks.filter((task) =>
+      matchesTaskWorkTypeFilter(task.workType, selectedWorkTypeFilters, workTypes.displayDefinitions),
+    );
+    const taskIds = new Set(filteredTasks.map((task) => task.id));
     const files = allFiles.filter((file) => taskIds.has(file.taskId));
 
     const layout = mergeTaskExportLayout(body, storedLayout);
     const workbook = await buildTaskExportWorkbook({
       projectName: project.name,
-      tasks,
+      tasks: filteredTasks,
       files,
       layout,
       workTypeDefinitions: workTypes.displayDefinitions,
@@ -60,13 +68,22 @@ async function readRequestBody(request: Request): Promise<TaskExportLayoutInput>
     throw badRequest("Content-Type must be application/json", "EXPORT_TASKS_CONTENT_TYPE_INVALID");
   }
 
+  let body: TaskExportLayoutInput;
   try {
-    const body = (await request.json()) as TaskExportLayoutInput;
-    return {
-      columnWidths: body.columnWidths,
-      rowHeights: body.rowHeights,
-    };
+    body = (await request.json()) as TaskExportLayoutInput;
   } catch {
     throw badRequest("Invalid export payload", "EXPORT_TASKS_PAYLOAD_INVALID");
   }
+
+  if (body.workTypeFilters !== undefined) {
+    if (!Array.isArray(body.workTypeFilters) || body.workTypeFilters.some((value) => typeof value !== "string")) {
+      throw badRequest("workTypeFilters must be an array of strings", "EXPORT_TASKS_PAYLOAD_INVALID");
+    }
+  }
+
+  return {
+    columnWidths: body.columnWidths,
+    rowHeights: body.rowHeights,
+    workTypeFilters: body.workTypeFilters,
+  };
 }

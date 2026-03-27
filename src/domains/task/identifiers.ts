@@ -48,3 +48,9 @@ export function buildProjectIssueId(projectName: string, taskNumber: number) {
 export function looksLikeProjectIssueId(value: string) {
   return /^[\p{L}\p{N}]{1,8}-\d{3,}$/u.test(value.trim());
 }
+
+export function extractProjectIssueNumber(value: string) {
+  const normalized = value.trim();
+  const match = normalized.match(/^[\p{L}\p{N}]{1,8}-(\d{3,})$/u);
+  return match?.[1] ?? null;
+}

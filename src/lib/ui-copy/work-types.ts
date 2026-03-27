@@ -1,4 +1,5 @@
 import { normalizeLegacyWorkType, workTypeCodeOrder, type WorkTypeCode, type WorkTypeDefinition } from "@/domains/task/work-types";
+import { UNCLASSIFIED_WORK_TYPE_VALUE } from "@/lib/task-work-type-write";
 
 const workTypeLabelMap: Record<WorkTypeCode, string> = {
   coordination: "\uD611\uC758",
@@ -11,6 +12,7 @@ const workTypeLabelMap: Record<WorkTypeCode, string> = {
 };
 
 type WorkTypeDefinitionLike = Pick<WorkTypeDefinition, "code" | "labelKo" | "isActive" | "sortOrder">;
+const UNCLASSIFIED_WORK_TYPE_LABEL = "\uBBF8\uBD84\uB958";
 
 function resolveAllWorkTypeDefinitions(definitions?: readonly WorkTypeDefinitionLike[]) {
   if ((definitions ?? []).length > 0) {
@@ -35,9 +37,10 @@ function resolveWorkTypeLabel(value: string | null | undefined, definitions?: re
     return null;
   }
 
+  const selectableDefinitions = resolveSelectableWorkTypeDefinitions(definitions);
   const resolvedDefinitions = resolveAllWorkTypeDefinitions(definitions);
   const directMatch = resolvedDefinitions.find((definition) => definition.code === raw);
-  if (directMatch?.labelKo) {
+  if (directMatch?.labelKo && directMatch.isActive !== false) {
     return directMatch.labelKo;
   }
 
@@ -46,16 +49,20 @@ function resolveWorkTypeLabel(value: string | null | undefined, definitions?: re
     return null;
   }
 
-  const matchedDefinition = resolvedDefinitions.find((definition) => definition.code === normalized);
+  const matchedDefinition = selectableDefinitions.find((definition) => definition.code === normalized);
   if (matchedDefinition?.labelKo) {
     return matchedDefinition.labelKo;
+  }
+
+  if (definitions && definitions.length > 0) {
+    return null;
   }
 
   return workTypeLabelMap[normalized] ?? null;
 }
 
 export function labelForWorkType(value: string | null | undefined, definitions?: readonly WorkTypeDefinitionLike[]) {
-  return resolveWorkTypeLabel(value, definitions) ?? "\uBBF8\uBD84\uB958";
+  return resolveWorkTypeLabel(value, definitions) ?? UNCLASSIFIED_WORK_TYPE_LABEL;
 }
 
 export function getWorkTypeOptions(definitions?: readonly WorkTypeDefinitionLike[]) {
@@ -65,41 +72,25 @@ export function getWorkTypeOptions(definitions?: readonly WorkTypeDefinitionLike
   }));
 }
 
-export function getWorkTypeSelectOptions(value: string | null | undefined, definitions?: readonly WorkTypeDefinitionLike[]) {
-  const raw = String(value ?? "").trim();
-  const allDefinitions = resolveAllWorkTypeDefinitions(definitions);
+export function getWorkTypeSelectOptions(_value: string | null | undefined, definitions?: readonly WorkTypeDefinitionLike[]) {
   const options = getWorkTypeOptions(definitions);
-  const directDefinition = allDefinitions.find((definition) => definition.code === raw);
-  const hasDirectDefinition = Boolean(directDefinition);
-  const normalized = hasDirectDefinition ? raw : normalizeLegacyWorkType(raw);
-
-  if (!raw) {
-    return [{ value: "", label: "\uBBF8\uBD84\uB958" }, ...options];
-  }
-
-  if (directDefinition && directDefinition.isActive === false) {
-    return [{ value: directDefinition.code, label: `${directDefinition.labelKo} (\uBE44\uD65C\uC131)` }, ...options];
-  }
-
-  if (!normalized) {
-    return [{ value: raw, label: "\uBBF8\uBD84\uB958" }, ...options];
-  }
-
-  if (!options.some((option) => option.value === normalized)) {
-    const normalizedDefinition = allDefinitions.find((definition) => definition.code === normalized);
-    if (normalizedDefinition) {
-      return [{ value: normalizedDefinition.code, label: normalizedDefinition.labelKo }, ...options];
-    }
-  }
-
-  return options;
+  return [{ value: UNCLASSIFIED_WORK_TYPE_VALUE, label: UNCLASSIFIED_WORK_TYPE_LABEL }, ...options];
 }
 
 export function getWorkTypeSelectValue(value: string | null | undefined, definitions?: readonly WorkTypeDefinitionLike[]) {
   const raw = String(value ?? "").trim();
-  if (resolveAllWorkTypeDefinitions(definitions).some((definition) => definition.code === raw)) {
+  if (!raw) {
+    return UNCLASSIFIED_WORK_TYPE_VALUE;
+  }
+
+  if (resolveSelectableWorkTypeDefinitions(definitions).some((definition) => definition.code === raw)) {
     return raw;
   }
 
-  return normalizeLegacyWorkType(raw) ?? raw;
+  const normalized = normalizeLegacyWorkType(raw);
+  if (normalized && resolveSelectableWorkTypeDefinitions(definitions).some((definition) => definition.code === normalized)) {
+    return normalized;
+  }
+
+  return UNCLASSIFIED_WORK_TYPE_VALUE;
 }

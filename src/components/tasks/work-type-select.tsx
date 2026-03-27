@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
-import { getWorkTypeSelectOptions, getWorkTypeSelectValue } from "@/lib/ui-copy";
+import { TaskCategoricalFieldSelect } from "@/components/tasks/task-categorical-fields";
 
 type WorkTypeSelectProps = Omit<ComponentPropsWithoutRef<"select">, "children" | "value"> & {
   value: string | null | undefined;
@@ -8,16 +8,5 @@ type WorkTypeSelectProps = Omit<ComponentPropsWithoutRef<"select">, "children" |
 };
 
 export function WorkTypeSelect({ definitions, value, ...props }: WorkTypeSelectProps) {
-  const options = getWorkTypeSelectOptions(value, definitions);
-  const selectedValue = getWorkTypeSelectValue(value, definitions);
-
-  return (
-    <select {...props} value={selectedValue}>
-      {options.map((option) => (
-        <option key={option.value || "__empty__"} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
+  return <TaskCategoricalFieldSelect {...props} fieldKey="workType" value={value} workTypeDefinitions={definitions} />;
 }

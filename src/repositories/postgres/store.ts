@@ -4,7 +4,7 @@ import { buildProjectIssueId } from "@/domains/task/identifiers";
 import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
 import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference } from "@/domains/preferences/types";
 import { defaultProjectName } from "@/lib/runtime-config";
-import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
+import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 import type {
   CreateFileInput,
   CreateTaskInput,
@@ -152,7 +152,7 @@ async function toFileRecord(file: {
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
   return {
     dueDate: input.dueDate ?? undefined,
-    category: input.workType === undefined ? undefined : requireStoredWorkTypeCode(input.workType),
+    category: input.workType === undefined ? undefined : requireStoredTaskWorkTypeValue(input.workType),
     coordinationScope: input.coordinationScope ?? undefined,
     ownerDiscipline: input.ownerDiscipline ?? undefined,
     requester: input.requestedBy ?? undefined,

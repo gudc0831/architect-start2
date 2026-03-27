@@ -5,7 +5,7 @@ import { buildProjectIssueId } from "@/domains/task/identifiers";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
-import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
+import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 
 function getDb() {
   const app = getFirebaseClientApp();
@@ -212,7 +212,7 @@ class FirestoreTaskRepository implements TaskRepository {
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      workType: requireStoredWorkTypeCode(input.workType),
+      workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,
       ownerDiscipline: input.ownerDiscipline,
       requestedBy: input.requestedBy,
@@ -251,7 +251,7 @@ class FirestoreTaskRepository implements TaskRepository {
     const normalizedPersistedInput = {
       ...persistedInput,
       workType:
-        persistedInput.workType === undefined ? undefined : requireStoredWorkTypeCode(persistedInput.workType),
+        persistedInput.workType === undefined ? undefined : requireStoredTaskWorkTypeValue(persistedInput.workType),
     };
     const targetRef = doc(db, taskCollectionName, taskId);
     const currentSnapshot = await getDoc(targetRef);

@@ -68,8 +68,10 @@ export type UICatalog = {
     datePickerAria: string;
     parentTaskNumberPlaceholder: string;
     resizeFieldAria: string;
+    headerFilterAria: string;
     autoAfterCreate: string;
     autoValue: string;
+    resetFilter: string;
     statusHistoryPlaceholder: string;
     linkedDocumentSummaryMulti: string;
     agendaMeta: string;
@@ -296,8 +298,10 @@ export const uiCopyCatalog = {
       datePickerAria: "{{label}} 달력 열기",
       parentTaskNumberPlaceholder: "MIL-001, #12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
+      headerFilterAria: "{{field}} 필터: {{label}}",
       autoAfterCreate: "생성 후 자동 지정",
       autoValue: "자동",
+      resetFilter: "초기화",
       statusHistoryPlaceholder: "첫 저장 후 자동으로 기록됩니다.",
       linkedDocumentSummaryMulti: "{{name}} 외 {{count}}개",
       agendaMeta: "{{status}} / {{assignee}}",
@@ -549,8 +553,10 @@ export const uiCopyCatalog = {
       datePickerAria: "{{label}} calendar",
       parentTaskNumberPlaceholder: "MIL-001, #12, or 12",
       resizeFieldAria: "Resize {{field}}",
+      headerFilterAria: "{{field}} filter: {{label}}",
       autoAfterCreate: "Auto after create",
       autoValue: "Auto",
+      resetFilter: "Reset",
       statusHistoryPlaceholder: "Tracked automatically after the first save.",
       linkedDocumentSummaryMulti: "{{name}} +{{count}} more",
       agendaMeta: "{{status}} / {{assignee}}",

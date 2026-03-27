@@ -6,7 +6,7 @@ import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
-import { requireStoredWorkTypeCode } from "@/lib/task-work-type-write";
+import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -161,7 +161,7 @@ class MemoryTaskRepository implements TaskRepository {
       depth: input.depth ?? 0,
       siblingOrder: input.siblingOrder ?? 0,
       dueDate: input.dueDate,
-      workType: requireStoredWorkTypeCode(input.workType),
+      workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,
       ownerDiscipline: input.ownerDiscipline,
       requestedBy: input.requestedBy,
@@ -203,7 +203,7 @@ class MemoryTaskRepository implements TaskRepository {
     const normalizedPersistedInput = {
       ...persistedInput,
       workType:
-        persistedInput.workType === undefined ? undefined : requireStoredWorkTypeCode(persistedInput.workType),
+        persistedInput.workType === undefined ? undefined : requireStoredTaskWorkTypeValue(persistedInput.workType),
     };
     const next = {
       ...current,
