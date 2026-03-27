@@ -1,4 +1,4 @@
 interface:
   display_name: "Verify Browser UI"
-  short_description: "Inspect browser UI step by step on Windows"
-  default_prompt: "Use $verify-browser-ui to inspect a local dev page step by step and report visual issues."
+  short_description: "Inspect Windows browser UI desktop-first with resize QA"
+  default_prompt: "Use $verify-browser-ui to inspect a local dev page desktop-first, run the desktop resize sweep, click and drag through real interactions, verify a mobile confirmation pass, and delete session artifacts before finishing."
