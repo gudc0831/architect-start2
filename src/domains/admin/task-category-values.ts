@@ -12,7 +12,7 @@ export type TaskCategoryFilterSelection = Partial<Record<TaskCategoryFieldKey, s
 
 export const UNCLASSIFIED_TASK_CATEGORY_VALUE = "";
 
-const multiValueFieldKeys = new Set<TaskCategoryFieldKey>(["relatedDisciplines"]);
+const multiValueFieldKeys = new Set<TaskCategoryFieldKey>(["relatedDisciplines", "locationRef"]);
 const multiValueSeparators = /[\n,;|]+/;
 
 function compareDefinitionOrder(left: TaskCategoryDefinitionLike, right: TaskCategoryDefinitionLike) {
@@ -67,8 +67,12 @@ function invalidFieldErrorCode(fieldKey: TaskCategoryFieldKey) {
       return "TASK_WORK_TYPE_INVALID";
     case "coordinationScope":
       return "TASK_COORDINATION_SCOPE_INVALID";
+    case "requestedBy":
+      return "TASK_REQUESTED_BY_INVALID";
     case "relatedDisciplines":
       return "TASK_RELATED_DISCIPLINES_INVALID";
+    case "locationRef":
+      return "TASK_LOCATION_REF_INVALID";
   }
 }
 
@@ -221,13 +225,20 @@ export function matchesTaskCategoryFilter(
   return resolveTaskCategoryFilterBuckets(fieldKey, value, definitions).some((bucket) => normalizedFilters.includes(bucket));
 }
 
-export function valueForTaskCategoryField(task: Pick<TaskRecord, "workType" | "coordinationScope" | "relatedDisciplines">, fieldKey: TaskCategoryFieldKey) {
+export function valueForTaskCategoryField(
+  task: Pick<TaskRecord, "workType" | "coordinationScope" | "requestedBy" | "relatedDisciplines" | "locationRef">,
+  fieldKey: TaskCategoryFieldKey,
+) {
   switch (fieldKey) {
     case "workType":
       return task.workType;
     case "coordinationScope":
       return task.coordinationScope;
+    case "requestedBy":
+      return task.requestedBy;
     case "relatedDisciplines":
       return task.relatedDisciplines;
+    case "locationRef":
+      return task.locationRef;
   }
 }

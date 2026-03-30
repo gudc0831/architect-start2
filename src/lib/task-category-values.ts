@@ -193,7 +193,7 @@ export function matchesTaskCategoryFilter(
     return true;
   }
 
-  if (fieldKey === "relatedDisciplines") {
+  if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {
     const bucketValues = getTaskCategoryValues(fieldKey, value, context);
     if (bucketValues.length === 0) {
       return normalizedFilters.includes(UNCLASSIFIED_TASK_CATEGORY_VALUE);

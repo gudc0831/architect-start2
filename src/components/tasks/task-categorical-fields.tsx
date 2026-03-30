@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import {
   getTaskCategoricalFilterOptions as getTaskCategoricalFieldOptionsInternal,
@@ -55,7 +56,7 @@ export function labelForTaskCategoricalFieldValue(
 }
 
 type TaskCategoricalFieldSelectProps = Omit<ComponentPropsWithoutRef<"select">, "children" | "value"> & {
-  fieldKey: Exclude<TaskCategoricalFieldKey, "relatedDisciplines">;
+  fieldKey: Exclude<TaskCategoricalFieldKey, "relatedDisciplines" | "locationRef">;
   value: string | null | undefined;
   workTypeDefinitions?: readonly Pick<TaskCategoryDefinitionLike, "code" | "labelKo" | "isActive" | "sortOrder">[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinitionLike[]>>;
@@ -86,7 +87,7 @@ export function TaskCategoricalFieldSelect({
 }
 
 type TaskCategoricalFieldMultiSelectProps = Omit<ComponentPropsWithoutRef<"button">, "children" | "onChange" | "value"> & {
-  fieldKey: "relatedDisciplines";
+  fieldKey: "relatedDisciplines" | "locationRef";
   value: unknown;
   onChangeValues: (values: string[]) => void;
   onConfirm?: () => void;
@@ -123,7 +124,20 @@ export function TaskCategoricalFieldMultiSelect({
   const [isOpen, setIsOpen] = useState(false);
   const [draftValues, setDraftValues] = useState<string[]>(selectedValues);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const summaryLabel = labelForTaskCategoricalFieldValue(fieldKey, value, context);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
+  const summaryLabel = useMemo(() => {
+    if (selectedValues.length === 0) {
+      return labelForTaskCategoricalFieldValue(fieldKey, value, context);
+    }
+
+    if (selectedValues.length === 1) {
+      return options.find((option) => option.value === selectedValues[0])?.label ?? selectedValues[0];
+    }
+
+    return t("workspace.selectedCount", { count: selectedValues.length });
+  }, [context, fieldKey, options, selectedValues, value]);
 
   useEffect(() => {
     setDraftValues(selectedValues);
@@ -135,7 +149,7 @@ export function TaskCategoricalFieldMultiSelect({
     }
 
     function handleDocumentPointerDown(event: MouseEvent | TouchEvent) {
-      if (containerRef.current?.contains(event.target as Node)) {
+      if (containerRef.current?.contains(event.target as Node) || popoverRef.current?.contains(event.target as Node)) {
         return;
       }
 
@@ -145,7 +159,7 @@ export function TaskCategoricalFieldMultiSelect({
     }
 
     function handleDocumentFocusIn(event: FocusEvent) {
-      if (containerRef.current?.contains(event.target as Node)) {
+      if (containerRef.current?.contains(event.target as Node) || popoverRef.current?.contains(event.target as Node)) {
         return;
       }
 
@@ -174,43 +188,69 @@ export function TaskCategoricalFieldMultiSelect({
     };
   }, [isOpen, onCancel, selectedValues]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setPopoverStyle(null);
+      return;
+    }
+
+    function updatePopoverPosition() {
+      const triggerBounds = triggerRef.current?.getBoundingClientRect();
+      if (!triggerBounds) {
+        return;
+      }
+
+      const popoverHeight = popoverRef.current?.getBoundingClientRect().height ?? 252;
+      const safeEdge = 12;
+      const gap = 6;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const width = Math.min(Math.max(triggerBounds.width, 248), viewportWidth - safeEdge * 2);
+      const left = Math.max(safeEdge, Math.min(triggerBounds.right - width, viewportWidth - width - safeEdge));
+      const spaceBelow = viewportHeight - triggerBounds.bottom - safeEdge;
+      const spaceAbove = triggerBounds.top - safeEdge;
+      const openAbove = spaceBelow < Math.min(popoverHeight, 240) && spaceAbove > spaceBelow;
+      const availableHeight = Math.max(176, (openAbove ? spaceAbove : spaceBelow) - gap);
+      const anchoredHeight = Math.min(popoverHeight, availableHeight);
+      const top = openAbove
+        ? Math.max(safeEdge, triggerBounds.top - anchoredHeight - gap)
+        : Math.min(viewportHeight - anchoredHeight - safeEdge, triggerBounds.bottom + gap);
+
+      setPopoverStyle({
+        left,
+        maxHeight: availableHeight,
+        position: "fixed",
+        top,
+        width,
+      });
+    }
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, options.length]);
+
   const orderedDraftValues = options
     .map((option) => option.value)
     .filter((optionValue) => draftValues.includes(optionValue));
   const containerClassName = ["task-categorical-multiselect", className].filter(Boolean).join(" ");
   const triggerClassName = ["task-categorical-multiselect__trigger", buttonClassName].filter(Boolean).join(" ");
-
-  return (
-    <div
-      className={containerClassName}
-      onClick={(event) => event.stopPropagation()}
-      onDoubleClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-      ref={containerRef}
-    >
-      <button
-        {...props}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        className={triggerClassName}
-        data-task-multiselect-trigger="true"
-        disabled={disabled || options.length === 0}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (disabled || options.length === 0) {
-            return;
-          }
-
-          setDraftValues(selectedValues);
-          setIsOpen((previous) => !previous);
-        }}
-        type="button"
-      >
-        {summaryLabel}
-      </button>
-      {isOpen ? (
-        <div aria-label={labelForField(fieldKey)} aria-modal="false" className="sheet-table__filter-popover" role="dialog">
+  const popover = isOpen
+    ? createPortal(
+        <div
+          aria-label={labelForField(fieldKey)}
+          aria-modal="false"
+          className="sheet-table__filter-popover task-categorical-multiselect__popover"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          ref={popoverRef}
+          role="dialog"
+          style={popoverStyle ?? { visibility: "hidden" }}
+        >
           <div className="sheet-table__filter-toolbar">
             <div className="sheet-table__filter-utility">
               <button
@@ -278,8 +318,42 @@ export function TaskCategoricalFieldMultiSelect({
               {t("actions.confirm")}
             </button>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <div
+      className={containerClassName}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      ref={containerRef}
+    >
+      <button
+        {...props}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        className={triggerClassName}
+        data-task-multiselect-trigger="true"
+        disabled={disabled || options.length === 0}
+        ref={triggerRef}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (disabled || options.length === 0) {
+            return;
+          }
+
+          setDraftValues(selectedValues);
+          setIsOpen((previous) => !previous);
+        }}
+        type="button"
+      >
+        <span className="task-categorical-multiselect__trigger-label">{summaryLabel}</span>
+      </button>
+      {popover}
     </div>
   );
 }

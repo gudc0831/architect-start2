@@ -66,9 +66,9 @@ function fallbackLegacyCategoryLabel(
     return null;
   }
 
-  if (fieldKey === "relatedDisciplines") {
+  if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {
     return rawValue
-      .split(",")
+      .split(/[\n,;|]+/)
       .map((entry) => entry.trim())
       .filter(Boolean)
       .join(", ");
@@ -105,14 +105,14 @@ export function labelForTaskCategoricalFilterValue(
   value: unknown,
   context: TaskCategoricalFilterContext = {},
 ) {
-  if (fieldKey === "coordinationScope" || fieldKey === "relatedDisciplines") {
+  if (fieldKey !== "status" && fieldKey !== "workType") {
     const fallbackLabel = fallbackLegacyCategoryLabel(fieldKey, value, context);
     if (fallbackLabel) {
       return fallbackLabel;
     }
   }
 
-  if (fieldKey === "relatedDisciplines") {
+  if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {
     return labelForTaskCategoryValues(fieldKey, value, toContext(context));
   }
 

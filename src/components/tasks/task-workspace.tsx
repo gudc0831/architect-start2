@@ -193,7 +193,10 @@ type LinkedDocumentsDisplay = {
 type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
 type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt">;
-type DailyCategoricalFilterFieldKey = Extract<TaskCategoricalFieldKey, "workType" | "coordinationScope" | "relatedDisciplines" | "status">;
+type DailyCategoricalFilterFieldKey = Extract<
+  TaskCategoricalFieldKey,
+  "workType" | "coordinationScope" | "requestedBy" | "relatedDisciplines" | "locationRef" | "status"
+>;
 type DailyCategoricalFilterMap = Partial<Record<DailyCategoricalFilterFieldKey, string[]>>;
 
 type TaskListRowPresentationContext = {
@@ -284,7 +287,14 @@ const WIDE_BREAKPOINT = 1440;
 const MOBILE_BREAKPOINT = 768;
 const TABLET_BREAKPOINT = 1100;
 const DETAIL_PANEL_BREAKPOINT = 1360;
-const dailyCategoricalFilterFieldKeys = ["workType", "coordinationScope", "relatedDisciplines", "status"] as const satisfies readonly DailyCategoricalFilterFieldKey[];
+const dailyCategoricalFilterFieldKeys = [
+  "workType",
+  "coordinationScope",
+  "requestedBy",
+  "relatedDisciplines",
+  "locationRef",
+  "status",
+] as const satisfies readonly DailyCategoricalFilterFieldKey[];
 const statusOrder: TaskStatus[] = ["waiting", "todo", "in_progress", "blocked", "done"];
 const statusLabel: Record<TaskStatus, string> = {
   waiting: labelForStatus("waiting"),
@@ -1341,8 +1351,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             return matchesTaskCategoricalFilter(fieldKey, task.workType, filters, categoricalFieldContext);
           case "coordinationScope":
             return matchesTaskCategoricalFilter(fieldKey, task.coordinationScope, filters, categoricalFieldContext);
+          case "requestedBy":
+            return matchesTaskCategoricalFilter(fieldKey, task.requestedBy, filters, categoricalFieldContext);
           case "relatedDisciplines":
             return matchesTaskCategoricalFilter(fieldKey, task.relatedDisciplines, filters, categoricalFieldContext);
+          case "locationRef":
+            return matchesTaskCategoricalFilter(fieldKey, task.locationRef, filters, categoricalFieldContext);
           case "status":
             return matchesTaskCategoricalFilter(fieldKey, task.status, filters, categoricalFieldContext);
           default:
@@ -2563,7 +2577,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             </div>
                             <div className="daily-task-card__meta-item">
                               <dt>{labelForField("requestedBy")}</dt>
-                              <dd>{task.requestedBy || "-"}</dd>
+                              <dd>{labelForTaskCategoricalFieldValue("requestedBy", task.requestedBy, categoricalFieldContext)}</dd>
                             </div>
                           </dl>
 
@@ -2733,7 +2747,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
                                   style={{ height: `${rowHeight}px` }}
                                 >
-                                  <div className={clsx("sheet-table__cell-content", isEditableCell && "sheet-table__cell-content--editable")}>
+                                  <div
+                                    className={clsx(
+                                      "sheet-table__cell-content",
+                                      isEditableCell && "sheet-table__cell-content--editable",
+                                      isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
+                                    )}
+                                  >
                                     {renderTaskListCellContent(column.key, presentation)}
                                   </div>
                                   <button
@@ -3305,16 +3325,16 @@ function TaskListInlineEditor({
   }
 
   if (isTaskCategoricalFormFieldKey(fieldKey)) {
-    if (fieldKey === "relatedDisciplines") {
+    if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {
       return (
         <TaskCategoricalFieldMultiSelect
           className="sheet-table__inline-multiselect"
-          fieldKey="relatedDisciplines"
+          fieldKey={fieldKey}
           onChangeValues={(values) => {
-            onChange("relatedDisciplines", serializeTaskCategoryValues(values));
+            onChange(fieldKey, serializeTaskCategoryValues(values));
             void onCommit(columnKey);
           }}
-          value={form.relatedDisciplines}
+          value={form[fieldKey]}
           buttonClassName="sheet-table__inline-input sheet-table__inline-select"
           categoryDefinitionsByField={categoryDefinitionsByField}
           workTypeDefinitions={workTypeDefinitions}
@@ -3326,7 +3346,7 @@ function TaskListInlineEditor({
       <TaskCategoricalFieldSelect
         {...sharedProps}
         className="sheet-table__inline-input sheet-table__inline-select"
-        fieldKey={fieldKey as Exclude<TaskCategoricalFieldKey, "relatedDisciplines">}
+        fieldKey={fieldKey as Exclude<TaskCategoricalFieldKey, "relatedDisciplines" | "locationRef">}
         onChange={(event) => {
           applyTaskCategoricalFieldChange(fieldKey, event.target.value, onChange);
           void onCommit(columnKey);
@@ -3453,13 +3473,21 @@ function TaskFormFields({
       ) : null}
       <label {...getLabelProps("requestedBy", "form-field--stretch")}>
         <span>{labelForField("requestedBy")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("requestedBy", event.target.value)} rows={1} value={form.requestedBy} />
+        <TaskCategoricalFieldSelect
+          className="detail-select-field"
+          fieldKey="requestedBy"
+          onChange={(event) => applyTaskCategoricalFieldChange("requestedBy", event.target.value, onChange)}
+          value={form.requestedBy}
+          categoryDefinitionsByField={categoryDefinitionsByField}
+          workTypeDefinitions={workTypeDefinitions}
+        />
         {renderResizeHandle("requestedBy")}
       </label>
       <label {...getLabelProps("relatedDisciplines", "form-field--stretch")}>
         <span>{labelForField("relatedDisciplines")}</span>
         <TaskCategoricalFieldMultiSelect
           buttonClassName="detail-select-field"
+          className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
           fieldKey="relatedDisciplines"
           onChangeValues={(values) => onChange("relatedDisciplines", serializeTaskCategoryValues(values))}
           value={form.relatedDisciplines}
@@ -3495,7 +3523,15 @@ function TaskFormFields({
       ) : null}
       <label {...getLabelProps("locationRef", "form-field--stretch")}>
         <span>{labelForField("locationRef")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("locationRef", event.target.value)} rows={1} value={form.locationRef} />
+        <TaskCategoricalFieldMultiSelect
+          buttonClassName="detail-select-field"
+          className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
+          fieldKey="locationRef"
+          onChangeValues={(values) => onChange("locationRef", serializeTaskCategoryValues(values))}
+          value={form.locationRef}
+          categoryDefinitionsByField={categoryDefinitionsByField}
+          workTypeDefinitions={workTypeDefinitions}
+        />
         {renderResizeHandle("locationRef")}
       </label>
       <label {...getLabelProps("calendarLinked", "detail-checkbox-field form-field--compact")}>
@@ -3558,7 +3594,20 @@ function isTaskCategoricalFormFieldKey(fieldKey: EditableTaskFormKey): fieldKey 
     fieldKey === "status" ||
     fieldKey === "workType" ||
     fieldKey === "coordinationScope" ||
-    fieldKey === "relatedDisciplines"
+    fieldKey === "requestedBy" ||
+    fieldKey === "relatedDisciplines" ||
+    fieldKey === "locationRef"
+  );
+}
+
+function isCenteredCategoricalColumn(columnKey: TaskListColumnKey) {
+  return (
+    columnKey === "workType" ||
+    columnKey === "coordinationScope" ||
+    columnKey === "requestedBy" ||
+    columnKey === "relatedDisciplines" ||
+    columnKey === "locationRef" ||
+    columnKey === "status"
   );
 }
 
@@ -3816,7 +3865,14 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
           }
         : { kind: "text", text: labelForTaskCategoricalFieldValue("coordinationScope", task.coordinationScope, categoricalFieldContext) };
     case "requestedBy":
-      return rowDraft ? { kind: "editable-text", fieldKey: "requestedBy", value: rowDraft.requestedBy } : { kind: "text", text: task.requestedBy || "-" };
+      return rowDraft
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "requestedBy",
+            value: rowDraft.requestedBy,
+            label: labelForTaskCategoricalFieldValue("requestedBy", rowDraft.requestedBy, categoricalFieldContext),
+          }
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("requestedBy", task.requestedBy, categoricalFieldContext) };
     case "relatedDisciplines":
       return rowDraft
         ? {
@@ -3841,7 +3897,14 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
     case "reviewedAt":
       return rowDraft ? { kind: "editable-date", fieldKey: "reviewedAt", value: rowDraft.reviewedAt } : { kind: "text", text: task.reviewedAt || "-" };
     case "locationRef":
-      return rowDraft ? { kind: "editable-text", fieldKey: "locationRef", value: rowDraft.locationRef } : { kind: "text", text: task.locationRef || "-" };
+      return rowDraft
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "locationRef",
+            value: rowDraft.locationRef,
+            label: labelForTaskCategoricalFieldValue("locationRef", rowDraft.locationRef, categoricalFieldContext),
+          }
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("locationRef", task.locationRef, categoricalFieldContext) };
     case "calendarLinked":
       return rowDraft ? { kind: "editable-checkbox", checked: rowDraft.calendarLinked } : { kind: "readonly-checkbox", checked: task.calendarLinked };
     case "issueDetailNote":
@@ -4031,7 +4094,11 @@ function measureTaskListRowHeight(context: TaskListRowPresentationContext, colum
       shell.style.width = `${columnWidths[column.key]}px`;
 
       const content = document.createElement("div");
-      content.className = clsx("sheet-table__cell-content", isEditableTaskListCellPresentation(presentation) && "sheet-table__cell-content--editable");
+      content.className = clsx(
+        "sheet-table__cell-content",
+        isEditableTaskListCellPresentation(presentation) && "sheet-table__cell-content--editable",
+        isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
+      );
       appendTaskListCellMeasurementContent(content, presentation);
       shell.appendChild(content);
       host.appendChild(shell);
