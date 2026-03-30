@@ -1,11 +1,12 @@
 import type { TaskListColumnKey } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { extractProjectIssueNumber, looksLikeProjectIssueId } from "@/domains/task/identifiers";
+import type { TaskCategoricalFilterFieldKey } from "@/lib/task-categorical-filter";
 import { t } from "@/lib/ui-copy";
 
 export type DailyTaskListHeaderControl = {
   kind: "categoricalFilter";
-  fieldKey: "workType";
+  fieldKey: TaskCategoricalFilterFieldKey;
 };
 
 export type DailyTaskListColumnConfig = {

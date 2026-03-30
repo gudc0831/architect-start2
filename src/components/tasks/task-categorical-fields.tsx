@@ -1,40 +1,29 @@
 import type { ComponentPropsWithoutRef } from "react";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
-import type { TaskStatus } from "@/domains/task/types";
-import { getWorkTypeSelectOptions, getWorkTypeSelectValue, labelForStatus, labelForWorkType } from "@/lib/ui-copy";
+import {
+  getTaskCategoricalFilterOptions as getTaskCategoricalFieldOptionsInternal,
+  getTaskCategoricalFilterValue as getTaskCategoricalFieldValueInternal,
+  labelForTaskCategoricalFilterValue as labelForTaskCategoricalFieldValueInternal,
+  type TaskCategoricalFilterContext,
+  type TaskCategoricalFilterFieldKey,
+  type TaskCategoricalFilterOption,
+} from "@/lib/task-categorical-filter";
 
-export type TaskCategoricalFieldKey = "status" | "workType";
-export type TaskCategoricalFieldOption = {
-  value: string;
-  label: string;
-};
+export type TaskCategoricalFieldKey = TaskCategoricalFilterFieldKey;
+export type TaskCategoricalFieldOption = TaskCategoricalFilterOption;
 
 type WorkTypeDefinitionLike = Pick<WorkTypeDefinition, "code" | "labelKo" | "isActive" | "sortOrder">;
-type TaskCategoricalFieldContext = {
+type TaskCategoricalFieldContext = TaskCategoricalFilterContext & {
   workTypeDefinitions?: readonly WorkTypeDefinitionLike[];
 };
-
-const taskStatusOrder = ["waiting", "todo", "in_progress", "blocked", "done"] as const satisfies readonly TaskStatus[];
-const taskStatusOptions = taskStatusOrder.map<TaskCategoricalFieldOption>((status) => ({
-  value: status,
-  label: labelForStatus(status),
-}));
-
-function normalizeTaskStatusValue(value: string | null | undefined) {
-  const raw = String(value ?? "").trim();
-  return taskStatusOrder.includes(raw as TaskStatus) ? raw : "waiting";
-}
 
 export function getTaskCategoricalFieldOptions(
   fieldKey: TaskCategoricalFieldKey,
   context: TaskCategoricalFieldContext = {},
   value?: string | null,
 ) {
-  if (fieldKey === "status") {
-    return taskStatusOptions;
-  }
-
-  return getWorkTypeSelectOptions(value, context.workTypeDefinitions);
+  void value;
+  return getTaskCategoricalFieldOptionsInternal(fieldKey, context);
 }
 
 export function getTaskCategoricalFieldValue(
@@ -42,11 +31,7 @@ export function getTaskCategoricalFieldValue(
   value: string | null | undefined,
   context: TaskCategoricalFieldContext = {},
 ) {
-  if (fieldKey === "status") {
-    return normalizeTaskStatusValue(value);
-  }
-
-  return getWorkTypeSelectValue(value, context.workTypeDefinitions);
+  return getTaskCategoricalFieldValueInternal(fieldKey, value, context);
 }
 
 export function labelForTaskCategoricalFieldValue(
@@ -54,11 +39,7 @@ export function labelForTaskCategoricalFieldValue(
   value: string | null | undefined,
   context: TaskCategoricalFieldContext = {},
 ) {
-  if (fieldKey === "status") {
-    return labelForStatus(normalizeTaskStatusValue(value) as TaskStatus);
-  }
-
-  return labelForWorkType(value, context.workTypeDefinitions);
+  return labelForTaskCategoricalFieldValueInternal(fieldKey, value, context);
 }
 
 type TaskCategoricalFieldSelectProps = Omit<ComponentPropsWithoutRef<"select">, "children" | "value"> & {

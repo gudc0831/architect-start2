@@ -22,6 +22,7 @@ import {
   TaskCategoricalFieldSelect,
   type TaskCategoricalFieldKey,
 } from "@/components/tasks/task-categorical-fields";
+import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
@@ -369,6 +370,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
   const [form, setForm] = useState<TaskFormState>(defaultForm);
   const [selectedWorkTypeFilters, setSelectedWorkTypeFilters] = useState<string[]>([]);
+  const [draftWorkTypeFilters, setDraftWorkTypeFilters] = useState<string[]>([]);
   const [isWorkTypeFilterOpen, setIsWorkTypeFilterOpen] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [pendingVersionUpload, setPendingVersionUpload] = useState<File | null>(null);
@@ -400,7 +402,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const dailyTreeRowsRef = useRef<TaskTreeRow[]>([]);
   const filesByTaskIdRef = useRef<Record<string, FileRecord[]>>({});
   const taskListVisibleTaskIdsRef = useRef<Set<string>>(new Set());
-  const workTypeFilterRef = useRef<HTMLDivElement | null>(null);
   const taskListLayoutInteractionVersionRef = useRef(0);
   const quickCreateSaveTimerRef = useRef<number | null>(null);
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
@@ -461,17 +462,74 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return normalizedSelectedWorkTypeFilters.length > 0 ? normalizedSelectedWorkTypeFilters : [...workTypeFilterOptionValues];
   }, [normalizedSelectedWorkTypeFilters, workTypeFilterOptionValues]);
   const hasCustomWorkTypeFilters = normalizedSelectedWorkTypeFilters.length > 0;
-  const workTypeFilterSummaryLabel = useMemo(() => {
-    if (!hasCustomWorkTypeFilters) {
-      return t("workspace.totalLabel");
+  const effectiveDraftWorkTypeFilters = useMemo(
+    () => workTypeFilterOptionValues.filter((value) => draftWorkTypeFilters.includes(value)),
+    [draftWorkTypeFilters, workTypeFilterOptionValues],
+  );
+  const workTypeFilterSummaryLabel = useMemo(
+    () => summarizeCategoricalFilterButtonLabel(effectiveSelectedWorkTypeFilters, workTypeFilterOptions),
+    [effectiveSelectedWorkTypeFilters, workTypeFilterOptions],
+  );
+  const workTypeFilterDraftStatusLabel = useMemo(
+    () => summarizeCategoricalFilterStatusLabel(effectiveDraftWorkTypeFilters, workTypeFilterOptions.length),
+    [effectiveDraftWorkTypeFilters, workTypeFilterOptions.length],
+  );
+  const expandWorkTypeFilterValues = useCallback(
+    (selectedValues: readonly string[]) => {
+      if (workTypeFilterOptionValues.length === 0) {
+        return [] as string[];
+      }
+
+      const normalizedValues = normalizeTaskWorkTypeFilters(selectedValues, workTypeDefinitions);
+      return normalizedValues.length > 0 ? normalizedValues : [...workTypeFilterOptionValues];
+    },
+    [workTypeDefinitions, workTypeFilterOptionValues],
+  );
+  const openWorkTypeFilter = useCallback(() => {
+    if (workTypeFilterOptionValues.length === 0) {
+      return;
     }
 
-    if (effectiveSelectedWorkTypeFilters.length === 1) {
-      return workTypeFilterOptions.find((option) => option.value === effectiveSelectedWorkTypeFilters[0])?.label ?? t("workspace.totalLabel");
+    setDraftWorkTypeFilters(expandWorkTypeFilterValues(selectedWorkTypeFilters));
+    setIsWorkTypeFilterOpen(true);
+  }, [expandWorkTypeFilterValues, selectedWorkTypeFilters, workTypeFilterOptionValues.length]);
+  const cancelWorkTypeFilterChanges = useCallback(() => {
+    setDraftWorkTypeFilters(expandWorkTypeFilterValues(selectedWorkTypeFilters));
+    setIsWorkTypeFilterOpen(false);
+  }, [expandWorkTypeFilterValues, selectedWorkTypeFilters]);
+  const confirmWorkTypeFilterChanges = useCallback(() => {
+    setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(effectiveDraftWorkTypeFilters, workTypeDefinitions));
+    setIsWorkTypeFilterOpen(false);
+  }, [effectiveDraftWorkTypeFilters, workTypeDefinitions]);
+  const handleWorkTypeFilterTriggerToggle = useCallback(() => {
+    if (isWorkTypeFilterOpen) {
+      cancelWorkTypeFilterChanges();
+      return;
     }
 
-    return t("workspace.selectedCount", { count: effectiveSelectedWorkTypeFilters.length });
-  }, [effectiveSelectedWorkTypeFilters, hasCustomWorkTypeFilters, workTypeFilterOptions]);
+    openWorkTypeFilter();
+  }, [cancelWorkTypeFilterChanges, isWorkTypeFilterOpen, openWorkTypeFilter]);
+  const selectAllWorkTypeFilters = useCallback(() => {
+    setDraftWorkTypeFilters([...workTypeFilterOptionValues]);
+  }, [workTypeFilterOptionValues]);
+  const resetWorkTypeFilters = useCallback(() => {
+    setDraftWorkTypeFilters([...workTypeFilterOptionValues]);
+  }, [workTypeFilterOptionValues]);
+  const toggleWorkTypeFilterValue = useCallback(
+    (value: string) => {
+      setDraftWorkTypeFilters((previous) => {
+        const nextSelectedValues = new Set(previous);
+        if (nextSelectedValues.has(value)) {
+          nextSelectedValues.delete(value);
+        } else {
+          nextSelectedValues.add(value);
+        }
+
+        return workTypeFilterOptionValues.filter((optionValue) => nextSelectedValues.has(optionValue));
+      });
+    },
+    [workTypeFilterOptionValues],
+  );
 
   const updateDraftDirtyFields = useCallback((updater: (previous: DraftDirtyFieldMap) => DraftDirtyFieldMap) => {
     setDraftDirtyFields((previous) => {
@@ -590,22 +648,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     if (mode !== "daily") {
       setSelectedWorkTypeFilters([]);
+      setDraftWorkTypeFilters([]);
+      setIsWorkTypeFilterOpen(false);
       workTypeFilterStorageReadyKeyRef.current = null;
       return;
     }
 
     if (!isPreview && !workTypesLoaded) {
+      setDraftWorkTypeFilters([]);
+      setIsWorkTypeFilterOpen(false);
       workTypeFilterStorageReadyKeyRef.current = null;
       return;
     }
 
     if (!workTypeFilterStorageKey) {
       setSelectedWorkTypeFilters([]);
+      setDraftWorkTypeFilters([]);
+      setIsWorkTypeFilterOpen(false);
       workTypeFilterStorageReadyKeyRef.current = "__none__";
       return;
     }
 
     setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(readWorkTypeFiltersFromStorage(workTypeFilterStorageKey), workTypeDefinitions));
+    setIsWorkTypeFilterOpen(false);
     workTypeFilterStorageReadyKeyRef.current = workTypeFilterStorageKey;
   }, [isPreview, mode, workTypeDefinitions, workTypeFilterStorageKey, workTypesLoaded]);
 
@@ -622,47 +687,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [normalizedSelectedWorkTypeFilters, workTypeFilterStorageKey]);
 
   useEffect(() => {
-    if (!isWorkTypeFilterOpen) {
+    if (isWorkTypeFilterOpen) {
       return;
     }
 
-    function handleDocumentPointerDown(event: MouseEvent | TouchEvent) {
-      if (workTypeFilterRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsWorkTypeFilterOpen(false);
-    }
-
-    function handleDocumentFocusIn(event: FocusEvent) {
-      if (workTypeFilterRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsWorkTypeFilterOpen(false);
-    }
-
-    function handleWindowKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsWorkTypeFilterOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleDocumentPointerDown, true);
-    document.addEventListener("touchstart", handleDocumentPointerDown, true);
-    document.addEventListener("focusin", handleDocumentFocusIn);
-    window.addEventListener("keydown", handleWindowKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDocumentPointerDown, true);
-      document.removeEventListener("touchstart", handleDocumentPointerDown, true);
-      document.removeEventListener("focusin", handleDocumentFocusIn);
-      window.removeEventListener("keydown", handleWindowKeyDown);
-    };
-  }, [isWorkTypeFilterOpen]);
+    const nextDraftValues = expandWorkTypeFilterValues(selectedWorkTypeFilters);
+    setDraftWorkTypeFilters((previous) => (areStringArrayValuesEqual(previous, nextDraftValues) ? previous : nextDraftValues));
+  }, [expandWorkTypeFilterValues, isWorkTypeFilterOpen, selectedWorkTypeFilters]);
 
   useEffect(() => {
     if (mode !== "daily" || workTypeFilterOptions.length === 0) {
       setIsWorkTypeFilterOpen(false);
+      setDraftWorkTypeFilters([]);
     }
   }, [mode, workTypeFilterOptions.length]);
 
@@ -1364,27 +1400,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setParentTaskNumberDraft(selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "");
   }
 
-  const selectAllWorkTypeFilters = useCallback(() => {
-    setSelectedWorkTypeFilters([]);
-  }, []);
-
-  const resetWorkTypeFilters = useCallback(() => {
-    setSelectedWorkTypeFilters([]);
-  }, []);
-
-  const toggleWorkTypeFilterValue = useCallback(
-    (value: string) => {
-      const currentSelectedValues =
-        normalizedSelectedWorkTypeFilters.length > 0 ? normalizedSelectedWorkTypeFilters : workTypeFilterOptionValues;
-      const nextSelectedValues = currentSelectedValues.includes(value)
-        ? currentSelectedValues.filter((selectedValue) => selectedValue !== value)
-        : [...currentSelectedValues, value];
-
-      setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(nextSelectedValues, workTypeDefinitions));
-    },
-    [normalizedSelectedWorkTypeFilters, workTypeDefinitions, workTypeFilterOptionValues],
-  );
-
   async function createTaskFromForm(nextForm: TaskFormState) {
     setErrorMessage(null);
 
@@ -1506,25 +1521,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
-    if (column.headerControl?.kind !== "categoricalFilter" || column.headerControl.fieldKey !== "workType") {
+    if (column.headerControl?.kind !== "categoricalFilter") {
       return null;
     }
 
-    return (
-      <TaskListCategoricalHeaderFilter
-        buttonLabel={workTypeFilterSummaryLabel}
-        containerRef={workTypeFilterRef}
-        fieldLabel={labelForField(column.headerControl.fieldKey)}
-        isActive={hasCustomWorkTypeFilters}
-        isOpen={isWorkTypeFilterOpen}
-        onReset={resetWorkTypeFilters}
-        onSelectAll={selectAllWorkTypeFilters}
-        onToggleOpen={() => setIsWorkTypeFilterOpen((previous) => !previous)}
-        onToggleValue={toggleWorkTypeFilterValue}
-        options={workTypeFilterOptions}
-        selectedValues={effectiveSelectedWorkTypeFilters}
-      />
-    );
+    switch (column.headerControl.fieldKey) {
+      case "workType":
+        return (
+          <TaskListCategoricalHeaderFilterPopover
+            buttonLabel={workTypeFilterSummaryLabel}
+            fieldLabel={labelForField(column.headerControl.fieldKey)}
+            isActive={hasCustomWorkTypeFilters}
+            isOpen={isWorkTypeFilterOpen}
+            onCancel={cancelWorkTypeFilterChanges}
+            onConfirm={confirmWorkTypeFilterChanges}
+            onReset={resetWorkTypeFilters}
+            onSelectAll={selectAllWorkTypeFilters}
+            onToggleOpen={handleWorkTypeFilterTriggerToggle}
+            onToggleValue={toggleWorkTypeFilterValue}
+            options={workTypeFilterOptions}
+            selectedCountLabel={workTypeFilterDraftStatusLabel}
+            selectedValues={effectiveDraftWorkTypeFilters}
+          />
+        );
+      default:
+        return null;
+    }
   }
 
   async function patchTask(
@@ -2884,29 +2906,74 @@ function DetailPanelPinIcon() {
 
 function TaskListCategoricalHeaderFilter({
   buttonLabel,
-  containerRef,
   fieldLabel,
   isActive,
   isOpen,
+  onCancel,
+  onConfirm,
   onReset,
   onSelectAll,
   onToggleOpen,
   onToggleValue,
   options,
+  selectedCountLabel,
   selectedValues,
 }: {
   buttonLabel: string;
-  containerRef: { current: HTMLDivElement | null };
   fieldLabel: string;
   isActive: boolean;
   isOpen: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
   onReset: () => void;
   onSelectAll: () => void;
   onToggleOpen: () => void;
   onToggleValue: (value: string) => void;
   options: ReadonlyArray<{ value: string; label: string }>;
+  selectedCountLabel: string;
   selectedValues: readonly string[];
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handleDocumentPointerDown(event: MouseEvent | TouchEvent) {
+      if (containerRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      onCancel();
+    }
+
+    function handleDocumentFocusIn(event: FocusEvent) {
+      if (containerRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      onCancel();
+    }
+
+    function handleWindowKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    }
+
+    document.addEventListener("mousedown", handleDocumentPointerDown, true);
+    document.addEventListener("touchstart", handleDocumentPointerDown, true);
+    document.addEventListener("focusin", handleDocumentFocusIn);
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentPointerDown, true);
+      document.removeEventListener("touchstart", handleDocumentPointerDown, true);
+      document.removeEventListener("focusin", handleDocumentFocusIn);
+      window.removeEventListener("keydown", handleWindowKeyDown);
+    };
+  }, [isOpen, onCancel]);
+
   return (
     <div className="sheet-table__head-controls" ref={containerRef}>
       <button
@@ -2921,16 +2988,22 @@ function TaskListCategoricalHeaderFilter({
         <span className="sheet-table__filter-trigger-label">{buttonLabel}</span>
       </button>
       {isOpen ? (
-        <div aria-label={fieldLabel} className="sheet-table__filter-popover" role="dialog">
-          <div className="sheet-table__filter-actions">
-            <button className="sheet-table__filter-action" onClick={onSelectAll} type="button">
-              {t("actions.selectAll")}
-            </button>
-            <button className="sheet-table__filter-action" onClick={onReset} type="button">
-              {t("workspace.resetFilter")}
-            </button>
+        <div aria-label={fieldLabel} aria-modal="false" className="sheet-table__filter-popover" role="dialog">
+          <div className="sheet-table__filter-toolbar">
+            <div className="sheet-table__filter-utility">
+              <button className="sheet-table__filter-link" onClick={onSelectAll} type="button">
+                {t("actions.selectAll")}
+              </button>
+              <span aria-hidden="true" className="sheet-table__filter-link-separator">
+                ·
+              </span>
+              <button className="sheet-table__filter-link" onClick={onReset} type="button">
+                {t("workspace.resetFilter")}
+              </button>
+            </div>
+            <span className="sheet-table__filter-count">{selectedCountLabel}</span>
           </div>
-          <div className="sheet-table__filter-options">
+          <div aria-label={fieldLabel} className="sheet-table__filter-options" role="group">
             {options.map((option) => (
               <label className="sheet-table__filter-option" key={option.value || "__empty__"}>
                 <input
@@ -2938,9 +3011,17 @@ function TaskListCategoricalHeaderFilter({
                   onChange={() => onToggleValue(option.value)}
                   type="checkbox"
                 />
-                <span>{option.label}</span>
+                <span className="sheet-table__filter-option-label">{option.label}</span>
               </label>
             ))}
+          </div>
+          <div className="sheet-table__filter-footer">
+            <button className="sheet-table__filter-footer-button sheet-table__filter-footer-button--secondary" onClick={onCancel} type="button">
+              {t("actions.cancel")}
+            </button>
+            <button className="sheet-table__filter-footer-button sheet-table__filter-footer-button--primary" onClick={onConfirm} type="button">
+              {t("actions.confirm")}
+            </button>
           </div>
         </div>
       ) : null}
@@ -3387,6 +3468,41 @@ function writeTaskListLayoutToStorage(storageKey: string, layout: TaskListLayout
   } catch {
     // Ignore storage write failures and keep the in-memory layout.
   }
+}
+
+function summarizeCategoricalFilterButtonLabel(
+  selectedValues: readonly string[],
+  options: ReadonlyArray<{ value: string; label: string }>,
+) {
+  if (options.length === 0 || selectedValues.length === 0 || selectedValues.length === options.length) {
+    return t("workspace.totalLabel");
+  }
+
+  if (selectedValues.length === 1) {
+    return options.find((option) => option.value === selectedValues[0])?.label ?? t("workspace.totalLabel");
+  }
+
+  return t("workspace.selectedCount", { count: selectedValues.length });
+}
+
+function summarizeCategoricalFilterStatusLabel(selectedValues: readonly string[], optionCount: number) {
+  if (optionCount === 0) {
+    return t("workspace.selectedCount", { count: 0 });
+  }
+
+  if (selectedValues.length === optionCount) {
+    return t("workspace.totalLabel");
+  }
+
+  return t("workspace.selectedCount", { count: selectedValues.length });
+}
+
+function areStringArrayValuesEqual(left: readonly string[], right: readonly string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
 }
 
 function getWorkTypeFilterStorageKey(userId: string, projectId: string) {

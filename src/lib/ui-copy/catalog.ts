@@ -166,6 +166,8 @@ export type UICatalog = {
     keepListVisible: string;
     back: string;
     next: string;
+    cancel: string;
+    confirm: string;
     save: string;
     saving: string;
     resetChanges: string;
@@ -423,6 +425,8 @@ export const uiCopyCatalog = {
       keepListVisible: "목록 유지",
       back: "이전",
       next: "다음",
+      cancel: "취소",
+      confirm: "확인",
       save: "저장",
       saving: "저장 중...",
       resetChanges: "변경 초기화",
@@ -678,6 +682,8 @@ export const uiCopyCatalog = {
       keepListVisible: "Keep list visible",
       back: "Back",
       next: "Next",
+      cancel: "Cancel",
+      confirm: "Confirm",
       save: "Save",
       saving: "Saving...",
       resetChanges: "Reset changes",
