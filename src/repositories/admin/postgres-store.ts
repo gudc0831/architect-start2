@@ -1,17 +1,24 @@
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { prisma } from "@/lib/prisma";
 import {
-  assertCreatableWorkTypeCode,
+  assertCreatableTaskCategoryCode,
+  isTaskCategoryFieldKey,
+  resolveEffectiveTaskCategoryDefinitions,
+  type TaskCategoryDefinition,
+  type TaskCategoryFieldKey,
+} from "@/domains/admin/task-category-definitions";
+import {
   requireAdminStoredWorkTypeCode,
-  resolveEffectiveWorkTypeDefinitions,
 } from "@/domains/admin/work-type-policy";
 import type { AdminProfileSummary, ProjectMembershipRecord, ProjectSelectionRecord, ProjectSummary } from "@/domains/admin/types";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import type {
   AdminRepository,
   CreateAdminProjectInput,
+  CreateTaskCategoryDefinitionInput,
   CreateWorkTypeDefinitionInput,
   ReplaceProjectMembershipsInput,
+  UpdateTaskCategoryDefinitionInput,
   UpdateAdminProjectInput,
   UpdateWorkTypeDefinitionInput,
 } from "@/repositories/admin/contracts";
@@ -84,8 +91,9 @@ function toMembershipRecord(membership: {
   };
 }
 
-function toWorkTypeDefinition(definition: {
+function toTaskCategoryDefinition(definition: {
   id: string;
+  fieldKey?: string;
   projectId: string | null;
   code: string;
   labelKo: string;
@@ -97,9 +105,10 @@ function toWorkTypeDefinition(definition: {
   updatedAt: Date;
   createdBy: string | null;
   updatedBy: string | null;
-}): WorkTypeDefinition {
+}): TaskCategoryDefinition {
   return {
     id: definition.id,
+    fieldKey: isTaskCategoryFieldKey(definition.fieldKey) ? definition.fieldKey : "workType",
     projectId: definition.projectId,
     code: definition.code,
     labelKo: definition.labelKo,
@@ -116,7 +125,7 @@ function toWorkTypeDefinition(definition: {
 
 async function ensureGlobalBaseWorkTypes() {
   const count = await adminPrisma.workTypeDefinition.count({
-    where: { projectId: null },
+    where: { projectId: null, fieldKey: "workType" },
   });
 
   if (count > 0) {
@@ -127,6 +136,7 @@ async function ensureGlobalBaseWorkTypes() {
   await adminPrisma.workTypeDefinition.createMany({
     data: definitions.map((definition) => ({
       code: definition.code,
+      fieldKey: definition.fieldKey,
       labelKo: definition.labelKo,
       labelEn: definition.labelEn,
       isSystem: true,
@@ -316,54 +326,71 @@ export class PostgresAdminRepository implements AdminRepository {
     return this.listProjectMemberships(input.projectId);
   }
 
-  async listGlobalWorkTypeDefinitions() {
-    await ensureGlobalBaseWorkTypes();
-    const definitions = await adminPrisma.workTypeDefinition.findMany({
-      where: { projectId: null },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    });
-
-    return definitions.map(toWorkTypeDefinition);
-  }
-
-  async listProjectWorkTypeDefinitions(projectId: string) {
-    const definitions = await adminPrisma.workTypeDefinition.findMany({
-      where: { projectId },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    });
-
-    return definitions.map(toWorkTypeDefinition);
-  }
-
-  async listEffectiveWorkTypeDefinitions(projectId: string | null) {
+  async listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey) {
     await ensureGlobalBaseWorkTypes();
     const definitions = await adminPrisma.workTypeDefinition.findMany({
       where: {
+        projectId: null,
+        ...(fieldKey ? { fieldKey } : {}),
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+
+    return definitions.map((definition) => toTaskCategoryDefinition(definition));
+  }
+
+  async listProjectTaskCategoryDefinitions(projectId: string, fieldKey?: TaskCategoryFieldKey) {
+    const definitions = await adminPrisma.workTypeDefinition.findMany({
+      where: {
+        projectId,
+        ...(fieldKey ? { fieldKey } : {}),
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+
+    return definitions.map((definition) => toTaskCategoryDefinition(definition));
+  }
+
+  async listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey) {
+    await ensureGlobalBaseWorkTypes();
+    const definitions = await adminPrisma.workTypeDefinition.findMany({
+      where: {
+        fieldKey,
         OR: [{ projectId: null }, ...(projectId ? [{ projectId }] : [])],
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
-    const resolved = resolveEffectiveWorkTypeDefinitions(definitions.map(toWorkTypeDefinition), projectId);
+    const resolved = resolveEffectiveTaskCategoryDefinitions(
+      definitions.map((definition) => toTaskCategoryDefinition(definition)),
+      fieldKey,
+      projectId,
+    );
     return resolved.selectableDefinitions;
   }
 
-  async createWorkTypeDefinition(input: CreateWorkTypeDefinitionInput) {
+  async createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput) {
     await ensureGlobalBaseWorkTypes();
     const existingDefinitions = await adminPrisma.workTypeDefinition.findMany({
       where: input.projectId
         ? {
+            fieldKey: input.fieldKey,
             OR: [{ projectId: null }, { projectId: input.projectId }],
           }
-        : undefined,
+        : { fieldKey: input.fieldKey },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
-    const code = assertCreatableWorkTypeCode(existingDefinitions.map(toWorkTypeDefinition), input.projectId, input.code);
+    const code = assertCreatableTaskCategoryCode(
+      existingDefinitions.map((definition) => toTaskCategoryDefinition(definition)),
+      input.fieldKey,
+      input.projectId,
+      input.code,
+    );
     const labelKo = sanitizeText(input.labelKo);
     const labelEn = sanitizeText(input.labelEn);
 
     if (!code || !labelKo || !labelEn) {
-      throw badRequest("Work type code and labels are required", "WORK_TYPE_REQUIRED");
+      throw badRequest("Category code and labels are required", "TASK_CATEGORY_REQUIRED");
     }
 
     if (input.projectId) {
@@ -375,6 +402,7 @@ export class PostgresAdminRepository implements AdminRepository {
 
     const definition = await adminPrisma.workTypeDefinition.create({
       data: {
+        fieldKey: input.fieldKey,
         projectId: input.projectId,
         code,
         labelKo,
@@ -387,16 +415,16 @@ export class PostgresAdminRepository implements AdminRepository {
       },
     });
 
-    return toWorkTypeDefinition(definition);
+    return toTaskCategoryDefinition(definition);
   }
 
-  async updateWorkTypeDefinition(id: string, input: UpdateWorkTypeDefinitionInput) {
+  async updateTaskCategoryDefinition(id: string, input: UpdateTaskCategoryDefinitionInput) {
     const current = await adminPrisma.workTypeDefinition.findUnique({
       where: { id },
     });
 
     if (!current) {
-      throw notFound("Work type definition not found", "WORK_TYPE_NOT_FOUND");
+      throw notFound("Category definition not found", "TASK_CATEGORY_NOT_FOUND");
     }
 
     const definition = await adminPrisma.workTypeDefinition.update({
@@ -411,7 +439,30 @@ export class PostgresAdminRepository implements AdminRepository {
       },
     });
 
-    return toWorkTypeDefinition(definition);
+    return toTaskCategoryDefinition(definition);
+  }
+
+  async listGlobalWorkTypeDefinitions() {
+    return (await this.listGlobalTaskCategoryDefinitions("workType")) as WorkTypeDefinition[];
+  }
+
+  async listProjectWorkTypeDefinitions(projectId: string) {
+    return (await this.listProjectTaskCategoryDefinitions(projectId, "workType")) as WorkTypeDefinition[];
+  }
+
+  async listEffectiveWorkTypeDefinitions(projectId: string | null) {
+    return (await this.listEffectiveTaskCategoryDefinitions(projectId, "workType")) as WorkTypeDefinition[];
+  }
+
+  async createWorkTypeDefinition(input: CreateWorkTypeDefinitionInput) {
+    return (await this.createTaskCategoryDefinition({
+      ...input,
+      fieldKey: "workType",
+    })) as WorkTypeDefinition;
+  }
+
+  async updateWorkTypeDefinition(id: string, input: UpdateWorkTypeDefinitionInput) {
+    return (await this.updateTaskCategoryDefinition(id, input)) as WorkTypeDefinition;
   }
 }
 

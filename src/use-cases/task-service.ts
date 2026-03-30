@@ -1,4 +1,8 @@
 import type { TaskRecord, TaskStatus } from "@/domains/task/types";
+import {
+  normalizeTaskCategoryFieldValue,
+  resolvePatchedTaskCategoryFieldValue,
+} from "@/domains/admin/task-category-values";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import { adminRepository } from "@/repositories/admin";
@@ -10,6 +14,11 @@ import { permanentlyDeleteTrashSelection } from "@/use-cases/trash-service";
 export type TaskScope = "active" | "trash";
 
 type UpdateTaskCommand = UpdateTaskInput & { version?: number };
+type EffectiveTaskCategories = {
+  workType: Awaited<ReturnType<typeof adminRepository.listEffectiveWorkTypeDefinitions>>;
+  coordinationScope: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
+  relatedDisciplines: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
+};
 
 const taskStatusSet = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
@@ -25,7 +34,7 @@ export async function listTasks(scope: TaskScope) {
 export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
   const project = await getSelectedTaskProject();
   const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const effectiveWorkTypes = await adminRepository.listEffectiveWorkTypeDefinitions(project.id);
+  const effectiveCategories = await loadEffectiveTaskCategories(project.id);
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
@@ -34,11 +43,21 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     projectId: project.id,
     projectName: project.name,
     dueDate: normalizeDate(input.dueDate),
-    workType: requireAllowedWorkType(input.workType, effectiveWorkTypes),
-    coordinationScope: normalizeText(input.coordinationScope),
+    workType: requireAllowedWorkType(input.workType, effectiveCategories.workType),
+    coordinationScope: normalizeTaskCategoryFieldValue(
+      "coordinationScope",
+      input.coordinationScope,
+      effectiveCategories.coordinationScope,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    ),
     ownerDiscipline: normalizeText(input.ownerDiscipline),
     requestedBy: normalizeText(input.requestedBy),
-    relatedDisciplines: normalizeText(input.relatedDisciplines),
+    relatedDisciplines: normalizeTaskCategoryFieldValue(
+      "relatedDisciplines",
+      input.relatedDisciplines,
+      effectiveCategories.relatedDisciplines,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    ),
     assignee: normalizeText(input.assignee),
     issueTitle: normalizeRequiredText(input.issueTitle, "issueTitle"),
     reviewedAt: normalizeDate(input.reviewedAt ?? ""),
@@ -74,8 +93,8 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     throw badRequest("version is required", "TASK_VERSION_REQUIRED");
   }
 
-  const effectiveWorkTypes = await adminRepository.listEffectiveWorkTypeDefinitions(currentTask.projectId);
-  const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveWorkTypes);
+  const effectiveCategories = await loadEffectiveTaskCategories(currentTask.projectId);
+  const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
   applyStatusSideEffects(currentTask, sanitized);
 
   if (
@@ -255,7 +274,7 @@ async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord
 function sanitizeTaskUpdate(
   input: UpdateTaskInput,
   currentTask: TaskRecord,
-  effectiveWorkTypes: Awaited<ReturnType<typeof adminRepository.listEffectiveWorkTypeDefinitions>>,
+  effectiveCategories: EffectiveTaskCategories,
 ): UpdateTaskInput {
   const next: UpdateTaskInput = {};
 
@@ -263,16 +282,30 @@ function sanitizeTaskUpdate(
   if (Object.prototype.hasOwnProperty.call(input, "workType")) {
     const normalizedWorkType = resolvePatchedWorkType(input.workType, {
       currentValue: currentTask.workType,
-      allowedCodes: effectiveWorkTypes,
+      allowedCodes: effectiveCategories.workType,
     });
     if (normalizedWorkType !== undefined) {
       next.workType = normalizedWorkType;
     }
   }
-  if (typeof input.coordinationScope === "string") next.coordinationScope = normalizeText(input.coordinationScope);
+  if (typeof input.coordinationScope === "string") {
+    next.coordinationScope = resolvePatchedTaskCategoryFieldValue(
+      "coordinationScope",
+      input.coordinationScope,
+      effectiveCategories.coordinationScope,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    );
+  }
   if (typeof input.ownerDiscipline === "string") next.ownerDiscipline = normalizeText(input.ownerDiscipline);
   if (typeof input.requestedBy === "string") next.requestedBy = normalizeText(input.requestedBy);
-  if (typeof input.relatedDisciplines === "string") next.relatedDisciplines = normalizeText(input.relatedDisciplines);
+  if (typeof input.relatedDisciplines === "string") {
+    next.relatedDisciplines = resolvePatchedTaskCategoryFieldValue(
+      "relatedDisciplines",
+      input.relatedDisciplines,
+      effectiveCategories.relatedDisciplines,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    );
+  }
   if (typeof input.assignee === "string") next.assignee = normalizeText(input.assignee);
   if (typeof input.issueTitle === "string") next.issueTitle = normalizeRequiredText(input.issueTitle, "issueTitle");
   if (typeof input.reviewedAt === "string") next.reviewedAt = normalizeDate(input.reviewedAt);
@@ -415,6 +448,20 @@ function normalizeStatus(value: string | TaskStatus) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+async function loadEffectiveTaskCategories(projectId: string): Promise<EffectiveTaskCategories> {
+  const [workType, coordinationScope, relatedDisciplines] = await Promise.all([
+    adminRepository.listEffectiveWorkTypeDefinitions(projectId),
+    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "coordinationScope"),
+    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "relatedDisciplines"),
+  ]);
+
+  return {
+    workType,
+    coordinationScope,
+    relatedDisciplines,
+  };
 }
 
 async function listAllTasks() {

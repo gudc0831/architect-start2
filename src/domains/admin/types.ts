@@ -1,4 +1,5 @@
 import type { AuthRole } from "@/domains/auth/types";
+import type { TaskCategoryDefinition } from "@/domains/admin/task-category-definitions";
 import type { ProjectRecord } from "@/domains/project/types";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 
@@ -40,5 +41,6 @@ export type AdminStoreRecord = {
   selectedProjectId: string | null;
   projects: ProjectSummary[];
   memberships: ProjectMembershipRecord[];
-  workTypeDefinitions: WorkTypeDefinition[];
+  categoryDefinitions: TaskCategoryDefinition[];
+  workTypeDefinitions?: WorkTypeDefinition[];
 };

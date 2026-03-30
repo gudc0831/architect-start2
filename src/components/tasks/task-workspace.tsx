@@ -18,7 +18,10 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
+  getTaskCategoricalFieldOptions,
   labelForTaskCategoricalFieldValue,
+  serializeTaskCategoryValues,
+  TaskCategoricalFieldMultiSelect,
   TaskCategoricalFieldSelect,
   type TaskCategoricalFieldKey,
 } from "@/components/tasks/task-categorical-fields";
@@ -27,10 +30,13 @@ import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import {
-  getTaskWorkTypeFilterOptions,
-  matchesTaskWorkTypeFilter,
-  normalizeTaskWorkTypeFilters,
-} from "@/lib/task-work-type-filter";
+  matchesTaskCategoricalFilter,
+  normalizeTaskCategoricalFilterSelection,
+} from "@/lib/task-categorical-filter";
+import {
+  type TaskCategoryDefinition,
+  type TaskCategoryFieldKey,
+} from "@/domains/admin/task-category-definitions";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
@@ -187,6 +193,8 @@ type LinkedDocumentsDisplay = {
 type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
 type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt">;
+type DailyCategoricalFilterFieldKey = Extract<TaskCategoricalFieldKey, "workType" | "coordinationScope" | "relatedDisciplines" | "status">;
+type DailyCategoricalFilterMap = Partial<Record<DailyCategoricalFilterFieldKey, string[]>>;
 
 type TaskListRowPresentationContext = {
   task: TaskRecord;
@@ -194,6 +202,7 @@ type TaskListRowPresentationContext = {
   rowDraft: TaskRecord | null;
   linkedDocumentsDisplay: LinkedDocumentsDisplay;
   workTypeDefinitions: readonly WorkTypeDefinition[];
+  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 };
 
 type TaskListCellPresentation =
@@ -275,6 +284,7 @@ const WIDE_BREAKPOINT = 1440;
 const MOBILE_BREAKPOINT = 768;
 const TABLET_BREAKPOINT = 1100;
 const DETAIL_PANEL_BREAKPOINT = 1360;
+const dailyCategoricalFilterFieldKeys = ["workType", "coordinationScope", "relatedDisciplines", "status"] as const satisfies readonly DailyCategoricalFilterFieldKey[];
 const statusOrder: TaskStatus[] = ["waiting", "todo", "in_progress", "blocked", "done"];
 const statusLabel: Record<TaskStatus, string> = {
   waiting: labelForStatus("waiting"),
@@ -287,7 +297,7 @@ const weekdayLabels = getWeekdayLabels();
 const QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX = "architect-start.quick-create-widths:";
 const QUICK_CREATE_SAVE_DELAY_MS = 250;
 const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
-const WORK_TYPE_FILTER_STORAGE_KEY_PREFIX = "architect-start.work-type-filter:";
+const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
 const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
 const editableTaskFormKeys = [
@@ -359,7 +369,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
-  const { currentProjectId, projectName, projectLoaded, projectSource, isSyncing, workTypeDefinitions, workTypesLoaded } = useProjectMeta();
+  const {
+    currentProjectId,
+    projectName,
+    projectLoaded,
+    projectSource,
+    isSyncing,
+    workTypeDefinitions,
+    categoryDefinitionsByField,
+    workTypesLoaded,
+  } = useProjectMeta();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedTrashTaskIds, setSelectedTrashTaskIds] = useState<string[]>([]);
@@ -369,9 +388,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [draftDirtyFields, setDraftDirtyFields] = useState<DraftDirtyFieldMap>({});
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
   const [form, setForm] = useState<TaskFormState>(defaultForm);
-  const [selectedWorkTypeFilters, setSelectedWorkTypeFilters] = useState<string[]>([]);
-  const [draftWorkTypeFilters, setDraftWorkTypeFilters] = useState<string[]>([]);
-  const [isWorkTypeFilterOpen, setIsWorkTypeFilterOpen] = useState(false);
+  const [selectedCategoricalFilters, setSelectedCategoricalFilters] = useState<DailyCategoricalFilterMap>({});
+  const [draftCategoricalFilters, setDraftCategoricalFilters] = useState<DailyCategoricalFilterMap>({});
+  const [openCategoricalFilterField, setOpenCategoricalFilterField] = useState<DailyCategoricalFilterFieldKey | null>(null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [pendingVersionUpload, setPendingVersionUpload] = useState<File | null>(null);
   const [versionTargetId, setVersionTargetId] = useState("");
@@ -405,7 +424,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListLayoutInteractionVersionRef = useRef(0);
   const quickCreateSaveTimerRef = useRef<number | null>(null);
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
-  const workTypeFilterStorageReadyKeyRef = useRef<string | null>(null);
+  const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const parentTaskNumberDraftRef = useRef("");
@@ -428,107 +447,181 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey = mode === "daily" && authUser?.id ? getTaskListLayoutStorageKey(authUser.id) : null;
-  const workTypeFilterStorageKey =
+  const categoricalFilterStorageBaseKey =
     mode === "daily" && currentProjectId && (authUser?.id || isPreview)
-      ? getWorkTypeFilterStorageKey(authUser?.id ?? "preview", currentProjectId)
+      ? getCategoricalFilterStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
       : null;
   const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
-  const workTypeFilterOptions = useMemo(() => {
+  const categoricalFieldContext = useMemo(
+    () => ({
+      workTypeDefinitions,
+      categoryDefinitionsByField,
+    }),
+    [categoryDefinitionsByField, workTypeDefinitions],
+  );
+  const categoricalFilterOptionsByField = useMemo(() => {
     if (mode !== "daily") {
-      return [] as Array<{ value: string; label: string }>;
+      return {} as Record<DailyCategoricalFilterFieldKey, Array<{ value: string; label: string }>>;
     }
 
     if (!isPreview && !workTypesLoaded) {
-      return [] as Array<{ value: string; label: string }>;
+      return {} as Record<DailyCategoricalFilterFieldKey, Array<{ value: string; label: string }>>;
     }
 
-    return getTaskWorkTypeFilterOptions(workTypeDefinitions);
-  }, [isPreview, mode, workTypeDefinitions, workTypesLoaded]);
-  const workTypeFilterOptionValues = useMemo(() => workTypeFilterOptions.map((option) => option.value), [workTypeFilterOptions]);
-  const normalizedSelectedWorkTypeFilters = useMemo(() => {
-    if (workTypeFilterOptions.length === 0) {
-      return [] as string[];
-    }
-
-    return normalizeTaskWorkTypeFilters(selectedWorkTypeFilters, workTypeDefinitions);
-  }, [selectedWorkTypeFilters, workTypeDefinitions, workTypeFilterOptions.length]);
-  const effectiveSelectedWorkTypeFilters = useMemo(() => {
-    if (workTypeFilterOptionValues.length === 0) {
-      return [] as string[];
-    }
-
-    return normalizedSelectedWorkTypeFilters.length > 0 ? normalizedSelectedWorkTypeFilters : [...workTypeFilterOptionValues];
-  }, [normalizedSelectedWorkTypeFilters, workTypeFilterOptionValues]);
-  const hasCustomWorkTypeFilters = normalizedSelectedWorkTypeFilters.length > 0;
-  const effectiveDraftWorkTypeFilters = useMemo(
-    () => workTypeFilterOptionValues.filter((value) => draftWorkTypeFilters.includes(value)),
-    [draftWorkTypeFilters, workTypeFilterOptionValues],
+    return Object.fromEntries(
+      dailyCategoricalFilterFieldKeys.map((fieldKey) => [
+        fieldKey,
+        getTaskCategoricalFieldOptions(fieldKey, categoricalFieldContext),
+      ]),
+    ) as Record<DailyCategoricalFilterFieldKey, Array<{ value: string; label: string }>>;
+  }, [categoricalFieldContext, isPreview, mode, workTypesLoaded]);
+  const categoricalFilterOptionValuesByField = useMemo(
+    () =>
+      Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => [
+          fieldKey,
+          (categoricalFilterOptionsByField[fieldKey] ?? []).map((option) => option.value),
+        ]),
+      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
+    [categoricalFilterOptionsByField],
   );
-  const workTypeFilterSummaryLabel = useMemo(
-    () => summarizeCategoricalFilterButtonLabel(effectiveSelectedWorkTypeFilters, workTypeFilterOptions),
-    [effectiveSelectedWorkTypeFilters, workTypeFilterOptions],
+  const normalizedSelectedCategoricalFilters = useMemo(
+    () =>
+      Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => [
+          fieldKey,
+          normalizeTaskCategoricalFilterSelection(fieldKey, selectedCategoricalFilters[fieldKey], categoricalFieldContext),
+        ]),
+      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
+    [categoricalFieldContext, selectedCategoricalFilters],
   );
-  const workTypeFilterDraftStatusLabel = useMemo(
-    () => summarizeCategoricalFilterStatusLabel(effectiveDraftWorkTypeFilters, workTypeFilterOptions.length),
-    [effectiveDraftWorkTypeFilters, workTypeFilterOptions.length],
+  const effectiveSelectedCategoricalFilters = useMemo(
+    () =>
+      Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => {
+          const optionValues = categoricalFilterOptionValuesByField[fieldKey] ?? [];
+          const selectedValues = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
+          return [fieldKey, selectedValues.length > 0 ? selectedValues : [...optionValues]];
+        }),
+      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
+    [categoricalFilterOptionValuesByField, normalizedSelectedCategoricalFilters],
   );
-  const expandWorkTypeFilterValues = useCallback(
-    (selectedValues: readonly string[]) => {
-      if (workTypeFilterOptionValues.length === 0) {
+  const effectiveDraftCategoricalFilters = useMemo(
+    () =>
+      Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => {
+          const optionValues = categoricalFilterOptionValuesByField[fieldKey] ?? [];
+          const selectedValues = draftCategoricalFilters[fieldKey] ?? [];
+          return [fieldKey, optionValues.filter((value) => selectedValues.includes(value))];
+        }),
+      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
+    [categoricalFilterOptionValuesByField, draftCategoricalFilters],
+  );
+  const getExpandedCategoricalFilterValues = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey, selectedValues: readonly string[] | undefined) => {
+      const optionValues = categoricalFilterOptionValuesByField[fieldKey] ?? [];
+      if (optionValues.length === 0) {
         return [] as string[];
       }
 
-      const normalizedValues = normalizeTaskWorkTypeFilters(selectedValues, workTypeDefinitions);
-      return normalizedValues.length > 0 ? normalizedValues : [...workTypeFilterOptionValues];
+      const normalizedValues = normalizeTaskCategoricalFilterSelection(fieldKey, selectedValues, categoricalFieldContext);
+      return normalizedValues.length > 0 ? normalizedValues : [...optionValues];
     },
-    [workTypeDefinitions, workTypeFilterOptionValues],
+    [categoricalFieldContext, categoricalFilterOptionValuesByField],
   );
-  const openWorkTypeFilter = useCallback(() => {
-    if (workTypeFilterOptionValues.length === 0) {
+  const openCategoricalFilter = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey) => {
+      if ((categoricalFilterOptionValuesByField[fieldKey] ?? []).length === 0) {
+        return;
+      }
+
+      setDraftCategoricalFilters((previous) => ({
+        ...previous,
+        [fieldKey]: getExpandedCategoricalFilterValues(fieldKey, selectedCategoricalFilters[fieldKey]),
+      }));
+      setOpenCategoricalFilterField(fieldKey);
+    },
+    [categoricalFilterOptionValuesByField, getExpandedCategoricalFilterValues, selectedCategoricalFilters],
+  );
+  const cancelCategoricalFilterChanges = useCallback(() => {
+    if (!openCategoricalFilterField) {
       return;
     }
 
-    setDraftWorkTypeFilters(expandWorkTypeFilterValues(selectedWorkTypeFilters));
-    setIsWorkTypeFilterOpen(true);
-  }, [expandWorkTypeFilterValues, selectedWorkTypeFilters, workTypeFilterOptionValues.length]);
-  const cancelWorkTypeFilterChanges = useCallback(() => {
-    setDraftWorkTypeFilters(expandWorkTypeFilterValues(selectedWorkTypeFilters));
-    setIsWorkTypeFilterOpen(false);
-  }, [expandWorkTypeFilterValues, selectedWorkTypeFilters]);
-  const confirmWorkTypeFilterChanges = useCallback(() => {
-    setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(effectiveDraftWorkTypeFilters, workTypeDefinitions));
-    setIsWorkTypeFilterOpen(false);
-  }, [effectiveDraftWorkTypeFilters, workTypeDefinitions]);
-  const handleWorkTypeFilterTriggerToggle = useCallback(() => {
-    if (isWorkTypeFilterOpen) {
-      cancelWorkTypeFilterChanges();
+    setDraftCategoricalFilters((previous) => ({
+      ...previous,
+      [openCategoricalFilterField]: getExpandedCategoricalFilterValues(
+        openCategoricalFilterField,
+        selectedCategoricalFilters[openCategoricalFilterField],
+      ),
+    }));
+    setOpenCategoricalFilterField(null);
+  }, [getExpandedCategoricalFilterValues, openCategoricalFilterField, selectedCategoricalFilters]);
+  const confirmCategoricalFilterChanges = useCallback(() => {
+    if (!openCategoricalFilterField) {
       return;
     }
 
-    openWorkTypeFilter();
-  }, [cancelWorkTypeFilterChanges, isWorkTypeFilterOpen, openWorkTypeFilter]);
-  const selectAllWorkTypeFilters = useCallback(() => {
-    setDraftWorkTypeFilters([...workTypeFilterOptionValues]);
-  }, [workTypeFilterOptionValues]);
-  const resetWorkTypeFilters = useCallback(() => {
-    setDraftWorkTypeFilters([...workTypeFilterOptionValues]);
-  }, [workTypeFilterOptionValues]);
-  const toggleWorkTypeFilterValue = useCallback(
-    (value: string) => {
-      setDraftWorkTypeFilters((previous) => {
-        const nextSelectedValues = new Set(previous);
+    setSelectedCategoricalFilters((previous) => ({
+      ...previous,
+      [openCategoricalFilterField]: normalizeTaskCategoricalFilterSelection(
+        openCategoricalFilterField,
+        effectiveDraftCategoricalFilters[openCategoricalFilterField],
+        categoricalFieldContext,
+      ),
+    }));
+    setOpenCategoricalFilterField(null);
+  }, [categoricalFieldContext, effectiveDraftCategoricalFilters, openCategoricalFilterField]);
+  const handleCategoricalFilterTriggerToggle = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey) => {
+      if (openCategoricalFilterField === fieldKey) {
+        cancelCategoricalFilterChanges();
+        return;
+      }
+
+      openCategoricalFilter(fieldKey);
+    },
+    [cancelCategoricalFilterChanges, openCategoricalFilter, openCategoricalFilterField],
+  );
+  const selectAllCategoricalFilters = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey) => {
+      setDraftCategoricalFilters((previous) => ({
+        ...previous,
+        [fieldKey]: [...(categoricalFilterOptionValuesByField[fieldKey] ?? [])],
+      }));
+    },
+    [categoricalFilterOptionValuesByField],
+  );
+  const resetCategoricalFilters = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey) => {
+      setDraftCategoricalFilters((previous) => ({
+        ...previous,
+        [fieldKey]: [...(categoricalFilterOptionValuesByField[fieldKey] ?? [])],
+      }));
+    },
+    [categoricalFilterOptionValuesByField],
+  );
+  const toggleCategoricalFilterValue = useCallback(
+    (fieldKey: DailyCategoricalFilterFieldKey, value: string) => {
+      setDraftCategoricalFilters((previous) => {
+        const nextSelectedValues = new Set(previous[fieldKey] ?? []);
         if (nextSelectedValues.has(value)) {
           nextSelectedValues.delete(value);
         } else {
           nextSelectedValues.add(value);
         }
 
-        return workTypeFilterOptionValues.filter((optionValue) => nextSelectedValues.has(optionValue));
+        return {
+          ...previous,
+          [fieldKey]: (categoricalFilterOptionValuesByField[fieldKey] ?? []).filter((optionValue) =>
+            nextSelectedValues.has(optionValue),
+          ),
+        };
       });
     },
-    [workTypeFilterOptionValues],
+    [categoricalFilterOptionValuesByField],
   );
 
   const updateDraftDirtyFields = useCallback((updater: (previous: DraftDirtyFieldMap) => DraftDirtyFieldMap) => {
@@ -578,8 +671,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const rowRefs = taskListRowCellRefs.current.get(pendingTaskListFocusCell.taskId);
     const cell = rowRefs?.get(pendingTaskListFocusCell.columnKey);
-    const editor = cell?.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
-      'textarea, input:not([type="button"]), select',
+    const editor = cell?.querySelector<
+      HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >(
+      'textarea, input:not([type="button"]), select, button[data-task-multiselect-trigger="true"]',
     );
     if (!editor) {
       return;
@@ -647,60 +742,88 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   useEffect(() => {
     if (mode !== "daily") {
-      setSelectedWorkTypeFilters([]);
-      setDraftWorkTypeFilters([]);
-      setIsWorkTypeFilterOpen(false);
-      workTypeFilterStorageReadyKeyRef.current = null;
+      setSelectedCategoricalFilters({});
+      setDraftCategoricalFilters({});
+      setOpenCategoricalFilterField(null);
+      categoricalFilterStorageReadyKeyRef.current = null;
       return;
     }
 
     if (!isPreview && !workTypesLoaded) {
-      setDraftWorkTypeFilters([]);
-      setIsWorkTypeFilterOpen(false);
-      workTypeFilterStorageReadyKeyRef.current = null;
+      setDraftCategoricalFilters({});
+      setOpenCategoricalFilterField(null);
+      categoricalFilterStorageReadyKeyRef.current = null;
       return;
     }
 
-    if (!workTypeFilterStorageKey) {
-      setSelectedWorkTypeFilters([]);
-      setDraftWorkTypeFilters([]);
-      setIsWorkTypeFilterOpen(false);
-      workTypeFilterStorageReadyKeyRef.current = "__none__";
+    if (!categoricalFilterStorageBaseKey) {
+      setSelectedCategoricalFilters({});
+      setDraftCategoricalFilters({});
+      setOpenCategoricalFilterField(null);
+      categoricalFilterStorageReadyKeyRef.current = "__none__";
       return;
     }
 
-    setSelectedWorkTypeFilters(normalizeTaskWorkTypeFilters(readWorkTypeFiltersFromStorage(workTypeFilterStorageKey), workTypeDefinitions));
-    setIsWorkTypeFilterOpen(false);
-    workTypeFilterStorageReadyKeyRef.current = workTypeFilterStorageKey;
-  }, [isPreview, mode, workTypeDefinitions, workTypeFilterStorageKey, workTypesLoaded]);
+    setSelectedCategoricalFilters(
+      Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => [
+          fieldKey,
+          normalizeTaskCategoricalFilterSelection(
+            fieldKey,
+            readCategoricalFiltersFromStorage(getCategoricalFilterStorageKey(categoricalFilterStorageBaseKey, fieldKey)),
+            categoricalFieldContext,
+          ),
+        ]),
+      ) as DailyCategoricalFilterMap,
+    );
+    setOpenCategoricalFilterField(null);
+    categoricalFilterStorageReadyKeyRef.current = categoricalFilterStorageBaseKey;
+  }, [categoricalFieldContext, categoricalFilterStorageBaseKey, isPreview, mode, workTypesLoaded]);
 
   useEffect(() => {
-    if (!workTypeFilterStorageKey) {
+    if (!categoricalFilterStorageBaseKey) {
       return;
     }
 
-    if (workTypeFilterStorageReadyKeyRef.current !== workTypeFilterStorageKey) {
+    if (categoricalFilterStorageReadyKeyRef.current !== categoricalFilterStorageBaseKey) {
       return;
     }
 
-    writeWorkTypeFiltersToStorage(workTypeFilterStorageKey, normalizedSelectedWorkTypeFilters);
-  }, [normalizedSelectedWorkTypeFilters, workTypeFilterStorageKey]);
+    for (const fieldKey of dailyCategoricalFilterFieldKeys) {
+      writeCategoricalFiltersToStorage(
+        getCategoricalFilterStorageKey(categoricalFilterStorageBaseKey, fieldKey),
+        normalizedSelectedCategoricalFilters[fieldKey] ?? [],
+      );
+    }
+  }, [categoricalFilterStorageBaseKey, normalizedSelectedCategoricalFilters]);
 
   useEffect(() => {
-    if (isWorkTypeFilterOpen) {
+    if (openCategoricalFilterField) {
       return;
     }
 
-    const nextDraftValues = expandWorkTypeFilterValues(selectedWorkTypeFilters);
-    setDraftWorkTypeFilters((previous) => (areStringArrayValuesEqual(previous, nextDraftValues) ? previous : nextDraftValues));
-  }, [expandWorkTypeFilterValues, isWorkTypeFilterOpen, selectedWorkTypeFilters]);
+    setDraftCategoricalFilters((previous) => {
+      const next = Object.fromEntries(
+        dailyCategoricalFilterFieldKeys.map((fieldKey) => [
+          fieldKey,
+          getExpandedCategoricalFilterValues(fieldKey, selectedCategoricalFilters[fieldKey]),
+        ]),
+      ) as DailyCategoricalFilterMap;
+      return areFilterMapsEqual(previous, next) ? previous : next;
+    });
+  }, [getExpandedCategoricalFilterValues, openCategoricalFilterField, selectedCategoricalFilters]);
 
   useEffect(() => {
-    if (mode !== "daily" || workTypeFilterOptions.length === 0) {
-      setIsWorkTypeFilterOpen(false);
-      setDraftWorkTypeFilters([]);
+    if (mode !== "daily") {
+      setOpenCategoricalFilterField(null);
+      setDraftCategoricalFilters({});
+      return;
     }
-  }, [mode, workTypeFilterOptions.length]);
+
+    if (openCategoricalFilterField && (categoricalFilterOptionsByField[openCategoricalFilterField] ?? []).length === 0) {
+      setOpenCategoricalFilterField(null);
+    }
+  }, [categoricalFilterOptionsByField, mode, openCategoricalFilterField]);
 
 
   const handleQuickCreateResizeMove = useCallback((event: PointerEvent) => {
@@ -961,6 +1084,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           rowDraft,
           linkedDocumentsDisplay,
           workTypeDefinitions,
+          categoryDefinitionsByField,
         }),
         taskListColumnWidthsRef.current,
       );
@@ -1194,12 +1318,39 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const sortedTasks = useMemo(() => sortTasksByActionId(tasks), [tasks]);
   const visibleDailyTasks = useMemo(() => {
-    if (mode !== "daily" || normalizedSelectedWorkTypeFilters.length === 0) {
+    if (mode !== "daily") {
       return tasks;
     }
 
-    return tasks.filter((task) => matchesTaskWorkTypeFilter(task.workType, normalizedSelectedWorkTypeFilters, workTypeDefinitions));
-  }, [mode, normalizedSelectedWorkTypeFilters, tasks, workTypeDefinitions]);
+    const hasAnyFilter = dailyCategoricalFilterFieldKeys.some(
+      (fieldKey) => (normalizedSelectedCategoricalFilters[fieldKey] ?? []).length > 0,
+    );
+    if (!hasAnyFilter) {
+      return tasks;
+    }
+
+    return tasks.filter((task) =>
+      dailyCategoricalFilterFieldKeys.every((fieldKey) => {
+        const filters = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
+        if (filters.length === 0) {
+          return true;
+        }
+
+        switch (fieldKey) {
+          case "workType":
+            return matchesTaskCategoricalFilter(fieldKey, task.workType, filters, categoricalFieldContext);
+          case "coordinationScope":
+            return matchesTaskCategoricalFilter(fieldKey, task.coordinationScope, filters, categoricalFieldContext);
+          case "relatedDisciplines":
+            return matchesTaskCategoricalFilter(fieldKey, task.relatedDisciplines, filters, categoricalFieldContext);
+          case "status":
+            return matchesTaskCategoricalFilter(fieldKey, task.status, filters, categoricalFieldContext);
+          default:
+            return true;
+        }
+      }),
+    );
+  }, [categoricalFieldContext, mode, normalizedSelectedCategoricalFilters, tasks]);
   const dailyTreeRows = useMemo(() => buildTaskTreeRows(visibleDailyTasks), [visibleDailyTasks]);
 
   useEffect(() => {
@@ -1502,7 +1653,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         body: JSON.stringify({
           columnWidths: taskListColumnWidthsRef.current,
           rowHeights: taskListRowHeightsRef.current,
-          workTypeFilters: hasCustomWorkTypeFilters ? normalizedSelectedWorkTypeFilters : undefined,
+          categoricalFilters: Object.fromEntries(
+            dailyCategoricalFilterFieldKeys
+              .map((fieldKey) => [fieldKey, normalizedSelectedCategoricalFilters[fieldKey] ?? []] as const)
+              .filter(([, values]) => values.length > 0),
+          ),
+          workTypeFilters:
+            (normalizedSelectedCategoricalFilters.workType ?? []).length > 0
+              ? normalizedSelectedCategoricalFilters.workType
+              : undefined,
         }),
       });
 
@@ -1525,28 +1684,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return null;
     }
 
-    switch (column.headerControl.fieldKey) {
-      case "workType":
-        return (
-          <TaskListCategoricalHeaderFilterPopover
-            buttonLabel={workTypeFilterSummaryLabel}
-            fieldLabel={labelForField(column.headerControl.fieldKey)}
-            isActive={hasCustomWorkTypeFilters}
-            isOpen={isWorkTypeFilterOpen}
-            onCancel={cancelWorkTypeFilterChanges}
-            onConfirm={confirmWorkTypeFilterChanges}
-            onReset={resetWorkTypeFilters}
-            onSelectAll={selectAllWorkTypeFilters}
-            onToggleOpen={handleWorkTypeFilterTriggerToggle}
-            onToggleValue={toggleWorkTypeFilterValue}
-            options={workTypeFilterOptions}
-            selectedCountLabel={workTypeFilterDraftStatusLabel}
-            selectedValues={effectiveDraftWorkTypeFilters}
-          />
-        );
-      default:
-        return null;
-    }
+    const fieldKey = column.headerControl.fieldKey as DailyCategoricalFilterFieldKey;
+    const options = categoricalFilterOptionsByField[fieldKey] ?? [];
+    const selectedValues = effectiveSelectedCategoricalFilters[fieldKey] ?? [];
+    const draftValues = effectiveDraftCategoricalFilters[fieldKey] ?? [];
+    const normalizedValues = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
+
+    return (
+      <TaskListCategoricalHeaderFilterPopover
+        buttonLabel={summarizeCategoricalFilterButtonLabel(selectedValues, options)}
+        fieldLabel={labelForField(fieldKey)}
+        isActive={normalizedValues.length > 0}
+        isOpen={openCategoricalFilterField === fieldKey}
+        onCancel={cancelCategoricalFilterChanges}
+        onConfirm={confirmCategoricalFilterChanges}
+        onReset={() => resetCategoricalFilters(fieldKey)}
+        onSelectAll={() => selectAllCategoricalFilters(fieldKey)}
+        onToggleOpen={() => handleCategoricalFilterTriggerToggle(fieldKey)}
+        onToggleValue={(value) => toggleCategoricalFilterValue(fieldKey, value)}
+        options={options}
+        selectedCountLabel={summarizeCategoricalFilterStatusLabel(draftValues, options.length)}
+        selectedValues={draftValues}
+      />
+    );
   }
 
   async function patchTask(
@@ -2310,6 +2470,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           readonly={createReadonlyFields}
                           showOwnerDiscipline={false}
                           showUpdatedAt={false}
+                          categoryDefinitionsByField={categoryDefinitionsByField}
                           workTypeDefinitions={workTypeDefinitions}
                         />
                       </div>
@@ -2329,15 +2490,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                 {isMobileViewport ? (
                   <>
-                    {workTypeFilterOptions.length > 0 ? (
-                      <div className="daily-task-list__filters">
-                        <span className="daily-task-list__filters-label">{labelForField("workType")}</span>
-                        {renderTaskListHeaderControl({
-                          key: "workType",
-                          headerControl: { kind: "categoricalFilter", fieldKey: "workType" },
-                        })}
-                      </div>
-                    ) : null}
+                    {dailyCategoricalFilterFieldKeys
+                      .filter((fieldKey) => (categoricalFilterOptionsByField[fieldKey] ?? []).length > 0)
+                      .map((fieldKey) => (
+                        <div className="daily-task-list__filters" key={fieldKey}>
+                          <span className="daily-task-list__filters-label">{labelForField(fieldKey)}</span>
+                          {renderTaskListHeaderControl({
+                            key: fieldKey as TaskListColumnKey,
+                            headerControl: { kind: "categoricalFilter", fieldKey },
+                          })}
+                        </div>
+                      ))}
                     <div className="daily-mobile-list">
                       {dailyTreeRows.map((row) => {
                         const task = row.task;
@@ -2456,6 +2619,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             rowDraft,
                             linkedDocumentsDisplay,
                             workTypeDefinitions,
+                            categoryDefinitionsByField,
                           });
 
                           const renderTaskListCellContent = (columnKey: TaskListColumnKey, presentation: TaskListCellPresentation) => {
@@ -2524,6 +2688,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     onChange={updateDraftForm}
                                     onCommit={saveInlineTaskListField}
                                     saving={Boolean(inlineSavingFields[columnKey])}
+                                    categoryDefinitionsByField={categoryDefinitionsByField}
                                     workTypeDefinitions={workTypeDefinitions}
                                   />
                                 );
@@ -2549,6 +2714,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     onChange={updateDraftForm}
                                     onCommit={saveInlineTaskListField}
                                     saving={Boolean(inlineSavingFields[columnKey])}
+                                    categoryDefinitionsByField={categoryDefinitionsByField}
                                     workTypeDefinitions={workTypeDefinitions}
                                   />
                                 );
@@ -2816,6 +2982,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       form={draft}
                       onChange={updateSelectedTaskForm}
                       readonly={{ ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) }}
+                      categoryDefinitionsByField={categoryDefinitionsByField}
                       workTypeDefinitions={workTypeDefinitions}
                     />
 
@@ -3088,6 +3255,7 @@ function TaskListInlineEditor({
   onCommit,
   saving = false,
   workTypeDefinitions = [],
+  categoryDefinitionsByField = {},
 }: {
   columnKey: TaskListColumnKey;
   fieldKey: EditableTaskFormKey;
@@ -3096,6 +3264,7 @@ function TaskListInlineEditor({
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
   saving?: boolean;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
+  categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
   const sharedProps = {
     "aria-label": labelForField(fieldKey),
@@ -3136,16 +3305,34 @@ function TaskListInlineEditor({
   }
 
   if (isTaskCategoricalFormFieldKey(fieldKey)) {
+    if (fieldKey === "relatedDisciplines") {
+      return (
+        <TaskCategoricalFieldMultiSelect
+          className="sheet-table__inline-multiselect"
+          fieldKey="relatedDisciplines"
+          onChangeValues={(values) => {
+            onChange("relatedDisciplines", serializeTaskCategoryValues(values));
+            void onCommit(columnKey);
+          }}
+          value={form.relatedDisciplines}
+          buttonClassName="sheet-table__inline-input sheet-table__inline-select"
+          categoryDefinitionsByField={categoryDefinitionsByField}
+          workTypeDefinitions={workTypeDefinitions}
+        />
+      );
+    }
+
     return (
       <TaskCategoricalFieldSelect
         {...sharedProps}
         className="sheet-table__inline-input sheet-table__inline-select"
-        fieldKey={fieldKey}
+        fieldKey={fieldKey as Exclude<TaskCategoricalFieldKey, "relatedDisciplines">}
         onChange={(event) => {
           applyTaskCategoricalFieldChange(fieldKey, event.target.value, onChange);
           void onCommit(columnKey);
         }}
         value={form[fieldKey]}
+        categoryDefinitionsByField={categoryDefinitionsByField}
         workTypeDefinitions={workTypeDefinitions}
       />
     );
@@ -3173,6 +3360,7 @@ function TaskFormFields({
   quickCreateWidths,
   onComposerResizeStart,
   workTypeDefinitions = [],
+  categoryDefinitionsByField = {},
 }: {
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
@@ -3183,6 +3371,7 @@ function TaskFormFields({
   quickCreateWidths?: ResolvedQuickCreateWidthMap;
   onComposerResizeStart?: (fieldKey: QuickCreateFieldKey, event: ReactPointerEvent<HTMLButtonElement>) => void;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
+  categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
   const gridClassName = layout === "composer" ? "composer-form-grid composer-scroll-track" : "detail-form-grid";
   const composerWidths = quickCreateWidths ?? quickCreateDefaultWidths;
@@ -3239,13 +3428,21 @@ function TaskFormFields({
           fieldKey="workType"
           onChange={(event) => applyTaskCategoricalFieldChange("workType", event.target.value, onChange)}
           value={form.workType}
+          categoryDefinitionsByField={categoryDefinitionsByField}
           workTypeDefinitions={workTypeDefinitions}
         />
         {renderResizeHandle("workType")}
       </label>
       <label {...getLabelProps("coordinationScope", "form-field--stretch")}>
         <span>{labelForField("coordinationScope")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("coordinationScope", event.target.value)} rows={1} value={form.coordinationScope} />
+        <TaskCategoricalFieldSelect
+          className="detail-select-field"
+          fieldKey="coordinationScope"
+          onChange={(event) => applyTaskCategoricalFieldChange("coordinationScope", event.target.value, onChange)}
+          value={form.coordinationScope}
+          categoryDefinitionsByField={categoryDefinitionsByField}
+          workTypeDefinitions={workTypeDefinitions}
+        />
         {renderResizeHandle("coordinationScope")}
       </label>
       {showOwnerDiscipline ? (
@@ -3261,7 +3458,14 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("relatedDisciplines", "form-field--stretch")}>
         <span>{labelForField("relatedDisciplines")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("relatedDisciplines", event.target.value)} rows={1} value={form.relatedDisciplines} />
+        <TaskCategoricalFieldMultiSelect
+          buttonClassName="detail-select-field"
+          fieldKey="relatedDisciplines"
+          onChangeValues={(values) => onChange("relatedDisciplines", serializeTaskCategoryValues(values))}
+          value={form.relatedDisciplines}
+          categoryDefinitionsByField={categoryDefinitionsByField}
+          workTypeDefinitions={workTypeDefinitions}
+        />
         {renderResizeHandle("relatedDisciplines")}
       </label>
       <label {...getLabelProps("assignee", "form-field--stretch")}>
@@ -3311,6 +3515,7 @@ function TaskFormFields({
           fieldKey="status"
           onChange={(event) => applyTaskCategoricalFieldChange("status", event.target.value, onChange)}
           value={form.status}
+          categoryDefinitionsByField={categoryDefinitionsByField}
         />
         {renderResizeHandle("status")}
       </label>
@@ -3349,7 +3554,12 @@ function handleTaskListInlineTextKeyDown(event: ReactKeyboardEvent<HTMLInputElem
 }
 
 function isTaskCategoricalFormFieldKey(fieldKey: EditableTaskFormKey): fieldKey is TaskCategoricalFormFieldKey {
-  return fieldKey === "status" || fieldKey === "workType";
+  return (
+    fieldKey === "status" ||
+    fieldKey === "workType" ||
+    fieldKey === "coordinationScope" ||
+    fieldKey === "relatedDisciplines"
+  );
 }
 
 function applyTaskCategoricalFieldChange(
@@ -3505,11 +3715,21 @@ function areStringArrayValuesEqual(left: readonly string[], right: readonly stri
   return left.every((value, index) => value === right[index]);
 }
 
-function getWorkTypeFilterStorageKey(userId: string, projectId: string) {
-  return `${WORK_TYPE_FILTER_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+function areFilterMapsEqual(left: DailyCategoricalFilterMap, right: DailyCategoricalFilterMap) {
+  return dailyCategoricalFilterFieldKeys.every((fieldKey) =>
+    areStringArrayValuesEqual(left[fieldKey] ?? [], right[fieldKey] ?? []),
+  );
 }
 
-function readWorkTypeFiltersFromStorage(storageKey: string) {
+function getCategoricalFilterStorageBaseKey(userId: string, projectId: string) {
+  return `${CATEGORICAL_FILTER_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+}
+
+function getCategoricalFilterStorageKey(baseKey: string, fieldKey: DailyCategoricalFilterFieldKey) {
+  return `${baseKey}:${fieldKey}`;
+}
+
+function readCategoricalFiltersFromStorage(storageKey: string) {
   if (typeof window === "undefined") {
     return [];
   }
@@ -3527,7 +3747,7 @@ function readWorkTypeFiltersFromStorage(storageKey: string) {
   }
 }
 
-function writeWorkTypeFiltersToStorage(storageKey: string, values: readonly string[]) {
+function writeCategoricalFiltersToStorage(storageKey: string, values: readonly string[]) {
   if (typeof window === "undefined") {
     return;
   }
@@ -3557,7 +3777,8 @@ function createTaskListRowPresentationContext(context: TaskListRowPresentationCo
 }
 
 function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: TaskListRowPresentationContext): TaskListCellPresentation {
-  const { task, row, rowDraft, linkedDocumentsDisplay, workTypeDefinitions } = context;
+  const { task, row, rowDraft, linkedDocumentsDisplay, workTypeDefinitions, categoryDefinitionsByField } = context;
+  const categoricalFieldContext = { workTypeDefinitions, categoryDefinitionsByField };
   const isChildTask = row.depth > 0;
   const isParentTask = row.hasChildren;
   const isBranchTask = isChildTask && isParentTask;
@@ -3582,19 +3803,29 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
             kind: "editable-categorical",
             fieldKey: "workType",
             value: rowDraft.workType,
-            label: labelForTaskCategoricalFieldValue("workType", rowDraft.workType, { workTypeDefinitions }),
+            label: labelForTaskCategoricalFieldValue("workType", rowDraft.workType, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForWorkType(task.workType, workTypeDefinitions) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("workType", task.workType, categoricalFieldContext) };
     case "coordinationScope":
       return rowDraft
-        ? { kind: "editable-text", fieldKey: "coordinationScope", value: rowDraft.coordinationScope }
-        : { kind: "text", text: task.coordinationScope || "-" };
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "coordinationScope",
+            value: rowDraft.coordinationScope,
+            label: labelForTaskCategoricalFieldValue("coordinationScope", rowDraft.coordinationScope, categoricalFieldContext),
+          }
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("coordinationScope", task.coordinationScope, categoricalFieldContext) };
     case "requestedBy":
       return rowDraft ? { kind: "editable-text", fieldKey: "requestedBy", value: rowDraft.requestedBy } : { kind: "text", text: task.requestedBy || "-" };
     case "relatedDisciplines":
       return rowDraft
-        ? { kind: "editable-text", fieldKey: "relatedDisciplines", value: rowDraft.relatedDisciplines }
-        : { kind: "text", text: task.relatedDisciplines || "-" };
+        ? {
+            kind: "editable-categorical",
+            fieldKey: "relatedDisciplines",
+            value: rowDraft.relatedDisciplines,
+            label: labelForTaskCategoricalFieldValue("relatedDisciplines", rowDraft.relatedDisciplines, categoricalFieldContext),
+          }
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("relatedDisciplines", task.relatedDisciplines, categoricalFieldContext) };
     case "assignee":
       return rowDraft ? { kind: "editable-text", fieldKey: "assignee", value: rowDraft.assignee } : { kind: "text", text: task.assignee || "-" };
     case "issueTitle":
@@ -3623,7 +3854,7 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
             kind: "editable-categorical",
             fieldKey: "status",
             value: rowDraft.status,
-            label: labelForTaskCategoricalFieldValue("status", rowDraft.status),
+            label: labelForTaskCategoricalFieldValue("status", rowDraft.status, categoricalFieldContext),
           }
         : { kind: "readonly-status", value: task.status };
     case "completedAt":

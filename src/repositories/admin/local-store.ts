@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { assertCreatableWorkTypeCode, requireAdminStoredWorkTypeCode, resolveEffectiveWorkTypeDefinitions } from "@/domains/admin/work-type-policy";
+import {
+  assertCreatableTaskCategoryCode,
+  isTaskCategoryFieldKey,
+  resolveEffectiveTaskCategoryDefinitions,
+  type TaskCategoryDefinition,
+  type TaskCategoryFieldKey,
+} from "@/domains/admin/task-category-definitions";
+import { requireAdminStoredWorkTypeCode } from "@/domains/admin/work-type-policy";
 import type { AdminProfileSummary, AdminStoreRecord, ProjectMembershipRecord, ProjectSelectionRecord, ProjectSummary } from "@/domains/admin/types";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
@@ -9,8 +16,10 @@ import { defaultProjectName } from "@/lib/runtime-config";
 import type {
   AdminRepository,
   CreateAdminProjectInput,
+  CreateTaskCategoryDefinitionInput,
   CreateWorkTypeDefinitionInput,
   ReplaceProjectMembershipsInput,
+  UpdateTaskCategoryDefinitionInput,
   UpdateAdminProjectInput,
   UpdateWorkTypeDefinitionInput,
 } from "@/repositories/admin/contracts";
@@ -25,6 +34,28 @@ function sanitizeText(value: string) {
 
 function compareBySortOrder<T extends { sortOrder: number; createdAt: string }>(left: T, right: T) {
   return left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt);
+}
+
+function normalizeTaskCategoryDefinition(definition: Partial<TaskCategoryDefinition>): TaskCategoryDefinition | null {
+  if (typeof definition.id !== "string" || !definition.id.trim()) {
+    return null;
+  }
+
+  return {
+    id: definition.id,
+    fieldKey: isTaskCategoryFieldKey(definition.fieldKey) ? definition.fieldKey : "workType",
+    projectId: definition.projectId ?? null,
+    code: typeof definition.code === "string" ? definition.code : "",
+    labelKo: typeof definition.labelKo === "string" ? definition.labelKo : "",
+    labelEn: typeof definition.labelEn === "string" ? definition.labelEn : "",
+    isSystem: Boolean(definition.isSystem),
+    isActive: definition.isActive ?? true,
+    sortOrder: Number.isFinite(definition.sortOrder) ? Number(definition.sortOrder) : 0,
+    createdAt: typeof definition.createdAt === "string" && definition.createdAt ? definition.createdAt : nowIso(),
+    updatedAt: typeof definition.updatedAt === "string" && definition.updatedAt ? definition.updatedAt : nowIso(),
+    createdBy: definition.createdBy ?? null,
+    updatedBy: definition.updatedBy ?? null,
+  };
 }
 
 async function readProjectFallback(): Promise<ProjectSummary> {
@@ -64,7 +95,7 @@ function createDefaultStore(project: ProjectSummary): AdminStoreRecord {
         updatedBy: fallbackUser.id,
       },
     ],
-    workTypeDefinitions: buildSystemWorkTypeDefinitions({
+    categoryDefinitions: buildSystemWorkTypeDefinitions({
       now: timestamp,
       createdBy: fallbackUser.id,
       updatedBy: fallbackUser.id,
@@ -111,23 +142,25 @@ async function readStore(): Promise<AdminStoreRecord> {
         }))
     : defaults.memberships;
 
-  const workTypeDefinitions = Array.isArray(parsed.workTypeDefinitions)
-    ? parsed.workTypeDefinitions
-        .filter((definition): definition is WorkTypeDefinition => Boolean(definition) && typeof definition.id === "string")
-        .map((definition) => ({
-          ...definition,
-          projectId: definition.projectId ?? null,
-          isSystem: Boolean(definition.isSystem),
-          isActive: definition.isActive ?? true,
-          sortOrder: Number.isFinite(definition.sortOrder) ? definition.sortOrder : 0,
-          createdBy: definition.createdBy ?? null,
-          updatedBy: definition.updatedBy ?? null,
-        }))
-    : defaults.workTypeDefinitions;
+  const rawCategoryDefinitions = Array.isArray(parsed.categoryDefinitions)
+    ? parsed.categoryDefinitions
+    : Array.isArray(parsed.workTypeDefinitions)
+      ? parsed.workTypeDefinitions.map((definition) => ({ ...definition, fieldKey: "workType" as const }))
+      : defaults.categoryDefinitions;
+  const categoryDefinitions = rawCategoryDefinitions
+    .map((definition) => normalizeTaskCategoryDefinition(definition))
+    .filter((definition): definition is TaskCategoryDefinition => Boolean(definition));
 
-  const ensuredGlobalDefinitions = workTypeDefinitions.some((definition) => definition.projectId === null)
-    ? workTypeDefinitions
-    : [...defaults.workTypeDefinitions, ...workTypeDefinitions.filter((definition) => definition.projectId !== null)];
+  const ensuredGlobalDefinitions = categoryDefinitions.some(
+    (definition) => definition.fieldKey === "workType" && definition.projectId === null,
+  )
+    ? categoryDefinitions
+    : [
+        ...defaults.categoryDefinitions,
+        ...categoryDefinitions.filter(
+          (definition) => !(definition.fieldKey === "workType" && definition.projectId === null),
+        ),
+      ];
 
   return {
     version: 1,
@@ -137,7 +170,7 @@ async function readStore(): Promise<AdminStoreRecord> {
         : projects[0]?.id ?? null,
     projects,
     memberships,
-    workTypeDefinitions: ensuredGlobalDefinitions,
+    categoryDefinitions: ensuredGlobalDefinitions,
   };
 }
 
@@ -367,27 +400,31 @@ export class LocalAdminRepository implements AdminRepository {
     return memberships;
   }
 
-  async listGlobalWorkTypeDefinitions() {
-    return (await readStore()).workTypeDefinitions.filter((definition) => definition.projectId === null).sort(compareBySortOrder);
+  async listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey) {
+    return (await readStore()).categoryDefinitions
+      .filter((definition) => definition.projectId === null && (!fieldKey || definition.fieldKey === fieldKey))
+      .sort(compareBySortOrder);
   }
 
-  async listProjectWorkTypeDefinitions(projectId: string) {
-    return (await readStore()).workTypeDefinitions.filter((definition) => definition.projectId === projectId).sort(compareBySortOrder);
+  async listProjectTaskCategoryDefinitions(projectId: string, fieldKey?: TaskCategoryFieldKey) {
+    return (await readStore()).categoryDefinitions
+      .filter((definition) => definition.projectId === projectId && (!fieldKey || definition.fieldKey === fieldKey))
+      .sort(compareBySortOrder);
   }
 
-  async listEffectiveWorkTypeDefinitions(projectId: string | null) {
-    const resolved = resolveEffectiveWorkTypeDefinitions((await readStore()).workTypeDefinitions, projectId);
+  async listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey) {
+    const resolved = resolveEffectiveTaskCategoryDefinitions((await readStore()).categoryDefinitions, fieldKey, projectId);
     return resolved.selectableDefinitions.sort(compareBySortOrder);
   }
 
-  async createWorkTypeDefinition(input: CreateWorkTypeDefinitionInput) {
+  async createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput) {
     const store = await readStore();
-    const code = assertCreatableWorkTypeCode(store.workTypeDefinitions, input.projectId, input.code);
+    const code = assertCreatableTaskCategoryCode(store.categoryDefinitions, input.fieldKey, input.projectId, input.code);
     const labelKo = sanitizeText(input.labelKo);
     const labelEn = sanitizeText(input.labelEn);
 
     if (!code || !labelKo || !labelEn) {
-      throw badRequest("Work type code and labels are required", "WORK_TYPE_REQUIRED");
+      throw badRequest("Category code and labels are required", "TASK_CATEGORY_REQUIRED");
     }
 
     if (input.projectId && !store.projects.some((project) => project.id === input.projectId)) {
@@ -395,8 +432,9 @@ export class LocalAdminRepository implements AdminRepository {
     }
 
     const timestamp = nowIso();
-    const definition: WorkTypeDefinition = {
+    const definition: TaskCategoryDefinition = {
       id: randomUUID(),
+      fieldKey: input.fieldKey,
       projectId: input.projectId,
       code,
       labelKo,
@@ -413,23 +451,23 @@ export class LocalAdminRepository implements AdminRepository {
     await writeStore(
       {
         ...store,
-        workTypeDefinitions: [...store.workTypeDefinitions, definition],
+        categoryDefinitions: [...store.categoryDefinitions, definition],
       },
-      input.projectId ? "admin.work-type.project.create" : "admin.work-type.global.create",
+      input.projectId ? `admin.${input.fieldKey}.project.create` : `admin.${input.fieldKey}.global.create`,
     );
 
     return definition;
   }
 
-  async updateWorkTypeDefinition(id: string, input: UpdateWorkTypeDefinitionInput) {
+  async updateTaskCategoryDefinition(id: string, input: UpdateTaskCategoryDefinitionInput) {
     const store = await readStore();
-    const current = store.workTypeDefinitions.find((definition) => definition.id === id);
+    const current = store.categoryDefinitions.find((definition) => definition.id === id);
 
     if (!current) {
-      throw notFound("Work type definition not found", "WORK_TYPE_NOT_FOUND");
+      throw notFound("Category definition not found", "TASK_CATEGORY_NOT_FOUND");
     }
 
-    const updated: WorkTypeDefinition = {
+    const updated: TaskCategoryDefinition = {
       ...current,
       code: requireAdminStoredWorkTypeCode(current.code, "code"),
       labelKo: input.labelKo === undefined ? current.labelKo : sanitizeText(input.labelKo) || current.labelKo,
@@ -443,12 +481,35 @@ export class LocalAdminRepository implements AdminRepository {
     await writeStore(
       {
         ...store,
-        workTypeDefinitions: store.workTypeDefinitions.map((definition) => (definition.id === id ? updated : definition)),
+        categoryDefinitions: store.categoryDefinitions.map((definition) => (definition.id === id ? updated : definition)),
       },
-      current.projectId ? "admin.work-type.project.update" : "admin.work-type.global.update",
+      current.projectId ? `admin.${current.fieldKey}.project.update` : `admin.${current.fieldKey}.global.update`,
     );
 
     return updated;
+  }
+
+  async listGlobalWorkTypeDefinitions() {
+    return (await this.listGlobalTaskCategoryDefinitions("workType")) as WorkTypeDefinition[];
+  }
+
+  async listProjectWorkTypeDefinitions(projectId: string) {
+    return (await this.listProjectTaskCategoryDefinitions(projectId, "workType")) as WorkTypeDefinition[];
+  }
+
+  async listEffectiveWorkTypeDefinitions(projectId: string | null) {
+    return (await this.listEffectiveTaskCategoryDefinitions(projectId, "workType")) as WorkTypeDefinition[];
+  }
+
+  async createWorkTypeDefinition(input: CreateWorkTypeDefinitionInput) {
+    return (await this.createTaskCategoryDefinition({
+      ...input,
+      fieldKey: "workType",
+    })) as WorkTypeDefinition;
+  }
+
+  async updateWorkTypeDefinition(id: string, input: UpdateWorkTypeDefinitionInput) {
+    return (await this.updateTaskCategoryDefinition(id, input)) as WorkTypeDefinition;
   }
 }
 

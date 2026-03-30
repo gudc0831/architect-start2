@@ -2,15 +2,21 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { badRequest } from "@/lib/api/errors";
-import { listEffectiveWorkTypesForSession } from "@/use-cases/admin/admin-service";
+import {
+  taskCategoryFieldKeys,
+} from "@/domains/admin/task-category-definitions";
+import {
+  matchesTaskCategoricalFilter,
+  taskCategoricalFilterFieldKeys,
+  type TaskCategoricalFilterFieldKey,
+  type TaskCategoricalFilterSelection,
+} from "@/lib/task-categorical-filter";
+import { listEffectiveTaskCategoriesForSession } from "@/use-cases/admin/admin-service";
 import { getTaskListLayout } from "@/use-cases/preference-service";
 import { listFiles } from "@/use-cases/file-service";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { listTasks } from "@/use-cases/task-service";
-import {
-  matchesTaskWorkTypeFilter,
-  normalizeTaskWorkTypeFilters,
-} from "@/lib/task-work-type-filter";
+import type { TaskRecord } from "@/domains/task/types";
 import {
   buildTaskExportFilename,
   buildTaskExportWorkbook,
@@ -25,16 +31,28 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const body = await readRequestBody(request);
-    const [project, tasks, allFiles, storedLayout, workTypes] = await Promise.all([
+    const [project, tasks, allFiles, storedLayout, categoryDefinitions] = await Promise.all([
       getSelectedTaskProject(),
       listTasks("active"),
       listFiles("active"),
       getTaskListLayout(user.id),
-      listEffectiveWorkTypesForSession(),
+      listEffectiveTaskCategoriesForSession(),
     ]);
-    const selectedWorkTypeFilters = normalizeTaskWorkTypeFilters(body.workTypeFilters, workTypes.displayDefinitions);
+    const selectedCategoricalFilters = resolveExportCategoricalFilters(body);
+    const categoricalFieldContext = {
+      categoryDefinitionsByField: Object.fromEntries(
+        taskCategoryFieldKeys.map((fieldKey) => [fieldKey, categoryDefinitions.byField[fieldKey].displayDefinitions]),
+      ),
+    };
     const filteredTasks = tasks.filter((task) =>
-      matchesTaskWorkTypeFilter(task.workType, selectedWorkTypeFilters, workTypes.displayDefinitions),
+      taskCategoricalFilterFieldKeys.every((fieldKey) =>
+        matchesTaskCategoricalFilter(
+          fieldKey,
+          valueForTaskField(task, fieldKey),
+          selectedCategoricalFilters[fieldKey],
+          categoricalFieldContext,
+        ),
+      ),
     );
     const taskIds = new Set(filteredTasks.map((task) => task.id));
     const files = allFiles.filter((file) => taskIds.has(file.taskId));
@@ -45,7 +63,7 @@ export async function POST(request: Request) {
       tasks: filteredTasks,
       files,
       layout,
-      workTypeDefinitions: workTypes.displayDefinitions,
+      categoryDefinitionsByField: categoricalFieldContext.categoryDefinitionsByField,
     });
     const buffer = await serializeTaskExportWorkbook(workbook);
     const filename = buildTaskExportFilename(project.name);
@@ -81,9 +99,61 @@ async function readRequestBody(request: Request): Promise<TaskExportLayoutInput>
     }
   }
 
+  if (body.categoricalFilters !== undefined) {
+    if (!isCategoricalFilterSelection(body.categoricalFilters)) {
+      throw badRequest("categoricalFilters must be an object keyed by supported category fields", "EXPORT_TASKS_PAYLOAD_INVALID");
+    }
+  }
+
   return {
     columnWidths: body.columnWidths,
     rowHeights: body.rowHeights,
     workTypeFilters: body.workTypeFilters,
+    categoricalFilters: body.categoricalFilters,
   };
+}
+
+function resolveExportCategoricalFilters(body: TaskExportLayoutInput): TaskCategoricalFilterSelection {
+  if (body.categoricalFilters && body.categoricalFilters.workType !== undefined) {
+    return body.categoricalFilters;
+  }
+
+  if (body.workTypeFilters === undefined) {
+    return body.categoricalFilters ?? {};
+  }
+
+  return {
+    ...(body.categoricalFilters ?? {}),
+    workType: body.workTypeFilters,
+  };
+}
+
+function isCategoricalFilterSelection(value: unknown): value is TaskCategoricalFilterSelection {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value as Record<string, unknown>).every(([fieldKey, selectedValues]) => {
+    if (!taskCategoricalFilterFieldKeys.includes(fieldKey as TaskCategoricalFilterFieldKey)) {
+      return false;
+    }
+
+    return Array.isArray(selectedValues) && selectedValues.every((entry) => typeof entry === "string");
+  });
+}
+
+function valueForTaskField(
+  task: Pick<TaskRecord, "workType" | "coordinationScope" | "relatedDisciplines" | "status">,
+  fieldKey: TaskCategoricalFilterFieldKey,
+) {
+  switch (fieldKey) {
+    case "workType":
+      return task.workType;
+    case "coordinationScope":
+      return task.coordinationScope;
+    case "relatedDisciplines":
+      return task.relatedDisciplines;
+    case "status":
+      return task.status;
+  }
 }

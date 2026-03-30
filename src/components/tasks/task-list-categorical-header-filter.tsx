@@ -97,7 +97,7 @@ export function TaskListCategoricalHeaderFilter({
                 {t("actions.selectAll")}
               </button>
               <span aria-hidden="true" className="sheet-table__filter-link-separator">
-                ·
+                |
               </span>
               <button className="sheet-table__filter-link" onClick={onReset} type="button">
                 {t("workspace.resetFilter")}

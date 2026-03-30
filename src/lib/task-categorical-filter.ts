@@ -1,63 +1,122 @@
-import type { WorkTypeDefinition } from "@/domains/task/work-types";
-import type { TaskStatus } from "@/domains/task/types";
-import { getWorkTypeSelectOptions, getWorkTypeSelectValue, labelForStatus, labelForWorkType } from "@/lib/ui-copy";
+import {
+  taskCategoryFieldKeys,
+  type TaskCategoryDefinition,
+  type TaskCategoryFieldKey,
+} from "@/domains/admin/task-category-definitions";
+import {
+  getTaskCategoryOptions,
+  getTaskCategoryValue,
+  getTaskCategoryValues,
+  labelForTaskCategoryValue,
+  labelForTaskCategoryValues,
+  matchesTaskCategoryFilter,
+  normalizeTaskCategoryFilterSelection,
+  serializeTaskCategoryValues,
+  type TaskCategoryContext,
+} from "@/lib/task-category-values";
 
-export type TaskCategoricalFilterFieldKey = "status" | "workType";
+export const taskCategoricalFilterFieldKeys = [...taskCategoryFieldKeys, "status"] as const;
+
+export type TaskCategoricalFilterFieldKey = (typeof taskCategoricalFilterFieldKeys)[number];
+export type TaskCategoricalFilterSelection = Partial<Record<TaskCategoricalFilterFieldKey, string[]>>;
 export type TaskCategoricalFilterOption = {
   value: string;
   label: string;
 };
 
-type WorkTypeDefinitionLike = Pick<WorkTypeDefinition, "code" | "labelKo" | "isActive" | "sortOrder">;
+type TaskCategoryDefinitionLike = Pick<TaskCategoryDefinition, "code" | "labelKo" | "isActive" | "sortOrder">;
 
-export type TaskCategoricalFilterContext = {
-  workTypeDefinitions?: readonly WorkTypeDefinitionLike[];
+export type TaskCategoricalFilterContext = TaskCategoryContext & {
+  workTypeDefinitions?: readonly TaskCategoryDefinitionLike[];
 };
 
-const taskStatusOrder = ["waiting", "todo", "in_progress", "blocked", "done"] as const satisfies readonly TaskStatus[];
-const taskStatusOptions = taskStatusOrder.map<TaskCategoricalFilterOption>((status) => ({
-  value: status,
-  label: labelForStatus(status),
-}));
+function toContext(context: TaskCategoricalFilterContext): TaskCategoryContext {
+  if (context.categoryDefinitionsByField) {
+    return context;
+  }
 
-function normalizeTaskStatusValue(value: string | null | undefined) {
-  const raw = String(value ?? "").trim();
-  return taskStatusOrder.includes(raw as TaskStatus) ? raw : "waiting";
+  return {
+    categoryDefinitionsByField: context.workTypeDefinitions
+      ? {
+          workType: context.workTypeDefinitions.map((definition) => ({
+            fieldKey: "workType" as const,
+            ...definition,
+          })),
+        }
+      : undefined,
+  };
+}
+
+function hasActiveDefinitions(fieldKey: TaskCategoryFieldKey, context: TaskCategoricalFilterContext) {
+  const definitions = toContext(context).categoryDefinitionsByField?.[fieldKey] ?? [];
+  return definitions.some((definition) => definition.isActive !== false);
+}
+
+function fallbackLegacyCategoryLabel(
+  fieldKey: Exclude<TaskCategoricalFilterFieldKey, "status" | "workType">,
+  value: unknown,
+  context: TaskCategoricalFilterContext,
+) {
+  if (hasActiveDefinitions(fieldKey, context)) {
+    return null;
+  }
+
+  const rawValue = typeof value === "string" ? value.trim() : "";
+  if (!rawValue) {
+    return null;
+  }
+
+  if (fieldKey === "relatedDisciplines") {
+    return rawValue
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return rawValue;
 }
 
 export function getTaskCategoricalFilterOptions(
   fieldKey: TaskCategoricalFilterFieldKey,
   context: TaskCategoricalFilterContext = {},
 ) {
-  if (fieldKey === "status") {
-    return taskStatusOptions;
-  }
-
-  return getWorkTypeSelectOptions("", context.workTypeDefinitions);
+  return getTaskCategoryOptions(fieldKey, toContext(context));
 }
 
 export function getTaskCategoricalFilterValue(
   fieldKey: TaskCategoricalFilterFieldKey,
-  value: string | null | undefined,
+  value: unknown,
   context: TaskCategoricalFilterContext = {},
 ) {
-  if (fieldKey === "status") {
-    return normalizeTaskStatusValue(value);
-  }
+  return getTaskCategoryValue(fieldKey, value, toContext(context));
+}
 
-  return getWorkTypeSelectValue(value, context.workTypeDefinitions);
+export function getTaskCategoricalFilterValues(
+  fieldKey: Exclude<TaskCategoricalFilterFieldKey, "status">,
+  value: unknown,
+  context: TaskCategoricalFilterContext = {},
+) {
+  return getTaskCategoryValues(fieldKey, value, toContext(context));
 }
 
 export function labelForTaskCategoricalFilterValue(
   fieldKey: TaskCategoricalFilterFieldKey,
-  value: string | null | undefined,
+  value: unknown,
   context: TaskCategoricalFilterContext = {},
 ) {
-  if (fieldKey === "status") {
-    return labelForStatus(normalizeTaskStatusValue(value) as TaskStatus);
+  if (fieldKey === "coordinationScope" || fieldKey === "relatedDisciplines") {
+    const fallbackLabel = fallbackLegacyCategoryLabel(fieldKey, value, context);
+    if (fallbackLabel) {
+      return fallbackLabel;
+    }
   }
 
-  return labelForWorkType(value, context.workTypeDefinitions);
+  if (fieldKey === "relatedDisciplines") {
+    return labelForTaskCategoryValues(fieldKey, value, toContext(context));
+  }
+
+  return labelForTaskCategoryValue(fieldKey, value, toContext(context));
 }
 
 export function normalizeTaskCategoricalFilterSelection(
@@ -65,30 +124,16 @@ export function normalizeTaskCategoricalFilterSelection(
   selectedValues: readonly string[] | undefined,
   context: TaskCategoricalFilterContext = {},
 ) {
-  const allowedValues = new Set(getTaskCategoricalFilterOptions(fieldKey, context).map((option) => option.value));
-  const normalized = new Set<string>();
-
-  for (const value of selectedValues ?? []) {
-    const rawValue = typeof value === "string" ? value.trim() : "";
-    if (allowedValues.has(rawValue)) {
-      normalized.add(rawValue);
-    }
-  }
-
-  return normalized.size === 0 || normalized.size === allowedValues.size ? [] : [...normalized];
+  return normalizeTaskCategoryFilterSelection(fieldKey, selectedValues, toContext(context));
 }
 
 export function matchesTaskCategoricalFilter(
   fieldKey: TaskCategoricalFilterFieldKey,
-  value: string | null | undefined,
+  value: unknown,
   selectedValues: readonly string[] | undefined,
   context: TaskCategoricalFilterContext = {},
 ) {
-  const normalizedFilters = normalizeTaskCategoricalFilterSelection(fieldKey, selectedValues, context);
-  if (normalizedFilters.length === 0) {
-    return true;
-  }
-
-  const bucket = getTaskCategoricalFilterValue(fieldKey, value, context);
-  return normalizedFilters.includes(bucket);
+  return matchesTaskCategoryFilter(fieldKey, value, selectedValues, toContext(context));
 }
+
+export { serializeTaskCategoryValues };

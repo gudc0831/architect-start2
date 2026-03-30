@@ -1,3 +1,5 @@
+import type { TaskCategoryDefinition } from "@/domains/admin/task-category-definitions";
+
 export type WorkTypeCode =
   | "coordination"
   | "review"
@@ -7,20 +9,7 @@ export type WorkTypeCode =
   | "confirmation"
   | "revision";
 
-export type WorkTypeDefinition = {
-  id: string;
-  projectId: string | null;
-  code: string;
-  labelKo: string;
-  labelEn: string;
-  isSystem: boolean;
-  isActive: boolean;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-  createdBy: string | null;
-  updatedBy: string | null;
-};
+export type WorkTypeDefinition = TaskCategoryDefinition & { fieldKey: "workType" };
 
 export const workTypeCodeOrder = [
   "coordination",
@@ -123,6 +112,7 @@ export function buildSystemWorkTypeDefinitions(input?: {
 
   return systemWorkTypeSeeds.map<WorkTypeDefinition>((seed) => ({
     id: `system:work-type:${seed.code}`,
+    fieldKey: "workType",
     projectId: null,
     code: seed.code,
     labelKo: seed.labelKo,

@@ -166,6 +166,7 @@ model ProjectMembership {
 
 model WorkTypeDefinition {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fieldKey  String    @default("workType") @map("field_key")
   projectId String?   @map("project_id") @db.Uuid
   code      String
   labelKo   String    @map("label_ko")
@@ -179,7 +180,7 @@ model WorkTypeDefinition {
   updatedBy String?   @map("updated_by") @db.Uuid
   project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([projectId, isActive])
-  @@index([projectId, sortOrder])
+  @@index([fieldKey, projectId, isActive])
+  @@index([fieldKey, projectId, sortOrder])
   @@map("work_type_definitions")
 }

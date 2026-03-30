@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import {
   resolveTaskListColumnWidths,
   sanitizeTaskListLayoutPreference,
@@ -7,7 +8,6 @@ import {
   type TaskListLayoutPreference,
   type TaskListRowHeightMap,
 } from "@/domains/preferences/types";
-import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import {
   buildTaskHierarchyPathMap,
@@ -18,12 +18,17 @@ import {
   joinLatestFileNames,
   summarizeLinkedDocumentsForExport,
 } from "@/domains/task/daily-list";
-import { formatStatusHistoryForDisplay, labelForField, labelForMode, labelForStatus, labelForWorkType, t } from "@/lib/ui-copy";
+import {
+  labelForTaskCategoricalFilterValue,
+  type TaskCategoricalFilterSelection,
+} from "@/lib/task-categorical-filter";
+import { formatStatusHistoryForDisplay, labelForField, labelForMode, t } from "@/lib/ui-copy";
 
 export type TaskExportLayoutInput = {
   columnWidths?: unknown;
   rowHeights?: unknown;
   workTypeFilters?: string[];
+  categoricalFilters?: TaskCategoricalFilterSelection;
 };
 
 type TaskExportWorkbookInput = {
@@ -31,7 +36,12 @@ type TaskExportWorkbookInput = {
   tasks: TaskRecord[];
   files: FileRecord[];
   layout: TaskListLayoutPreference;
-  workTypeDefinitions?: readonly Pick<WorkTypeDefinition, "code" | "labelKo" | "isActive" | "sortOrder">[];
+  categoryDefinitionsByField?: Partial<
+    Record<
+      TaskCategoryFieldKey,
+      readonly Pick<TaskCategoryDefinition, "fieldKey" | "code" | "labelKo" | "isActive" | "sortOrder">[]
+    >
+  >;
 };
 
 const MAIN_SHEET_NAME = labelForMode("daily");
@@ -73,6 +83,9 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
   metaWorksheet.state = "veryHidden";
 
   const rows = buildTaskTreeRows(input.tasks);
+  const categoricalFieldContext = {
+    categoryDefinitionsByField: input.categoryDefinitionsByField,
+  };
   const hierarchyPathById = buildTaskHierarchyPathMap(input.tasks);
   const taskById = new Map(input.tasks.map((task) => [task.id, task]));
   const filesByTaskId = input.files.reduce<Record<string, FileRecord[]>>((acc, file) => {
@@ -130,17 +143,17 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     const nextRow = worksheet.addRow([
       formatTaskBacklogId(task),
       toExcelDateCell(task.dueDate),
-      labelForWorkType(task.workType, input.workTypeDefinitions),
-      task.coordinationScope || "",
+      labelForTaskCategoricalFilterValue("workType", task.workType, categoricalFieldContext),
+      labelForTaskCategoricalFilterValue("coordinationScope", task.coordinationScope, categoricalFieldContext),
       task.requestedBy || "",
-      task.relatedDisciplines || "",
+      labelForTaskCategoricalFilterValue("relatedDisciplines", task.relatedDisciplines, categoricalFieldContext),
       task.assignee || "",
       task.issueTitle || "",
       toExcelDateCell(task.reviewedAt),
       task.locationRef || "",
       task.calendarLinked ? "\u2611" : "\u2610",
       task.issueDetailNote || "",
-      labelForStatus(task.status),
+      labelForTaskCategoricalFilterValue("status", task.status, categoricalFieldContext),
       formatDateTimeField(task.completedAt),
       formatStatusHistoryForDisplay(task.statusHistory),
       task.decision || "",

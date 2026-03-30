@@ -1,4 +1,5 @@
 import type { AdminProfileSummary, ProjectMembershipRecord, ProjectSelectionRecord, ProjectSummary } from "@/domains/admin/types";
+import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 
 export type CreateAdminProjectInput = {
@@ -35,6 +36,10 @@ export type CreateWorkTypeDefinitionInput = {
   actorId: string | null;
 };
 
+export type CreateTaskCategoryDefinitionInput = CreateWorkTypeDefinitionInput & {
+  fieldKey: TaskCategoryFieldKey;
+};
+
 export type UpdateWorkTypeDefinitionInput = {
   labelKo?: string;
   labelEn?: string;
@@ -42,6 +47,8 @@ export type UpdateWorkTypeDefinitionInput = {
   isActive?: boolean;
   updatedBy: string | null;
 };
+
+export type UpdateTaskCategoryDefinitionInput = UpdateWorkTypeDefinitionInput;
 
 export interface AdminRepository {
   getProjectSelection(): Promise<ProjectSelectionRecord>;
@@ -53,6 +60,11 @@ export interface AdminRepository {
   listProfiles(): Promise<AdminProfileSummary[]>;
   listProjectMemberships(projectId: string): Promise<ProjectMembershipRecord[]>;
   replaceProjectMemberships(input: ReplaceProjectMembershipsInput): Promise<ProjectMembershipRecord[]>;
+  listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
+  listProjectTaskCategoryDefinitions(projectId: string, fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
+  listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
+  createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput): Promise<TaskCategoryDefinition>;
+  updateTaskCategoryDefinition(id: string, input: UpdateTaskCategoryDefinitionInput): Promise<TaskCategoryDefinition>;
   listGlobalWorkTypeDefinitions(): Promise<WorkTypeDefinition[]>;
   listProjectWorkTypeDefinitions(projectId: string): Promise<WorkTypeDefinition[]>;
   listEffectiveWorkTypeDefinitions(projectId: string | null): Promise<WorkTypeDefinition[]>;

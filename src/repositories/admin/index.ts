@@ -45,6 +45,21 @@ export const adminRepository: AdminRepository = {
   replaceProjectMemberships(input) {
     return getAdminRepository().replaceProjectMemberships(input);
   },
+  listGlobalTaskCategoryDefinitions(fieldKey) {
+    return getAdminRepository().listGlobalTaskCategoryDefinitions(fieldKey);
+  },
+  listProjectTaskCategoryDefinitions(projectId, fieldKey) {
+    return getAdminRepository().listProjectTaskCategoryDefinitions(projectId, fieldKey);
+  },
+  listEffectiveTaskCategoryDefinitions(projectId, fieldKey) {
+    return getAdminRepository().listEffectiveTaskCategoryDefinitions(projectId, fieldKey);
+  },
+  createTaskCategoryDefinition(input) {
+    return getAdminRepository().createTaskCategoryDefinition(input);
+  },
+  updateTaskCategoryDefinition(id, input) {
+    return getAdminRepository().updateTaskCategoryDefinition(id, input);
+  },
   listGlobalWorkTypeDefinitions() {
     return getAdminRepository().listGlobalWorkTypeDefinitions();
   },

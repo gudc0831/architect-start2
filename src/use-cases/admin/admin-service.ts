@@ -1,5 +1,12 @@
 import { backendMode } from "@/lib/backend-mode";
-import { assertCreatableWorkTypeCode, resolveEffectiveWorkTypeDefinitions } from "@/domains/admin/work-type-policy";
+import {
+  assertCreatableTaskCategoryCode,
+  isTaskCategoryFieldKey,
+  resolveEffectiveTaskCategoryDefinitions,
+  taskCategoryFieldKeys,
+  type TaskCategoryFieldKey,
+} from "@/domains/admin/task-category-definitions";
+import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
 import { badRequest, conflict, serviceUnavailable } from "@/lib/api/errors";
 import { getProjectSessionProjectId } from "@/lib/project-session";
 import { adminRepository } from "@/repositories/admin";
@@ -20,6 +27,35 @@ function uniqueById<T extends { id: string }>(items: T[]) {
     seen.add(item.id);
     return true;
   });
+}
+
+async function buildEffectiveTaskCategoriesByField(currentProjectId: string | null) {
+  const definitions = await Promise.all(
+    taskCategoryFieldKeys.map(async (fieldKey) => {
+      const [globalDefinitions, projectDefinitions] = await Promise.all([
+        adminRepository.listGlobalTaskCategoryDefinitions(fieldKey),
+        currentProjectId ? adminRepository.listProjectTaskCategoryDefinitions(currentProjectId, fieldKey) : Promise.resolve([]),
+      ]);
+      const resolved = resolveEffectiveTaskCategoryDefinitions([...globalDefinitions, ...projectDefinitions], fieldKey, currentProjectId);
+      return [fieldKey, resolved] as const;
+    }),
+  );
+
+  return Object.fromEntries(
+    definitions.map(([fieldKey, resolved]) => [
+      fieldKey,
+      {
+        definitions: resolved.selectableDefinitions,
+        displayDefinitions: resolved.displayDefinitions,
+      },
+    ]),
+  ) as Record<
+    TaskCategoryFieldKey,
+    {
+      definitions: Awaited<ReturnType<typeof adminRepository.listGlobalTaskCategoryDefinitions>>;
+      displayDefinitions: Awaited<ReturnType<typeof adminRepository.listGlobalTaskCategoryDefinitions>>;
+    }
+  >;
 }
 
 export async function listProjectsForSession() {
@@ -188,19 +224,31 @@ export async function listGlobalWorkTypes() {
   return adminRepository.listGlobalWorkTypeDefinitions();
 }
 
+export async function listGlobalTaskCategories(fieldKey: TaskCategoryFieldKey) {
+  return adminRepository.listGlobalTaskCategoryDefinitions(fieldKey);
+}
+
 export async function listEffectiveWorkTypesForSession() {
   const selection = await listProjectsForSession();
   const currentProjectId = selection.currentProjectId ?? null;
-  const [globalDefinitions, projectDefinitions] = await Promise.all([
-    adminRepository.listGlobalWorkTypeDefinitions(),
-    currentProjectId ? adminRepository.listProjectWorkTypeDefinitions(currentProjectId) : Promise.resolve([]),
-  ]);
-  const resolved = resolveEffectiveWorkTypeDefinitions([...globalDefinitions, ...projectDefinitions], currentProjectId);
+  const byField = await buildEffectiveTaskCategoriesByField(currentProjectId);
 
   return {
     currentProjectId,
-    definitions: resolved.selectableDefinitions,
-    displayDefinitions: resolved.displayDefinitions,
+    definitions: byField.workType.definitions,
+    displayDefinitions: byField.workType.displayDefinitions,
+  };
+}
+
+export async function listEffectiveTaskCategoriesForSession() {
+  const selection = await listProjectsForSession();
+  return listEffectiveTaskCategoriesForProject(selection.currentProjectId ?? null);
+}
+
+export async function listEffectiveTaskCategoriesForProject(currentProjectId: string | null) {
+  return {
+    currentProjectId,
+    byField: await buildEffectiveTaskCategoriesByField(currentProjectId),
   };
 }
 
@@ -224,8 +272,44 @@ export async function createGlobalWorkType(
   });
 }
 
+export async function createGlobalTaskCategory(
+  fieldKey: TaskCategoryFieldKey,
+  input: { code: string; labelKo: string; labelEn: string; sortOrder?: number; isSystem?: boolean },
+  userId: string | null,
+) {
+  if (!isTaskCategoryFieldKey(fieldKey)) {
+    throw badRequest("fieldKey is invalid", "TASK_CATEGORY_FIELD_INVALID");
+  }
+
+  const existingDefinitions = [
+    ...(await adminRepository.listGlobalTaskCategoryDefinitions(fieldKey)),
+    ...(await Promise.all(
+      (await adminRepository.listProjects()).map((project) => adminRepository.listProjectTaskCategoryDefinitions(project.id, fieldKey)),
+    )).flat(),
+  ];
+
+  return adminRepository.createTaskCategoryDefinition({
+    fieldKey,
+    projectId: null,
+    code: assertCreatableTaskCategoryCode(existingDefinitions, fieldKey, null, input.code),
+    labelKo: input.labelKo.trim(),
+    labelEn: input.labelEn.trim(),
+    sortOrder: input.sortOrder ?? 0,
+    isSystem: input.isSystem ?? false,
+    actorId: userId,
+  });
+}
+
 export async function listProjectWorkTypes(projectId: string) {
   return adminRepository.listProjectWorkTypeDefinitions(projectId.trim());
+}
+
+export async function listProjectTaskCategories(projectId: string, fieldKey: TaskCategoryFieldKey) {
+  if (!isTaskCategoryFieldKey(fieldKey)) {
+    throw badRequest("fieldKey is invalid", "TASK_CATEGORY_FIELD_INVALID");
+  }
+
+  return adminRepository.listProjectTaskCategoryDefinitions(projectId.trim(), fieldKey);
 }
 
 export async function createProjectWorkType(
@@ -250,12 +334,54 @@ export async function createProjectWorkType(
   });
 }
 
+export async function createProjectTaskCategory(
+  projectId: string,
+  fieldKey: TaskCategoryFieldKey,
+  input: { code: string; labelKo: string; labelEn: string; sortOrder?: number },
+  userId: string | null,
+) {
+  if (!isTaskCategoryFieldKey(fieldKey)) {
+    throw badRequest("fieldKey is invalid", "TASK_CATEGORY_FIELD_INVALID");
+  }
+
+  const normalizedProjectId = projectId.trim();
+  const existingDefinitions = [
+    ...(await adminRepository.listGlobalTaskCategoryDefinitions(fieldKey)),
+    ...(await adminRepository.listProjectTaskCategoryDefinitions(normalizedProjectId, fieldKey)),
+  ];
+
+  return adminRepository.createTaskCategoryDefinition({
+    fieldKey,
+    projectId: normalizedProjectId,
+    code: assertCreatableTaskCategoryCode(existingDefinitions, fieldKey, normalizedProjectId, input.code),
+    labelKo: input.labelKo.trim(),
+    labelEn: input.labelEn.trim(),
+    sortOrder: input.sortOrder ?? 0,
+    isSystem: false,
+    actorId: userId,
+  });
+}
+
 export async function updateAdminWorkType(
   id: string,
   input: { labelKo?: string; labelEn?: string; sortOrder?: number; isActive?: boolean },
   userId: string | null,
 ) {
   return adminRepository.updateWorkTypeDefinition(id.trim(), {
+    labelKo: input.labelKo?.trim(),
+    labelEn: input.labelEn?.trim(),
+    sortOrder: input.sortOrder,
+    isActive: input.isActive,
+    updatedBy: userId,
+  });
+}
+
+export async function updateAdminTaskCategory(
+  id: string,
+  input: { labelKo?: string; labelEn?: string; sortOrder?: number; isActive?: boolean },
+  userId: string | null,
+) {
+  return adminRepository.updateTaskCategoryDefinition(id.trim(), {
     labelKo: input.labelKo?.trim(),
     labelEn: input.labelEn?.trim(),
     sortOrder: input.sortOrder,

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { previewProjectName } from "@/lib/preview/demo-data";
 
@@ -22,10 +23,17 @@ type WorkTypePayload = {
   definitions: WorkTypeDefinition[];
 };
 
+type CategoryDefinitionsPayload = {
+  currentProjectId: string | null;
+  definitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
+  workTypeDefinitions: WorkTypeDefinition[];
+};
+
 type ProjectContextValue = {
   currentProjectId: string | null;
   availableProjects: ProjectOption[];
   workTypeDefinitions: WorkTypeDefinition[];
+  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
   workTypesLoaded: boolean;
   switchProject: (projectId: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -46,6 +54,7 @@ const ProjectContext = createContext<ProjectContextValue>({
   currentProjectId: null,
   availableProjects: [],
   workTypeDefinitions: [],
+  categoryDefinitionsByField: {},
   workTypesLoaded: false,
   switchProject: async () => {},
   refreshProjects: async () => {},
@@ -82,6 +91,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [availableProjects, setAvailableProjects] = useState<ProjectOption[]>([]);
   const [workTypeDefinitions, setWorkTypeDefinitions] = useState<WorkTypeDefinition[]>([]);
+  const [categoryDefinitionsByField, setCategoryDefinitionsByField] = useState<
+    Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>
+  >({});
   const [workTypesLoaded, setWorkTypesLoaded] = useState(false);
   const [projectName, setProjectNameState] = useState(defaultProjectName);
   const [previewName, setPreviewName] = useState(previewProjectName);
@@ -146,8 +158,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, [applyProjectSelection]);
 
   const refreshWorkTypes = useCallback(async () => {
-    const data = await readApiData<WorkTypePayload>("/api/work-types", { cache: "no-store" });
-    setWorkTypeDefinitions(Array.isArray(data.definitions) ? data.definitions : []);
+    const data = await readApiData<CategoryDefinitionsPayload>("/api/categories", { cache: "no-store" });
+    setWorkTypeDefinitions(Array.isArray(data.workTypeDefinitions) ? data.workTypeDefinitions : []);
+    setCategoryDefinitionsByField(data.definitionsByField ?? {});
     setWorkTypesLoaded(true);
   }, []);
 
@@ -187,6 +200,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isPreview) {
       setWorkTypeDefinitions(buildSystemWorkTypeDefinitions());
+      setCategoryDefinitionsByField({
+        workType: buildSystemWorkTypeDefinitions(),
+        coordinationScope: [],
+        relatedDisciplines: [],
+      });
       setWorkTypesLoaded(true);
       return;
     }
@@ -194,13 +212,14 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true;
     setWorkTypesLoaded(false);
 
-    void readApiData<WorkTypePayload>("/api/work-types", { cache: "no-store" })
+    void readApiData<CategoryDefinitionsPayload>("/api/categories", { cache: "no-store" })
       .then((data) => {
         if (!isMounted) {
           return;
         }
 
-        setWorkTypeDefinitions(Array.isArray(data.definitions) ? data.definitions : []);
+        setWorkTypeDefinitions(Array.isArray(data.workTypeDefinitions) ? data.workTypeDefinitions : []);
+        setCategoryDefinitionsByField(data.definitionsByField ?? {});
         setWorkTypesLoaded(true);
       })
       .catch(() => {
@@ -209,6 +228,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         }
 
         setWorkTypeDefinitions([]);
+        setCategoryDefinitionsByField({});
         setWorkTypesLoaded(true);
       });
 
@@ -248,6 +268,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         currentProjectId: previewProjectId,
         availableProjects: [{ id: previewProjectId, name: previewName, source: "preview" }],
         workTypeDefinitions,
+        categoryDefinitionsByField,
         workTypesLoaded: true,
         switchProject: async () => {},
         refreshProjects: async () => {},
@@ -262,6 +283,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         currentProjectId,
         availableProjects,
         workTypeDefinitions,
+        categoryDefinitionsByField,
         workTypesLoaded,
         switchProject,
         refreshProjects,

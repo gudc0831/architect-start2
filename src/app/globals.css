@@ -797,8 +797,11 @@ a {
   top: calc(100% + 0.28rem);
   right: 0.35rem;
   z-index: 8;
+  display: flex;
+  flex-direction: column;
   width: min(18rem, calc(100vw - 1.5rem));
   min-width: 14.5rem;
+  max-height: min(16.5rem, calc(100vh - 18rem));
   border: 1px solid rgba(112, 124, 109, 0.32);
   border-radius: 0.5rem;
   background: #fffefc;
@@ -859,8 +862,9 @@ a {
 
 .sheet-table__filter-options {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  max-height: 12.8rem;
+  max-height: 7.4rem;
   overflow-y: auto;
   padding: 0.38rem 0;
 }
@@ -897,6 +901,7 @@ a {
 
 .sheet-table__filter-footer {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.72rem 0.88rem 0.82rem;
@@ -1227,6 +1232,47 @@ a {
 
 .sheet-table__inline-select {
   appearance: auto;
+}
+
+.sheet-table__inline-multiselect {
+  width: 100%;
+}
+
+.task-categorical-multiselect {
+  position: relative;
+  width: 100%;
+}
+
+.task-categorical-multiselect__trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.task-categorical-multiselect__trigger::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.72;
+}
+
+.task-categorical-multiselect__trigger:disabled::after {
+  opacity: 0.4;
+}
+
+.task-categorical-multiselect__trigger:focus-visible {
+  outline: none;
+}
+
+.task-categorical-multiselect .sheet-table__filter-popover {
+  right: 0;
 }
 
 .sheet-table__inline-checkbox {
@@ -1689,6 +1735,32 @@ a {
   line-height: 1.5;
 }
 
+.detail-select-field.task-categorical-multiselect__trigger {
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0.56rem 0.78rem;
+  border: 1px solid rgba(126, 141, 130, 0.54);
+  border-radius: 12px;
+  background: #f9fbf8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.detail-select-field.task-categorical-multiselect__trigger:hover {
+  border-color: rgba(82, 99, 86, 0.55);
+}
+
+.detail-select-field.task-categorical-multiselect__trigger:focus-visible {
+  box-shadow: 0 0 0 3px rgba(41, 92, 67, 0.12);
+}
+
+.detail-form-grid .task-categorical-multiselect {
+  width: 100%;
+}
+
 .detail-date-field {
   min-width: 0;
   min-height: 3rem;
@@ -2044,9 +2116,6 @@ a {
     height: auto;
   }
 }
-
-
-
 
 
 
