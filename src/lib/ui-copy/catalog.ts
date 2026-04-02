@@ -69,6 +69,8 @@ export type UICatalog = {
     parentTaskNumberPlaceholder: string;
     resizeFieldAria: string;
     headerFilterAria: string;
+    hideIssueIdOverdueBadge: string;
+    dailyFocusSummary: string;
     autoAfterCreate: string;
     autoValue: string;
     resetFilter: string;
@@ -305,6 +307,8 @@ export const uiCopyCatalog = {
       parentTaskNumberPlaceholder: "MIL-001, #12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
       headerFilterAria: "{{field}} 필터: {{label}}",
+      hideIssueIdOverdueBadge: "이슈 ID 지연 표시 숨기기",
+      dailyFocusSummary: "집중 영역 · 실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.",
       autoAfterCreate: "생성 후 자동 지정",
       autoValue: "자동",
       resetFilter: "초기화",
@@ -566,6 +570,8 @@ export const uiCopyCatalog = {
       parentTaskNumberPlaceholder: "MIL-001, #12, or 12",
       resizeFieldAria: "Resize {{field}}",
       headerFilterAria: "{{field}} filter: {{label}}",
+      hideIssueIdOverdueBadge: "Hide issue ID overdue badges",
+      dailyFocusSummary: "Focus strip · Review the priority group before you reorder execution.",
       autoAfterCreate: "Auto after create",
       autoValue: "Auto",
       resetFilter: "Reset",

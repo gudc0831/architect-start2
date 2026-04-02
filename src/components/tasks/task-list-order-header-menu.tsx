@@ -14,21 +14,27 @@ type TaskListOrderHeaderMenuAction = {
 
 type TaskListOrderHeaderMenuProps = {
   actions: readonly TaskListOrderHeaderMenuAction[];
+  auxiliaryToggleChecked?: boolean;
+  auxiliaryToggleLabel?: string;
   ariaLabel: string;
   isBusy?: boolean;
   isOpen: boolean;
   modeLabel: string;
   onClose: () => void;
+  onToggleAuxiliaryToggle?: () => void;
   onToggleOpen: () => void;
 };
 
 export function TaskListOrderHeaderMenu({
   actions,
+  auxiliaryToggleChecked = false,
+  auxiliaryToggleLabel,
   ariaLabel,
   isBusy = false,
   isOpen,
   modeLabel,
   onClose,
+  onToggleAuxiliaryToggle,
   onToggleOpen,
 }: TaskListOrderHeaderMenuProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -140,6 +146,20 @@ export function TaskListOrderHeaderMenu({
                 </button>
               ))}
             </div>
+            {auxiliaryToggleLabel && onToggleAuxiliaryToggle ? (
+              <div className="sheet-table__order-auxiliary">
+                <label className="sheet-table__order-auxiliary-option">
+                  <input
+                    checked={auxiliaryToggleChecked}
+                    disabled={isBusy}
+                    onChange={() => onToggleAuxiliaryToggle()}
+                    onClick={(event) => event.stopPropagation()}
+                    type="checkbox"
+                  />
+                  <span className="sheet-table__order-auxiliary-label">{auxiliaryToggleLabel}</span>
+                </label>
+              </div>
+            ) : null}
           </div>
         </div>,
         document.body,

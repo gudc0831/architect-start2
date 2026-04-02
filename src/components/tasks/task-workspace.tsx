@@ -324,6 +324,7 @@ const QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX = "architect-start.quick-create-widt
 const QUICK_CREATE_SAVE_DELAY_MS = 250;
 const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
+const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
 const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
 const editableTaskFormKeys = [
@@ -426,6 +427,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [taskSortMode, setTaskSortMode] = useState<DailyTaskSortMode>("manual");
   const [isTaskOrderMenuOpen, setIsTaskOrderMenuOpen] = useState(false);
   const [taskFocusKey, setTaskFocusKey] = useState<TaskFocusKey | null>(null);
+  const [hideIssueIdOverdueBadge, setHideIssueIdOverdueBadge] = useState(false);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [taskDropState, setTaskDropState] = useState<TaskDropState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -453,6 +455,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const quickCreateSaveTimerRef = useRef<number | null>(null);
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
+  const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const parentTaskNumberDraftRef = useRef("");
@@ -479,6 +482,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     mode === "daily" && currentProjectId && (authUser?.id || isPreview)
       ? getCategoricalFilterStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
       : null;
+  const issueIdOverdueBadgePreferenceStorageKey = categoricalFilterStorageBaseKey
+    ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE)
+    : null;
   const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
@@ -843,6 +849,35 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setOpenCategoricalFilterField(null);
     }
   }, [categoricalFilterOptionsByField, mode, openCategoricalFilterField]);
+
+  useEffect(() => {
+    if (mode !== "daily") {
+      setHideIssueIdOverdueBadge(false);
+      dailyViewPreferenceReadyKeyRef.current = null;
+      return;
+    }
+
+    if (!issueIdOverdueBadgePreferenceStorageKey) {
+      setHideIssueIdOverdueBadge(false);
+      dailyViewPreferenceReadyKeyRef.current = "__none__";
+      return;
+    }
+
+    setHideIssueIdOverdueBadge(readBooleanPreferenceFromStorage(issueIdOverdueBadgePreferenceStorageKey));
+    dailyViewPreferenceReadyKeyRef.current = issueIdOverdueBadgePreferenceStorageKey;
+  }, [issueIdOverdueBadgePreferenceStorageKey, mode]);
+
+  useEffect(() => {
+    if (!issueIdOverdueBadgePreferenceStorageKey) {
+      return;
+    }
+
+    if (dailyViewPreferenceReadyKeyRef.current !== issueIdOverdueBadgePreferenceStorageKey) {
+      return;
+    }
+
+    writeBooleanPreferenceToStorage(issueIdOverdueBadgePreferenceStorageKey, hideIssueIdOverdueBadge);
+  }, [hideIssueIdOverdueBadge, issueIdOverdueBadgePreferenceStorageKey]);
 
 
   const handleQuickCreateResizeMove = useCallback((event: PointerEvent) => {
@@ -1980,9 +2015,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           ]}
           ariaLabel="업무 정렬 메뉴"
           isBusy={isReorderingTasks}
+          auxiliaryToggleChecked={hideIssueIdOverdueBadge}
+          auxiliaryToggleLabel={t("workspace.hideIssueIdOverdueBadge")}
           isOpen={isTaskOrderMenuOpen}
           modeLabel={taskSortMode === "manual" ? "수동" : "자동"}
           onClose={() => setIsTaskOrderMenuOpen(false)}
+          onToggleAuxiliaryToggle={() => setHideIssueIdOverdueBadge((previous) => !previous)}
           onToggleOpen={() => setIsTaskOrderMenuOpen((previous) => !previous)}
         />
       );
@@ -2729,12 +2767,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       <p className="workspace__meta">실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.</p>
                     </div>
                   </div>
+                  <p className="daily-sheet__focus-copy">{t("workspace.dailyFocusSummary")}</p>
                   <TaskFocusStrip
                     activeKey={taskFocusKey}
                     ariaLabel="일일 실행 집중 영역"
                     className="daily-sheet__focus-strip"
                     items={boardFocusItems}
                     onSelect={(key) => setTaskFocusKey((previous) => (previous === key ? null : (key as TaskFocusKey)))}
+                    variant="compact"
                   />
                 </section>
 
@@ -2948,7 +2988,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     >
                                       {presentation.actionId}
                                     </span>
-                                    {deadlineBadge ? (
+                                    {deadlineBadge && !hideIssueIdOverdueBadge ? (
                                       <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
                                         {deadlineBadge.label}
                                       </span>
@@ -3978,6 +4018,10 @@ function getCategoricalFilterStorageKey(baseKey: string, fieldKey: DailyCategori
   return `${baseKey}:${fieldKey}`;
 }
 
+function getDailyViewPreferenceStorageKey(baseKey: string, preferenceKey: string) {
+  return `${baseKey}:view:${preferenceKey}`;
+}
+
 type StoredCategoricalFilterSelection =
   | { mode: "none" }
   | { mode: "custom"; values: string[] };
@@ -4033,6 +4077,35 @@ function writeCategoricalFiltersToStorage(storageKey: string, values: readonly s
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
   } catch {
     // Ignore storage write failures and keep the in-memory filters.
+  }
+}
+
+function readBooleanPreferenceFromStorage(storageKey: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeBooleanPreferenceToStorage(storageKey: string, value: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (!value) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, "true");
+  } catch {
+    // Ignore storage write failures and keep the in-memory preference.
   }
 }
 

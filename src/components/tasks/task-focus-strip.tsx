@@ -21,11 +21,16 @@ export type TaskFocusStripProps = {
   onSelect: (key: string) => void;
   className?: string;
   ariaLabel?: string;
+  variant?: "default" | "compact";
 };
 
-export function TaskFocusStrip({ items, activeKey, onSelect, className, ariaLabel }: TaskFocusStripProps) {
+export function TaskFocusStrip({ items, activeKey, onSelect, className, ariaLabel, variant = "default" }: TaskFocusStripProps) {
   return (
-    <div aria-label={ariaLabel} className={clsx("task-focus-strip", className)} role="group">
+    <div
+      aria-label={ariaLabel}
+      className={clsx("task-focus-strip", variant === "compact" && "task-focus-strip--compact", className)}
+      role="group"
+    >
       {items.map((item) => {
         const isActive = item.key === activeKey;
 
