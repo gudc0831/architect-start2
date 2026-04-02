@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Engineering"
+  short_description: "Coordinate role-based coding work with risk-based review"
+  default_prompt: "Use $harness-engineering to run this task with coordinator, worker, and reviewer separation, assign clear ownership, keep reviewers read-only unless needed, and report verification plus remaining risks."

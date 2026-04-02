@@ -23,6 +23,14 @@ This document defines the operating instructions for Codex in this workspace. Th
 - For multi-step tasks, keep an internal checklist and finish without omissions.
 - If blocked, do not stop immediately; try one or two reasonable fallback paths first.
 
+## Skill Routing
+
+- For larger coding or documentation tasks, or when structured coordination, role separation, or risk-based review would improve quality, use the repo-local `harness-engineering` skill if available.
+- If the user explicitly asks for harness-style execution, multi-role collaboration, parallel work, or stricter review, prefer the `harness-engineering` skill.
+- The same skill may also be used by default when the task is substantial enough that explicit coordination and review are likely to reduce risk.
+- Prefer repo-local or already installed skills first. Use `find-skills` only when a required capability is missing or the user asks for workflow expansion.
+- If the `harness-engineering` skill is unavailable, keep the same coordinator, worker, and reviewer separation mentally and proceed with the safest practical fallback.
+
 ## Output Rules
 
 - If the user requests a format, follow that format first.
@@ -108,6 +116,7 @@ Before the final response, always check:
 - Name the changed file or produced artifact.
 - Include verification that was performed, if any.
 - Briefly note any remaining risk or anything not verified.
+
 ## Project Skills
 
 - Project-shared Codex skills live under `codex/skills`.
