@@ -103,6 +103,13 @@ Before the final response, always check:
 - Do not write principles alone; include at least one of: template, checklist, or example.
 - Prefer reusable structure over unnecessary length.
 
+## Work Logging
+
+- For non-trivial coding or documentation tasks, create or update a concise task log under `docs/worklogs/` unless the user prefers a different location.
+- Use one log file per task or change set to keep history easy to scan and reduce merge conflicts.
+- Record the user request, implementation summary, verification performed, resulting artifacts or changed files, and any remaining risks or unverified areas.
+- Keep logs brief and factual. Do not create committed work logs for trivial edits unless the user explicitly asks for them.
+
 ## Prohibited Behaviors
 
 - Do not present unverified claims as facts.

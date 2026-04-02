@@ -15,3 +15,4 @@ uploads
 .dev-check.*
 output/playwright/
 output/data-guard/
+output/browser-check/

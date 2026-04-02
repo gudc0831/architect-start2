@@ -15,6 +15,7 @@ Use this skill to run work with explicit coordinator, worker, and reviewer separ
 - Use branch separation only when file or module ownership is not enough.
 - Use delegated sub-agents only when the user explicitly asks for delegation or parallel work and the runtime allows it.
 - Keep reviewers read-only unless implementation is explicitly assigned.
+- For non-trivial tasks, the coordinator should create or update a concise task log under `docs/worklogs/` unless the user specifies another location.
 
 ## Team Model
 
@@ -44,6 +45,7 @@ Use this skill to run work with explicit coordinator, worker, and reviewer separ
 5. Close.
    - Confirm requested deliverables exist.
    - Integrate or reconcile worker outputs.
+   - Create or update the task log when the work is non-trivial.
    - State what changed, what was verified, and what remains unverified.
 
 ## Skill Guidance
@@ -59,3 +61,4 @@ Report:
 - changed files or artifacts
 - verification performed
 - open risks or unverified areas
+- task log path, if a log was created
