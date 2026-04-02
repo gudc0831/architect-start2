@@ -11,7 +11,13 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  FocusEvent as ReactFocusEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { Route } from "next";
@@ -25,7 +31,10 @@ import {
   TaskCategoricalFieldSelect,
   type TaskCategoricalFieldKey,
 } from "@/components/tasks/task-categorical-fields";
+import { BoardTaskOverview } from "@/components/tasks/board-task-overview";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
+import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
+import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
@@ -40,6 +49,7 @@ import {
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
+import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import {
   buildTaskTreeRows,
   dailyTaskListColumns,
@@ -48,6 +58,7 @@ import {
   formatDateTimeField,
   sortTasksByActionId,
   type DailyTaskListColumnConfig as TaskListColumnConfig,
+  type DailyTaskSortMode,
   type TaskTreeRow,
 } from "@/domains/task/daily-list";
 import {
@@ -72,7 +83,6 @@ import {
 import {
   DEFAULT_UI_LOCALE_TAG,
   describeStatus,
-  formatStatusHistoryForDisplay,
   getWeekdayLabels,
   getWeekdayLabelByIndex,
   getWorkTypeSelectValue,
@@ -109,8 +119,6 @@ type TaskFormState = {
   calendarLinked: boolean;
   issueDetailNote: string;
   status: TaskStatus;
-  completedAt: string;
-  statusHistory: string;
   decision: string;
   isDaily: boolean;
 };
@@ -118,6 +126,16 @@ type TaskFormState = {
 type TaskFormReadonly = Partial<Record<Exclude<keyof TaskFormState, "isDaily">, boolean>>;
 type DraftDirtyField = EditableTaskFormKey | "parentTaskNumber";
 type DraftDirtyFieldMap = Partial<Record<DraftDirtyField, true>>;
+type TaskFocusKey = "todo" | "in_progress" | "blocked" | "overdue";
+type TaskDropPosition = "before" | "after";
+type TaskDragState = {
+  taskId: string;
+  parentTaskId: string | null;
+};
+type TaskDropState = {
+  taskId: string;
+  position: TaskDropPosition;
+};
 
 type TaskFormDisplayState = {
   actionId?: string | number | null;
@@ -136,8 +154,6 @@ type TaskFormDisplayState = {
   calendarLinked: boolean;
   issueDetailNote: string;
   status: TaskStatus;
-  completedAt?: string | null;
-  statusHistory: string;
   decision: string;
 };
 
@@ -359,8 +375,6 @@ const defaultForm = (): TaskFormState => ({
   calendarLinked: false,
   issueDetailNote: "",
   status: "waiting",
-  completedAt: "",
-  statusHistory: "",
   decision: "",
   isDaily: true,
 });
@@ -368,8 +382,6 @@ const defaultForm = (): TaskFormState => ({
 const createReadonlyFields: TaskFormReadonly = {
   actionId: true,
   updatedAt: true,
-  completedAt: true,
-  statusHistory: true,
 };
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
@@ -408,8 +420,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isReorderingTasks, setIsReorderingTasks] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
+  const [taskSortMode, setTaskSortMode] = useState<DailyTaskSortMode>("manual");
+  const [isTaskOrderMenuOpen, setIsTaskOrderMenuOpen] = useState(false);
+  const [taskFocusKey, setTaskFocusKey] = useState<TaskFocusKey | null>(null);
+  const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
+  const [taskDropState, setTaskDropState] = useState<TaskDropState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
   const [viewportWidth, setViewportWidth] = useState(WIDE_BREAKPOINT);
   const [hasViewportSync, setHasViewportSync] = useState(false);
@@ -454,7 +472,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
-  const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving;
+  const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey = mode === "daily" && authUser?.id ? getTaskListLayoutStorageKey(authUser.id) : null;
   const categoricalFilterStorageBaseKey =
@@ -504,19 +522,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           fieldKey,
           normalizeTaskCategoricalFilterSelection(fieldKey, selectedCategoricalFilters[fieldKey], categoricalFieldContext),
         ]),
-      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
+      ) as Record<DailyCategoricalFilterFieldKey, string[] | undefined>,
     [categoricalFieldContext, selectedCategoricalFilters],
-  );
-  const effectiveSelectedCategoricalFilters = useMemo(
-    () =>
-      Object.fromEntries(
-        dailyCategoricalFilterFieldKeys.map((fieldKey) => {
-          const optionValues = categoricalFilterOptionValuesByField[fieldKey] ?? [];
-          const selectedValues = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
-          return [fieldKey, selectedValues.length > 0 ? selectedValues : [...optionValues]];
-        }),
-      ) as Record<DailyCategoricalFilterFieldKey, string[]>,
-    [categoricalFilterOptionValuesByField, normalizedSelectedCategoricalFilters],
   );
   const effectiveDraftCategoricalFilters = useMemo(
     () =>
@@ -537,7 +544,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       const normalizedValues = normalizeTaskCategoricalFilterSelection(fieldKey, selectedValues, categoricalFieldContext);
-      return normalizedValues.length > 0 ? normalizedValues : [...optionValues];
+      return normalizedValues === undefined ? [...optionValues] : [...normalizedValues];
     },
     [categoricalFieldContext, categoricalFilterOptionValuesByField],
   );
@@ -599,7 +606,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     (fieldKey: DailyCategoricalFilterFieldKey) => {
       setDraftCategoricalFilters((previous) => ({
         ...previous,
-        [fieldKey]: [...(categoricalFilterOptionValuesByField[fieldKey] ?? [])],
+        [fieldKey]: areStringArrayValuesEqual(previous[fieldKey] ?? [], categoricalFilterOptionValuesByField[fieldKey] ?? [])
+          ? []
+          : [...(categoricalFilterOptionValuesByField[fieldKey] ?? [])],
       }));
     },
     [categoricalFilterOptionValuesByField],
@@ -802,7 +811,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     for (const fieldKey of dailyCategoricalFilterFieldKeys) {
       writeCategoricalFiltersToStorage(
         getCategoricalFilterStorageKey(categoricalFilterStorageBaseKey, fieldKey),
-        normalizedSelectedCategoricalFilters[fieldKey] ?? [],
+        normalizedSelectedCategoricalFilters[fieldKey],
       );
     }
   }, [categoricalFilterStorageBaseKey, normalizedSelectedCategoricalFilters]);
@@ -1326,25 +1335,24 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     void loadData();
   }, [loadData]);
 
-  const sortedTasks = useMemo(() => sortTasksByActionId(tasks), [tasks]);
+  const currentDayKey = todayKey();
+  const sortedTasks = useMemo(() => buildStoredOrderTaskTree(tasks), [tasks]);
+  const hasActiveDailyFilters = useMemo(
+    () => dailyCategoricalFilterFieldKeys.some((fieldKey) => normalizedSelectedCategoricalFilters[fieldKey] !== undefined),
+    [normalizedSelectedCategoricalFilters],
+  );
   const visibleDailyTasks = useMemo(() => {
     if (mode !== "daily") {
-      return tasks;
+      return sortedTasks;
     }
 
-    const hasAnyFilter = dailyCategoricalFilterFieldKeys.some(
-      (fieldKey) => (normalizedSelectedCategoricalFilters[fieldKey] ?? []).length > 0,
-    );
-    if (!hasAnyFilter) {
-      return tasks;
+    if (!hasActiveDailyFilters) {
+      return sortedTasks;
     }
 
-    return tasks.filter((task) =>
+    return sortedTasks.filter((task) =>
       dailyCategoricalFilterFieldKeys.every((fieldKey) => {
-        const filters = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
-        if (filters.length === 0) {
-          return true;
-        }
+        const filters = normalizedSelectedCategoricalFilters[fieldKey];
 
         switch (fieldKey) {
           case "workType":
@@ -1364,7 +1372,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
       }),
     );
-  }, [categoricalFieldContext, mode, normalizedSelectedCategoricalFilters, tasks]);
+  }, [categoricalFieldContext, hasActiveDailyFilters, mode, normalizedSelectedCategoricalFilters, sortedTasks]);
   const dailyTreeRows = useMemo(() => buildTaskTreeRows(visibleDailyTasks), [visibleDailyTasks]);
 
   useEffect(() => {
@@ -1442,8 +1450,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const allTrashSelected = trashItems.length > 0 && selectedTrashCount === trashItems.length;
 
   useEffect(() => {
-    taskListVisibleTaskIdsRef.current = new Set(tasks.map((task) => task.id));
-  }, [tasks]);
+    taskListVisibleTaskIdsRef.current = new Set((mode === "daily" ? visibleDailyTasks : tasks).map((task) => task.id));
+  }, [mode, tasks, visibleDailyTasks]);
 
 
   useEffect(() => {
@@ -1492,19 +1500,110 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setVersionTargetId((prev) => (selectedFiles.some((file) => file.id === prev) ? prev : selectedFiles[0].id));
   }, [selectedFiles]);
 
+  const focusedTaskIds = useMemo(
+    () => (taskFocusKey ? new Set(sortedTasks.filter((task) => matchesTaskFocus(task, taskFocusKey, currentDayKey)).map((task) => task.id)) : null),
+    [currentDayKey, sortedTasks, taskFocusKey],
+  );
   const boardGroups = useMemo(
     () => statusOrder.map((status) => ({ status, items: sortedTasks.filter((task) => task.status === status) })),
     [sortedTasks],
   );
   const boardSummary = useMemo(() => {
-    const overdueCount = sortedTasks.filter((task) => task.dueDate && task.dueDate < todayKey() && task.status !== "done").length;
+    const overdueCount = sortedTasks.filter((task) => isTaskOverdue(task, currentDayKey)).length;
     const byStatus = statusOrder.reduce(
       (acc, status) => ({ ...acc, [status]: sortedTasks.filter((task) => task.status === status).length }),
       {} as Record<TaskStatus, number>,
     );
 
-    return { total: sortedTasks.length, overdue: overdueCount, byStatus };
-  }, [sortedTasks]);
+    return {
+      total: sortedTasks.length,
+      overdue: overdueCount,
+      byStatus,
+      todo: sortedTasks.filter((task) => task.status === "todo").length,
+      inProgress: sortedTasks.filter((task) => task.status === "in_progress").length,
+      blocked: sortedTasks.filter((task) => task.status === "blocked").length,
+    };
+  }, [currentDayKey, sortedTasks]);
+  const boardFocusItems = useMemo(
+    () => [
+      { key: "todo", label: labelForStatus("todo"), count: boardSummary.todo, tone: "accent" as const },
+      { key: "in_progress", label: labelForStatus("in_progress"), count: boardSummary.inProgress, tone: "success" as const },
+      { key: "blocked", label: labelForStatus("blocked"), count: boardSummary.blocked, tone: "warn" as const },
+      { key: "overdue", label: t("workspace.overdueLabel"), count: boardSummary.overdue, tone: "warn" as const },
+    ],
+    [boardSummary.blocked, boardSummary.inProgress, boardSummary.overdue, boardSummary.todo],
+  );
+  const boardSummaryCards = useMemo(
+    () => [
+      { key: "total", label: t("workspace.totalLabel"), value: boardSummary.total },
+      { key: "waiting", label: labelForStatus("waiting"), value: boardSummary.byStatus.waiting },
+      { key: "todo", label: labelForStatus("todo"), value: boardSummary.byStatus.todo },
+      { key: "in_progress", label: labelForStatus("in_progress"), value: boardSummary.byStatus.in_progress },
+      { key: "overdue", label: t("workspace.overdueLabel"), value: boardSummary.overdue, tone: "warn" as const, className: "board-summary__card--warn" },
+    ],
+    [boardSummary],
+  );
+  const boardOverviewGroups = boardGroups.map((group) => ({
+    status: group.status,
+    label: statusLabel[group.status],
+    description: boardColumnCopy(group.status),
+    emptyLabel: t("empty.noTaskInState"),
+    items: group.items.map((task) => {
+      const taskFiles = filesByTaskId[task.id] ?? [];
+      const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+      const isDimmed = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
+      const isOverdue = isTaskOverdue(task, currentDayKey);
+
+      return {
+        id: task.id,
+        displayId: formatTaskDisplayId(task),
+        title: task.issueTitle,
+        description: task.issueDetailNote || t("empty.noDescription"),
+        dueDateLabel: task.dueDate || "-",
+        workTypeLabel: labelForWorkType(task.workType, workTypeDefinitions),
+        assigneeLabel: task.assignee || t("empty.unassigned"),
+        fileCountLabel: t("workspace.fileCount", { count: taskFiles.length }),
+        status: task.status,
+        isActive: task.id === selectedTaskId,
+        className: clsx(
+          task.status === "done" && "task-state-card--done",
+          isDimmed && "task-state-card--dimmed",
+          isOverdue && "task-state-card--overdue",
+        ),
+        secondaryBadge: deadlineBadge ? (
+          <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
+            {deadlineBadge.label}
+          </span>
+        ) : null,
+        actions: (
+          <>
+            <button
+              className="secondary-button"
+              disabled={task.status === statusOrder[0]}
+              onClick={(event) => {
+                event.stopPropagation();
+                void shiftTaskStatus(task, -1);
+              }}
+              type="button"
+            >
+              {t("actions.back")}
+            </button>
+            <button
+              className="primary-button"
+              disabled={task.status === statusOrder[statusOrder.length - 1]}
+              onClick={(event) => {
+                event.stopPropagation();
+                void shiftTaskStatus(task, 1);
+              }}
+              type="button"
+            >
+              {t("actions.next")}
+            </button>
+          </>
+        ),
+      };
+    }),
+  }));
   const calendarBaseDate = useMemo(() => {
     const firstDueDate = calendarTasks.find((task) => task.dueDate)?.dueDate;
     return firstDueDate ? parseISO(firstDueDate) : new Date();
@@ -1668,14 +1767,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           columnWidths: taskListColumnWidthsRef.current,
           rowHeights: taskListRowHeightsRef.current,
           categoricalFilters: Object.fromEntries(
-            dailyCategoricalFilterFieldKeys
-              .map((fieldKey) => [fieldKey, normalizedSelectedCategoricalFilters[fieldKey] ?? []] as const)
-              .filter(([, values]) => values.length > 0),
+            dailyCategoricalFilterFieldKeys.flatMap((fieldKey) => {
+              const selectedValues = normalizedSelectedCategoricalFilters[fieldKey];
+              return selectedValues === undefined ? [] : [[fieldKey, selectedValues] as const];
+            }),
           ),
-          workTypeFilters:
-            (normalizedSelectedCategoricalFilters.workType ?? []).length > 0
-              ? normalizedSelectedCategoricalFilters.workType
-              : undefined,
+          workTypeFilters: normalizedSelectedCategoricalFilters.workType,
         }),
       });
 
@@ -1693,22 +1790,217 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
   }
 
+  async function reorderDailyTasks(
+    command:
+      | {
+          action: "manual_move";
+          movedTaskId: string;
+          targetParentTaskId: string | null;
+          targetIndex: number;
+        }
+      | {
+          action: "auto_sort";
+          strategy: "priority" | "action_id";
+        },
+    nextMode: DailyTaskSortMode,
+  ) {
+    if (isPreview) {
+      setErrorMessage(t("errors.previewMutationNotAllowed"));
+      return false;
+    }
+
+    if (isReorderingTasks) {
+      return false;
+    }
+
+    if (hasSelectedTaskDraftChanges()) {
+      const didSave = await saveSelectedTaskRef.current();
+      if (!didSave) {
+        return false;
+      }
+    }
+
+    setIsReorderingTasks(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/tasks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      });
+
+      if (!response.ok) {
+        setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+        return false;
+      }
+
+      const json = (await response.json()) as { data: TaskRecord[] };
+      setTasks(json.data);
+      setTaskSortMode(nextMode);
+      if (command.action === "manual_move") {
+        setSelectedTaskId(command.movedTaskId);
+      }
+      return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+      return false;
+    } finally {
+      setIsReorderingTasks(false);
+      setIsTaskOrderMenuOpen(false);
+      setTaskDragState(null);
+      setTaskDropState(null);
+    }
+  }
+
+  async function moveTaskByOffset(taskId: string, offset: -1 | 1) {
+    if (hasActiveDailyFilters) {
+      return;
+    }
+
+    const task = dailyTreeRows.find((row) => row.task.id === taskId)?.task;
+    if (!task) {
+      return;
+    }
+
+    const parentTaskId = task.parentTaskId ?? null;
+    const siblingIds = dailyTreeRows
+      .filter((row) => (row.task.parentTaskId ?? null) === parentTaskId)
+      .map((row) => row.task.id);
+    const currentIndex = siblingIds.indexOf(taskId);
+    const nextIndex = currentIndex + offset;
+    const targetIndex = offset > 0 ? nextIndex + 1 : nextIndex;
+
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblingIds.length) {
+      return;
+    }
+
+    await reorderDailyTasks(
+      {
+        action: "manual_move",
+        movedTaskId: taskId,
+        targetParentTaskId: parentTaskId,
+        targetIndex,
+      },
+      "manual",
+    );
+  }
+
+  function handleTaskRowDragStart(task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) {
+    if (hasActiveDailyFilters || isMobileViewport || isReorderingTasks) {
+      event.preventDefault();
+      return;
+    }
+
+    setTaskDragState({ taskId: task.id, parentTaskId: task.parentTaskId ?? null });
+    setTaskDropState(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", task.id);
+  }
+
+  function handleTaskRowDragOver(task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) {
+    if (!taskDragState || taskDragState.taskId === task.id) {
+      return;
+    }
+
+    const targetParentTaskId = task.parentTaskId ?? null;
+    if (taskDragState.parentTaskId !== targetParentTaskId) {
+      return;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
+    setTaskDropState({ taskId: task.id, position });
+  }
+
+  async function handleTaskRowDrop(task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) {
+    if (!taskDragState) {
+      return;
+    }
+
+    const targetParentTaskId = task.parentTaskId ?? null;
+    if (taskDragState.parentTaskId !== targetParentTaskId) {
+      return;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
+    const siblingIds = dailyTreeRows
+      .filter((row) => (row.task.parentTaskId ?? null) === targetParentTaskId)
+      .map((row) => row.task.id)
+      .filter((taskId) => taskId !== taskDragState.taskId);
+    const targetIndexBase = siblingIds.indexOf(task.id);
+
+    if (targetIndexBase < 0) {
+      setTaskDragState(null);
+      setTaskDropState(null);
+      return;
+    }
+
+    await reorderDailyTasks(
+      {
+        action: "manual_move",
+        movedTaskId: taskDragState.taskId,
+        targetParentTaskId,
+        targetIndex: targetIndexBase + (position === "after" ? 1 : 0),
+      },
+      "manual",
+    );
+  }
+
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
+    if (column.headerControl?.kind === "sortMenu") {
+      return (
+        <TaskListOrderHeaderMenu
+          actions={[
+            {
+              key: "manual",
+              label: "수동 정렬 유지",
+              description: "직접 옮긴 현재 순서를 유지합니다.",
+              onSelect: () => setTaskSortMode("manual"),
+            },
+            {
+              key: "auto",
+              label: "자동 정렬 실행",
+              description: "진행, 지연, 마감 순서로 다시 정렬합니다.",
+              onSelect: () => {
+                void reorderDailyTasks({ action: "auto_sort", strategy: "priority" }, "auto");
+              },
+            },
+            {
+              key: "issue-id",
+              label: "Issue ID 순으로 복원",
+              description: "기본 이슈 번호 순서로 다시 정렬합니다.",
+              onSelect: () => {
+                void reorderDailyTasks({ action: "auto_sort", strategy: "action_id" }, "auto");
+              },
+            },
+          ]}
+          ariaLabel="업무 정렬 메뉴"
+          isBusy={isReorderingTasks}
+          isOpen={isTaskOrderMenuOpen}
+          modeLabel={taskSortMode === "manual" ? "수동" : "자동"}
+          onClose={() => setIsTaskOrderMenuOpen(false)}
+          onToggleOpen={() => setIsTaskOrderMenuOpen((previous) => !previous)}
+        />
+      );
+    }
+
     if (column.headerControl?.kind !== "categoricalFilter") {
       return null;
     }
 
     const fieldKey = column.headerControl.fieldKey as DailyCategoricalFilterFieldKey;
     const options = categoricalFilterOptionsByField[fieldKey] ?? [];
-    const selectedValues = effectiveSelectedCategoricalFilters[fieldKey] ?? [];
+    const selectedValues = normalizedSelectedCategoricalFilters[fieldKey];
     const draftValues = effectiveDraftCategoricalFilters[fieldKey] ?? [];
-    const normalizedValues = normalizedSelectedCategoricalFilters[fieldKey] ?? [];
 
     return (
       <TaskListCategoricalHeaderFilterPopover
-        buttonLabel={summarizeCategoricalFilterButtonLabel(selectedValues, options)}
         fieldLabel={labelForField(fieldKey)}
-        isActive={normalizedValues.length > 0}
+        isActive={selectedValues !== undefined}
         isOpen={openCategoricalFilterField === fieldKey}
         onCancel={cancelCategoricalFilterChanges}
         onConfirm={confirmCategoricalFilterChanges}
@@ -1719,6 +2011,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         options={options}
         selectedCountLabel={summarizeCategoricalFilterStatusLabel(draftValues, options.length)}
         selectedValues={draftValues}
+        triggerSummaryLabel={summarizeCategoricalFilterTriggerLabel(selectedValues, options)}
       />
     );
   }
@@ -2180,6 +2473,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
 
+      const taskPortalElement = target.closest<HTMLElement>('[data-task-portal-interaction="true"]');
+      if (taskPortalElement) return;
+
+      const headerControlElement = target.closest<HTMLElement>(".sheet-table__head-controls");
+      if (headerControlElement) return;
+
       const rowElement = target.closest<HTMLElement>("[data-task-row-id]");
       if (rowElement) return;
 
@@ -2358,104 +2657,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             ) : null}
 
             {mode === "board" ? (
-              <div className="board-layout">
-                <section className="board-summary">
-                  <article className="board-summary__card">
-                    <span className="board-summary__label">{t("workspace.totalLabel")}</span>
-                    <strong>{boardSummary.total}</strong>
-                  </article>
-                  <article className="board-summary__card">
-                    <span className="board-summary__label">{labelForStatus("waiting")}</span>
-                    <strong>{boardSummary.byStatus.waiting}</strong>
-                  </article>
-                  <article className="board-summary__card">
-                    <span className="board-summary__label">{labelForStatus("todo")}</span>
-                    <strong>{boardSummary.byStatus.todo}</strong>
-                  </article>
-                  <article className="board-summary__card">
-                    <span className="board-summary__label">{labelForStatus("in_progress")}</span>
-                    <strong>{boardSummary.byStatus.in_progress}</strong>
-                  </article>
-                  <article className="board-summary__card board-summary__card--warn">
-                    <span className="board-summary__label">{t("workspace.overdueLabel")}</span>
-                    <strong>{boardSummary.overdue}</strong>
-                  </article>
-                </section>
-
-                <div className="board-columns">
-                  {boardGroups.map((group) => (
-                    <section className="board-column" key={group.status}>
-                      <header className="board-column__header">
-                        <div>
-                          <h3>{statusLabel[group.status]}</h3>
-                          <p>{boardColumnCopy(group.status)}</p>
-                        </div>
-                        <span className={clsx("status-pill", `status-pill--${group.status}`)}>{group.items.length}</span>
-                      </header>
-                      <div className="board-column__items">
-                        {group.items.length === 0 ? <div className="board-column__empty">{t("empty.noTaskInState")}</div> : null}
-                        {group.items.map((task) => {
-                          const taskFiles = filesByTaskId[task.id] ?? [];
-                          return (
-                            <article
-                              className={clsx("task-card", task.id === selectedTaskId && "task-card--active")}
-                              key={task.id}
-                              onClick={() => selectTask(task.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  selectTask(task.id);
-                                }
-                              }}
-                              role="button"
-                              tabIndex={0}
-                            >
-                              <div className="task-card__top">
-                                <strong>{formatTaskDisplayId(task)}</strong>
-                                <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
-                              </div>
-                              <div className="task-card__main">
-                                <h4>{task.issueTitle}</h4>
-                                <p>{task.issueDetailNote || t("empty.noDescription")}</p>
-                              </div>
-                              <div className="task-card__meta">
-                                <span>{t("workspace.dueDateMeta", { date: task.dueDate || "-" })}</span>
-                                <span>{labelForWorkType(task.workType, workTypeDefinitions)}</span>
-                                <span>{task.assignee || t("empty.unassigned")}</span>
-                                <span>{t("workspace.fileCount", { count: taskFiles.length })}</span>
-                              </div>
-                              <div className="task-card__actions">
-                                <button
-                                  className="secondary-button"
-                                  disabled={task.status === statusOrder[0]}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void shiftTaskStatus(task, -1);
-                                  }}
-                                  type="button"
-                                >
-                                  {t("actions.back")}
-                                </button>
-                                <button
-                                  className="primary-button"
-                                  disabled={task.status === statusOrder[statusOrder.length - 1]}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void shiftTaskStatus(task, 1);
-                                  }}
-                                  type="button"
-                                >
-                                  {t("actions.next")}
-                                </button>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              </div>
+              <BoardTaskOverview
+                focusStrip={{
+                  activeKey: taskFocusKey,
+                  ariaLabel: "업무 집중 영역",
+                  description: "지금 처리해야 할 일과 병목을 먼저 확인합니다.",
+                  items: boardFocusItems,
+                  onSelect: (key) => setTaskFocusKey((previous) => (previous === key ? null : (key as TaskFocusKey))),
+                  title: "집중 영역",
+                }}
+                groups={boardOverviewGroups}
+                metaLabels={{
+                  assignee: labelForField("assignee"),
+                  dueDate: labelForField("dueDate"),
+                  fileCount: labelForField("linkedDocuments"),
+                  workType: labelForField("workType"),
+                }}
+                onTaskSelect={selectTask}
+                summaryCards={boardSummaryCards}
+              />
             ) : null}
 
             {mode === "daily" ? (
@@ -2502,6 +2722,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   ) : null}
                 </section>
 
+                <section className="daily-sheet__focus">
+                  <div className="daily-sheet__focus-header">
+                    <div>
+                      <p className="workspace__eyebrow">집중 영역</p>
+                      <p className="workspace__meta">실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.</p>
+                    </div>
+                  </div>
+                  <TaskFocusStrip
+                    activeKey={taskFocusKey}
+                    ariaLabel="일일 실행 집중 영역"
+                    className="daily-sheet__focus-strip"
+                    items={boardFocusItems}
+                    onSelect={(key) => setTaskFocusKey((previous) => (previous === key ? null : (key as TaskFocusKey)))}
+                  />
+                </section>
+
                 {isMobileViewport ? (
                   <>
                     {dailyCategoricalFilterFieldKeys
@@ -2524,6 +2760,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         const taskFiles = filesByTaskId[task.id] ?? [];
                         const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
                         const hierarchyDepth = Math.min(row.depth, 3);
+                        const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+                        const isDimmed = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
 
                         return (
                           <article
@@ -2531,6 +2769,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               "daily-task-card",
                               task.id === selectedTaskId && "daily-task-card--active",
                               isChildTask && "daily-task-card--child",
+                              isDimmed && "task-state-card--dimmed",
+                              isTaskOverdue(task, currentDayKey) && "task-state-card--overdue",
                             )}
                             key={task.id}
                             onClick={() => toggleTaskDetails(task.id)}
@@ -2557,6 +2797,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 {formatTaskDisplayId(task)}
                               </span>
                               <span className={clsx("status-pill", `status-pill--${task.status}`)}>{labelForStatus(task.status)}</span>
+                              {deadlineBadge ? (
+                                <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
+                                  {deadlineBadge.label}
+                                </span>
+                              ) : null}
                             </div>
                             <h3>{task.issueTitle}</h3>
                             <p>{task.issueDetailNote || t("empty.noDescription")}</p>
@@ -2585,6 +2830,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <span className="daily-task-card__files-label">{labelForField("linkedDocuments")}</span>
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
+                            <div className="daily-task-card__reorder-actions">
+                              <button
+                                aria-label="위로 이동"
+                                className="secondary-button"
+                                disabled={hasActiveDailyFilters || isReorderingTasks}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void moveTaskByOffset(task.id, -1);
+                                }}
+                                type="button"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                aria-label="아래로 이동"
+                                className="secondary-button"
+                                disabled={hasActiveDailyFilters || isReorderingTasks}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void moveTaskByOffset(task.id, 1);
+                                }}
+                                type="button"
+                              >
+                                ↓
+                              </button>
+                            </div>
                           </div>
                           </article>
                         );
@@ -2592,7 +2863,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </div>
                   </>
                 ) : (
-                  <div className="sheet-wrapper">
+                  <div className={clsx("sheet-wrapper", dailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}>
                     <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
                       <colgroup>
                         {dailyTaskListColumns.map((column) => (
@@ -2626,6 +2897,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
                           const rowAutoFitAria = rowResizeAria;
                           const isSelectedRow = task.id === selectedTaskId;
+                          const isOverdueRow = isTaskOverdue(task, currentDayKey);
+                          const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+                          const isDimmedRow = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
                           const rowDraft = isSelectedRow && draft?.id === task.id ? draft : null;
                           const rowPresentationContext = createTaskListRowPresentationContext({
                             task,
@@ -2649,6 +2923,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                         <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
                                       </span>
                                     ) : null}
+                                    <button
+                                      aria-label="행 순서 변경"
+                                      className="task-tree__drag-handle"
+                                      disabled={hasActiveDailyFilters || isReorderingTasks}
+                                      draggable={!hasActiveDailyFilters && !isReorderingTasks}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onDragEnd={() => {
+                                        setTaskDragState(null);
+                                        setTaskDropState(null);
+                                      }}
+                                      onDragStart={(event) => handleTaskRowDragStart(task, event)}
+                                      type="button"
+                                    >
+                                      ⋮⋮
+                                    </button>
                                     <span
                                       className={clsx(
                                         "task-tree__badge",
@@ -2659,6 +2948,39 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     >
                                       {presentation.actionId}
                                     </span>
+                                    {deadlineBadge ? (
+                                      <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
+                                        {deadlineBadge.label}
+                                      </span>
+                                    ) : null}
+                                    {isSelectedRow ? (
+                                      <span className="task-tree__actions">
+                                        <button
+                                          aria-label="위로 이동"
+                                          className="task-tree__move-button"
+                                          disabled={hasActiveDailyFilters || isReorderingTasks}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void moveTaskByOffset(task.id, -1);
+                                          }}
+                                          type="button"
+                                        >
+                                          ↑
+                                        </button>
+                                        <button
+                                          aria-label="아래로 이동"
+                                          className="task-tree__move-button"
+                                          disabled={hasActiveDailyFilters || isReorderingTasks}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void moveTaskByOffset(task.id, 1);
+                                          }}
+                                          type="button"
+                                        >
+                                          ↓
+                                        </button>
+                                      </span>
+                                    ) : null}
                                   </div>
                                 );
                               case "text":
@@ -2775,10 +3097,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                           return (
                             <tr
-                              className={clsx(isSelectedRow && "sheet-row--active")}
+                              className={clsx(
+                                isSelectedRow && "sheet-row--active",
+                                "task-state-row",
+                                `task-state-row--${task.status}`,
+                                isOverdueRow && "task-state-row--overdue",
+                                isDimmedRow && "task-state-row--dimmed",
+                                taskDropState?.taskId === task.id && `task-state-row--drop-${taskDropState.position}`,
+                              )}
                               data-task-row-id={task.id}
                               key={task.id}
                               onClick={() => selectTask(task.id)}
+                              onDragOver={(event) => handleTaskRowDragOver(task, event)}
+                              onDrop={(event) => void handleTaskRowDrop(task, event)}
                               onDoubleClick={() => toggleTaskDetails(task.id)}
                               onDoubleClickCapture={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
                             >
@@ -3088,131 +3419,6 @@ function DetailPanelPinIcon() {
       <path d="M9 4h6l-1.5 4v3l2 2v1H8.5V13l2-2V8L9 4Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
       <path d="M12 14v6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
     </svg>
-  );
-}
-
-function TaskListCategoricalHeaderFilter({
-  buttonLabel,
-  fieldLabel,
-  isActive,
-  isOpen,
-  onCancel,
-  onConfirm,
-  onReset,
-  onSelectAll,
-  onToggleOpen,
-  onToggleValue,
-  options,
-  selectedCountLabel,
-  selectedValues,
-}: {
-  buttonLabel: string;
-  fieldLabel: string;
-  isActive: boolean;
-  isOpen: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  onReset: () => void;
-  onSelectAll: () => void;
-  onToggleOpen: () => void;
-  onToggleValue: (value: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  selectedCountLabel: string;
-  selectedValues: readonly string[];
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handleDocumentPointerDown(event: MouseEvent | TouchEvent) {
-      if (containerRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      onCancel();
-    }
-
-    function handleDocumentFocusIn(event: FocusEvent) {
-      if (containerRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      onCancel();
-    }
-
-    function handleWindowKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    }
-
-    document.addEventListener("mousedown", handleDocumentPointerDown, true);
-    document.addEventListener("touchstart", handleDocumentPointerDown, true);
-    document.addEventListener("focusin", handleDocumentFocusIn);
-    window.addEventListener("keydown", handleWindowKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleDocumentPointerDown, true);
-      document.removeEventListener("touchstart", handleDocumentPointerDown, true);
-      document.removeEventListener("focusin", handleDocumentFocusIn);
-      window.removeEventListener("keydown", handleWindowKeyDown);
-    };
-  }, [isOpen, onCancel]);
-
-  return (
-    <div className="sheet-table__head-controls" ref={containerRef}>
-      <button
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-label={t("workspace.headerFilterAria", { field: fieldLabel, label: buttonLabel })}
-        className={clsx("sheet-table__filter-trigger", isActive && "sheet-table__filter-trigger--active")}
-        disabled={options.length === 0}
-        onClick={onToggleOpen}
-        type="button"
-      >
-        <span className="sheet-table__filter-trigger-label">{buttonLabel}</span>
-      </button>
-      {isOpen ? (
-        <div aria-label={fieldLabel} aria-modal="false" className="sheet-table__filter-popover" role="dialog">
-          <div className="sheet-table__filter-toolbar">
-            <div className="sheet-table__filter-utility">
-              <button className="sheet-table__filter-link" onClick={onSelectAll} type="button">
-                {t("actions.selectAll")}
-              </button>
-              <span aria-hidden="true" className="sheet-table__filter-link-separator">
-                ·
-              </span>
-              <button className="sheet-table__filter-link" onClick={onReset} type="button">
-                {t("workspace.resetFilter")}
-              </button>
-            </div>
-            <span className="sheet-table__filter-count">{selectedCountLabel}</span>
-          </div>
-          <div aria-label={fieldLabel} className="sheet-table__filter-options" role="group">
-            {options.map((option) => (
-              <label className="sheet-table__filter-option" key={option.value || "__empty__"}>
-                <input
-                  checked={selectedValues.includes(option.value)}
-                  onChange={() => onToggleValue(option.value)}
-                  type="checkbox"
-                />
-                <span className="sheet-table__filter-option-label">{option.label}</span>
-              </label>
-            ))}
-          </div>
-          <div className="sheet-table__filter-footer">
-            <button className="sheet-table__filter-footer-button sheet-table__filter-footer-button--secondary" onClick={onCancel} type="button">
-              {t("actions.cancel")}
-            </button>
-            <button className="sheet-table__filter-footer-button sheet-table__filter-footer-button--primary" onClick={onConfirm} type="button">
-              {t("actions.confirm")}
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -3555,16 +3761,6 @@ function TaskFormFields({
         />
         {renderResizeHandle("status")}
       </label>
-      <label {...getLabelProps("completedAt", "form-field--compact")}>
-        <span>{labelForField("completedAt")}</span>
-        <input readOnly={Boolean(readonly.completedAt)} value={formatReadonlyValue(form.completedAt)} />
-        {renderResizeHandle("completedAt")}
-      </label>
-      <label {...getLabelProps("statusHistory", "form-field--wide")}>
-        <span>{labelForField("statusHistory")}</span>
-        <textarea className="detail-text-field" readOnly={Boolean(readonly.statusHistory)} rows={1} value={formatStatusHistoryForDisplay(form.statusHistory) || t("workspace.statusHistoryPlaceholder")} />
-        {renderResizeHandle("statusHistory")}
-      </label>
       <label {...getLabelProps("decision", "form-field--wide")}>
         <span>{labelForField("decision")}</span>
         <textarea className="detail-text-field" onChange={(event) => onChange("decision", event.target.value)} rows={1} value={form.decision} />
@@ -3729,12 +3925,16 @@ function writeTaskListLayoutToStorage(storageKey: string, layout: TaskListLayout
   }
 }
 
-function summarizeCategoricalFilterButtonLabel(
-  selectedValues: readonly string[],
+function summarizeCategoricalFilterTriggerLabel(
+  selectedValues: readonly string[] | undefined,
   options: ReadonlyArray<{ value: string; label: string }>,
 ) {
-  if (options.length === 0 || selectedValues.length === 0 || selectedValues.length === options.length) {
+  if (selectedValues === undefined || options.length === 0 || selectedValues.length === options.length) {
     return t("workspace.totalLabel");
+  }
+
+  if (selectedValues.length === 0) {
+    return t("workspace.selectedCount", { count: 0 });
   }
 
   if (selectedValues.length === 1) {
@@ -3778,31 +3978,59 @@ function getCategoricalFilterStorageKey(baseKey: string, fieldKey: DailyCategori
   return `${baseKey}:${fieldKey}`;
 }
 
+type StoredCategoricalFilterSelection =
+  | { mode: "none" }
+  | { mode: "custom"; values: string[] };
+
 function readCategoricalFiltersFromStorage(storageKey: string) {
   if (typeof window === "undefined") {
-    return [];
+    return undefined;
   }
 
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
-      return [];
+      return undefined;
     }
 
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+    if (Array.isArray(parsed)) {
+      const legacyValues = parsed.filter((value): value is string => typeof value === "string");
+      return legacyValues.length === 0 ? undefined : legacyValues;
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const next = parsed as Partial<StoredCategoricalFilterSelection>;
+      if (next.mode === "none") {
+        return [];
+      }
+
+      if (next.mode === "custom" && Array.isArray(next.values)) {
+        return next.values.filter((value): value is string => typeof value === "string");
+      }
+    }
+
+    return undefined;
   } catch {
-    return [];
+    return undefined;
   }
 }
 
-function writeCategoricalFiltersToStorage(storageKey: string, values: readonly string[]) {
+function writeCategoricalFiltersToStorage(storageKey: string, values: readonly string[] | undefined) {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(new Set(values))));
+    if (values === undefined) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    const uniqueValues = Array.from(new Set(values));
+    const payload: StoredCategoricalFilterSelection =
+      uniqueValues.length === 0 ? { mode: "none" } : { mode: "custom", values: uniqueValues };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
   } catch {
     // Ignore storage write failures and keep the in-memory filters.
   }
@@ -3920,10 +4148,6 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
             label: labelForTaskCategoricalFieldValue("status", rowDraft.status, categoricalFieldContext),
           }
         : { kind: "readonly-status", value: task.status };
-    case "completedAt":
-      return { kind: "text", text: formatDateTimeField(task.completedAt) };
-    case "statusHistory":
-      return { kind: "text", text: formatStatusHistoryForDisplay(task.statusHistory) || "-" };
     case "decision":
       return rowDraft ? { kind: "editable-text", fieldKey: "decision", value: rowDraft.decision } : { kind: "text", text: task.decision || "-" };
     case "linkedDocuments":
@@ -4128,6 +4352,55 @@ function formatLinkedDocumentsSummary(taskFiles: FileRecord[]) {
   };
 }
 
+function isTaskOverdue(task: TaskRecord, referenceDay: string) {
+  return Boolean(task.dueDate) && task.dueDate < referenceDay && task.status !== "done";
+}
+
+function isTaskDueToday(task: TaskRecord, referenceDay: string) {
+  return Boolean(task.dueDate) && task.dueDate === referenceDay && task.status !== "done";
+}
+
+function isTaskDueSoon(task: TaskRecord, referenceDay: string) {
+  return Boolean(task.dueDate) && task.dueDate > referenceDay && task.dueDate <= addIsoDays(referenceDay, 3) && task.status !== "done";
+}
+
+function matchesTaskFocus(task: TaskRecord, focusKey: TaskFocusKey, referenceDay: string) {
+  switch (focusKey) {
+    case "todo":
+      return task.status === "todo";
+    case "in_progress":
+      return task.status === "in_progress";
+    case "blocked":
+      return task.status === "blocked";
+    case "overdue":
+      return isTaskOverdue(task, referenceDay);
+    default:
+      return true;
+  }
+}
+
+function resolveTaskDeadlineBadge(task: TaskRecord, referenceDay: string) {
+  if (isTaskOverdue(task, referenceDay)) {
+    return { label: "지연", tone: "warn" as const };
+  }
+
+  if (isTaskDueToday(task, referenceDay)) {
+    return { label: "오늘", tone: "accent" as const };
+  }
+
+  if (isTaskDueSoon(task, referenceDay)) {
+    return { label: "임박", tone: "neutral" as const };
+  }
+
+  return null;
+}
+
+function addIsoDays(isoDate: string, days: number) {
+  const nextDate = new Date(`${isoDate}T00:00:00.000Z`);
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+  return nextDate.toISOString().slice(0, 10);
+}
+
 function titleByMode(mode: DashboardMode) {
   return labelForMode(mode);
 }
@@ -4153,9 +4426,7 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     calendarLinked: Boolean(draft.calendarLinked),
     issueDetailNote: draft.issueDetailNote ?? "",
     status: (draft.status ?? "waiting") as TaskStatus,
-    statusHistory: draft.statusHistory ?? "",
     decision: draft.decision ?? "",
-    completedAt: draft.completedAt ?? null,
   };
 }
 
@@ -4263,3 +4534,4 @@ function formatWeekdayLong(date: Date) {
 function fileSafeDate(value: string | null) {
   return value ? value.slice(0, 10) : "-";
 }
+

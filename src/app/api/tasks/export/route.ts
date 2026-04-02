@@ -143,7 +143,7 @@ function isCategoricalFilterSelection(value: unknown): value is TaskCategoricalF
 }
 
 function valueForTaskField(
-  task: Pick<TaskRecord, "workType" | "coordinationScope" | "relatedDisciplines" | "status">,
+  task: Pick<TaskRecord, "workType" | "coordinationScope" | "requestedBy" | "relatedDisciplines" | "locationRef" | "status">,
   fieldKey: TaskCategoricalFilterFieldKey,
 ) {
   switch (fieldKey) {
@@ -151,8 +151,12 @@ function valueForTaskField(
       return task.workType;
     case "coordinationScope":
       return task.coordinationScope;
+    case "requestedBy":
+      return task.requestedBy;
     case "relatedDisciplines":
       return task.relatedDisciplines;
+    case "locationRef":
+      return task.locationRef;
     case "status":
       return task.status;
   }

@@ -11,18 +11,17 @@ import {
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import {
   buildTaskHierarchyPathMap,
-  buildTaskTreeRows,
   dailyTaskListColumns,
   formatTaskBacklogId,
-  formatDateTimeField,
   joinLatestFileNames,
   summarizeLinkedDocumentsForExport,
 } from "@/domains/task/daily-list";
+import { compareTasksBySiblingOrder, groupTasksByNormalizedParent } from "@/domains/task/ordering";
 import {
   labelForTaskCategoricalFilterValue,
   type TaskCategoricalFilterSelection,
 } from "@/lib/task-categorical-filter";
-import { formatStatusHistoryForDisplay, labelForField, labelForMode, t } from "@/lib/ui-copy";
+import { labelForField, labelForMode, t } from "@/lib/ui-copy";
 
 export type TaskExportLayoutInput = {
   columnWidths?: unknown;
@@ -48,6 +47,9 @@ const MAIN_SHEET_NAME = labelForMode("daily");
 const META_SHEET_NAME = "__task_meta";
 const DEFAULT_FONT_NAME = "Malgun Gothic";
 const SYMBOL_FONT_NAME = "Segoe UI Symbol";
+const EXPORTED_COLUMNS = dailyTaskListColumns.filter(
+  (column) => String(column.key) !== "completedAt" && String(column.key) !== "statusHistory",
+);
 
 export function mergeTaskExportLayout(
   requestLayout: TaskExportLayoutInput,
@@ -82,7 +84,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
   const metaWorksheet = workbook.addWorksheet(META_SHEET_NAME);
   metaWorksheet.state = "veryHidden";
 
-  const rows = buildTaskTreeRows(input.tasks);
+  const rows = buildExportTaskTreeRows(input.tasks);
   const categoricalFieldContext = {
     categoryDefinitionsByField: input.categoryDefinitionsByField,
   };
@@ -98,12 +100,12 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
 
   worksheet.properties.outlineProperties = { summaryBelow: false, summaryRight: false };
   worksheet.properties.outlineLevelRow = rows.reduce((max, row) => Math.max(max, row.depth), 0);
-  worksheet.columns = dailyTaskListColumns.map((column) => ({
+  worksheet.columns = EXPORTED_COLUMNS.map((column) => ({
     key: column.key,
     width: pixelWidthToExcelWidth(input.layout.columnWidths[column.key]),
   }));
 
-  const headerRow = worksheet.addRow(dailyTaskListColumns.map((column) => labelForField(column.key)));
+  const headerRow = worksheet.addRow(EXPORTED_COLUMNS.map((column) => labelForField(column.key)));
   headerRow.height = 26;
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, name: DEFAULT_FONT_NAME };
@@ -130,6 +132,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     "siblingOrder",
     "hierarchyPath",
     "calendarLinkedRaw",
+    "statusRaw",
     "fileCount",
     "latestFileNamesJoined",
   ]);
@@ -145,17 +148,15 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
       toExcelDateCell(task.dueDate),
       labelForTaskCategoricalFilterValue("workType", task.workType, categoricalFieldContext),
       labelForTaskCategoricalFilterValue("coordinationScope", task.coordinationScope, categoricalFieldContext),
-      task.requestedBy || "",
+      labelForTaskCategoricalFilterValue("requestedBy", task.requestedBy, categoricalFieldContext),
       labelForTaskCategoricalFilterValue("relatedDisciplines", task.relatedDisciplines, categoricalFieldContext),
       task.assignee || "",
       task.issueTitle || "",
       toExcelDateCell(task.reviewedAt),
-      task.locationRef || "",
+      labelForTaskCategoricalFilterValue("locationRef", task.locationRef, categoricalFieldContext),
       task.calendarLinked ? "\u2611" : "\u2610",
       task.issueDetailNote || "",
       labelForTaskCategoricalFilterValue("status", task.status, categoricalFieldContext),
-      formatDateTimeField(task.completedAt),
-      formatStatusHistoryForDisplay(task.statusHistory),
       task.decision || "",
       linkedDocuments,
     ]);
@@ -164,7 +165,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     nextRow.height = pixelHeightToPoints(input.layout.rowHeights[task.id]);
 
     nextRow.eachCell((cell, columnNumber) => {
-      const columnKey = dailyTaskListColumns[columnNumber - 1]?.key;
+      const columnKey = EXPORTED_COLUMNS[columnNumber - 1]?.key;
       cell.font = {
         name: columnKey === "calendarLinked" ? SYMBOL_FONT_NAME : DEFAULT_FONT_NAME,
       };
@@ -210,6 +211,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
       task.siblingOrder,
       hierarchyPathById.get(task.id) ?? "",
       task.calendarLinked,
+      task.status,
       taskFiles.length,
       joinLatestFileNames(taskFiles),
     ]);
@@ -226,6 +228,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     { width: 14 },
     { width: 24 },
     { width: 18 },
+    { width: 16 },
     { width: 12 },
     { width: 48 },
   ];
@@ -262,10 +265,20 @@ function resolveCellAlignment(columnKey: string | undefined, depth: number): Par
     return { horizontal: "center", vertical: "middle" };
   }
 
+  if (
+    columnKey === "workType" ||
+    columnKey === "coordinationScope" ||
+    columnKey === "requestedBy" ||
+    columnKey === "relatedDisciplines" ||
+    columnKey === "locationRef" ||
+    columnKey === "status"
+  ) {
+    return { horizontal: "center", vertical: "middle", wrapText: true };
+  }
+
   const wrapText =
     columnKey === "actionId" ||
     columnKey === "issueDetailNote" ||
-    columnKey === "statusHistory" ||
     columnKey === "decision" ||
     columnKey === "linkedDocuments";
   const indent = columnKey === "actionId" || columnKey === "issueTitle" ? depth : 0;
@@ -292,6 +305,43 @@ function pixelWidthToExcelWidth(widthPx: number | undefined) {
 function pixelHeightToPoints(heightPx: number | undefined) {
   const height = typeof heightPx === "number" && Number.isFinite(heightPx) ? heightPx : TASK_LIST_ROW_MIN_HEIGHT;
   return Math.round(height * 0.75 * 100) / 100;
+}
+
+function buildExportTaskTreeRows(tasks: TaskRecord[]) {
+  const byParent = groupTasksByNormalizedParent(tasks);
+  const rows: Array<{
+    task: TaskRecord;
+    depth: number;
+    isLastChild: boolean;
+    ancestorHasNextSibling: boolean[];
+    hasChildren: boolean;
+  }> = [];
+  const visited = new Set<string>();
+
+  const appendNode = (task: TaskRecord, depth: number, isLastChild: boolean, ancestorHasNextSibling: boolean[]) => {
+    if (visited.has(task.id)) return;
+
+    visited.add(task.id);
+    const children = [...(byParent.get(task.id) ?? [])].sort(compareTasksBySiblingOrder);
+    const hasChildren = children.length > 0;
+    rows.push({ task, depth, isLastChild, ancestorHasNextSibling, hasChildren });
+
+    children.forEach((child, index) => {
+      appendNode(child, depth + 1, index === children.length - 1, [...ancestorHasNextSibling, !isLastChild]);
+    });
+  };
+
+  const roots = [...(byParent.get(null) ?? [])].sort(compareTasksBySiblingOrder);
+  roots.forEach((task, index) => {
+    appendNode(task, 0, index === roots.length - 1, []);
+  });
+
+  const remaining = [...tasks.filter((task) => !visited.has(task.id))].sort(compareTasksBySiblingOrder);
+  remaining.forEach((task, index) => {
+    appendNode(task, 0, index === remaining.length - 1, []);
+  });
+
+  return rows;
 }
 
 function sanitizeFilename(value: string) {

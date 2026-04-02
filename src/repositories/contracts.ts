@@ -2,6 +2,12 @@ import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/pr
 import type { ProjectRecord } from "@/domains/project/types";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 
+export type TaskOrderUpdateInput = {
+  id: string;
+  siblingOrder: number;
+  updatedBy?: string | null;
+};
+
 export type CreateTaskInput = {
   projectId: string;
   projectName: string;
@@ -95,6 +101,7 @@ export interface TaskRepository {
   createTask(input: CreateTaskInput): Promise<TaskRecord>;
   updateTask(taskId: string, input: UpdateTaskInput): Promise<TaskRecord>;
   updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput): Promise<TaskRecord | null>;
+  updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>): Promise<TaskRecord[]>;
   moveTaskToTrash(taskId: string, updatedBy?: string | null): Promise<TaskRecord>;
   restoreTask(taskId: string, updatedBy?: string | null): Promise<TaskRecord>;
   deleteTask(taskId: string): Promise<void>;

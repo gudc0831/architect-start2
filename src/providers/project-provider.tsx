@@ -203,7 +203,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       setCategoryDefinitionsByField({
         workType: buildSystemWorkTypeDefinitions(),
         coordinationScope: [],
+        requestedBy: [],
         relatedDisciplines: [],
+        locationRef: [],
       });
       setWorkTypesLoaded(true);
       return;

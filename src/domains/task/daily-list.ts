@@ -1,13 +1,20 @@
 import type { TaskListColumnKey } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { extractProjectIssueNumber, looksLikeProjectIssueId } from "@/domains/task/identifiers";
+import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { TaskCategoricalFilterFieldKey } from "@/lib/task-categorical-filter";
 import { t } from "@/lib/ui-copy";
 
-export type DailyTaskListHeaderControl = {
-  kind: "categoricalFilter";
-  fieldKey: TaskCategoricalFilterFieldKey;
-};
+export type DailyTaskSortMode = "manual" | "auto";
+
+export type DailyTaskListHeaderControl =
+  | {
+      kind: "categoricalFilter";
+      fieldKey: TaskCategoricalFilterFieldKey;
+    }
+  | {
+      kind: "sortMenu";
+    };
 
 export type DailyTaskListColumnConfig = {
   key: TaskListColumnKey;
@@ -24,21 +31,19 @@ export type TaskTreeRow = {
 };
 
 export const dailyTaskListColumns: readonly DailyTaskListColumnConfig[] = [
-  { key: "actionId", className: "sheet-table__tree-cell" },
+  { key: "actionId", className: "sheet-table__tree-cell", headerControl: { kind: "sortMenu" } },
   { key: "dueDate" },
   { key: "workType", headerControl: { kind: "categoricalFilter", fieldKey: "workType" } },
   { key: "coordinationScope", headerControl: { kind: "categoricalFilter", fieldKey: "coordinationScope" } },
-  { key: "requestedBy" },
+  { key: "requestedBy", headerControl: { kind: "categoricalFilter", fieldKey: "requestedBy" } },
   { key: "relatedDisciplines", headerControl: { kind: "categoricalFilter", fieldKey: "relatedDisciplines" } },
   { key: "assignee" },
   { key: "issueTitle", className: "sheet-table__title" },
   { key: "reviewedAt" },
-  { key: "locationRef" },
+  { key: "locationRef", headerControl: { kind: "categoricalFilter", fieldKey: "locationRef" } },
   { key: "calendarLinked" },
   { key: "issueDetailNote", className: "sheet-table__wide" },
   { key: "status", headerControl: { kind: "categoricalFilter", fieldKey: "status" } },
-  { key: "completedAt" },
-  { key: "statusHistory", className: "sheet-table__wide" },
   { key: "decision", className: "sheet-table__wide" },
   { key: "linkedDocuments", className: "sheet-table__files" },
 ] as const;
@@ -96,7 +101,7 @@ export function buildTaskTreeRows(tasks: TaskRecord[]) {
   }, new Map<string | null, TaskRecord[]>());
 
   for (const children of childrenByParent.values()) {
-    children.sort(compareTasksByActionId);
+    children.sort(compareTasksBySiblingOrder);
   }
 
   const rows: TaskTreeRow[] = [];
@@ -120,7 +125,7 @@ export function buildTaskTreeRows(tasks: TaskRecord[]) {
     appendNode(task, 0, index === roots.length - 1, []);
   });
 
-  const remaining = sortTasksByActionId(tasks.filter((task) => !visited.has(task.id)));
+  const remaining = [...tasks.filter((task) => !visited.has(task.id))].sort(compareTasksBySiblingOrder);
   remaining.forEach((task, index) => {
     appendNode(task, 0, index === remaining.length - 1, []);
   });

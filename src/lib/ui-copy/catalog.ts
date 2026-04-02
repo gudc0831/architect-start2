@@ -217,6 +217,10 @@ export type UICatalog = {
     parentTaskNotFound: string;
     parentTaskNumberInvalid: string;
     taskStatusInvalid: string;
+    taskCoordinationScopeInvalid: string;
+    taskRequestedByInvalid: string;
+    taskRelatedDisciplinesInvalid: string;
+    taskLocationRefInvalid: string;
     projectNameRequired: string;
     taskIdRequired: string;
     fileRequired: string;
@@ -476,6 +480,10 @@ export const uiCopyCatalog = {
       parentTaskNotFound: "상위 작업을 찾을 수 없습니다.",
       parentTaskNumberInvalid: "상위 이슈 ID 또는 번호 형식이 올바르지 않습니다.",
       taskStatusInvalid: "상태 값이 올바르지 않습니다.",
+      taskCoordinationScopeInvalid: "협업범위 값이 올바르지 않습니다.",
+      taskRequestedByInvalid: "요청자 값이 올바르지 않습니다.",
+      taskRelatedDisciplinesInvalid: "관련분야 값이 올바르지 않습니다.",
+      taskLocationRefInvalid: "위치참조 값이 올바르지 않습니다.",
       projectNameRequired: "프로젝트명을 입력하세요.",
       taskIdRequired: "작업 ID가 필요합니다.",
       fileRequired: "파일을 선택하세요.",
@@ -733,6 +741,10 @@ export const uiCopyCatalog = {
       parentTaskNotFound: "Parent task not found.",
       parentTaskNumberInvalid: "Parent issue ID or numeric reference format is invalid.",
       taskStatusInvalid: "Status is invalid.",
+      taskCoordinationScopeInvalid: "Coordination scope is invalid.",
+      taskRequestedByInvalid: "Requested by is invalid.",
+      taskRelatedDisciplinesInvalid: "Related disciplines are invalid.",
+      taskLocationRefInvalid: "Location reference is invalid.",
       projectNameRequired: "Project name is required.",
       taskIdRequired: "Task ID is required.",
       fileRequired: "File is required.",

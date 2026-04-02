@@ -245,11 +245,12 @@ export function TaskCategoricalFieldMultiSelect({
           aria-label={labelForField(fieldKey)}
           aria-modal="false"
           className="sheet-table__filter-popover task-categorical-multiselect__popover"
+          data-task-portal-interaction="true"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           ref={popoverRef}
           role="dialog"
-          style={popoverStyle ?? { visibility: "hidden" }}
+          style={popoverStyle ?? { position: "fixed", visibility: "hidden" }}
         >
           <div className="sheet-table__filter-toolbar">
             <div className="sheet-table__filter-utility">

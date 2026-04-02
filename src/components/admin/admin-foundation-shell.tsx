@@ -21,11 +21,14 @@ const emptyCategoryDefinitions = (): CategoryDefinitionsMap =>
 const emptyCategoryDrafts = (): CategoryDraftMap =>
   Object.fromEntries(taskCategoryFieldKeys.map((fieldKey) => [fieldKey, emptyCategoryDraft()])) as unknown as CategoryDraftMap;
 
-const fieldDescription: Record<TaskCategoryFieldKey, string> = {
+const fieldDescription: Partial<Record<TaskCategoryFieldKey, string>> = {
   workType: "DailyTask 작업유형 열에서 선택할 항목을 관리합니다.",
   coordinationScope: "DailyTask 협업범위 열에서 선택할 항목을 관리합니다.",
   relatedDisciplines: "DailyTask 관련분야 열에서 선택할 항목을 관리합니다.",
 };
+
+fieldDescription.requestedBy = "DailyTask 요청자 열에서 선택할 항목을 관리합니다.";
+fieldDescription.locationRef = "DailyTask 위치참조 열에서 선택할 항목을 관리합니다.";
 
 async function readJson<T>(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, init);

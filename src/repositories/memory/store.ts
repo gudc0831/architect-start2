@@ -1,7 +1,16 @@
 // @ts-nocheck
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
-import type { CreateFileInput, CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
+import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
+import type {
+  CreateFileInput,
+  CreateTaskInput,
+  FileRepository,
+  TaskOrderUpdateInput,
+  TaskRepository,
+  UpdateTaskInput,
+  VersionedTaskUpdateInput,
+} from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
@@ -128,7 +137,9 @@ function latestFiles(items: FileRecord[]) {
 class MemoryTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const tasks = await readTasks();
-    return tasks.filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId));
+    return tasks
+      .filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId))
+      .sort(compareTasksBySiblingOrder);
   }
 
   async listTrashTasks(projectId?: string) {
@@ -225,6 +236,38 @@ class MemoryTaskRepository implements TaskRepository {
     }
 
     return this.updateTask(taskId, input);
+  }
+
+  async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const tasks = await readTasks();
+    const timestamp = now();
+    const updatedTasks: TaskRecord[] = [];
+
+    for (const input of inputs) {
+      const index = tasks.findIndex((task) => task.id === input.id);
+      if (index === -1) {
+        throw new Error("Task not found");
+      }
+
+      const current = tasks[index];
+      const next = {
+        ...current,
+        siblingOrder: input.siblingOrder,
+        updatedAt: timestamp,
+        updatedBy: input.updatedBy ?? current.updatedBy,
+        version: current.version + 1,
+      } satisfies TaskRecord;
+
+      tasks[index] = next;
+      updatedTasks.push(next);
+    }
+
+    await writeLocalStore("tasks", tasks, { reason: "tasks.reorder" });
+    return updatedTasks;
   }
 
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {

@@ -3,7 +3,6 @@ import process from "node:process";
 import * as ExcelJS from "exceljs";
 import { looksLikeProjectIssueId } from "../src/domains/task/identifiers";
 import { uiCopyCatalog, type UiLocale } from "../src/lib/ui-copy/catalog";
-import { taskListColumnKeys } from "../src/domains/preferences/types";
 
 type Options = {
   filePath?: string;
@@ -36,6 +35,24 @@ type ColumnSpec = {
   header: string;
 };
 
+const EXPORTED_COLUMN_KEYS = [
+  "actionId",
+  "dueDate",
+  "workType",
+  "coordinationScope",
+  "requestedBy",
+  "relatedDisciplines",
+  "assignee",
+  "issueTitle",
+  "reviewedAt",
+  "locationRef",
+  "calendarLinked",
+  "issueDetailNote",
+  "status",
+  "decision",
+  "linkedDocuments",
+] as const;
+
 const META_REQUIRED_COLUMNS = [
   "exportRowIndex",
   "taskId",
@@ -47,11 +64,11 @@ const META_REQUIRED_COLUMNS = [
   "siblingOrder",
   "hierarchyPath",
   "calendarLinkedRaw",
+  "statusRaw",
   "fileCount",
   "latestFileNamesJoined",
 ] as const;
 
-const META_OPTIONAL_COLUMNS = ["statusRaw", "statusHistoryRaw"] as const;
 const CHECKBOX_TRUE_GLYPH = "\u2611";
 const CHECKBOX_FALSE_GLYPH = "\u2610";
 const DEFAULT_META_SHEET_NAME = "__task_meta";
@@ -171,7 +188,7 @@ function verifyWorkbook(workbook: ExcelJS.Workbook, options: Options, failures: 
     });
   }
 
-  const expectedMainHeaders = taskListColumnKeys.map((key) => options.expectedHeadersByKey[key]);
+  const expectedMainHeaders = EXPORTED_COLUMN_KEYS.map((key) => options.expectedHeadersByKey[key]);
   const mainHeaderRow = findHeaderRow(mainSheet, expectedMainHeaders, MAX_HEADER_SCAN_ROWS);
   if (!mainHeaderRow) {
     failures.push({
@@ -199,17 +216,13 @@ function verifyWorkbook(workbook: ExcelJS.Workbook, options: Options, failures: 
   }
 
   const mainHeaderMap = buildHeaderMap(mainSheet, mainHeaderRow);
-  const metaHeaderMap = buildHeaderMap(metaSheet, metaHeaderRow);
-  const mainColumns: ColumnSpec[] = taskListColumnKeys.map((key) => ({
+  const mainColumns: ColumnSpec[] = EXPORTED_COLUMN_KEYS.map((key) => ({
     key,
     header: options.expectedHeadersByKey[key],
   }));
-  const metaReadColumns: ColumnSpec[] = [
-    ...META_REQUIRED_COLUMNS.map((key) => ({ key, header: key })),
-    ...META_OPTIONAL_COLUMNS.filter((column) => metaHeaderMap.has(column)).map((key) => ({ key, header: key })),
-  ];
+  const metaReadColumns: ColumnSpec[] = META_REQUIRED_COLUMNS.map((key) => ({ key, header: key }));
   const mainRows = collectRows(mainSheet, mainHeaderRow, mainColumns, mainHeaderMap);
-  const metaRows = collectRows(metaSheet, metaHeaderRow, metaReadColumns, metaHeaderMap);
+  const metaRows = collectRows(metaSheet, metaHeaderRow, metaReadColumns, buildHeaderMap(metaSheet, metaHeaderRow));
 
   if (mainRows.length !== metaRows.length) {
     failures.push({
@@ -274,9 +287,17 @@ function verifyMainHeaders(
   expectedHeaders: string[],
   failures: Failure[],
 ) {
-  const row = sheet.getRow(headerRowIndex);
+  const actualHeaders = readHeaderCells(sheet.getRow(headerRowIndex));
+  if (actualHeaders.length !== expectedHeaders.length) {
+    failures.push({
+      sheet: sheet.name,
+      row: headerRowIndex,
+      message: `expected exactly ${expectedHeaders.length} visible headers, found ${actualHeaders.length}`,
+    });
+  }
+
   expectedHeaders.forEach((expected, index) => {
-    const actual = normalizeText(row.getCell(index + 1).text);
+    const actual = actualHeaders[index] ?? "";
     if (actual !== expected) {
       failures.push({
         sheet: sheet.name,
@@ -293,9 +314,17 @@ function verifyMetaHeaders(
   expectedColumns: readonly string[],
   failures: Failure[],
 ) {
-  const row = sheet.getRow(headerRowIndex);
+  const actualHeaders = readHeaderCells(sheet.getRow(headerRowIndex));
+  if (actualHeaders.length !== expectedColumns.length) {
+    failures.push({
+      sheet: sheet.name,
+      row: headerRowIndex,
+      message: `expected exactly ${expectedColumns.length} meta headers, found ${actualHeaders.length}`,
+    });
+  }
+
   expectedColumns.forEach((expected, index) => {
-    const actual = normalizeText(row.getCell(index + 1).text);
+    const actual = actualHeaders[index] ?? "";
     if (actual !== expected) {
       failures.push({
         sheet: sheet.name,
@@ -405,16 +434,13 @@ function verifyMainRow(
   const calendarLinkedRaw = normalizeText(cellText(metaRow.values.calendarLinkedRaw));
   const fileCount = parseInteger(cellText(metaRow.values.fileCount));
   const statusRaw = normalizeText(cellText(metaRow.values.statusRaw));
-  const statusHistoryRaw = normalizeText(cellText(metaRow.values.statusHistoryRaw));
 
   const actionId = normalizeText(cellText(row.values.actionId));
   const status = normalizeText(cellText(row.values.status));
   const calendarLinked = normalizeText(cellText(row.values.calendarLinked));
-  const statusHistory = cellText(row.values.statusHistory);
   const linkedDocuments = cellText(row.values.linkedDocuments);
   const dueDateCell = row.values.dueDate;
   const reviewedAtCell = row.values.reviewedAt;
-  const completedAtCell = row.values.completedAt;
 
   const actionIdCell = row.values.actionId;
   const issueTitleCell = row.values.issueTitle;
@@ -470,13 +496,6 @@ function verifyMainRow(
     });
   }
 
-  if (!row.values.statusHistory?.alignment?.wrapText) {
-    failures.push({
-      row: row.rowIndex,
-      message: "statusHistory should wrap text",
-    });
-  }
-
   if (!row.values.decision?.alignment?.wrapText) {
     failures.push({
       row: row.rowIndex,
@@ -502,13 +521,6 @@ function verifyMainRow(
     failures.push({
       row: row.rowIndex,
       message: `reviewedAt should be stored as a date cell, got '${cellText(reviewedAtCell)}'`,
-    });
-  }
-
-  if (isDateCell(completedAtCell)) {
-    failures.push({
-      row: row.rowIndex,
-      message: "completedAt should remain a text cell, not an Excel date",
     });
   }
 
@@ -590,16 +602,6 @@ function verifyMainRow(
     }
   }
 
-  if (statusHistoryRaw) {
-    const rawLineCount = statusHistoryRaw.split(/\r?\n/).length;
-    const exportLineCount = statusHistory.split(/\r?\n/).length;
-    if (rawLineCount !== exportLineCount) {
-      failures.push({
-        row: row.rowIndex,
-        message: `statusHistory line count mismatch: raw=${rawLineCount}, export=${exportLineCount}`,
-      });
-    }
-  }
 }
 
 function verifyHierarchyConsistency(metaRows: SheetRow[], failures: Failure[]) {
@@ -697,14 +699,30 @@ function buildHeaderMap(sheet: ExcelJS.Worksheet, headerRowIndex: number) {
 function findHeaderRow(sheet: ExcelJS.Worksheet, expectedHeaders: readonly string[], maxRowsToScan: number) {
   const limit = Math.min(sheet.rowCount, maxRowsToScan);
   for (let rowIndex = 1; rowIndex <= limit; rowIndex += 1) {
-    const row = sheet.getRow(rowIndex);
-    const actual = expectedHeaders.map((_header, index) => normalizeText(row.getCell(index + 1).text));
-    if (actual.every((value, index) => value === expectedHeaders[index])) {
+    const actualHeaders = readHeaderCells(sheet.getRow(rowIndex));
+    if (
+      actualHeaders.length === expectedHeaders.length &&
+      actualHeaders.every((value, index) => value === expectedHeaders[index])
+    ) {
       return rowIndex;
     }
   }
 
   return null;
+}
+
+function readHeaderCells(row: ExcelJS.Row) {
+  const headers: string[] = [];
+
+  for (let columnIndex = 1; columnIndex <= row.cellCount; columnIndex += 1) {
+    const header = normalizeText(row.getCell(columnIndex).text);
+    if (!header) {
+      continue;
+    }
+    headers.push(header);
+  }
+
+  return headers;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -789,7 +807,7 @@ function parseArgs(argv: string[]): Options {
 
   const locale = options.locale ?? "ko";
   const expectedHeadersByKey = Object.fromEntries(
-    taskListColumnKeys.map((key) => [key, uiCopyCatalog[locale].fields[key]] as const),
+    EXPORTED_COLUMN_KEYS.map((key) => [key, uiCopyCatalog[locale].fields[key]] as const),
   ) as Record<string, string>;
   options.expectedHeadersByKey = expectedHeadersByKey;
   options.requestHeaders = requestHeaders;

@@ -5,6 +5,13 @@ import {
 } from "@/domains/admin/task-category-values";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
+import {
+  buildSiblingOrderUpdates,
+  compareTasksBySiblingOrder,
+  groupTasksByNormalizedParent,
+  type TaskOrderingStrategy,
+  type TaskReorderCommand,
+} from "@/domains/task/ordering";
 import { adminRepository } from "@/repositories/admin";
 import { fileRepository, taskRepository } from "@/repositories";
 import type { CreateTaskInput, UpdateTaskInput } from "@/repositories/contracts";
@@ -17,7 +24,9 @@ type UpdateTaskCommand = UpdateTaskInput & { version?: number };
 type EffectiveTaskCategories = {
   workType: Awaited<ReturnType<typeof adminRepository.listEffectiveWorkTypeDefinitions>>;
   coordinationScope: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
+  requestedBy: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
   relatedDisciplines: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
+  locationRef: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
 };
 
 const taskStatusSet = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
@@ -29,6 +38,25 @@ export async function listTasks(scope: TaskScope) {
       ? await taskRepository.listTrashTasks(project.id)
       : await taskRepository.listActiveTasks(project.id);
   return scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
+}
+
+export async function reorderTasks(command: TaskReorderCommand, userId?: string | null): Promise<TaskRecord[]> {
+  const project = await getSelectedTaskProject();
+  const activeTasks = await taskRepository.listActiveTasks(project.id);
+
+  switch (command.action) {
+    case "manual_move":
+      await reorderTaskWithinParent(activeTasks, command.movedTaskId, command.targetParentTaskId, command.targetIndex, userId ?? null);
+      break;
+    case "auto_sort":
+      await reorderTaskTree(activeTasks, command.strategy, userId ?? null);
+      break;
+    default:
+      throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
+  }
+
+  const nextTasks = await taskRepository.listActiveTasks(project.id);
+  return flattenTaskTree(nextTasks);
 }
 
 export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
@@ -51,7 +79,12 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
       { allowLegacyTextWhenDefinitionsMissing: true },
     ),
     ownerDiscipline: normalizeText(input.ownerDiscipline),
-    requestedBy: normalizeText(input.requestedBy),
+    requestedBy: normalizeTaskCategoryFieldValue(
+      "requestedBy",
+      input.requestedBy,
+      effectiveCategories.requestedBy,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    ),
     relatedDisciplines: normalizeTaskCategoryFieldValue(
       "relatedDisciplines",
       input.relatedDisciplines,
@@ -63,7 +96,12 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     reviewedAt: normalizeDate(input.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(input.createdAt),
     isDaily: Boolean(input.isDaily),
-    locationRef: normalizeText(input.locationRef),
+    locationRef: normalizeTaskCategoryFieldValue(
+      "locationRef",
+      input.locationRef,
+      effectiveCategories.locationRef,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    ),
     calendarLinked: Boolean(input.calendarLinked),
     issueDetailNote: normalizeText(input.issueDetailNote),
     status,
@@ -77,6 +115,60 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   });
+}
+
+async function reorderTaskWithinParent(
+  activeTasks: TaskRecord[],
+  movedTaskId: string,
+  targetParentTaskId: string | null,
+  targetIndex: number,
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  const movedTask = activeTasks.find((task) => task.id === movedTaskId);
+  if (!movedTask) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const currentParentTaskId = movedTask.parentTaskId ?? null;
+  const normalizedTargetParentTaskId = targetParentTaskId ?? null;
+  if (currentParentTaskId !== normalizedTargetParentTaskId) {
+    throw badRequest("Cross-parent moves are not supported", "INVALID_PARENT_TASK");
+  }
+
+  if (!Number.isInteger(targetIndex) || targetIndex < 0) {
+    throw badRequest("targetIndex is invalid", "TASK_REORDER_TARGET_INDEX_INVALID");
+  }
+
+  const siblings = activeTasks
+    .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
+    .sort(compareTasksBySiblingOrder);
+  const currentIndex = siblings.findIndex((task) => task.id === movedTaskId);
+
+  if (currentIndex === -1) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const nextSiblings = siblings.filter((task) => task.id !== movedTaskId);
+  const normalizedInsertionIndex = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
+  const insertionIndex = Math.min(normalizedInsertionIndex, nextSiblings.length);
+  nextSiblings.splice(insertionIndex, 0, movedTask);
+
+  return taskRepository.updateTaskOrders(
+    nextSiblings.map((task, siblingOrder) => ({
+      id: task.id,
+      siblingOrder,
+      updatedBy: userId,
+    })),
+  );
+}
+
+async function reorderTaskTree(activeTasks: TaskRecord[], strategy: TaskOrderingStrategy, userId: string | null): Promise<TaskRecord[]> {
+  const updates = buildSiblingOrderUpdates(activeTasks, strategy).map((input) => ({
+    ...input,
+    updatedBy: userId,
+  }));
+
+  return taskRepository.updateTaskOrders(updates);
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
@@ -252,10 +344,10 @@ async function reparentTask(
 }
 
 async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord, userId: string | null) {
-  const childrenByParent = groupChildren(tasks.filter((task) => task.id !== rootTask.id));
+  const childrenByParent = groupTasksByNormalizedParent(tasks.filter((task) => task.id !== rootTask.id));
 
   const visit = async (parent: TaskRecord) => {
-    const children = sortByActionId(childrenByParent.get(parent.id) ?? []);
+    const children = [...(childrenByParent.get(parent.id) ?? [])].sort(compareTasksBySiblingOrder);
 
     for (const child of children) {
       const updatedChild = await taskRepository.updateTask(child.id, {
@@ -297,7 +389,14 @@ function sanitizeTaskUpdate(
     );
   }
   if (typeof input.ownerDiscipline === "string") next.ownerDiscipline = normalizeText(input.ownerDiscipline);
-  if (typeof input.requestedBy === "string") next.requestedBy = normalizeText(input.requestedBy);
+  if (typeof input.requestedBy === "string") {
+    next.requestedBy = resolvePatchedTaskCategoryFieldValue(
+      "requestedBy",
+      input.requestedBy,
+      effectiveCategories.requestedBy,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    );
+  }
   if (typeof input.relatedDisciplines === "string") {
     next.relatedDisciplines = resolvePatchedTaskCategoryFieldValue(
       "relatedDisciplines",
@@ -309,7 +408,14 @@ function sanitizeTaskUpdate(
   if (typeof input.assignee === "string") next.assignee = normalizeText(input.assignee);
   if (typeof input.issueTitle === "string") next.issueTitle = normalizeRequiredText(input.issueTitle, "issueTitle");
   if (typeof input.reviewedAt === "string") next.reviewedAt = normalizeDate(input.reviewedAt);
-  if (typeof input.locationRef === "string") next.locationRef = normalizeText(input.locationRef);
+  if (typeof input.locationRef === "string") {
+    next.locationRef = resolvePatchedTaskCategoryFieldValue(
+      "locationRef",
+      input.locationRef,
+      effectiveCategories.locationRef,
+      { allowLegacyTextWhenDefinitionsMissing: true },
+    );
+  }
   if (typeof input.calendarLinked === "boolean") next.calendarLinked = input.calendarLinked;
   if (typeof input.issueDetailNote === "string") next.issueDetailNote = normalizeText(input.issueDetailNote);
   if (typeof input.decision === "string") next.decision = normalizeText(input.decision);
@@ -451,16 +557,20 @@ function nowIso() {
 }
 
 async function loadEffectiveTaskCategories(projectId: string): Promise<EffectiveTaskCategories> {
-  const [workType, coordinationScope, relatedDisciplines] = await Promise.all([
+  const [workType, coordinationScope, requestedBy, relatedDisciplines, locationRef] = await Promise.all([
     adminRepository.listEffectiveWorkTypeDefinitions(projectId),
     adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "coordinationScope"),
+    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "requestedBy"),
     adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "relatedDisciplines"),
+    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "locationRef"),
   ]);
 
   return {
     workType,
     coordinationScope,
+    requestedBy,
     relatedDisciplines,
+    locationRef,
   };
 }
 
@@ -474,19 +584,30 @@ async function listAllTasks() {
 }
 
 function flattenTaskTree(tasks: TaskRecord[]) {
-  const byParent = groupChildren(tasks);
-  const roots = sortByActionId(byParent.get(null) ?? []);
+  const byParent = groupTasksByNormalizedParent(tasks);
+  const roots = [...(byParent.get(null) ?? [])].sort(compareTasksBySiblingOrder);
   const ordered: TaskRecord[] = [];
+  const visited = new Set<string>();
 
   const visit = (task: TaskRecord) => {
+    if (visited.has(task.id)) {
+      return;
+    }
+
+    visited.add(task.id);
     ordered.push(task);
 
-    for (const child of sortByActionId(byParent.get(task.id) ?? [])) {
+    for (const child of [...(byParent.get(task.id) ?? [])].sort(compareTasksBySiblingOrder)) {
       visit(child);
     }
   };
 
   for (const task of roots) {
+    visit(task);
+  }
+
+  const remaining = [...tasks.filter((task) => !visited.has(task.id))].sort(compareTasksBySiblingOrder);
+  for (const task of remaining) {
     visit(task);
   }
 
@@ -498,7 +619,7 @@ function sortTrashTasks(tasks: TaskRecord[]) {
 }
 
 function collectSubtree(tasks: TaskRecord[], rootTaskId: string) {
-  const byParent = groupChildren(tasks);
+  const byParent = groupTasksByNormalizedParent(tasks);
   const root = tasks.find((task) => task.id === rootTaskId);
 
   if (!root) {
@@ -509,7 +630,7 @@ function collectSubtree(tasks: TaskRecord[], rootTaskId: string) {
   const visit = (task: TaskRecord) => {
     ordered.push(task);
 
-    for (const child of sortByActionId(byParent.get(task.id) ?? [])) {
+    for (const child of [...(byParent.get(task.id) ?? [])].sort(compareTasksBySiblingOrder)) {
       visit(child);
     }
   };
@@ -519,11 +640,11 @@ function collectSubtree(tasks: TaskRecord[], rootTaskId: string) {
 }
 
 function collectDescendantIds(tasks: TaskRecord[], rootTaskId: string) {
-  const byParent = groupChildren(tasks);
+  const byParent = groupTasksByNormalizedParent(tasks);
   const ids: string[] = [];
 
   const visit = (taskId: string) => {
-    for (const child of byParent.get(taskId) ?? []) {
+    for (const child of [...(byParent.get(taskId) ?? [])].sort(compareTasksBySiblingOrder)) {
       ids.push(child.id);
       visit(child.id);
     }
@@ -538,22 +659,4 @@ function nextSiblingOrder(tasks: TaskRecord[], parentTaskId: string | null) {
     .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
     .map((task) => task.siblingOrder);
   return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
-}
-
-function groupChildren(tasks: TaskRecord[]) {
-  return tasks.reduce<Map<string | null, TaskRecord[]>>((acc, task) => {
-    const parentKey = task.parentTaskId ?? null;
-    const next = acc.get(parentKey) ?? [];
-    next.push(task);
-    acc.set(parentKey, next);
-    return acc;
-  }, new Map<string | null, TaskRecord[]>());
-}
-
-function sortByActionId(tasks: TaskRecord[]) {
-  return [...tasks].sort((left, right) => {
-    const numberCompare = left.actionId - right.actionId;
-    if (numberCompare !== 0) return numberCompare;
-    return left.createdAt.localeCompare(right.createdAt);
-  });
 }

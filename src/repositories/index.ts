@@ -76,6 +76,9 @@ export const taskRepository: TaskRepository = {
   updateTaskWithVersion(taskId, input) {
     return getTaskRepository().updateTaskWithVersion(taskId, input);
   },
+  updateTaskOrders(inputs) {
+    return getTaskRepository().updateTaskOrders(inputs);
+  },
   moveTaskToTrash(taskId, updatedBy) {
     return getTaskRepository().moveTaskToTrash(taskId, updatedBy);
   },

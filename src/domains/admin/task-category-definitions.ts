@@ -1,7 +1,7 @@
 import { badRequest, conflict } from "@/lib/api/errors";
 import { normalizeWorkTypeIdentifier } from "@/domains/task/work-types";
 
-export const taskCategoryFieldKeys = ["workType", "coordinationScope", "relatedDisciplines"] as const;
+export const taskCategoryFieldKeys = ["workType", "coordinationScope", "requestedBy", "relatedDisciplines", "locationRef"] as const;
 
 export type TaskCategoryFieldKey = (typeof taskCategoryFieldKeys)[number];
 

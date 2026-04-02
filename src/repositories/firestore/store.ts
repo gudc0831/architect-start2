@@ -1,9 +1,17 @@
 // @ts-nocheck
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
+import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
-import type { CreateTaskInput, FileRepository, TaskRepository, UpdateTaskInput, VersionedTaskUpdateInput } from "@/repositories/contracts";
+import type {
+  CreateTaskInput,
+  FileRepository,
+  TaskOrderUpdateInput,
+  TaskRepository,
+  UpdateTaskInput,
+  VersionedTaskUpdateInput,
+} from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 
@@ -167,7 +175,7 @@ class FirestoreTaskRepository implements TaskRepository {
     const items = snapshot.docs
       .map((entry) => toTaskRecord(entry.id, entry.data()))
       .filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId));
-    return items.sort((left, right) => left.actionId - right.actionId || left.createdAt.localeCompare(right.createdAt));
+    return items.sort(compareTasksBySiblingOrder);
   }
 
   async listTrashTasks(projectId?: string) {
@@ -288,6 +296,52 @@ class FirestoreTaskRepository implements TaskRepository {
       ...input,
       version: undefined,
     });
+  }
+
+  async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const db = getDb();
+    if (!db) {
+      throw new Error("Firestore is not configured");
+    }
+
+    const snapshots = await Promise.all(inputs.map(async (input) => {
+      const targetRef = doc(db, taskCollectionName, input.id);
+      const currentSnapshot = await getDoc(targetRef);
+      if (!currentSnapshot.exists()) {
+        throw new Error("Task not found");
+      }
+      return { input, targetRef, currentSnapshot };
+    }));
+
+    const batch = writeBatch(db);
+    const updatedAt = new Date().toISOString();
+
+    for (const { input, targetRef, currentSnapshot } of snapshots) {
+      batch.update(targetRef, {
+        siblingOrder: input.siblingOrder,
+        updatedAt,
+        updatedBy: input.updatedBy ?? currentSnapshot.data().updatedBy ?? null,
+        version: Number(currentSnapshot.data().version ?? 1) + 1,
+      } as Record<string, unknown>);
+    }
+
+    await batch.commit();
+
+    const updatedTasks = await Promise.all(
+      snapshots.map(async ({ targetRef }) => {
+        const snapshot = await getDoc(targetRef);
+        if (!snapshot.exists()) {
+          throw new Error("Task not found");
+        }
+        return toTaskRecord(snapshot.id, snapshot.data());
+      }),
+    );
+
+    return updatedTasks;
   }
 
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {

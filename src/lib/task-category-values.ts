@@ -169,7 +169,12 @@ export function normalizeTaskCategoryFilterSelection(
   selectedValues: readonly string[] | undefined,
   context: TaskCategoryContext = {},
 ) {
-  const allowedValues = new Set(getTaskCategoryOptions(fieldKey, context).map((option) => option.value));
+  if (selectedValues === undefined) {
+    return undefined;
+  }
+
+  const allowedValuesInOrder = getTaskCategoryOptions(fieldKey, context).map((option) => option.value);
+  const allowedValues = new Set(allowedValuesInOrder);
   const normalized = new Set<string>();
 
   for (const value of selectedValues ?? []) {
@@ -179,7 +184,15 @@ export function normalizeTaskCategoryFilterSelection(
     }
   }
 
-  return normalized.size === 0 || normalized.size === allowedValues.size ? [] : [...normalized];
+  if (normalized.size === 0) {
+    return [];
+  }
+
+  if (normalized.size === allowedValuesInOrder.length) {
+    return undefined;
+  }
+
+  return allowedValuesInOrder.filter((value) => normalized.has(value));
 }
 
 export function matchesTaskCategoryFilter(
@@ -189,8 +202,12 @@ export function matchesTaskCategoryFilter(
   context: TaskCategoryContext = {},
 ) {
   const normalizedFilters = normalizeTaskCategoryFilterSelection(fieldKey, selectedValues, context);
-  if (normalizedFilters.length === 0) {
+  if (normalizedFilters === undefined) {
     return true;
+  }
+
+  if (normalizedFilters.length === 0) {
+    return false;
   }
 
   if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {

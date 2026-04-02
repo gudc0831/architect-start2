@@ -11,6 +11,7 @@ import type {
   FileRepository,
   PreferenceRepository,
   ProjectRepository,
+  TaskOrderUpdateInput,
   TaskRepository,
   UpdateProjectInput,
   UpdateTaskInput,
@@ -214,7 +215,7 @@ class PostgresTaskRepository implements TaskRepository {
         projectId: project.id,
         deletedAt: null,
       },
-      orderBy: [{ actionId: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
     });
 
     return tasks.map(toTaskRecord);
@@ -324,6 +325,33 @@ class PostgresTaskRepository implements TaskRepository {
 
     const record = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
     return toTaskRecord(record);
+  }
+
+  async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const records = await prisma.$transaction(async (tx) => {
+      const updated: Array<Parameters<typeof toTaskRecord>[0]> = [];
+
+      for (const input of inputs) {
+        const record = await tx.task.update({
+          where: { id: input.id },
+          data: {
+            siblingOrder: input.siblingOrder,
+            updatedBy: input.updatedBy ?? undefined,
+            version: { increment: 1 },
+          },
+        });
+
+        updated.push(record);
+      }
+
+      return updated;
+    });
+
+    return records.map(toTaskRecord);
   }
 
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {

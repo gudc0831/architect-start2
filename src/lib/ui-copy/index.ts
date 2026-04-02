@@ -43,6 +43,10 @@ const errorCodeMap = {
   PARENT_TASK_NOT_FOUND: "parentTaskNotFound",
   PARENT_TASK_NUMBER_INVALID: "parentTaskNumberInvalid",
   TASK_STATUS_INVALID: "taskStatusInvalid",
+  TASK_COORDINATION_SCOPE_INVALID: "taskCoordinationScopeInvalid",
+  TASK_REQUESTED_BY_INVALID: "taskRequestedByInvalid",
+  TASK_RELATED_DISCIPLINES_INVALID: "taskRelatedDisciplinesInvalid",
+  TASK_LOCATION_REF_INVALID: "taskLocationRefInvalid",
   PROJECT_NAME_REQUIRED: "projectNameRequired",
   TASK_ID_REQUIRED: "taskIdRequired",
   FILE_REQUIRED: "fileRequired",
@@ -151,5 +155,4 @@ export function getWeekdayLabelByIndex(index: number, long = false) {
 }
 
 export { getCatalog, uiCopyCatalog };
-
 

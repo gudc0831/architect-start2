@@ -12,8 +12,6 @@ export const quickCreateFieldKeys = [
   "calendarLinked",
   "issueDetailNote",
   "status",
-  "completedAt",
-  "statusHistory",
   "decision",
 ] as const;
 
@@ -34,8 +32,6 @@ export const taskListColumnKeys = [
   "calendarLinked",
   "issueDetailNote",
   "status",
-  "completedAt",
-  "statusHistory",
   "decision",
   "linkedDocuments",
 ] as const;
@@ -70,8 +66,6 @@ export const quickCreateDefaultWidths: ResolvedQuickCreateWidthMap = {
   calendarLinked: 216,
   issueDetailNote: 216,
   status: 216,
-  completedAt: 216,
-  statusHistory: 216,
   decision: 216,
 };
 
@@ -89,8 +83,6 @@ export const taskListDefaultColumnWidths: ResolvedTaskListColumnWidthMap = {
   calendarLinked: 100,
   issueDetailNote: 420,
   status: 128,
-  completedAt: 164,
-  statusHistory: 360,
   decision: 320,
   linkedDocuments: 260,
 };
