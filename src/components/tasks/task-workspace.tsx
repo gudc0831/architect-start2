@@ -1562,10 +1562,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [currentDayKey, sortedTasks]);
   const boardFocusItems = useMemo(
     () => [
-      { key: "in_review", label: labelForStatus("in_review"), count: boardSummary.inReview, tone: "accent" as const },
-      { key: "in_discussion", label: labelForStatus("in_discussion"), count: boardSummary.inDiscussion, tone: "success" as const },
-      { key: "blocked", label: labelForStatus("blocked"), count: boardSummary.blocked, tone: "warn" as const },
-      { key: "overdue", label: t("workspace.overdueLabel"), count: boardSummary.overdue, tone: "warn" as const },
+      { key: "in_review", label: labelForStatus("in_review"), count: boardSummary.inReview, appearance: "in_review" as const },
+      { key: "in_discussion", label: labelForStatus("in_discussion"), count: boardSummary.inDiscussion, appearance: "in_discussion" as const },
+      { key: "blocked", label: labelForStatus("blocked"), count: boardSummary.blocked, appearance: "blocked" as const },
+      { key: "overdue", label: t("workspace.overdueLabel"), count: boardSummary.overdue, appearance: "overdue" as const },
     ],
     [boardSummary.blocked, boardSummary.inDiscussion, boardSummary.inReview, boardSummary.overdue],
   );

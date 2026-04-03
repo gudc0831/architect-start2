@@ -21,6 +21,32 @@
   --page-pad: clamp(1rem, 2vw, 2rem);
   --section-gap: 1rem;
   --table-min-width: 2280px;
+  --task-status-new-bg: #ffedd5;
+  --task-status-new-text: #c2410c;
+  --task-status-new-border: #fdba74;
+  --task-status-new-accent: #ea580c;
+  --task-status-in-review-bg: #dbeafe;
+  --task-status-in-review-text: #1d4ed8;
+  --task-status-in-review-border: #93c5fd;
+  --task-status-in-review-accent: #2563eb;
+  --task-status-in-discussion-bg: #dbe4ff;
+  --task-status-in-discussion-text: #1e3a8a;
+  --task-status-in-discussion-border: #8fb2ff;
+  --task-status-in-discussion-accent: #1e40af;
+  --task-status-blocked-bg: #fef3c7;
+  --task-status-blocked-text: #a16207;
+  --task-status-blocked-border: #fcd34d;
+  --task-status-blocked-accent: #eab308;
+  --task-status-done-bg: #f4f4f5;
+  --task-status-done-text: #3f3f46;
+  --task-status-done-border: #d4d4d8;
+  --task-status-done-accent: #52525b;
+  --task-focus-overdue-bg: #fee2e2;
+  --task-focus-overdue-text: #b91c1c;
+  --task-focus-overdue-border: #fca5a5;
+  --task-focus-overdue-active-bg: #dc2626;
+  --task-focus-overdue-active-text: #ffffff;
+  --task-focus-overdue-active-border: #dc2626;
 }
 
 * {
@@ -515,47 +541,130 @@ a {
 }
 
 .task-focus-strip__item {
+  --focus-chip-bg: rgba(255, 255, 255, 0.88);
+  --focus-chip-hover-bg: rgba(255, 255, 255, 0.96);
+  --focus-chip-text: var(--text);
+  --focus-chip-hint: var(--muted);
+  --focus-chip-border: rgba(112, 125, 110, 0.2);
+  --focus-chip-hover-border: rgba(53, 93, 68, 0.28);
+  --focus-chip-active-bg: rgba(245, 250, 244, 0.98);
+  --focus-chip-active-text: var(--text);
+  --focus-chip-active-hint: var(--text);
+  --focus-chip-active-border: rgba(46, 91, 66, 0.48);
+  --focus-chip-ring: rgba(41, 92, 67, 0.12);
   display: grid;
   gap: 0.45rem;
   min-height: 5.25rem;
   padding: 0.85rem 0.9rem;
-  border: 1px solid rgba(112, 125, 110, 0.2);
+  border: 1px solid var(--focus-chip-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--text);
+  background: linear-gradient(180deg, var(--focus-chip-bg), var(--focus-chip-bg));
+  color: var(--focus-chip-text);
   text-align: left;
   cursor: pointer;
   transition:
     transform 0.16s ease,
     border-color 0.16s ease,
     box-shadow 0.16s ease,
-    background 0.16s ease;
+    background 0.16s ease,
+    color 0.16s ease;
 }
 
 .task-focus-strip__item:hover,
 .task-focus-strip__item:focus-visible {
-  border-color: rgba(53, 93, 68, 0.28);
+  border-color: var(--focus-chip-hover-border);
+  background: linear-gradient(180deg, var(--focus-chip-hover-bg), var(--focus-chip-bg));
   box-shadow: 0 12px 24px rgba(28, 40, 32, 0.08);
   transform: translateY(-1px);
   outline: none;
 }
 
 .task-focus-strip__item--active {
-  border-color: rgba(46, 91, 66, 0.48);
-  background: rgba(245, 250, 244, 0.98);
-  box-shadow: 0 0 0 3px rgba(41, 92, 67, 0.1);
+  border-color: var(--focus-chip-active-border);
+  background: linear-gradient(180deg, var(--focus-chip-active-bg), var(--focus-chip-active-bg));
+  box-shadow:
+    0 0 0 3px var(--focus-chip-ring),
+    0 14px 28px rgba(28, 40, 32, 0.12);
+  color: var(--focus-chip-active-text);
 }
 
-.task-focus-strip__item--accent {
-  background: linear-gradient(180deg, rgba(244, 250, 244, 0.98), rgba(236, 245, 238, 0.96));
+.task-focus-strip__item--active:hover,
+.task-focus-strip__item--active:focus-visible {
+  border-color: var(--focus-chip-active-border);
+  background: linear-gradient(180deg, var(--focus-chip-active-bg), var(--focus-chip-active-bg));
+  box-shadow:
+    0 0 0 4px var(--focus-chip-ring),
+    0 16px 30px rgba(28, 40, 32, 0.14);
 }
 
-.task-focus-strip__item--warn {
-  background: linear-gradient(180deg, rgba(255, 249, 239, 0.98), rgba(255, 243, 227, 0.96));
+.task-focus-strip__item--neutral {
+  --focus-chip-bg: rgba(255, 255, 255, 0.88);
+  --focus-chip-hover-bg: rgba(250, 252, 249, 0.98);
+  --focus-chip-text: var(--text);
+  --focus-chip-hint: var(--muted);
+  --focus-chip-border: rgba(112, 125, 110, 0.2);
+  --focus-chip-hover-border: rgba(53, 93, 68, 0.28);
+  --focus-chip-active-bg: rgba(234, 239, 235, 0.98);
+  --focus-chip-active-text: var(--text);
+  --focus-chip-active-hint: var(--muted);
+  --focus-chip-active-border: rgba(89, 103, 93, 0.48);
+  --focus-chip-ring: rgba(89, 103, 93, 0.16);
 }
 
-.task-focus-strip__item--success {
-  background: linear-gradient(180deg, rgba(239, 248, 245, 0.98), rgba(229, 242, 236, 0.96));
+.task-focus-strip__item--in_review {
+  --focus-chip-bg: var(--task-status-in-review-bg);
+  --focus-chip-hover-bg: #cfe2ff;
+  --focus-chip-text: var(--task-status-in-review-text);
+  --focus-chip-hint: #335ea8;
+  --focus-chip-border: var(--task-status-in-review-border);
+  --focus-chip-hover-border: #60a5fa;
+  --focus-chip-active-bg: var(--task-status-in-review-accent);
+  --focus-chip-active-text: #ffffff;
+  --focus-chip-active-hint: rgba(255, 255, 255, 0.88);
+  --focus-chip-active-border: var(--task-status-in-review-accent);
+  --focus-chip-ring: rgba(37, 99, 235, 0.22);
+}
+
+.task-focus-strip__item--in_discussion {
+  --focus-chip-bg: var(--task-status-in-discussion-bg);
+  --focus-chip-hover-bg: #d0dcff;
+  --focus-chip-text: var(--task-status-in-discussion-text);
+  --focus-chip-hint: #314f94;
+  --focus-chip-border: var(--task-status-in-discussion-border);
+  --focus-chip-hover-border: #6b90ff;
+  --focus-chip-active-bg: var(--task-status-in-discussion-accent);
+  --focus-chip-active-text: #ffffff;
+  --focus-chip-active-hint: rgba(255, 255, 255, 0.88);
+  --focus-chip-active-border: var(--task-status-in-discussion-accent);
+  --focus-chip-ring: rgba(30, 64, 175, 0.24);
+}
+
+.task-focus-strip__item--blocked {
+  --focus-chip-bg: var(--task-status-blocked-bg);
+  --focus-chip-hover-bg: #fde68a;
+  --focus-chip-text: var(--task-status-blocked-text);
+  --focus-chip-hint: #8b5c0e;
+  --focus-chip-border: var(--task-status-blocked-border);
+  --focus-chip-hover-border: #fbbf24;
+  --focus-chip-active-bg: var(--task-status-blocked-accent);
+  --focus-chip-active-text: #4a3200;
+  --focus-chip-active-hint: rgba(74, 50, 0, 0.8);
+  --focus-chip-active-border: var(--task-status-blocked-accent);
+  --focus-chip-ring: rgba(234, 179, 8, 0.26);
+}
+
+.task-focus-strip__item--overdue {
+  --focus-chip-bg: var(--task-focus-overdue-bg);
+  --focus-chip-hover-bg: #fecaca;
+  --focus-chip-text: var(--task-focus-overdue-text);
+  --focus-chip-hint: #b42318;
+  --focus-chip-border: var(--task-focus-overdue-border);
+  --focus-chip-hover-border: #f87171;
+  --focus-chip-active-bg: var(--task-focus-overdue-active-bg);
+  --focus-chip-active-text: var(--task-focus-overdue-active-text);
+  --focus-chip-active-hint: rgba(255, 255, 255, 0.88);
+  --focus-chip-active-border: var(--task-focus-overdue-active-border);
+  --focus-chip-ring: rgba(220, 38, 38, 0.24);
 }
 
 .task-focus-strip__label {
@@ -577,7 +686,7 @@ a {
 }
 
 .task-focus-strip__hint {
-  color: var(--muted);
+  color: var(--focus-chip-hint);
   font-size: 0.82rem;
 }
 
@@ -597,7 +706,20 @@ a {
 .task-focus-strip--compact .task-focus-strip__item:hover,
 .task-focus-strip--compact .task-focus-strip__item:focus-visible {
   transform: none;
-  box-shadow: 0 0 0 3px rgba(41, 92, 67, 0.08);
+  box-shadow: 0 0 0 3px var(--focus-chip-ring);
+}
+
+.task-focus-strip--compact .task-focus-strip__item--active {
+  box-shadow:
+    0 0 0 3px var(--focus-chip-ring),
+    0 10px 20px rgba(28, 40, 32, 0.12);
+}
+
+.task-focus-strip--compact .task-focus-strip__item--active:hover,
+.task-focus-strip--compact .task-focus-strip__item--active:focus-visible {
+  box-shadow:
+    0 0 0 4px var(--focus-chip-ring),
+    0 12px 24px rgba(28, 40, 32, 0.14);
 }
 
 .task-focus-strip--compact .task-focus-strip__label {
@@ -894,39 +1016,56 @@ a {
   align-items: center;
   justify-content: center;
   padding: 0.36rem 0.72rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--status-pill-border, transparent);
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 700;
+  color: var(--status-pill-text, var(--text));
+  background: var(--status-pill-bg, transparent);
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
 }
 
 .status-pill--selected {
-  box-shadow: 0 0 0 4px rgba(41, 92, 67, 0.12);
+  box-shadow: 0 0 0 4px var(--status-pill-ring, rgba(41, 92, 67, 0.12));
 }
 
 .status-pill--new {
-  color: #7a5a10;
-  background: #f5e8ba;
+  --status-pill-text: var(--task-status-new-text);
+  --status-pill-bg: var(--task-status-new-bg);
+  --status-pill-border: var(--task-status-new-border);
+  --status-pill-ring: rgba(234, 88, 12, 0.18);
 }
 
 .status-pill--in_review {
-  color: #6b7280;
-  background: #edf0f3;
+  --status-pill-text: var(--task-status-in-review-text);
+  --status-pill-bg: var(--task-status-in-review-bg);
+  --status-pill-border: var(--task-status-in-review-border);
+  --status-pill-ring: rgba(37, 99, 235, 0.18);
 }
 
 .status-pill--in_discussion {
-  color: #0e5a8a;
-  background: #dbeeff;
+  --status-pill-text: var(--task-status-in-discussion-text);
+  --status-pill-bg: var(--task-status-in-discussion-bg);
+  --status-pill-border: var(--task-status-in-discussion-border);
+  --status-pill-ring: rgba(30, 64, 175, 0.18);
 }
 
 .status-pill--blocked {
-  color: #9a4e00;
-  background: #ffe6c9;
+  --status-pill-text: var(--task-status-blocked-text);
+  --status-pill-bg: var(--task-status-blocked-bg);
+  --status-pill-border: var(--task-status-blocked-border);
+  --status-pill-ring: rgba(234, 179, 8, 0.18);
 }
 
 .status-pill--done {
-  color: #19643c;
-  background: #d9f0e2;
+  --status-pill-text: var(--task-status-done-text);
+  --status-pill-bg: var(--task-status-done-bg);
+  --status-pill-border: var(--task-status-done-border);
+  --status-pill-ring: rgba(82, 82, 91, 0.16);
 }
 
 .sheet-wrapper {
@@ -1658,27 +1797,27 @@ a {
 }
 
 .task-state-row--new td:first-child .sheet-table__cell-shell::before {
-  background: #d8b765;
+  background: var(--task-status-new-accent);
 }
 
 .task-state-row--in_review td:first-child .sheet-table__cell-shell::before {
-  background: #98a0aa;
+  background: var(--task-status-in-review-accent);
 }
 
 .task-state-row--in_discussion td:first-child .sheet-table__cell-shell::before {
-  background: #4f89c2;
+  background: var(--task-status-in-discussion-accent);
 }
 
 .task-state-row--blocked td:first-child .sheet-table__cell-shell::before {
-  background: #d48b41;
+  background: var(--task-status-blocked-accent);
 }
 
 .task-state-row--done td:first-child .sheet-table__cell-shell::before {
-  background: #5d9b78;
+  background: var(--task-status-done-accent);
 }
 
 .task-state-row--in_discussion {
-  background: rgba(79, 137, 194, 0.06);
+  background: rgba(30, 64, 175, 0.06);
 }
 
 .task-state-row--overdue {

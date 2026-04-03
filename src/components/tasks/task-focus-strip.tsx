@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import type { ReactNode } from "react";
 
-export type TaskFocusStripTone = "neutral" | "accent" | "warn" | "success";
+export type TaskFocusStripAppearance = "neutral" | "in_review" | "in_discussion" | "blocked" | "overdue";
 
 export type TaskFocusStripItem = {
   key: string;
@@ -11,7 +11,7 @@ export type TaskFocusStripItem = {
   hint?: ReactNode;
   count?: ReactNode;
   className?: string;
-  tone?: TaskFocusStripTone;
+  appearance?: TaskFocusStripAppearance;
   disabled?: boolean;
 };
 
@@ -40,7 +40,7 @@ export function TaskFocusStrip({ items, activeKey, onSelect, className, ariaLabe
             className={clsx(
               "task-focus-strip__item",
               item.className,
-              item.tone && `task-focus-strip__item--${item.tone}`,
+              item.appearance && `task-focus-strip__item--${item.appearance}`,
               isActive && "task-focus-strip__item--active",
             )}
             disabled={item.disabled}
