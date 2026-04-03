@@ -1,6 +1,11 @@
 // @ts-nocheck
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
+import {
+  canonicalizeTaskStatusHistory,
+  DEFAULT_TASK_STATUS,
+  normalizeTaskStatus,
+} from "@/domains/task/status";
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type {
   CreateFileInput,
@@ -20,7 +25,6 @@ import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const nextId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-const validStatus = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 type SequenceState = {
   current?: number;
@@ -38,7 +42,7 @@ function parseNumeric(value: unknown) {
 }
 
 function normalizeStatus(status: unknown): TaskStatus {
-  return validStatus.has(status as TaskStatus) ? (status as TaskStatus) : "waiting";
+  return normalizeTaskStatus(status, DEFAULT_TASK_STATUS);
 }
 
 function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
@@ -80,7 +84,7 @@ function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
       calendarLinked: Boolean(raw.calendarLinked),
       issueDetailNote: String(raw.issueDetailNote ?? raw.description ?? ""),
       status,
-      statusHistory: String(raw.statusHistory ?? `${updatedAt} - ${status}`),
+      statusHistory: canonicalizeTaskStatusHistory(raw.statusHistory, status, updatedAt),
       decision: String(raw.decision ?? raw.conclusion ?? ""),
       completedAt,
       version: Number(raw.version ?? 1),
@@ -186,8 +190,8 @@ class MemoryTaskRepository implements TaskRepository {
       locationRef: input.locationRef,
       calendarLinked: input.calendarLinked,
       issueDetailNote: input.issueDetailNote,
-      status: input.status,
-      statusHistory: input.statusHistory ?? `${timestamp} - ${input.status}`,
+      status: normalizeStatus(input.status),
+      statusHistory: canonicalizeTaskStatusHistory(input.statusHistory, normalizeStatus(input.status), timestamp),
       decision: input.decision,
       completedAt: input.completedAt ?? null,
       version: 1,
@@ -211,10 +215,17 @@ class MemoryTaskRepository implements TaskRepository {
 
     const current = tasks[index];
     const { parentTaskNumber: _parentTaskNumber, updatedBy, ...persistedInput } = input;
+    const nextStatus = normalizeStatus(persistedInput.status ?? current.status);
     const normalizedPersistedInput = {
       ...persistedInput,
       workType:
         persistedInput.workType === undefined ? undefined : requireStoredTaskWorkTypeValue(persistedInput.workType),
+      status: nextStatus,
+      statusHistory: canonicalizeTaskStatusHistory(
+        persistedInput.statusHistory ?? current.statusHistory,
+        nextStatus,
+        current.updatedAt,
+      ),
     };
     const next = {
       ...current,

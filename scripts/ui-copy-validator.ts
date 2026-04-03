@@ -70,9 +70,10 @@ const UI_SCAN_DIRS = ["src/components", "src/app", "src/providers"];
 const protectedRules: Array<{ file: string; required: string[] }> = [
   { file: "middleware.ts", required: ["/board"] },
   { file: "src/components/layout/sidebar.tsx", required: ["/board", "/daily", "/calendar", "/trash"] },
-  { file: "src/domains/task/types.ts", required: ["\"waiting\"", "\"todo\"", "\"in_progress\"", "\"blocked\"", "\"done\"", "\"board\"", "\"daily\"", "\"calendar\"", "\"trash\""] },
+  { file: "src/domains/task/types.ts", required: ["\"board\"", "\"daily\"", "\"calendar\"", "\"trash\""] },
+  { file: "src/domains/task/status.ts", required: ["\"new\"", "\"in_review\"", "\"in_discussion\"", "\"blocked\"", "\"done\"", "waiting", "todo", "in_progress"] },
   { file: "src/domains/preferences/types.ts", required: ["\"actionId\"", "\"dueDate\"", "\"workType\"", "\"coordinationScope\"", "\"requestedBy\"", "\"relatedDisciplines\"", "\"assignee\"", "\"issueTitle\"", "\"reviewedAt\"", "\"locationRef\"", "\"calendarLinked\"", "\"issueDetailNote\"", "\"status\"", "\"completedAt\"", "\"statusHistory\"", "\"decision\""] },
-  { file: "prisma/schema.prisma", required: ["waiting", "todo", "in_progress", "blocked", "done"] },
+  { file: "prisma/schema.prisma", required: ["new", "in_review", "in_discussion", "blocked", "done"] },
   { file: "src/app/api/tasks/route.ts", required: ["dueDate", "due_date", "Coordination Scope", "Owner Discipline", "requested_by", "Related Disciplines", "issue_title", "reviewed_at", "Location Ref", "Calendar Linked", "ISSUE Detail Note", "status"] },
 ];
 const rawDisplayRules: Array<{ check: string; regex: RegExp }> = [
@@ -316,7 +317,7 @@ function shouldIgnoreLiteral(file: string, line: string, literal: string) {
   if (trimmed.includes("${")) return true;
   if (trimmed.startsWith("@/") || trimmed.startsWith("../") || trimmed.startsWith("./")) return true;
   if (trimmed.startsWith("/")) return true;
-  if (/^(board|daily|calendar|trash|waiting|todo|in_progress|blocked|done)$/u.test(trimmed)) return true;
+  if (/^(board|daily|calendar|trash|new|in_review|in_discussion|blocked|done|waiting|todo|in_progress)$/u.test(trimmed)) return true;
   if (/^[a-z0-9_.:-]+$/u.test(trimmed)) return true;
   if (trimmed.includes("Content-Type")) return true;
   if (relativeToRoot(file) === "src/providers/project-provider.tsx" && trimmed === "Project") return true;

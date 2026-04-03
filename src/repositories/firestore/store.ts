@@ -2,6 +2,11 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
+import {
+  canonicalizeTaskStatusHistory,
+  DEFAULT_TASK_STATUS,
+  normalizeTaskStatus,
+} from "@/domains/task/status";
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import type {
@@ -22,7 +27,6 @@ function getDb() {
 const taskCollectionName = "tasks";
 const fileCollectionName = "files";
 const sequenceDocName = "task-sequence";
-const validStatus = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 type FirestoreValue =
   | string
@@ -69,7 +73,7 @@ function parseNumeric(value: unknown) {
 }
 
 function normalizeStatus(status: unknown): TaskStatus {
-  return validStatus.has(status as TaskStatus) ? (status as TaskStatus) : "waiting";
+  return normalizeTaskStatus(status, DEFAULT_TASK_STATUS);
 }
 
 const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => {
@@ -104,7 +108,7 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
     calendarLinked: Boolean(data.calendarLinked),
     issueDetailNote: String(data.issueDetailNote ?? data.description ?? ""),
     status,
-    statusHistory: String(data.statusHistory ?? `${updatedAt} - ${status}`),
+    statusHistory: canonicalizeTaskStatusHistory(data.statusHistory, status, updatedAt),
     decision: String(data.decision ?? data.conclusion ?? ""),
     completedAt: data.completedAt ? toIsoString(data.completedAt as FirestoreValue) : status === "done" ? updatedAt : null,
     version: Number(data.version ?? 1),
@@ -234,8 +238,8 @@ class FirestoreTaskRepository implements TaskRepository {
       locationRef: input.locationRef,
       calendarLinked: input.calendarLinked,
       issueDetailNote: input.issueDetailNote,
-      status: input.status,
-      statusHistory: input.statusHistory ?? `${timestamp} - ${input.status}`,
+      status: normalizeStatus(input.status),
+      statusHistory: canonicalizeTaskStatusHistory(input.statusHistory, normalizeStatus(input.status), timestamp),
       decision: input.decision,
       completedAt: input.completedAt ?? null,
       version: 1,
@@ -270,8 +274,15 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const currentTask = toTaskRecord(currentSnapshot.id, currentSnapshot.data());
     const updatedAt = new Date().toISOString();
+    const nextStatus = normalizeStatus(normalizedPersistedInput.status ?? currentTask.status);
     await updateDoc(targetRef, {
       ...normalizedPersistedInput,
+      status: nextStatus,
+      statusHistory: canonicalizeTaskStatusHistory(
+        normalizedPersistedInput.statusHistory ?? currentTask.statusHistory,
+        nextStatus,
+        updatedAt,
+      ),
       updatedAt,
       updatedBy: normalizedPersistedInput.updatedBy ?? currentTask.updatedBy,
       version: currentTask.version + 1,

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
+import {
+  canonicalizeTaskStatusHistory,
+  DEFAULT_TASK_STATUS,
+  normalizeTaskStatus,
+} from "@/domains/task/status";
 import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
 import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference } from "@/domains/preferences/types";
 import { defaultProjectName } from "@/lib/runtime-config";
@@ -70,6 +75,7 @@ function toTaskRecord(task: {
   updatedBy: string | null;
   deletedAt: Date | null;
 }): TaskRecord {
+  const status = normalizeTaskStatus(task.status, DEFAULT_TASK_STATUS);
   return {
     id: task.id,
     projectId: task.projectId,
@@ -95,8 +101,8 @@ function toTaskRecord(task: {
     locationRef: task.locationRef,
     calendarLinked: task.calendarLinked,
     issueDetailNote: task.description,
-    status: task.status as TaskRecord["status"],
-    statusHistory: task.statusHistory,
+    status,
+    statusHistory: canonicalizeTaskStatusHistory(task.statusHistory, status, task.updatedAt.toISOString()),
     decision: task.conclusion,
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
     version: task.version,
@@ -151,6 +157,7 @@ async function toFileRecord(file: {
 }
 
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
+  const nextStatus = input.status === undefined ? undefined : normalizeTaskStatus(input.status, DEFAULT_TASK_STATUS);
   return {
     dueDate: input.dueDate ?? undefined,
     category: input.workType === undefined ? undefined : requireStoredTaskWorkTypeValue(input.workType),
@@ -164,8 +171,11 @@ function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
     locationRef: input.locationRef ?? undefined,
     calendarLinked: input.calendarLinked ?? undefined,
     description: input.issueDetailNote ?? undefined,
-    status: input.status ?? undefined,
-    statusHistory: input.statusHistory ?? undefined,
+    status: nextStatus,
+    statusHistory:
+      nextStatus === undefined
+        ? input.statusHistory ?? undefined
+        : canonicalizeTaskStatusHistory(input.statusHistory, nextStatus) || undefined,
     conclusion: input.decision ?? undefined,
     completedAt: input.completedAt ? new Date(input.completedAt) : input.completedAt === null ? null : undefined,
   };

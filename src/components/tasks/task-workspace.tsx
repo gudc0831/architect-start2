@@ -46,6 +46,7 @@ import {
   type TaskCategoryDefinition,
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
+import { DEFAULT_TASK_STATUS, TASK_STATUS_ORDER } from "@/domains/task/status";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
@@ -126,7 +127,7 @@ type TaskFormState = {
 type TaskFormReadonly = Partial<Record<Exclude<keyof TaskFormState, "isDaily">, boolean>>;
 type DraftDirtyField = EditableTaskFormKey | "parentTaskNumber";
 type DraftDirtyFieldMap = Partial<Record<DraftDirtyField, true>>;
-type TaskFocusKey = "todo" | "in_progress" | "blocked" | "overdue";
+type TaskFocusKey = "in_review" | "in_discussion" | "blocked" | "overdue";
 type TaskDropPosition = "before" | "after";
 type TaskDragState = {
   taskId: string;
@@ -311,11 +312,11 @@ const dailyCategoricalFilterFieldKeys = [
   "locationRef",
   "status",
 ] as const satisfies readonly DailyCategoricalFilterFieldKey[];
-const statusOrder: TaskStatus[] = ["waiting", "todo", "in_progress", "blocked", "done"];
+const statusOrder: TaskStatus[] = [...TASK_STATUS_ORDER];
 const statusLabel: Record<TaskStatus, string> = {
-  waiting: labelForStatus("waiting"),
-  todo: labelForStatus("todo"),
-  in_progress: labelForStatus("in_progress"),
+  new: labelForStatus("new"),
+  in_review: labelForStatus("in_review"),
+  in_discussion: labelForStatus("in_discussion"),
   blocked: labelForStatus("blocked"),
   done: labelForStatus("done"),
 };
@@ -375,7 +376,7 @@ const defaultForm = (): TaskFormState => ({
   locationRef: "",
   calendarLinked: false,
   issueDetailNote: "",
-  status: "waiting",
+  status: DEFAULT_TASK_STATUS,
   decision: "",
   isDaily: true,
 });
@@ -1554,26 +1555,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       total: sortedTasks.length,
       overdue: overdueCount,
       byStatus,
-      todo: sortedTasks.filter((task) => task.status === "todo").length,
-      inProgress: sortedTasks.filter((task) => task.status === "in_progress").length,
+      inReview: sortedTasks.filter((task) => task.status === "in_review").length,
+      inDiscussion: sortedTasks.filter((task) => task.status === "in_discussion").length,
       blocked: sortedTasks.filter((task) => task.status === "blocked").length,
     };
   }, [currentDayKey, sortedTasks]);
   const boardFocusItems = useMemo(
     () => [
-      { key: "todo", label: labelForStatus("todo"), count: boardSummary.todo, tone: "accent" as const },
-      { key: "in_progress", label: labelForStatus("in_progress"), count: boardSummary.inProgress, tone: "success" as const },
+      { key: "in_review", label: labelForStatus("in_review"), count: boardSummary.inReview, tone: "accent" as const },
+      { key: "in_discussion", label: labelForStatus("in_discussion"), count: boardSummary.inDiscussion, tone: "success" as const },
       { key: "blocked", label: labelForStatus("blocked"), count: boardSummary.blocked, tone: "warn" as const },
       { key: "overdue", label: t("workspace.overdueLabel"), count: boardSummary.overdue, tone: "warn" as const },
     ],
-    [boardSummary.blocked, boardSummary.inProgress, boardSummary.overdue, boardSummary.todo],
+    [boardSummary.blocked, boardSummary.inDiscussion, boardSummary.inReview, boardSummary.overdue],
   );
   const boardSummaryCards = useMemo(
     () => [
       { key: "total", label: t("workspace.totalLabel"), value: boardSummary.total },
-      { key: "waiting", label: labelForStatus("waiting"), value: boardSummary.byStatus.waiting },
-      { key: "todo", label: labelForStatus("todo"), value: boardSummary.byStatus.todo },
-      { key: "in_progress", label: labelForStatus("in_progress"), value: boardSummary.byStatus.in_progress },
+      { key: "new", label: labelForStatus("new"), value: boardSummary.byStatus.new },
+      { key: "in_review", label: labelForStatus("in_review"), value: boardSummary.byStatus.in_review },
+      { key: "in_discussion", label: labelForStatus("in_discussion"), value: boardSummary.byStatus.in_discussion },
       { key: "overdue", label: t("workspace.overdueLabel"), value: boardSummary.overdue, tone: "warn" as const, className: "board-summary__card--warn" },
     ],
     [boardSummary],
@@ -4439,10 +4440,10 @@ function isTaskDueSoon(task: TaskRecord, referenceDay: string) {
 
 function matchesTaskFocus(task: TaskRecord, focusKey: TaskFocusKey, referenceDay: string) {
   switch (focusKey) {
-    case "todo":
-      return task.status === "todo";
-    case "in_progress":
-      return task.status === "in_progress";
+    case "in_review":
+      return task.status === "in_review";
+    case "in_discussion":
+      return task.status === "in_discussion";
     case "blocked":
       return task.status === "blocked";
     case "overdue":
@@ -4498,7 +4499,7 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     locationRef: draft.locationRef ?? "",
     calendarLinked: Boolean(draft.calendarLinked),
     issueDetailNote: draft.issueDetailNote ?? "",
-    status: (draft.status ?? "waiting") as TaskStatus,
+    status: (draft.status ?? DEFAULT_TASK_STATUS) as TaskStatus,
     decision: draft.decision ?? "",
   };
 }

@@ -18,9 +18,9 @@ enum ProjectMembershipRole {
 }
 
 enum TaskStatus {
-  waiting
-  todo
-  in_progress
+  new
+  in_review
+  in_discussion
   blocked
   done
 }
@@ -83,7 +83,7 @@ model Task {
   locationRef        String      @default("") @map("location_ref")
   calendarLinked     Boolean     @default(false) @map("calendar_linked")
   description        String      @default("")
-  status             TaskStatus  @default(waiting)
+  status             TaskStatus  @default(new)
   statusHistory      String      @default("") @map("status_history")
   conclusion         String      @default("")
   completedAt        DateTime?   @map("completed_at") @db.Timestamptz(6)

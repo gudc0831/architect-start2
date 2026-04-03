@@ -1,4 +1,5 @@
 ﻿import type { AuthRole } from "@/domains/auth/types";
+import { normalizeTaskStatus, TASK_STATUS_HISTORY_ENTRY_PATTERN } from "@/domains/task/status";
 import type { DashboardMode, TaskStatus } from "@/domains/task/types";
 import { uiCopyCatalog, type ProjectSourceLabelKey, type UICatalog, type UiLocale, type UploadModeLabelKey } from "@/lib/ui-copy/catalog";
 
@@ -131,8 +132,8 @@ export function formatStatusHistoryForDisplay(raw: string) {
   return raw
     .split(/\r?\n/)
     .map((line) =>
-      line.replace(/(.* - )(waiting|todo|in_progress|blocked|done)$/u, (_match, prefix: string, status: TaskStatus) => {
-        return prefix + labelForStatus(status);
+      line.replace(TASK_STATUS_HISTORY_ENTRY_PATTERN, (_match, prefix: string, status: string) => {
+        return prefix + labelForStatus(normalizeTaskStatus(status));
       }),
     )
     .join("\n");
@@ -155,4 +156,3 @@ export function getWeekdayLabelByIndex(index: number, long = false) {
 }
 
 export { getCatalog, uiCopyCatalog };
-

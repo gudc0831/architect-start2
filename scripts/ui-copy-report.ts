@@ -148,7 +148,7 @@ const lines = [
     ? translator.cautionIdentifiers!.map((value) => `- ${value}`)
     : [
         "- Routes: /board, /daily, /calendar, /trash",
-        "- TaskStatus: waiting, todo, in_progress, blocked, done",
+        "- TaskStatus: new, in_review, in_discussion, blocked, done",
         "- Field keys: actionId, dueDate, coordinationScope, requestedBy, relatedDisciplines, locationRef, calendarLinked, issueDetailNote, statusHistory",
         "- API payload aliases in src/app/api/tasks/route.ts",
         "- Prisma enums and localStorage keys must remain English identifiers.",
@@ -168,4 +168,3 @@ if (statusErrors.length > 0) {
   process.exit(1);
 }
 process.exit(0);
-

@@ -904,17 +904,17 @@ a {
   box-shadow: 0 0 0 4px rgba(41, 92, 67, 0.12);
 }
 
-.status-pill--waiting {
+.status-pill--new {
   color: #7a5a10;
   background: #f5e8ba;
 }
 
-.status-pill--todo {
+.status-pill--in_review {
   color: #6b7280;
   background: #edf0f3;
 }
 
-.status-pill--in_progress {
+.status-pill--in_discussion {
   color: #0e5a8a;
   background: #dbeeff;
 }
@@ -1657,15 +1657,15 @@ a {
   background: transparent;
 }
 
-.task-state-row--waiting td:first-child .sheet-table__cell-shell::before {
+.task-state-row--new td:first-child .sheet-table__cell-shell::before {
   background: #d8b765;
 }
 
-.task-state-row--todo td:first-child .sheet-table__cell-shell::before {
+.task-state-row--in_review td:first-child .sheet-table__cell-shell::before {
   background: #98a0aa;
 }
 
-.task-state-row--in_progress td:first-child .sheet-table__cell-shell::before {
+.task-state-row--in_discussion td:first-child .sheet-table__cell-shell::before {
   background: #4f89c2;
 }
 
@@ -1677,7 +1677,7 @@ a {
   background: #5d9b78;
 }
 
-.task-state-row--in_progress {
+.task-state-row--in_discussion {
   background: rgba(79, 137, 194, 0.06);
 }
 

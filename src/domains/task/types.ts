@@ -1,4 +1,6 @@
-export type TaskStatus = "waiting" | "todo" | "in_progress" | "done" | "blocked";
+export type { TaskStatus } from "./status";
+
+import type { TaskStatus } from "./status";
 
 export type TaskRecord = {
   id: string;

@@ -214,7 +214,7 @@ function buildTaskPrioritySummaryMap(tasks: readonly TaskRecord[], todayKey: str
 }
 
 function getPriorityRank(task: TaskRecord, todayKey: string) {
-  if (task.status === "in_progress") return 0;
+  if (task.status === "in_discussion") return 0;
   if (task.status === "done") return 6;
 
   if (task.dueDate && task.dueDate < todayKey) {
@@ -225,8 +225,8 @@ function getPriorityRank(task: TaskRecord, todayKey: string) {
     return 2;
   }
 
-  if (task.status === "todo") return 3;
-  if (task.status === "waiting") return 4;
+  if (task.status === "in_review") return 3;
+  if (task.status === "new") return 4;
   if (task.status === "blocked") return 5;
   return 3;
 }

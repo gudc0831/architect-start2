@@ -6,6 +6,10 @@ import type { PrismaClient } from "@prisma/client";
 import { initializeApp, getApps } from "firebase/app";
 import { collection, getDocs, getFirestore } from "firebase/firestore";
 import { buildProjectIssueId } from "../src/domains/task/identifiers";
+import {
+  canonicalizeTaskStatusHistory,
+  normalizeTaskStatus as normalizeCanonicalTaskStatus,
+} from "../src/domains/task/status";
 import { classifyLegacyWorkType } from "../src/lib/task-work-type-write";
 
 loadEnvConfig(process.cwd());
@@ -172,8 +176,8 @@ async function main() {
         createdAt: new Date(createdAt),
         isDaily: Boolean(task.legacy.isDaily),
         description: normalizeText(task.legacy.description),
-        status: normalizeTaskStatus(task.legacy.status),
-        statusHistory: normalizeText(task.legacy.progressNote),
+        status: normalizeCanonicalTaskStatus(task.legacy.status),
+        statusHistory: canonicalizeTaskStatusHistory(task.legacy.progressNote, normalizeCanonicalTaskStatus(task.legacy.status), createdAt),
         conclusion: [normalizeText(task.legacy.conclusion), normalizeText(task.legacy.fileMemo)].filter(Boolean).join("\n\n"),
         deletedAt: normalizeText(task.legacy.deletedAt) ? new Date(String(task.legacy.deletedAt)) : null,
       },
@@ -195,8 +199,8 @@ async function main() {
         createdAt: new Date(createdAt),
         isDaily: Boolean(task.legacy.isDaily),
         description: normalizeText(task.legacy.description),
-        status: normalizeTaskStatus(task.legacy.status),
-        statusHistory: normalizeText(task.legacy.progressNote),
+        status: normalizeCanonicalTaskStatus(task.legacy.status),
+        statusHistory: canonicalizeTaskStatusHistory(task.legacy.progressNote, normalizeCanonicalTaskStatus(task.legacy.status), createdAt),
         conclusion: [normalizeText(task.legacy.conclusion), normalizeText(task.legacy.fileMemo)].filter(Boolean).join("\n\n"),
         deletedAt: normalizeText(task.legacy.deletedAt) ? new Date(String(task.legacy.deletedAt)) : null,
       },
@@ -650,14 +654,6 @@ function normalizeDateOnly(value: unknown) {
 function normalizeDateTime(value: unknown, fallback: string) {
   const raw = normalizeText(value);
   return raw || fallback;
-}
-
-function normalizeTaskStatus(value: unknown) {
-  if (value === "waiting" || value === "todo" || value === "in_progress" || value === "blocked" || value === "done") {
-    return value;
-  }
-
-  return "waiting";
 }
 
 function safeFilename(name: string) {

@@ -1,4 +1,5 @@
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
+import { DEFAULT_TASK_STATUS, normalizeTaskStatus, TASK_STATUS_ORDER } from "@/domains/task/status";
 import type { TaskStatus } from "@/domains/task/types";
 import { normalizeWorkTypeIdentifier } from "@/domains/task/work-types";
 import { t } from "@/lib/ui-copy";
@@ -12,8 +13,7 @@ export type TaskCategoryContext = {
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinitionLike[]>>;
 };
 
-const taskStatusOrder = ["waiting", "todo", "in_progress", "blocked", "done"] as const satisfies readonly TaskStatus[];
-const taskStatusOptions = taskStatusOrder.map((status) => ({
+const taskStatusOptions = TASK_STATUS_ORDER.map((status) => ({
   value: status,
   label: labelForStatus(status),
 }));
@@ -35,8 +35,7 @@ function getActiveDefinitionsForField(fieldKey: TaskCategoryFieldKey, context: T
 }
 
 function normalizeStatusValue(value: string | null | undefined) {
-  const raw = String(value ?? "").trim();
-  return taskStatusOrder.includes(raw as TaskStatus) ? raw : "waiting";
+  return normalizeTaskStatus(value, DEFAULT_TASK_STATUS);
 }
 
 export function parseStoredTaskCategoryValues(value: unknown) {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { DEFAULT_TASK_STATUS } from "@/domains/task/status";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { createTask, listTasks } from "@/use-cases/task-service";
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
         locationRef: body.locationRef ?? body["Location Ref"] ?? "",
         calendarLinked: Boolean(body.calendarLinked ?? body["Calendar Linked"] ?? false),
         issueDetailNote: body.issueDetailNote ?? body["ISSUE Detail Note"] ?? "",
-        status: body.status ?? "waiting",
+        status: body.status ?? DEFAULT_TASK_STATUS,
         decision: body.decision ?? "",
         createdAt: body.createdAt,
         parentTaskId: body.parentTaskId ?? null,

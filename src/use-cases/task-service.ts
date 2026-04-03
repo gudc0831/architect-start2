@@ -3,6 +3,13 @@ import {
   normalizeTaskCategoryFieldValue,
   resolvePatchedTaskCategoryFieldValue,
 } from "@/domains/admin/task-category-values";
+import {
+  canonicalizeTaskStatusHistory,
+  createTaskStatusHistoryEntry,
+  DEFAULT_TASK_STATUS,
+  isCompatibleTaskStatus,
+  normalizeTaskStatus,
+} from "@/domains/task/status";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import {
@@ -28,8 +35,6 @@ type EffectiveTaskCategories = {
   relatedDisciplines: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
   locationRef: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
 };
-
-const taskStatusSet = new Set<TaskStatus>(["waiting", "todo", "in_progress", "blocked", "done"]);
 
 export async function listTasks(scope: TaskScope) {
   const project = await getSelectedTaskProject();
@@ -446,12 +451,13 @@ function applyStatusSideEffects(currentTask: TaskRecord, next: UpdateTaskInput) 
 }
 
 function buildInitialStatusHistory(status: TaskStatus) {
-  return `${nowIso()} - ${status}`;
+  return createTaskStatusHistoryEntry(nowIso(), status);
 }
 
 function appendStatusHistory(current: string, nextStatus: TaskStatus) {
-  const entry = `${nowIso()} - ${nextStatus}`;
-  return current ? `${current}\n${entry}` : entry;
+  const entry = createTaskStatusHistoryEntry(nowIso(), nextStatus);
+  const normalizedCurrent = canonicalizeTaskStatusHistory(current, nextStatus);
+  return normalizedCurrent ? `${normalizedCurrent}\n${entry}` : entry;
 }
 
 function resolveParentTaskId(tasks: TaskRecord[], parentTaskId?: string | null, parentTaskNumber?: string | null) {
@@ -545,11 +551,11 @@ function normalizeStoredDate(value?: string | null) {
 }
 
 function normalizeStatus(value: string | TaskStatus) {
-  if (!taskStatusSet.has(value as TaskStatus)) {
+  if (!isCompatibleTaskStatus(value)) {
     throw badRequest("status is invalid", "TASK_STATUS_INVALID");
   }
 
-  return value as TaskStatus;
+  return normalizeTaskStatus(value, DEFAULT_TASK_STATUS);
 }
 
 function nowIso() {
