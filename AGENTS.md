@@ -108,6 +108,7 @@ Before the final response, always check:
 - For non-trivial coding or documentation tasks, create or update a concise task log under `docs/worklogs/` unless the user prefers a different location.
 - Use one log file per task or change set to keep history easy to scan and reduce merge conflicts.
 - Record the user request, implementation summary, verification performed, resulting artifacts or changed files, and any remaining risks or unverified areas.
+- For commit-linked logs, prefer the compact `Req / Diff / Why / Verify/Time` format, keep it to 3-5 non-empty lines, and base the `Diff` line on the staged diff.
 - Keep logs brief and factual. Do not create committed work logs for trivial edits unless the user explicitly asks for them.
 
 ## Prohibited Behaviors

@@ -97,6 +97,33 @@ git commit -m "Short clear message"
 git push
 ```
 
+## Compact Commit Worklog
+
+Keep one compact worklog per non-trivial commit under `docs/worklogs/`.
+
+Format:
+
+```text
+Req: ...
+Diff: ...
+Why: ...
+Verify/Time: ...
+```
+
+Recommended flow:
+
+```powershell
+git add -p
+npm run worklog:new -- --slug short-topic --req "what changed" --why "why this commit is ready" --verify "typecheck" --start 09:40
+git commit -m "feat: short topic"
+```
+
+Notes:
+
+- `npm run worklog:new` writes a 4-line log, fills `Diff:` from the staged diff, and stages the log file automatically.
+- Install the guard once per clone with `npm run git:hooks:install`.
+- After the hook is installed, commits with staged code changes are blocked unless at least one staged worklog in `docs/worklogs/` matches the compact 3-5 line format.
+
 When resuming on another machine:
 
 ```powershell
