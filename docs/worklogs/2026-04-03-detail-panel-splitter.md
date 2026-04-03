@@ -1,0 +1,4 @@
+Req: daily 작업 화면 우측 상세패널에 드래그 스플리터를 추가하고, 패널을 독립 스크롤로 분리하며 사용자별 너비 복원을 지원.
+Diff: extended task-list-layout preferences with detailPanelWidth across domain/api/local+postgres persistence and prisma migration, added docked detail-panel splitter/keyboard resize logic in src/components/tasks/task-workspace.tsx, and updated src/app/globals.css for 3-column layout plus panel-only scrolling.
+Why: 페이지 전체를 끝까지 내려야 하는 기존 상세패널 사용성을 없애고, 데스크톱에서 패널 폭 조절과 내부 스크롤을 제공하기 위해.
+Verify: npm run db:generate, npm run lint (repo 기존 warning 4건만 유지), npm run typecheck and npm run build (우리 앱 변경 경로 신규 오류 없음; tmp-gstack-install-check 하위의 기존 외부 샘플 오류로 전체 실패), browser QA on /preview/daily at 1440 and 1280 including expand, splitter drag, ArrowRight keyboard resize (440→416), separator hidden below 1360, panel-only wheel scroll (window.scrollY 0 유지 / detail-panel body scrollTop 0→772), and preview-user localStorage persistence showing detailPanelWidth 364 after reload.

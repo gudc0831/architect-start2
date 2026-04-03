@@ -16,7 +16,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const user = await requireUser();
-    const body = (await request.json()) as { columnWidths?: unknown; rowHeights?: unknown };
+    const body = (await request.json()) as { columnWidths?: unknown; rowHeights?: unknown; detailPanelWidth?: unknown };
     const layout = await updateTaskListLayout(user.id, body);
     return NextResponse.json({ data: layout });
   } catch (error) {

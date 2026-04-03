@@ -34,7 +34,7 @@ type TaskExportWorkbookInput = {
   projectName: string;
   tasks: TaskRecord[];
   files: FileRecord[];
-  layout: TaskListLayoutPreference;
+  layout: Pick<TaskListLayoutPreference, "columnWidths" | "rowHeights">;
   categoryDefinitionsByField?: Partial<
     Record<
       TaskCategoryFieldKey,

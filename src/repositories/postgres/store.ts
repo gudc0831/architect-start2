@@ -528,12 +528,13 @@ class PostgresPreferenceRepository implements PreferenceRepository {
   async getTaskListLayout(profileId: string): Promise<TaskListLayoutPreference> {
     const record = await prisma.profilePreference.findUnique({
       where: { profileId },
-      select: { taskListColumnWidths: true, taskListRowHeights: true },
+      select: { taskListColumnWidths: true, taskListRowHeights: true, taskListDetailPanelWidth: true },
     });
 
     return sanitizeTaskListLayoutPreference({
       columnWidths: record?.taskListColumnWidths ?? {},
       rowHeights: record?.taskListRowHeights ?? {},
+      detailPanelWidth: record?.taskListDetailPanelWidth,
     });
   }
 
@@ -544,18 +545,21 @@ class PostgresPreferenceRepository implements PreferenceRepository {
       update: {
         taskListColumnWidths: sanitized.columnWidths,
         taskListRowHeights: sanitized.rowHeights,
+        taskListDetailPanelWidth: sanitized.detailPanelWidth,
       },
       create: {
         profileId,
         taskListColumnWidths: sanitized.columnWidths,
         taskListRowHeights: sanitized.rowHeights,
+        taskListDetailPanelWidth: sanitized.detailPanelWidth,
       },
-      select: { taskListColumnWidths: true, taskListRowHeights: true },
+      select: { taskListColumnWidths: true, taskListRowHeights: true, taskListDetailPanelWidth: true },
     });
 
     return sanitizeTaskListLayoutPreference({
       columnWidths: record.taskListColumnWidths,
       rowHeights: record.taskListRowHeights,
+      detailPanelWidth: record.taskListDetailPanelWidth,
     });
   }
 }

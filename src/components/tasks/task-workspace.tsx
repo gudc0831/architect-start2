@@ -12,6 +12,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import type {
+  CSSProperties,
   DragEvent as ReactDragEvent,
   FocusEvent as ReactFocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -63,11 +64,16 @@ import {
   type TaskTreeRow,
 } from "@/domains/task/daily-list";
 import {
+  DETAIL_PANEL_DEFAULT_WIDTH,
+  DETAIL_PANEL_MAX_WIDTH,
+  DETAIL_PANEL_MIN_WIDTH,
   TASK_LIST_ROW_MIN_HEIGHT,
+  clampDetailPanelWidth,
   clampQuickCreateWidth,
   clampTaskListColumnWidth,
   clampTaskListRowHeight,
   quickCreateDefaultWidths,
+  resolveDetailPanelWidth,
   resolveQuickCreateWidths,
   resolveTaskListColumnWidths,
   sanitizeQuickCreateWidths,
@@ -203,6 +209,11 @@ type TaskListRowResizeState = {
   startHeight: number;
 };
 
+type DetailPanelResizeState = {
+  startX: number;
+  startWidth: number;
+};
+
 type LinkedDocumentsDisplay = {
   primary: string;
   secondary: string | null;
@@ -329,6 +340,7 @@ const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filte
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
 const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
+const DETAIL_PANEL_RESIZE_KEYBOARD_STEP = 24;
 const editableTaskFormKeys = [
   "dueDate",
   "workType",
@@ -443,12 +455,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [quickCreateWidths, setQuickCreateWidths] = useState<ResolvedQuickCreateWidthMap>(() => resolveQuickCreateWidths());
   const [taskListColumnWidths, setTaskListColumnWidths] = useState<ResolvedTaskListColumnWidthMap>(() => resolveTaskListColumnWidths());
   const [taskListRowHeights, setTaskListRowHeights] = useState<TaskListRowHeightMap>({});
+  const [detailPanelWidth, setDetailPanelWidth] = useState(DETAIL_PANEL_DEFAULT_WIDTH);
   const quickCreateWidthsRef = useRef<ResolvedQuickCreateWidthMap>(resolveQuickCreateWidths());
   const taskListColumnWidthsRef = useRef<ResolvedTaskListColumnWidthMap>(resolveTaskListColumnWidths());
   const taskListRowHeightsRef = useRef<TaskListRowHeightMap>({});
+  const detailPanelWidthRef = useRef(DETAIL_PANEL_DEFAULT_WIDTH);
   const quickCreateResizeStateRef = useRef<QuickCreateResizeState | null>(null);
   const taskListColumnResizeStateRef = useRef<TaskListColumnResizeState | null>(null);
   const taskListRowResizeStateRef = useRef<TaskListRowResizeState | null>(null);
+  const detailPanelResizeStateRef = useRef<DetailPanelResizeState | null>(null);
   const taskListRowCellRefs = useRef<Map<string, Map<TaskListColumnKey, HTMLDivElement>>>(new Map());
   const dailyTreeRowsRef = useRef<TaskTreeRow[]>([]);
   const filesByTaskIdRef = useRef<Record<string, FileRecord[]>>({});
@@ -478,10 +493,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     viewportWidth < MOBILE_BREAKPOINT ? "stacked" : viewportWidth < TABLET_BREAKPOINT ? "wrapped" : "strip";
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
+  const isDetailPanelResizable = mode === "daily" && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
-  const taskListLayoutStorageKey = mode === "daily" && authUser?.id ? getTaskListLayoutStorageKey(authUser.id) : null;
+  const taskListLayoutStorageKey =
+    mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
   const categoricalFilterStorageBaseKey =
     mode === "daily" && currentProjectId && (authUser?.id || isPreview)
       ? getCategoricalFilterStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
@@ -1020,10 +1037,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const applyTaskListLayout = useCallback((layout: TaskListLayoutPreference) => {
     const nextColumnWidths = resolveTaskListColumnWidths(layout.columnWidths);
     const nextRowHeights = pruneTaskListRowHeights(layout.rowHeights, taskListVisibleTaskIdsRef.current);
+    const nextDetailPanelWidth = resolveDetailPanelWidth(layout.detailPanelWidth);
     taskListColumnWidthsRef.current = nextColumnWidths;
     taskListRowHeightsRef.current = nextRowHeights;
+    detailPanelWidthRef.current = nextDetailPanelWidth;
     setTaskListColumnWidths(nextColumnWidths);
     setTaskListRowHeights(nextRowHeights);
+    setDetailPanelWidth(nextDetailPanelWidth);
   }, []);
 
   const registerTaskListRowCellRef = useCallback((taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => {
@@ -1047,15 +1067,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     (
       nextColumnWidths: ResolvedTaskListColumnWidthMap = taskListColumnWidthsRef.current,
       nextRowHeights: TaskListRowHeightMap = taskListRowHeightsRef.current,
+      nextDetailPanelWidth: number = detailPanelWidthRef.current,
     ) => {
       if (!taskListLayoutStorageKey) return;
 
       const sanitizedLayout = sanitizeTaskListLayoutPreference({
         columnWidths: nextColumnWidths,
         rowHeights: pruneTaskListRowHeights(nextRowHeights, taskListVisibleTaskIdsRef.current),
+        detailPanelWidth: nextDetailPanelWidth,
       });
 
       taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
+      detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
       writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
       if (!canPersistTaskListLayoutToServer) return;
@@ -1110,9 +1133,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const sanitizedLayout = sanitizeTaskListLayoutPreference({
       columnWidths: taskListColumnWidthsRef.current,
       rowHeights: pruneTaskListRowHeights(taskListRowHeightsRef.current, taskListVisibleTaskIdsRef.current),
+      detailPanelWidth: detailPanelWidthRef.current,
     });
 
     taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
+    detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
     writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
     if (!canPersistTaskListLayoutToServer) return;
@@ -1148,7 +1173,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       );
       setTaskListRowHeight(taskId, nextHeight, true);
     },
-    [draft, selectedTaskId, setTaskListRowHeight, workTypeDefinitions],
+    [categoryDefinitionsByField, draft, selectedTaskId, setTaskListRowHeight, workTypeDefinitions],
   );
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(
@@ -1251,6 +1276,94 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [handleTaskListRowResizeEnd, handleTaskListRowResizeMove],
   );
 
+  const updateDetailPanelWidthValue = useCallback(
+    (nextWidth: number, shouldPersist = false) => {
+      const clampedWidth = clampDetailPanelWidth(nextWidth);
+      if (detailPanelWidthRef.current === clampedWidth && !shouldPersist) {
+        return;
+      }
+
+      taskListLayoutInteractionVersionRef.current += 1;
+      detailPanelWidthRef.current = clampedWidth;
+      setDetailPanelWidth((previous) => (previous === clampedWidth ? previous : clampedWidth));
+
+      if (shouldPersist) {
+        persistTaskListLayout(taskListColumnWidthsRef.current, taskListRowHeightsRef.current, clampedWidth);
+      }
+    },
+    [persistTaskListLayout],
+  );
+
+  const handleDetailPanelResizeMove = useCallback((event: PointerEvent) => {
+    const resizeState = detailPanelResizeStateRef.current;
+    if (!resizeState) return;
+
+    const nextWidth = clampDetailPanelWidth(resizeState.startWidth - (event.clientX - resizeState.startX));
+    updateDetailPanelWidthValue(nextWidth);
+  }, [updateDetailPanelWidthValue]);
+
+  const handleDetailPanelResizeEnd = useCallback(() => {
+    if (!detailPanelResizeStateRef.current) return;
+
+    detailPanelResizeStateRef.current = null;
+    window.removeEventListener("pointermove", handleDetailPanelResizeMove);
+    window.removeEventListener("pointerup", handleDetailPanelResizeEnd);
+    window.removeEventListener("pointercancel", handleDetailPanelResizeEnd);
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+    persistTaskListLayout(taskListColumnWidthsRef.current, taskListRowHeightsRef.current, detailPanelWidthRef.current);
+  }, [handleDetailPanelResizeMove, persistTaskListLayout]);
+
+  const handleDetailPanelResizeStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isDetailPanelResizable) return;
+      event.preventDefault();
+      event.stopPropagation();
+      handleDetailPanelResizeEnd();
+
+      detailPanelResizeStateRef.current = {
+        startX: event.clientX,
+        startWidth: detailPanelWidthRef.current,
+      };
+
+      window.addEventListener("pointermove", handleDetailPanelResizeMove);
+      window.addEventListener("pointerup", handleDetailPanelResizeEnd);
+      window.addEventListener("pointercancel", handleDetailPanelResizeEnd);
+      document.body.style.cursor = "ew-resize";
+      document.body.style.userSelect = "none";
+    },
+    [handleDetailPanelResizeEnd, handleDetailPanelResizeMove, isDetailPanelResizable],
+  );
+
+  const handleDetailPanelResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!isDetailPanelResizable) return;
+
+      let nextWidth: number | null = null;
+      switch (event.key) {
+        case "ArrowLeft":
+          nextWidth = detailPanelWidthRef.current + DETAIL_PANEL_RESIZE_KEYBOARD_STEP;
+          break;
+        case "ArrowRight":
+          nextWidth = detailPanelWidthRef.current - DETAIL_PANEL_RESIZE_KEYBOARD_STEP;
+          break;
+        case "Home":
+          nextWidth = DETAIL_PANEL_MIN_WIDTH;
+          break;
+        case "End":
+          nextWidth = DETAIL_PANEL_MAX_WIDTH;
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      updateDetailPanelWidthValue(nextWidth, true);
+    },
+    [isDetailPanelResizable, updateDetailPanelWidthValue],
+  );
+
   useEffect(() => {
     taskListColumnWidthsRef.current = taskListColumnWidths;
   }, [taskListColumnWidths]);
@@ -1260,8 +1373,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [taskListRowHeights]);
 
   useEffect(() => {
+    detailPanelWidthRef.current = detailPanelWidth;
+  }, [detailPanelWidth]);
+
+  useEffect(() => {
+    if (isDetailPanelResizable) return;
+    handleDetailPanelResizeEnd();
+  }, [handleDetailPanelResizeEnd, isDetailPanelResizable]);
+
+  useEffect(() => {
     if (!taskListLayoutStorageKey) {
-      applyTaskListLayout({ columnWidths: {}, rowHeights: {} });
+      applyTaskListLayout({ columnWidths: {}, rowHeights: {}, detailPanelWidth: DETAIL_PANEL_DEFAULT_WIDTH });
       return;
     }
 
@@ -1285,6 +1407,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         writeTaskListLayoutToStorage(taskListLayoutStorageKey, {
           columnWidths: taskListColumnWidthsRef.current,
           rowHeights: taskListRowHeightsRef.current,
+          detailPanelWidth: detailPanelWidthRef.current,
         });
       } catch {
         // Keep the local layout when the preference API is unavailable.
@@ -1311,10 +1434,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       window.removeEventListener("pointermove", handleTaskListRowResizeMove);
       window.removeEventListener("pointerup", handleTaskListRowResizeEnd);
       window.removeEventListener("pointercancel", handleTaskListRowResizeEnd);
+      window.removeEventListener("pointermove", handleDetailPanelResizeMove);
+      window.removeEventListener("pointerup", handleDetailPanelResizeEnd);
+      window.removeEventListener("pointercancel", handleDetailPanelResizeEnd);
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };
-  }, [flushTaskListLayoutSave, handleTaskListColumnResizeEnd, handleTaskListColumnResizeMove, handleTaskListRowResizeEnd, handleTaskListRowResizeMove]);
+  }, [
+    flushTaskListLayoutSave,
+    handleDetailPanelResizeEnd,
+    handleDetailPanelResizeMove,
+    handleTaskListColumnResizeEnd,
+    handleTaskListColumnResizeMove,
+    handleTaskListRowResizeEnd,
+    handleTaskListRowResizeMove,
+  ]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -1419,6 +1553,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [dailyTreeRows]);
 
   const taskListTableWidth = useMemo(() => dailyTaskListColumns.reduce((total, column) => total + taskListColumnWidths[column.key], 0), [taskListColumnWidths]);
+  const workspaceBodyStyle = useMemo(
+    () =>
+      ({
+        ["--detail-panel-width" as string]: `${detailPanelWidth}px`,
+      }) as CSSProperties,
+    [detailPanelWidth],
+  );
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
   const selectedTask = useMemo(() => sortedTasks.find((task) => task.id === selectedTaskId) ?? null, [selectedTaskId, sortedTasks]);
 
@@ -2480,6 +2621,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       "small",
       ".detail-actions",
       ".composer-card__toggle",
+      ".detail-panel-splitter",
     ].join(", ");
 
     if (target.closest(keepOpenSelector)) return;
@@ -2526,6 +2668,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       const detailPanelElement = target.closest<HTMLElement>(".detail-panel");
       if (detailPanelElement) return;
+
+      const detailPanelSplitterElement = target.closest<HTMLElement>(".detail-panel-splitter");
+      if (detailPanelSplitterElement) return;
 
       if (hasSelectedTaskDraftChanges()) {
         if (saving || isClearingSelectionRef.current) {
@@ -2689,6 +2834,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             mode === "daily" && isDetailDocked && !isDetailExpanded && "workspace__body--detail-collapsed",
           )}
           onClickCapture={handleWorkspaceBackgroundClick}
+          style={workspaceBodyStyle}
         >
           <div className="workspace__main" onClickCapture={handleWorkspaceBackgroundClick}>
             {!isTrashMode && sortedTasks.length === 0 && files.length === 0 ? (
@@ -3312,6 +3458,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             ) : null}
           </div>
 
+          {isDetailPanelResizable ? (
+            <div
+              aria-controls="task-detail-panel"
+              aria-label={t("workspace.resizeFieldAria", { field: t("workspace.taskDetailsTitle") })}
+              aria-orientation="vertical"
+              aria-valuemax={DETAIL_PANEL_MAX_WIDTH}
+              aria-valuemin={DETAIL_PANEL_MIN_WIDTH}
+              aria-valuenow={detailPanelWidth}
+              className="detail-panel-splitter"
+              onKeyDown={handleDetailPanelResizeKeyDown}
+              onPointerDown={handleDetailPanelResizeStart}
+              role="separator"
+              tabIndex={0}
+            />
+          ) : null}
+
           {mode === "daily" ? (
             <aside
               className={clsx(
@@ -3320,6 +3482,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 !isDetailDocked && "detail-panel--below",
                 isDetailExpanded ? "detail-panel--expanded" : "detail-panel--collapsed",
               )}
+              id="task-detail-panel"
               onBlurCapture={handleDetailPanelBlur}
               onFocusCapture={handleDetailPanelFocus}
               onPointerDownCapture={handleDetailPanelPointerDownCapture}
@@ -3961,15 +4124,15 @@ function getTaskListLayoutStorageKey(userId: string) {
 
 function readTaskListLayoutFromStorage(storageKey: string): TaskListLayoutPreference {
   if (typeof window === "undefined") {
-    return { columnWidths: {}, rowHeights: {} };
+    return { columnWidths: {}, rowHeights: {}, detailPanelWidth: DETAIL_PANEL_DEFAULT_WIDTH };
   }
 
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return { columnWidths: {}, rowHeights: {} };
+    if (!raw) return { columnWidths: {}, rowHeights: {}, detailPanelWidth: DETAIL_PANEL_DEFAULT_WIDTH };
     return sanitizeTaskListLayoutPreference(JSON.parse(raw));
   } catch {
-    return { columnWidths: {}, rowHeights: {} };
+    return { columnWidths: {}, rowHeights: {}, detailPanelWidth: DETAIL_PANEL_DEFAULT_WIDTH };
   }
 }
 

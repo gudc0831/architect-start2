@@ -138,6 +138,7 @@ model ProfilePreference {
   quickCreateWidths    Json     @default("{}") @map("quick_create_widths")
   taskListColumnWidths Json     @default("{}") @map("task_list_column_widths")
   taskListRowHeights   Json     @default("{}") @map("task_list_row_heights")
+  taskListDetailPanelWidth Int  @default(340) @map("task_list_detail_panel_width")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)

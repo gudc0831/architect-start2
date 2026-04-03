@@ -7,6 +7,7 @@ type PreferenceStoreRecord = {
   quickCreateWidths?: QuickCreateWidthMap;
   taskListColumnWidths?: TaskListColumnWidthMap;
   taskListRowHeights?: TaskListRowHeightMap;
+  taskListDetailPanelWidth?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -36,6 +37,9 @@ class LocalPreferenceRepository implements PreferenceRepository {
       quickCreateWidths: sanitizeQuickCreateWidths(widths),
       taskListColumnWidths: sanitizeTaskListColumnWidths(current?.taskListColumnWidths ?? {}),
       taskListRowHeights: sanitizeTaskListRowHeights(current?.taskListRowHeights ?? {}),
+      taskListDetailPanelWidth: sanitizeTaskListLayoutPreference({
+        detailPanelWidth: current?.taskListDetailPanelWidth,
+      }).detailPanelWidth,
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
@@ -48,6 +52,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
     return sanitizeTaskListLayoutPreference({
       columnWidths: store[profileId]?.taskListColumnWidths ?? {},
       rowHeights: store[profileId]?.taskListRowHeights ?? {},
+      detailPanelWidth: store[profileId]?.taskListDetailPanelWidth,
     });
   }
 
@@ -60,6 +65,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
       quickCreateWidths: sanitizeQuickCreateWidths(current?.quickCreateWidths ?? {}),
       taskListColumnWidths: sanitizedLayout.columnWidths,
       taskListRowHeights: sanitizedLayout.rowHeights,
+      taskListDetailPanelWidth: sanitizedLayout.detailPanelWidth,
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
@@ -67,6 +73,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
     return sanitizeTaskListLayoutPreference({
       columnWidths: store[profileId].taskListColumnWidths ?? {},
       rowHeights: store[profileId].taskListRowHeights ?? {},
+      detailPanelWidth: store[profileId].taskListDetailPanelWidth,
     });
   }
 }

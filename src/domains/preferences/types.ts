@@ -43,6 +43,7 @@ export type TaskListRowHeightMap = Record<string, number>;
 export type TaskListLayoutPreference = {
   columnWidths: TaskListColumnWidthMap;
   rowHeights: TaskListRowHeightMap;
+  detailPanelWidth: number;
 };
 
 export const QUICK_CREATE_MIN_WIDTH = 16;
@@ -51,6 +52,9 @@ export const TASK_LIST_COLUMN_MIN_WIDTH = 16;
 export const TASK_LIST_COLUMN_MAX_WIDTH = 2400;
 export const TASK_LIST_ROW_MIN_HEIGHT = 52;
 export const TASK_LIST_ROW_MAX_HEIGHT = 2400;
+export const DETAIL_PANEL_DEFAULT_WIDTH = 340;
+export const DETAIL_PANEL_MIN_WIDTH = 280;
+export const DETAIL_PANEL_MAX_WIDTH = 560;
 
 export const quickCreateDefaultWidths: ResolvedQuickCreateWidthMap = {
   actionId: 132,
@@ -107,6 +111,10 @@ export function clampTaskListRowHeight(value: number) {
   return Math.max(TASK_LIST_ROW_MIN_HEIGHT, Math.min(TASK_LIST_ROW_MAX_HEIGHT, Math.round(value)));
 }
 
+export function clampDetailPanelWidth(value: number) {
+  return Math.max(DETAIL_PANEL_MIN_WIDTH, Math.min(DETAIL_PANEL_MAX_WIDTH, Math.round(value)));
+}
+
 function coerceClampedNumber(value: unknown, clampValue: (value: number) => number) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return clampValue(value);
@@ -132,6 +140,10 @@ function coerceTaskListColumnWidthValue(value: unknown) {
 
 function coerceTaskListRowHeightValue(value: unknown) {
   return coerceClampedNumber(value, clampTaskListRowHeight);
+}
+
+function coerceDetailPanelWidthValue(value: unknown) {
+  return coerceClampedNumber(value, clampDetailPanelWidth);
 }
 
 export function sanitizeQuickCreateWidths(input: unknown): QuickCreateWidthMap {
@@ -203,12 +215,17 @@ export function sanitizeTaskListRowHeights(input: unknown): TaskListRowHeightMap
 
 export function sanitizeTaskListLayoutPreference(input: unknown): TaskListLayoutPreference {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { columnWidths: {}, rowHeights: {} };
+    return { columnWidths: {}, rowHeights: {}, detailPanelWidth: DETAIL_PANEL_DEFAULT_WIDTH };
   }
 
-  const layout = input as { columnWidths?: unknown; rowHeights?: unknown };
+  const layout = input as { columnWidths?: unknown; rowHeights?: unknown; detailPanelWidth?: unknown };
   return {
     columnWidths: sanitizeTaskListColumnWidths(layout.columnWidths),
     rowHeights: sanitizeTaskListRowHeights(layout.rowHeights),
+    detailPanelWidth: coerceDetailPanelWidthValue(layout.detailPanelWidth) ?? DETAIL_PANEL_DEFAULT_WIDTH,
   };
+}
+
+export function resolveDetailPanelWidth(input?: unknown) {
+  return coerceDetailPanelWidthValue(input) ?? DETAIL_PANEL_DEFAULT_WIDTH;
 }
