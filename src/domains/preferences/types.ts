@@ -45,28 +45,28 @@ export type TaskListLayoutPreference = {
   rowHeights: TaskListRowHeightMap;
 };
 
-export const QUICK_CREATE_MIN_WIDTH = 160;
-export const QUICK_CREATE_MAX_WIDTH = 420;
+export const QUICK_CREATE_MIN_WIDTH = 16;
+export const QUICK_CREATE_MAX_WIDTH = 2400;
 export const TASK_LIST_COLUMN_MIN_WIDTH = 16;
 export const TASK_LIST_COLUMN_MAX_WIDTH = 2400;
 export const TASK_LIST_ROW_MIN_HEIGHT = 52;
 export const TASK_LIST_ROW_MAX_HEIGHT = 2400;
 
 export const quickCreateDefaultWidths: ResolvedQuickCreateWidthMap = {
-  actionId: 216,
-  dueDate: 176,
-  workType: 216,
-  coordinationScope: 216,
-  requestedBy: 216,
-  relatedDisciplines: 216,
-  assignee: 216,
-  issueTitle: 216,
-  reviewedAt: 176,
-  locationRef: 216,
-  calendarLinked: 216,
-  issueDetailNote: 216,
-  status: 216,
-  decision: 216,
+  actionId: 132,
+  dueDate: 152,
+  workType: 160,
+  coordinationScope: 160,
+  requestedBy: 160,
+  relatedDisciplines: 168,
+  assignee: 168,
+  issueTitle: 200,
+  reviewedAt: 152,
+  locationRef: 168,
+  calendarLinked: 104,
+  issueDetailNote: 200,
+  status: 160,
+  decision: 180,
 };
 
 export const taskListDefaultColumnWidths: ResolvedTaskListColumnWidthMap = {

@@ -102,6 +102,7 @@ import {
 type TaskWorkspaceProps = { mode: DashboardMode };
 type DetailPanelState = "collapsed" | "expanded";
 type TaskFormLayoutVariant = "detail" | "composer";
+type ComposerLayoutMode = "strip" | "wrapped" | "stacked";
 
 type TaskFormState = {
   actionId: string;
@@ -473,6 +474,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isDetailDocked = viewportWidth >= DETAIL_PANEL_BREAKPOINT;
   const usesAgendaView = viewportWidth < TABLET_BREAKPOINT;
   const canCollapseCreateForm = viewportWidth < TABLET_BREAKPOINT;
+  const quickCreateComposerMode: ComposerLayoutMode =
+    viewportWidth < MOBILE_BREAKPOINT ? "stacked" : viewportWidth < TABLET_BREAKPOINT ? "wrapped" : "strip";
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
@@ -2733,8 +2736,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
                   {isCreateFormOpen ? (
                     <div className="composer-card__body">
-                      <div className="composer-scroll-view">
+                      <div className={clsx("composer-scroll-view", quickCreateComposerMode !== "strip" && "composer-scroll-view--wrapped")}>
                         <TaskFormFields
+                          composerMode={quickCreateComposerMode}
                           form={form}
                           layout="composer"
                           onChange={updateForm}
@@ -3618,6 +3622,7 @@ function TaskListInlineEditor({
   );
 }
 function TaskFormFields({
+  composerMode = "strip",
   form,
   onChange,
   layout = "detail",
@@ -3629,6 +3634,7 @@ function TaskFormFields({
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
 }: {
+  composerMode?: ComposerLayoutMode;
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
   layout?: TaskFormLayoutVariant;
@@ -3640,11 +3646,22 @@ function TaskFormFields({
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
-  const gridClassName = layout === "composer" ? "composer-form-grid composer-scroll-track" : "detail-form-grid";
+  const isComposerStrip = layout === "composer" && composerMode === "strip";
+  const gridClassName =
+    layout === "composer"
+      ? clsx(
+          "composer-form-grid",
+          isComposerStrip
+            ? "composer-form-grid--strip composer-scroll-track"
+            : composerMode === "stacked"
+              ? "composer-form-grid--stacked"
+              : "composer-form-grid--wrapped",
+        )
+      : "detail-form-grid";
   const composerWidths = quickCreateWidths ?? quickCreateDefaultWidths;
 
   function getLabelProps(fieldKey: QuickCreateFieldKey | null, className: string) {
-    if (layout !== "composer" || !fieldKey) {
+    if (layout !== "composer" || !fieldKey || !isComposerStrip) {
       return { className };
     }
 
@@ -3661,7 +3678,7 @@ function TaskFormFields({
   }
 
   function renderResizeHandle(fieldKey: QuickCreateFieldKey) {
-    if (layout !== "composer" || !onComposerResizeStart) return null;
+    if (!isComposerStrip || !onComposerResizeStart) return null;
     return (
       <button
         aria-label={t("workspace.resizeFieldAria", { field: labelForField(fieldKey) })}

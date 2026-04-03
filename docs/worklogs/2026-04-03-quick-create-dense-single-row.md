@@ -1,0 +1,4 @@
+Req: quick-create dense single-row optimization for the daily composer.
+Diff: updated quick-create width bounds/defaults in src/domains/preferences/types.ts, added strip/wrapped composer behavior in src/components/tasks/task-workspace.tsx, and tightened composer-only density/responsive styles in src/app/globals.css.
+Why: keep desktop quick-create as a denser single horizontal strip, allow task-list-level resize freedom, and wrap to 2/1 columns on narrower viewports without affecting the task table.
+Verify: npm run lint (existing repo warnings only), npm run typecheck (blocked by unrelated tmp-gstack-install-check errors), browser QA on /daily at 1440/1280/1024/390 including resize persistence across reload + wrapped-to-desktop return, hidden resize handles in wrapped/mobile modes, and composer hide/show toggle behavior.
