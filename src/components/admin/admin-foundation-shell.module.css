@@ -1,0 +1,568 @@
+.adminPage {
+  display: grid;
+  gap: 1rem;
+}
+
+.heroCard,
+.sectionCard {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(165, 179, 167, 0.35);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 247, 0.97)),
+    radial-gradient(circle at top left, rgba(217, 232, 222, 0.36), transparent 36%);
+  box-shadow: var(--shadow-soft);
+}
+
+.heroHeading {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: clamp(1.75rem, 2.5vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.pageDescription {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.statusBanner {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(120, 133, 118, 0.22);
+  border-radius: 16px;
+  background: rgba(236, 242, 238, 0.92);
+  color: #345043;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sectionHeading {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+
+.sectionDescription {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.sectionAside {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.supportMeta {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(237, 243, 239, 0.92);
+  color: #506054;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.inlineForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.inlineAction {
+  min-width: 11rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #536257;
+}
+
+.field input,
+.field select {
+  min-height: 44px;
+  padding: 0.68rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: 0.93rem;
+  line-height: 1.35;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.button:hover:not(:disabled),
+.projectSwitchButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.button:focus-visible,
+.projectSwitchButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(41, 92, 67, 0.14);
+}
+
+.buttonPrimary {
+  background: var(--accent);
+  border-color: rgba(41, 92, 67, 0.78);
+  color: #fff;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: #224f39;
+}
+
+.buttonSecondary {
+  background: rgba(237, 243, 239, 0.95);
+  border-color: rgba(126, 141, 130, 0.34);
+  color: var(--text);
+}
+
+.buttonSecondary:hover:not(:disabled) {
+  background: rgba(230, 238, 232, 0.98);
+}
+
+.projectLayout,
+.membersLayout,
+.columnStack,
+.categoryGrid,
+.definitionActions,
+.paneBody {
+  display: grid;
+  gap: 1rem;
+}
+
+.subcard,
+.categoryPane,
+.membersGroup {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid rgba(165, 179, 167, 0.28);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.subcardHeader,
+.groupHeader,
+.paneHeader,
+.definitionMeta,
+.addBlockHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.subcardTitle,
+.groupTitle,
+.paneTitle,
+.addBlockTitle {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.subcardCopy,
+.groupCopy,
+.paneCaption,
+.addBlockCopy {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.projectSwitchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+}
+
+.projectSwitchButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(126, 141, 130, 0.3);
+  border-radius: 16px;
+  text-align: left;
+}
+
+.projectSwitchButtonActive {
+  background: linear-gradient(180deg, rgba(41, 92, 67, 0.98), rgba(36, 82, 59, 0.98));
+  border-color: rgba(41, 92, 67, 0.82);
+  color: #fff;
+}
+
+.projectSwitchButtonInactive {
+  background: rgba(242, 246, 243, 0.96);
+  color: var(--text);
+}
+
+.projectSwitchName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectSwitchMeta {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  line-height: 1;
+  opacity: 0.84;
+}
+
+.formGridTwo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.actionRowEnd,
+.addAction {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.memberRow,
+.memberDraftRow {
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.memberRow {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.95fr) 124px;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(197, 205, 196, 0.7);
+}
+
+.memberRowFirst {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.memberDraftRow {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 124px;
+}
+
+.rowActionSlot {
+  display: flex;
+  align-items: stretch;
+}
+
+.rowActionButton {
+  width: 100%;
+}
+
+.emptyCopy {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.categoryPane {
+  align-content: start;
+}
+
+.paneHeading {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.definitionRow {
+  display: grid;
+  gap: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(197, 205, 196, 0.7);
+}
+
+.definitionRowFirst {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.definitionMetaText {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.definitionTitle {
+  font-size: 0.96rem;
+  line-height: 1.2;
+}
+
+.definitionMetaLine {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.codeChip,
+.metaBadge,
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.65rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  line-height: 1;
+}
+
+.codeChip {
+  border: 1px solid rgba(126, 141, 130, 0.22);
+  background: rgba(237, 243, 239, 0.92);
+  color: #476052;
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+}
+
+.metaBadge {
+  background: rgba(222, 232, 224, 0.96);
+  color: #45614f;
+  font-weight: 700;
+}
+
+.stateBadge {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.stateBadgeActive {
+  background: rgba(217, 232, 222, 0.96);
+  color: #1d5f44;
+}
+
+.stateBadgeInactive {
+  background: rgba(242, 239, 232, 0.96);
+  color: #74684b;
+}
+
+.definitionEditor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.definitionFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 0.6fr);
+  gap: 0.75rem;
+}
+
+.checkboxField {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  min-height: 44px;
+  padding: 0.72rem 0.85rem;
+  border: 1px solid rgba(126, 141, 130, 0.3);
+  border-radius: 14px;
+  background: rgba(250, 252, 249, 0.92);
+}
+
+.checkboxField span {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #536257;
+}
+
+.checkboxInput {
+  width: 1.05rem;
+  min-width: 1.05rem;
+  min-height: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.addBlock {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid rgba(197, 205, 196, 0.7);
+}
+
+.addFields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 0.55fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 1280px) {
+  .projectLayout,
+  .categoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .definitionEditor {
+    grid-template-columns: 1fr;
+  }
+
+  .definitionActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memberRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .memberDraftRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memberRow .rowActionSlot,
+  .memberDraftRow .rowActionSlot {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 640px) {
+  .heroCard,
+  .sectionCard,
+  .subcard,
+  .categoryPane,
+  .membersGroup {
+    padding: 1rem;
+  }
+
+  .sectionHeader,
+  .subcardHeader,
+  .groupHeader,
+  .paneHeader,
+  .definitionMeta,
+  .addBlockHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .supportMeta {
+    white-space: normal;
+  }
+
+  .inlineForm,
+  .formGridTwo,
+  .definitionFields,
+  .addFields,
+  .memberRow,
+  .memberDraftRow,
+  .definitionActions {
+    grid-template-columns: 1fr;
+  }
+
+  .projectSwitchGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionRowEnd,
+  .addAction,
+  .memberRow .rowActionSlot,
+  .memberDraftRow .rowActionSlot {
+    justify-content: stretch;
+  }
+
+  .button,
+  .inlineAction,
+  .rowActionButton,
+  .actionRowEnd > *,
+  .addAction > * {
+    width: 100%;
+  }
+
+  .pageDescription,
+  .statusBanner,
+  .sectionDescription,
+  .subcardCopy,
+  .groupCopy,
+  .paneCaption,
+  .emptyCopy,
+  .addBlockCopy {
+    overflow-wrap: anywhere;
+  }
+}

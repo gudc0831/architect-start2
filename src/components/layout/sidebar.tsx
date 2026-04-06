@@ -67,38 +67,6 @@ export function Sidebar() {
             </select>
           </label>
         ) : null}
-        {showProjectSwitcher ? (
-          <div
-            style={{
-              display: "grid",
-              gap: "0.4rem",
-              maxHeight: "9.5rem",
-              overflowY: "auto",
-            }}
-          >
-            {availableProjects.map((project) => {
-              const isCurrent = project.id === currentProjectId;
-              return (
-                <button
-                  key={project.id}
-                  className={isCurrent ? "primary-button" : "secondary-button"}
-                  disabled={isCurrent || isSyncing}
-                  onClick={() => void switchProject(project.id)}
-                  style={{
-                    justifyContent: "space-between",
-                    minHeight: "2.4rem",
-                    fontSize: "0.92rem",
-                    paddingInline: "0.8rem",
-                  }}
-                  type="button"
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
-                  <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>{isCurrent ? "Current" : "Open"}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
         <div className="sidebar__project-panel">
           <div className="sidebar__project-heading">
             <span className="sidebar__project-label">Current project</span>
