@@ -35,6 +35,13 @@ export type UICatalog = {
     fallbackEyebrow: string;
     fallbackProjectName: string;
     headerCopy: string;
+    calendarMonthPickerLabel: string;
+    calendarMonthHeading: string;
+    calendarPreviousMonth: string;
+    calendarNextMonth: string;
+    calendarToday: string;
+    calendarMonthEmptyTitle: string;
+    calendarMonthEmptyBody: string;
     dataUploadSummary: string;
     metadataSummary: string;
     localAuthNote: string;
@@ -81,6 +88,13 @@ export type UICatalog = {
     unpinDetailPanel: string;
     expandDetailPanel: string;
     collapseDetailPanel: string;
+    expandBoardColumn: string;
+    collapseBoardColumn: string;
+    showTaskMemo: string;
+    hideTaskMemo: string;
+    showTaskMemoCompact: string;
+    hideTaskMemoCompact: string;
+    pageStatus: string;
     weekdays: {
       mon: string;
       tue: string;
@@ -168,6 +182,10 @@ export type UICatalog = {
     keepListVisible: string;
     back: string;
     next: string;
+    expand: string;
+    collapse: string;
+    showDetails: string;
+    hideDetails: string;
     cancel: string;
     confirm: string;
     save: string;
@@ -273,6 +291,13 @@ export const uiCopyCatalog = {
       fallbackEyebrow: "작업 공간",
       fallbackProjectName: "프로젝트",
       headerCopy: "보드, 목록, 캘린더, 휴지통 화면을 오가도 작업 맥락이 유지됩니다.",
+      calendarMonthPickerLabel: "연월 선택",
+      calendarMonthHeading: "{{month}}",
+      calendarPreviousMonth: "이전 달",
+      calendarNextMonth: "다음 달",
+      calendarToday: "오늘",
+      calendarMonthEmptyTitle: "{{month}}에는 일정이 없습니다.",
+      calendarMonthEmptyBody: "이전 달, 오늘, 다음 달 버튼이나 연월 선택기로 다른 달을 확인하세요.",
       dataUploadSummary: "데이터: {{data}} / 업로드: {{upload}}",
       metadataSummary: "프로젝트 정보: {{source}} / Supabase {{status}}",
       localAuthNote: "인증은 현재 로컬 플레이스홀더 모드로 동작 중입니다. 이후에도 화면 흐름을 바꾸지 않고 실제 로그인을 연결할 수 있습니다.",
@@ -304,7 +329,7 @@ export const uiCopyCatalog = {
       detailPanelEmpty: "목록에서 작업을 선택해 상세 정보를 수정하고 첨부 문서를 관리하세요.",
       dateInputPlaceholder: "YYYY-MM-DD",
       datePickerAria: "{{label}} 달력 열기",
-      parentTaskNumberPlaceholder: "MIL-001, #12 또는 12",
+      parentTaskNumberPlaceholder: "#12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
       headerFilterAria: "{{field}} 필터: {{label}}",
       hideIssueIdOverdueBadge: "이슈 ID 지연 표시 숨기기",
@@ -319,6 +344,13 @@ export const uiCopyCatalog = {
       unpinDetailPanel: "패널 고정 해제",
       expandDetailPanel: "패널 펼치기",
       collapseDetailPanel: "패널 최소화",
+      expandBoardColumn: "컬럼 펼치기",
+      collapseBoardColumn: "컬럼 접기",
+      showTaskMemo: "메모 보기",
+      hideTaskMemo: "메모 숨기기",
+      showTaskMemoCompact: "메모",
+      hideTaskMemoCompact: "접기",
+      pageStatus: "{{current}} / {{total}}",
       weekdays: {
         mon: "월",
         tue: "화",
@@ -433,6 +465,10 @@ export const uiCopyCatalog = {
       keepListVisible: "목록 유지",
       back: "이전",
       next: "다음",
+      expand: "펼치기",
+      collapse: "접기",
+      showDetails: "메모 보기",
+      hideDetails: "메모 숨기기",
       cancel: "취소",
       confirm: "확인",
       save: "저장",
@@ -536,6 +572,13 @@ export const uiCopyCatalog = {
       fallbackEyebrow: "Workspace",
       fallbackProjectName: "Project",
       headerCopy: "Switch between board, list, calendar, and archive views without losing context.",
+      calendarMonthPickerLabel: "Month",
+      calendarMonthHeading: "{{month}}",
+      calendarPreviousMonth: "Previous month",
+      calendarNextMonth: "Next month",
+      calendarToday: "Today",
+      calendarMonthEmptyTitle: "No tasks scheduled for {{month}}.",
+      calendarMonthEmptyBody: "Use the previous, today, next, or month picker controls to browse a different month.",
       dataUploadSummary: "Data: {{data}} / Upload: {{upload}}",
       metadataSummary: "Project metadata: {{source}} / Supabase {{status}}",
       localAuthNote: "Authentication is running in local placeholder mode. Real sign-in can be connected later without changing this screen flow.",
@@ -567,7 +610,7 @@ export const uiCopyCatalog = {
       detailPanelEmpty: "Select a task from the list to edit its details and manage linked_documents.",
       dateInputPlaceholder: "YYYY-MM-DD",
       datePickerAria: "{{label}} calendar",
-      parentTaskNumberPlaceholder: "MIL-001, #12, or 12",
+      parentTaskNumberPlaceholder: "#12 or 12",
       resizeFieldAria: "Resize {{field}}",
       headerFilterAria: "{{field}} filter: {{label}}",
       hideIssueIdOverdueBadge: "Hide issue ID overdue badges",
@@ -582,6 +625,13 @@ export const uiCopyCatalog = {
       unpinDetailPanel: "Unpin panel",
       expandDetailPanel: "Expand panel",
       collapseDetailPanel: "Collapse panel",
+      expandBoardColumn: "Expand column",
+      collapseBoardColumn: "Collapse column",
+      showTaskMemo: "Show memo",
+      hideTaskMemo: "Hide memo",
+      showTaskMemoCompact: "Memo",
+      hideTaskMemoCompact: "Hide",
+      pageStatus: "{{current}} / {{total}}",
       weekdays: {
         mon: "Mon",
         tue: "Tue",
@@ -696,6 +746,10 @@ export const uiCopyCatalog = {
       keepListVisible: "Keep list visible",
       back: "Back",
       next: "Next",
+      expand: "Expand",
+      collapse: "Collapse",
+      showDetails: "Show note",
+      hideDetails: "Hide note",
       cancel: "Cancel",
       confirm: "Confirm",
       save: "Save",
