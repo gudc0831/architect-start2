@@ -1,3 +1,4 @@
+import type { AdminFoundationSettings } from "@/domains/admin/foundation-settings";
 import type { AdminProfileSummary, ProjectMembershipRecord, ProjectSelectionRecord, ProjectSummary } from "@/domains/admin/types";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
@@ -50,6 +51,11 @@ export type UpdateWorkTypeDefinitionInput = {
 
 export type UpdateTaskCategoryDefinitionInput = UpdateWorkTypeDefinitionInput;
 
+export type UpdateAdminFoundationSettingsInput = {
+  ownerDiscipline: string;
+  updatedBy: string | null;
+};
+
 export interface AdminRepository {
   getProjectSelection(): Promise<ProjectSelectionRecord>;
   setCurrentProject(projectId: string): Promise<ProjectSelectionRecord>;
@@ -60,6 +66,8 @@ export interface AdminRepository {
   listProfiles(): Promise<AdminProfileSummary[]>;
   listProjectMemberships(projectId: string): Promise<ProjectMembershipRecord[]>;
   replaceProjectMemberships(input: ReplaceProjectMembershipsInput): Promise<ProjectMembershipRecord[]>;
+  getFoundationSettings(): Promise<AdminFoundationSettings>;
+  updateFoundationSettings(input: UpdateAdminFoundationSettingsInput): Promise<AdminFoundationSettings>;
   listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
   listProjectTaskCategoryDefinitions(projectId: string, fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
   listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;

@@ -14,6 +14,7 @@ type MembershipPayload = Pick<ProjectMembershipRecord, "profileId" | "displayNam
 type CategoryDraft = { code: string; labelKo: string; labelEn: string; sortOrder: string };
 type CategoryDefinitionsMap = Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>;
 type CategoryDraftMap = Record<TaskCategoryFieldKey, CategoryDraft>;
+type FoundationSettingsPayload = { ownerDiscipline: string };
 
 const emptyCategoryDraft = (): CategoryDraft => ({ code: "", labelKo: "", labelEn: "", sortOrder: "0" });
 const emptyCategoryDefinitions = (): CategoryDefinitionsMap =>
@@ -174,12 +175,19 @@ export function AdminFoundationShell() {
   const [newProjectDrafts, setNewProjectDrafts] = useState<CategoryDraftMap>(emptyCategoryDrafts);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [savingMembers, setSavingMembers] = useState(false);
+  const [ownerDiscipline, setOwnerDiscipline] = useState("건축");
+  const [savingOwnerDiscipline, setSavingOwnerDiscipline] = useState(false);
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
 
   async function reloadGlobalCategories() {
     const entries = await Promise.all(taskCategoryFieldKeys.map(async (fieldKey) => [fieldKey, await readJson<TaskCategoryDefinition[]>(`/api/admin/categories?fieldKey=${fieldKey}`, { cache: "no-store" })] as const));
     setGlobalByField(Object.fromEntries(entries) as CategoryDefinitionsMap);
+  }
+
+  async function reloadFoundationSettings() {
+    const settings = await readJson<FoundationSettingsPayload>("/api/admin/foundation-settings", { cache: "no-store" });
+    setOwnerDiscipline(settings.ownerDiscipline);
   }
 
   async function reloadProjectCategories(projectId: string) {
@@ -202,7 +210,7 @@ export function AdminFoundationShell() {
       setProjectsLoading(true);
       try {
         await refreshProjects();
-        await reloadGlobalCategories();
+        await Promise.all([reloadGlobalCategories(), reloadFoundationSettings()]);
         if (active) setStatusMessage(null);
       } catch (error) {
         if (active) setStatusMessage(error instanceof Error ? error.message : "Failed to load admin data.");
@@ -246,6 +254,46 @@ export function AdminFoundationShell() {
         </div>
         {statusMessage ? <p className="workspace__meta">{statusMessage}</p> : null}
       </header>
+
+      <div className="composer-card">
+        <div className="composer-card__header">
+          <div>
+            <h3>{labelForField("ownerDiscipline")}</h3>
+            <p style={{ margin: 0, color: "var(--muted)" }}>
+              모든 작업 상세에서는 숨김 처리되고, 조회 값과 엑셀 내보내기에 동일하게 적용됩니다.
+            </p>
+          </div>
+        </div>
+        <div className="composer-card__body" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+          <label>
+            <span>{labelForField("ownerDiscipline")}</span>
+            <input value={ownerDiscipline} onChange={(event) => setOwnerDiscipline(event.target.value)} />
+          </label>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            className="primary-button"
+            disabled={savingOwnerDiscipline}
+            onClick={() => {
+              setSavingOwnerDiscipline(true);
+              void readJson<FoundationSettingsPayload>("/api/admin/foundation-settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ownerDiscipline }),
+              })
+                .then((settings) => {
+                  setOwnerDiscipline(settings.ownerDiscipline);
+                  setStatusMessage("책임 분야를 저장했습니다.");
+                })
+                .catch((error) => setStatusMessage(error instanceof Error ? error.message : "책임 분야 저장에 실패했습니다."))
+                .finally(() => setSavingOwnerDiscipline(false));
+            }}
+            type="button"
+          >
+            {savingOwnerDiscipline ? "저장 중..." : "책임 분야 저장"}
+          </button>
+        </div>
+      </div>
 
       <div className="composer-card">
         <div className="composer-card__body" style={{ gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)" }}>

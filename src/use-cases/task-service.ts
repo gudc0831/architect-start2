@@ -1,3 +1,4 @@
+import type { AdminFoundationSettings } from "@/domains/admin/foundation-settings";
 import type { TaskRecord, TaskStatus } from "@/domains/task/types";
 import {
   normalizeTaskCategoryFieldValue,
@@ -38,16 +39,20 @@ type EffectiveTaskCategories = {
 
 export async function listTasks(scope: TaskScope) {
   const project = await getSelectedTaskProject();
-  const tasks =
+  const [tasks, foundationSettings] = await Promise.all([
     scope === "trash"
-      ? await taskRepository.listTrashTasks(project.id)
-      : await taskRepository.listActiveTasks(project.id);
-  return scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
+      ? taskRepository.listTrashTasks(project.id)
+      : taskRepository.listActiveTasks(project.id),
+    loadAdminFoundationSettings(),
+  ]);
+  const orderedTasks = scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
+  return applyFoundationSettingsToTasks(orderedTasks, foundationSettings);
 }
 
 export async function reorderTasks(command: TaskReorderCommand, userId?: string | null): Promise<TaskRecord[]> {
   const project = await getSelectedTaskProject();
   const activeTasks = await taskRepository.listActiveTasks(project.id);
+  const foundationSettings = await loadAdminFoundationSettings();
 
   switch (command.action) {
     case "manual_move":
@@ -61,18 +66,21 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
   }
 
   const nextTasks = await taskRepository.listActiveTasks(project.id);
-  return flattenTaskTree(nextTasks);
+  return applyFoundationSettingsToTasks(flattenTaskTree(nextTasks), foundationSettings);
 }
 
 export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
   const project = await getSelectedTaskProject();
   const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const effectiveCategories = await loadEffectiveTaskCategories(project.id);
+  const [effectiveCategories, foundationSettings] = await Promise.all([
+    loadEffectiveTaskCategories(project.id),
+    loadAdminFoundationSettings(),
+  ]);
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
 
-  return taskRepository.createTask({
+  const task = await taskRepository.createTask({
     projectId: project.id,
     projectName: project.name,
     dueDate: normalizeDate(input.dueDate),
@@ -83,7 +91,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
       effectiveCategories.coordinationScope,
       { allowLegacyTextWhenDefinitionsMissing: true },
     ),
-    ownerDiscipline: normalizeText(input.ownerDiscipline),
+    ownerDiscipline: foundationSettings.ownerDiscipline,
     requestedBy: normalizeTaskCategoryFieldValue(
       "requestedBy",
       input.requestedBy,
@@ -120,6 +128,8 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   });
+
+  return applyFoundationSettingsToTask(task, foundationSettings);
 }
 
 async function reorderTaskWithinParent(
@@ -190,8 +200,12 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     throw badRequest("version is required", "TASK_VERSION_REQUIRED");
   }
 
-  const effectiveCategories = await loadEffectiveTaskCategories(currentTask.projectId);
+  const [effectiveCategories, foundationSettings] = await Promise.all([
+    loadEffectiveTaskCategories(currentTask.projectId),
+    loadAdminFoundationSettings(),
+  ]);
   const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
+  sanitized.ownerDiscipline = foundationSettings.ownerDiscipline;
   applyStatusSideEffects(currentTask, sanitized);
 
   if (
@@ -199,7 +213,8 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     Object.prototype.hasOwnProperty.call(input, "parentTaskId")
   ) {
     const nextParentId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
-    return reparentTask(currentTask, nextParentId, sanitized, activeTasks, expectedVersion, userId ?? null);
+    const task = await reparentTask(currentTask, nextParentId, sanitized, activeTasks, expectedVersion, userId ?? null);
+    return applyFoundationSettingsToTask(task, foundationSettings);
   }
 
   const updated = await taskRepository.updateTaskWithVersion(taskId, {
@@ -209,7 +224,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
   });
 
   if (updated) {
-    return updated;
+    return applyFoundationSettingsToTask(updated, foundationSettings);
   }
 
   const latest = await taskRepository.findTaskById(taskId);
@@ -226,6 +241,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
 export async function moveTaskToTrash(taskId: string, userId?: string | null) {
   const allTasks = await listAllTasks();
   const subtree = collectSubtree(allTasks, taskId);
+  const foundationSettings = await loadAdminFoundationSettings();
 
   if (subtree.length === 0) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
@@ -242,12 +258,13 @@ export async function moveTaskToTrash(taskId: string, userId?: string | null) {
     }
   }
 
-  return updatedRoot;
+  return applyFoundationSettingsToTask(updatedRoot, foundationSettings);
 }
 
 export async function restoreTask(taskId: string, userId?: string | null) {
   const allTasks = await listAllTasks();
   const subtree = collectSubtree(allTasks, taskId);
+  const foundationSettings = await loadAdminFoundationSettings();
 
   if (subtree.length === 0) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
@@ -288,7 +305,7 @@ export async function restoreTask(taskId: string, userId?: string | null) {
     byId.set(task.id, { ...task, ...updated, deletedAt: null });
   }
 
-  return restoredRoot;
+  return applyFoundationSettingsToTask(restoredRoot, foundationSettings);
 }
 
 export async function permanentlyDeleteTask(taskId: string, userId?: string | null) {
@@ -393,7 +410,6 @@ function sanitizeTaskUpdate(
       { allowLegacyTextWhenDefinitionsMissing: true },
     );
   }
-  if (typeof input.ownerDiscipline === "string") next.ownerDiscipline = normalizeText(input.ownerDiscipline);
   if (typeof input.requestedBy === "string") {
     next.requestedBy = resolvePatchedTaskCategoryFieldValue(
       "requestedBy",
@@ -562,6 +578,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+async function loadAdminFoundationSettings() {
+  return adminRepository.getFoundationSettings();
+}
+
 async function loadEffectiveTaskCategories(projectId: string): Promise<EffectiveTaskCategories> {
   const [workType, coordinationScope, requestedBy, relatedDisciplines, locationRef] = await Promise.all([
     adminRepository.listEffectiveWorkTypeDefinitions(projectId),
@@ -618,6 +638,17 @@ function flattenTaskTree(tasks: TaskRecord[]) {
   }
 
   return ordered;
+}
+
+function applyFoundationSettingsToTask(task: TaskRecord, foundationSettings: AdminFoundationSettings) {
+  return {
+    ...task,
+    ownerDiscipline: foundationSettings.ownerDiscipline,
+  };
+}
+
+function applyFoundationSettingsToTasks(tasks: TaskRecord[], foundationSettings: AdminFoundationSettings) {
+  return tasks.map((task) => applyFoundationSettingsToTask(task, foundationSettings));
 }
 
 function sortTrashTasks(tasks: TaskRecord[]) {

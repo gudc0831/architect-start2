@@ -45,6 +45,12 @@ export const adminRepository: AdminRepository = {
   replaceProjectMemberships(input) {
     return getAdminRepository().replaceProjectMemberships(input);
   },
+  getFoundationSettings() {
+    return getAdminRepository().getFoundationSettings();
+  },
+  updateFoundationSettings(input) {
+    return getAdminRepository().updateFoundationSettings(input);
+  },
   listGlobalTaskCategoryDefinitions(fieldKey) {
     return getAdminRepository().listGlobalTaskCategoryDefinitions(fieldKey);
   },

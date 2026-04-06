@@ -1,4 +1,5 @@
 import { backendMode } from "@/lib/backend-mode";
+import { requireOwnerDiscipline } from "@/domains/admin/foundation-settings";
 import {
   assertCreatableTaskCategoryCode,
   isTaskCategoryFieldKey,
@@ -172,6 +173,20 @@ export async function createAdminProject(name: string, userId: string | null) {
   return adminRepository.createProject({
     name: sanitizeName(name),
     createdBy: userId,
+  });
+}
+
+export async function getAdminFoundationSettings() {
+  return adminRepository.getFoundationSettings();
+}
+
+export async function updateAdminFoundationSettings(
+  input: { ownerDiscipline: string },
+  userId: string | null,
+) {
+  return adminRepository.updateFoundationSettings({
+    ownerDiscipline: requireOwnerDiscipline(input.ownerDiscipline),
+    updatedBy: userId,
   });
 }
 

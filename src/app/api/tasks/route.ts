@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         dueDate: body.dueDate ?? body.due_date ?? "",
         workType: body.workType ?? body.work_type ?? "",
         coordinationScope: body.coordinationScope ?? body["Coordination Scope"] ?? "",
-        ownerDiscipline: body.ownerDiscipline ?? body["Owner Discipline"] ?? "",
+        ownerDiscipline: "",
         requestedBy: body.requestedBy ?? body.requested_by ?? "",
         relatedDisciplines: body.relatedDisciplines ?? body["Related Disciplines"] ?? "",
         assignee: body.assignee ?? "",

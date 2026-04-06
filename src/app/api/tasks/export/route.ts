@@ -12,6 +12,7 @@ import {
   type TaskCategoricalFilterSelection,
 } from "@/lib/task-categorical-filter";
 import { listEffectiveTaskCategoriesForSession } from "@/use-cases/admin/admin-service";
+import { getAdminFoundationSettings } from "@/use-cases/admin/admin-service";
 import { getTaskListLayout } from "@/use-cases/preference-service";
 import { listFiles } from "@/use-cases/file-service";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
@@ -31,12 +32,13 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const body = await readRequestBody(request);
-    const [project, tasks, allFiles, storedLayout, categoryDefinitions] = await Promise.all([
+    const [project, tasks, allFiles, storedLayout, categoryDefinitions, foundationSettings] = await Promise.all([
       getSelectedTaskProject(),
       listTasks("active"),
       listFiles("active"),
       getTaskListLayout(user.id),
       listEffectiveTaskCategoriesForSession(),
+      getAdminFoundationSettings(),
     ]);
     const selectedCategoricalFilters = resolveExportCategoricalFilters(body);
     const categoricalFieldContext = {
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       tasks: filteredTasks,
       files,
       layout,
+      ownerDiscipline: foundationSettings.ownerDiscipline,
       categoryDefinitionsByField: categoricalFieldContext.categoryDefinitionsByField,
     });
     const buffer = await serializeTaskExportWorkbook(workbook);

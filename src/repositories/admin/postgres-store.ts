@@ -1,3 +1,9 @@
+import {
+  DEFAULT_OWNER_DISCIPLINE,
+  normalizeAdminFoundationSettings,
+  requireOwnerDiscipline,
+  type AdminFoundationSettings,
+} from "@/domains/admin/foundation-settings";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { prisma } from "@/lib/prisma";
 import {
@@ -18,6 +24,7 @@ import type {
   CreateTaskCategoryDefinitionInput,
   CreateWorkTypeDefinitionInput,
   ReplaceProjectMembershipsInput,
+  UpdateAdminFoundationSettingsInput,
   UpdateTaskCategoryDefinitionInput,
   UpdateAdminProjectInput,
   UpdateWorkTypeDefinitionInput,
@@ -39,6 +46,10 @@ const adminPrisma = prisma as typeof prisma & {
     findUnique: (...args: unknown[]) => Promise<any>;
     create: (...args: unknown[]) => Promise<any>;
     update: (...args: unknown[]) => Promise<any>;
+  };
+  foundationSetting: {
+    findUnique: (...args: unknown[]) => Promise<any>;
+    upsert: (...args: unknown[]) => Promise<any>;
   };
 };
 
@@ -121,6 +132,12 @@ function toTaskCategoryDefinition(definition: {
     createdBy: definition.createdBy,
     updatedBy: definition.updatedBy,
   };
+}
+
+function toAdminFoundationSettings(setting: { ownerDiscipline: string }): AdminFoundationSettings {
+  return normalizeAdminFoundationSettings({
+    ownerDiscipline: setting.ownerDiscipline,
+  });
 }
 
 async function ensureGlobalBaseWorkTypes() {
@@ -324,6 +341,38 @@ export class PostgresAdminRepository implements AdminRepository {
     });
 
     return this.listProjectMemberships(input.projectId);
+  }
+
+  async getFoundationSettings(): Promise<AdminFoundationSettings> {
+    const setting = await adminPrisma.foundationSetting.findUnique({
+      where: { id: "global" },
+    });
+
+    if (!setting) {
+      return {
+        ownerDiscipline: DEFAULT_OWNER_DISCIPLINE,
+      };
+    }
+
+    return toAdminFoundationSettings(setting);
+  }
+
+  async updateFoundationSettings(input: UpdateAdminFoundationSettingsInput) {
+    const ownerDiscipline = requireOwnerDiscipline(input.ownerDiscipline);
+    const setting = await adminPrisma.foundationSetting.upsert({
+      where: { id: "global" },
+      update: {
+        ownerDiscipline,
+        updatedBy: input.updatedBy,
+      },
+      create: {
+        id: "global",
+        ownerDiscipline,
+        updatedBy: input.updatedBy,
+      },
+    });
+
+    return toAdminFoundationSettings(setting);
   }
 
   async listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey) {

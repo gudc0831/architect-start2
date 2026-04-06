@@ -177,7 +177,6 @@ type EditableTaskFormKey =
   | "dueDate"
   | "workType"
   | "coordinationScope"
-  | "ownerDiscipline"
   | "requestedBy"
   | "relatedDisciplines"
   | "assignee"
@@ -345,7 +344,6 @@ const editableTaskFormKeys = [
   "dueDate",
   "workType",
   "coordinationScope",
-  "ownerDiscipline",
   "requestedBy",
   "relatedDisciplines",
   "assignee",
@@ -1852,15 +1850,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const payload: TaskFormState = {
+    const payload = {
       ...nextForm,
       workType: getWorkTypeSelectValue(nextForm.workType, workTypeDefinitions) || defaultCreateWorkType,
     };
+    const { ownerDiscipline: _ignoredOwnerDiscipline, ...requestPayload } = payload;
 
     const response = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
     });
 
     if (!response.ok) {
@@ -2891,7 +2890,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           onComposerResizeStart={handleQuickCreateResizeStart}
                           quickCreateWidths={quickCreateWidths}
                           readonly={createReadonlyFields}
-                          showOwnerDiscipline={false}
                           showUpdatedAt={false}
                           categoryDefinitionsByField={categoryDefinitionsByField}
                           workTypeDefinitions={workTypeDefinitions}
@@ -3790,7 +3788,6 @@ function TaskFormFields({
   onChange,
   layout = "detail",
   readonly = {},
-  showOwnerDiscipline = true,
   showUpdatedAt = true,
   quickCreateWidths,
   onComposerResizeStart,
@@ -3802,7 +3799,6 @@ function TaskFormFields({
   onChange: TaskFormChangeHandler;
   layout?: TaskFormLayoutVariant;
   readonly?: TaskFormReadonly;
-  showOwnerDiscipline?: boolean;
   showUpdatedAt?: boolean;
   quickCreateWidths?: ResolvedQuickCreateWidthMap;
   onComposerResizeStart?: (fieldKey: QuickCreateFieldKey, event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -3892,12 +3888,6 @@ function TaskFormFields({
         />
         {renderResizeHandle("coordinationScope")}
       </label>
-      {showOwnerDiscipline ? (
-        <label {...getLabelProps(null, "form-field--stretch")}>
-          <span>{labelForField("ownerDiscipline")}</span>
-          <textarea className="detail-text-field" onChange={(event) => onChange("ownerDiscipline", event.target.value)} rows={1} value={form.ownerDiscipline} />
-        </label>
-      ) : null}
       <label {...getLabelProps("requestedBy", "form-field--stretch")}>
         <span>{labelForField("requestedBy")}</span>
         <TaskCategoricalFieldSelect
@@ -4669,7 +4659,6 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     dueDate: draft.dueDate ?? "",
     workType: draft.workType ?? "",
     coordinationScope: draft.coordinationScope ?? "",
-    ownerDiscipline: draft.ownerDiscipline?.trim() || "\uAC74\uCD95",
     requestedBy: draft.requestedBy ?? "",
     relatedDisciplines: draft.relatedDisciplines ?? "",
     assignee: draft.assignee ?? "",

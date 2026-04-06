@@ -5,13 +5,13 @@ import {
   sanitizeTaskListLayoutPreference,
   TASK_LIST_ROW_MIN_HEIGHT,
   type ResolvedTaskListColumnWidthMap,
+  type TaskListColumnKey,
   type TaskListLayoutPreference,
   type TaskListRowHeightMap,
 } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import {
   buildTaskHierarchyPathMap,
-  dailyTaskListColumns,
   formatTaskBacklogId,
   joinLatestFileNames,
   summarizeLinkedDocumentsForExport,
@@ -35,6 +35,7 @@ type TaskExportWorkbookInput = {
   tasks: TaskRecord[];
   files: FileRecord[];
   layout: Pick<TaskListLayoutPreference, "columnWidths" | "rowHeights">;
+  ownerDiscipline: string;
   categoryDefinitionsByField?: Partial<
     Record<
       TaskCategoryFieldKey,
@@ -43,13 +44,36 @@ type TaskExportWorkbookInput = {
   >;
 };
 
+type TaskExportColumnKey = TaskListColumnKey | "ownerDiscipline";
+
+type TaskExportColumnConfig = {
+  key: TaskExportColumnKey;
+  layoutKey?: TaskListColumnKey;
+  widthPx?: number;
+};
+
 const MAIN_SHEET_NAME = labelForMode("daily");
 const META_SHEET_NAME = "__task_meta";
 const DEFAULT_FONT_NAME = "Malgun Gothic";
 const SYMBOL_FONT_NAME = "Segoe UI Symbol";
-const EXPORTED_COLUMNS = dailyTaskListColumns.filter(
-  (column) => String(column.key) !== "completedAt" && String(column.key) !== "statusHistory",
-);
+const EXPORTED_COLUMNS: readonly TaskExportColumnConfig[] = [
+  { key: "actionId", layoutKey: "actionId" },
+  { key: "dueDate", layoutKey: "dueDate" },
+  { key: "workType", layoutKey: "workType" },
+  { key: "coordinationScope", layoutKey: "coordinationScope" },
+  { key: "ownerDiscipline", widthPx: 160 },
+  { key: "requestedBy", layoutKey: "requestedBy" },
+  { key: "relatedDisciplines", layoutKey: "relatedDisciplines" },
+  { key: "assignee", layoutKey: "assignee" },
+  { key: "issueTitle", layoutKey: "issueTitle" },
+  { key: "reviewedAt", layoutKey: "reviewedAt" },
+  { key: "locationRef", layoutKey: "locationRef" },
+  { key: "calendarLinked", layoutKey: "calendarLinked" },
+  { key: "issueDetailNote", layoutKey: "issueDetailNote" },
+  { key: "status", layoutKey: "status" },
+  { key: "decision", layoutKey: "decision" },
+  { key: "linkedDocuments", layoutKey: "linkedDocuments" },
+] as const;
 
 export function mergeTaskExportLayout(
   requestLayout: TaskExportLayoutInput,
@@ -102,7 +126,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
   worksheet.properties.outlineLevelRow = rows.reduce((max, row) => Math.max(max, row.depth), 0);
   worksheet.columns = EXPORTED_COLUMNS.map((column) => ({
     key: column.key,
-    width: pixelWidthToExcelWidth(input.layout.columnWidths[column.key]),
+    width: pixelWidthToExcelWidth(column.layoutKey ? input.layout.columnWidths[column.layoutKey] : column.widthPx),
   }));
 
   const headerRow = worksheet.addRow(EXPORTED_COLUMNS.map((column) => labelForField(column.key)));
@@ -148,6 +172,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
       toExcelDateCell(task.dueDate),
       labelForTaskCategoricalFilterValue("workType", task.workType, categoricalFieldContext),
       labelForTaskCategoricalFilterValue("coordinationScope", task.coordinationScope, categoricalFieldContext),
+      input.ownerDiscipline,
       labelForTaskCategoricalFilterValue("requestedBy", task.requestedBy, categoricalFieldContext),
       labelForTaskCategoricalFilterValue("relatedDisciplines", task.relatedDisciplines, categoricalFieldContext),
       task.assignee || "",
@@ -175,7 +200,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
       };
     });
 
-    const issueTitleCell = nextRow.getCell(8);
+    const issueTitleCell = nextRow.getCell(columnNumberFor("issueTitle"));
     issueTitleCell.alignment = {
       ...(issueTitleCell.alignment ?? {}),
       indent: row.depth,
@@ -195,7 +220,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
       dueDateCell.numFmt = "yyyy-mm-dd";
     }
 
-    const reviewedAtCell = nextRow.getCell(9);
+    const reviewedAtCell = nextRow.getCell(columnNumberFor("reviewedAt"));
     if (reviewedAtCell.value instanceof Date) {
       reviewedAtCell.numFmt = "yyyy-mm-dd";
     }
@@ -260,7 +285,7 @@ export function buildTaskExportFilename(projectName: string) {
   return `${safeProjectName}-daily-tasks-${date}.xlsx`;
 }
 
-function resolveCellAlignment(columnKey: string | undefined, depth: number): Partial<ExcelJS.Alignment> {
+function resolveCellAlignment(columnKey: TaskExportColumnKey | undefined, depth: number): Partial<ExcelJS.Alignment> {
   if (columnKey === "calendarLinked") {
     return { horizontal: "center", vertical: "middle" };
   }
@@ -268,6 +293,7 @@ function resolveCellAlignment(columnKey: string | undefined, depth: number): Par
   if (
     columnKey === "workType" ||
     columnKey === "coordinationScope" ||
+    columnKey === "ownerDiscipline" ||
     columnKey === "requestedBy" ||
     columnKey === "relatedDisciplines" ||
     columnKey === "locationRef" ||
@@ -305,6 +331,10 @@ function pixelWidthToExcelWidth(widthPx: number | undefined) {
 function pixelHeightToPoints(heightPx: number | undefined) {
   const height = typeof heightPx === "number" && Number.isFinite(heightPx) ? heightPx : TASK_LIST_ROW_MIN_HEIGHT;
   return Math.round(height * 0.75 * 100) / 100;
+}
+
+function columnNumberFor(key: TaskExportColumnKey) {
+  return EXPORTED_COLUMNS.findIndex((column) => column.key === key) + 1;
 }
 
 function buildExportTaskTreeRows(tasks: TaskRecord[]) {

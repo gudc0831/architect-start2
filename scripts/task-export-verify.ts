@@ -40,6 +40,7 @@ const EXPORTED_COLUMN_KEYS = [
   "dueDate",
   "workType",
   "coordinationScope",
+  "ownerDiscipline",
   "requestedBy",
   "relatedDisciplines",
   "assignee",

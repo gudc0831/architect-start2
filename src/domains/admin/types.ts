@@ -1,3 +1,4 @@
+import type { AdminFoundationSettings } from "@/domains/admin/foundation-settings";
 import type { AuthRole } from "@/domains/auth/types";
 import type { TaskCategoryDefinition } from "@/domains/admin/task-category-definitions";
 import type { ProjectRecord } from "@/domains/project/types";
@@ -42,5 +43,6 @@ export type AdminStoreRecord = {
   projects: ProjectSummary[];
   memberships: ProjectMembershipRecord[];
   categoryDefinitions: TaskCategoryDefinition[];
+  foundationSettings?: AdminFoundationSettings;
   workTypeDefinitions?: WorkTypeDefinition[];
 };

@@ -146,6 +146,16 @@ model ProfilePreference {
   @@map("profile_preferences")
 }
 
+model FoundationSetting {
+  id              String   @id @default("global")
+  ownerDiscipline String   @default("건축") @map("owner_discipline")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?  @map("updated_by") @db.Uuid
+
+  @@map("foundation_settings")
+}
+
 model ProjectMembership {
   id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String                @map("project_id") @db.Uuid

@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_OWNER_DISCIPLINE,
+  normalizeAdminFoundationSettings,
+  requireOwnerDiscipline,
+  type AdminFoundationSettings,
+} from "@/domains/admin/foundation-settings";
+import {
   assertCreatableTaskCategoryCode,
   isTaskCategoryFieldKey,
   resolveEffectiveTaskCategoryDefinitions,
@@ -19,6 +25,7 @@ import type {
   CreateTaskCategoryDefinitionInput,
   CreateWorkTypeDefinitionInput,
   ReplaceProjectMembershipsInput,
+  UpdateAdminFoundationSettingsInput,
   UpdateTaskCategoryDefinitionInput,
   UpdateAdminProjectInput,
   UpdateWorkTypeDefinitionInput,
@@ -95,6 +102,9 @@ function createDefaultStore(project: ProjectSummary): AdminStoreRecord {
         updatedBy: fallbackUser.id,
       },
     ],
+    foundationSettings: {
+      ownerDiscipline: DEFAULT_OWNER_DISCIPLINE,
+    },
     categoryDefinitions: buildSystemWorkTypeDefinitions({
       now: timestamp,
       createdBy: fallbackUser.id,
@@ -170,6 +180,7 @@ async function readStore(): Promise<AdminStoreRecord> {
         : projects[0]?.id ?? null,
     projects,
     memberships,
+    foundationSettings: normalizeAdminFoundationSettings(parsed.foundationSettings),
     categoryDefinitions: ensuredGlobalDefinitions,
   };
 }
@@ -398,6 +409,27 @@ export class LocalAdminRepository implements AdminRepository {
     );
 
     return memberships;
+  }
+
+  async getFoundationSettings(): Promise<AdminFoundationSettings> {
+    return (await readStore()).foundationSettings ?? normalizeAdminFoundationSettings(null);
+  }
+
+  async updateFoundationSettings(input: UpdateAdminFoundationSettingsInput) {
+    const store = await readStore();
+    const foundationSettings = {
+      ownerDiscipline: requireOwnerDiscipline(input.ownerDiscipline),
+    } satisfies AdminFoundationSettings;
+
+    await writeStore(
+      {
+        ...store,
+        foundationSettings,
+      },
+      "admin.foundation-settings.update",
+    );
+
+    return foundationSettings;
   }
 
   async listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey) {
