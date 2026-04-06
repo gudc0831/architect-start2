@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  addMonths,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -13,6 +14,7 @@ import {
 } from "date-fns";
 import type {
   CSSProperties,
+  ChangeEvent as ReactChangeEvent,
   DragEvent as ReactDragEvent,
   FocusEvent as ReactFocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -22,8 +24,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { Route } from "next";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   getTaskCategoricalFieldOptions,
   labelForTaskCategoricalFieldValue,
@@ -36,9 +37,12 @@ import { BoardTaskOverview } from "@/components/tasks/board-task-overview";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
+import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
+import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
+import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
   matchesTaskCategoricalFilter,
   normalizeTaskCategoricalFilterSelection,
@@ -47,7 +51,7 @@ import {
   type TaskCategoryDefinition,
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
-import { DEFAULT_TASK_STATUS, TASK_STATUS_ORDER } from "@/domains/task/status";
+import { DEFAULT_TASK_STATUS, isTaskStatus, TASK_STATUS_ORDER } from "@/domains/task/status";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
@@ -90,7 +94,6 @@ import {
 import {
   DEFAULT_UI_LOCALE_TAG,
   describeStatus,
-  getWeekdayLabels,
   getWeekdayLabelByIndex,
   getWorkTypeSelectValue,
   labelForDataMode,
@@ -311,6 +314,7 @@ type TrashFileItem = {
 };
 
 type TrashItem = TrashTaskItem | TrashFileItem;
+type BoardCollapsedStatusMap = Partial<Record<TaskStatus, true>>;
 const WIDE_BREAKPOINT = 1440;
 const MOBILE_BREAKPOINT = 768;
 const TABLET_BREAKPOINT = 1100;
@@ -331,12 +335,20 @@ const statusLabel: Record<TaskStatus, string> = {
   blocked: labelForStatus("blocked"),
   done: labelForStatus("done"),
 };
-const weekdayLabels = getWeekdayLabels();
+const calendarWeekdayColumns = Array.from({ length: 7 }, (_unused, index) => ({
+  index,
+  label: getWeekdayLabelByIndex(index),
+  isHoliday: index === 0,
+}));
 const QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX = "architect-start.quick-create-widths:";
 const QUICK_CREATE_SAVE_DELAY_MS = 250;
 const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
+const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
+const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
+const BOARD_PAGE_SIZE_MOBILE = 4;
+const BOARD_PAGE_SIZE_DEFAULT = 6;
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
 const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
 const DETAIL_PANEL_RESIZE_KEYBOARD_STEP = 24;
@@ -399,11 +411,13 @@ const createReadonlyFields: TaskFormReadonly = {
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
+  const router = useRouter();
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
+  const calendarMonthQuery = searchParams.get("month");
   const {
     currentProjectId,
     projectName,
@@ -435,11 +449,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isReorderingTasks, setIsReorderingTasks] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [calendarHolidayDateKeys, setCalendarHolidayDateKeys] = useState<string[] | null>(null);
+  const [calendarHolidayLoadedMonths, setCalendarHolidayLoadedMonths] = useState<string[] | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
   const [taskSortMode, setTaskSortMode] = useState<DailyTaskSortMode>("manual");
   const [isTaskOrderMenuOpen, setIsTaskOrderMenuOpen] = useState(false);
   const [taskFocusKey, setTaskFocusKey] = useState<TaskFocusKey | null>(null);
   const [hideIssueIdOverdueBadge, setHideIssueIdOverdueBadge] = useState(false);
+  const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
+  const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
+  const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [taskDropState, setTaskDropState] = useState<TaskDropState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -471,6 +490,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
   const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
+  const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const parentTaskNumberDraftRef = useRef("");
@@ -504,8 +524,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const issueIdOverdueBadgePreferenceStorageKey = categoricalFilterStorageBaseKey
     ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE)
     : null;
+  const boardCollapsedStorageKey =
+    mode === "board" && currentProjectId && (authUser?.id || isPreview)
+      ? getBoardCollapsedStorageKey(authUser?.id ?? "preview", currentProjectId)
+      : null;
   const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
+  const boardPageSize = isMobileViewport ? BOARD_PAGE_SIZE_MOBILE : BOARD_PAGE_SIZE_DEFAULT;
   const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
   const categoricalFieldContext = useMemo(
     () => ({
@@ -897,6 +922,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     writeBooleanPreferenceToStorage(issueIdOverdueBadgePreferenceStorageKey, hideIssueIdOverdueBadge);
   }, [hideIssueIdOverdueBadge, issueIdOverdueBadgePreferenceStorageKey]);
+
+  useEffect(() => {
+    if (mode !== "board") {
+      setCollapsedBoardStatuses(createDefaultBoardCollapsedStatusMap());
+      setBoardPageByStatus({});
+      setExpandedBoardTaskId(null);
+      boardCollapsedStorageReadyKeyRef.current = null;
+      return;
+    }
+
+    setBoardPageByStatus({});
+    setExpandedBoardTaskId(null);
+
+    if (!boardCollapsedStorageKey) {
+      setCollapsedBoardStatuses(createDefaultBoardCollapsedStatusMap());
+      boardCollapsedStorageReadyKeyRef.current = "__none__";
+      return;
+    }
+
+    setCollapsedBoardStatuses(readBoardCollapsedStatusesFromStorage(boardCollapsedStorageKey));
+    boardCollapsedStorageReadyKeyRef.current = boardCollapsedStorageKey;
+  }, [boardCollapsedStorageKey, mode]);
+
+  useEffect(() => {
+    if (mode !== "board" || !boardCollapsedStorageKey) {
+      return;
+    }
+
+    if (boardCollapsedStorageReadyKeyRef.current !== boardCollapsedStorageKey) {
+      return;
+    }
+
+    writeBoardCollapsedStatusesToStorage(boardCollapsedStorageKey, collapsedBoardStatuses);
+  }, [boardCollapsedStorageKey, collapsedBoardStatuses, mode]);
 
 
   const handleQuickCreateResizeMove = useCallback((event: PointerEvent) => {
@@ -1598,14 +1657,66 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     filesByTaskIdRef.current = filesByTaskId;
   }, [filesByTaskId]);
   const calendarTasks = useMemo(() => sortedTasks.filter((task) => task.calendarLinked && task.dueDate), [sortedTasks]);
-  const tasksByDueDate = useMemo(() => {
-    return calendarTasks.reduce<Record<string, TaskRecord[]>>((acc, task) => {
-      if (!task.dueDate) return acc;
-      if (!acc[task.dueDate]) acc[task.dueDate] = [];
-      acc[task.dueDate].push(task);
-      return acc;
-    }, {});
-  }, [calendarTasks]);
+  const activeCalendarMonth = useMemo(
+    () =>
+      resolveActiveCalendarMonth({
+        monthParam: calendarMonthQuery,
+        focusTaskId,
+        tasks: sortedTasks,
+        calendarTasks,
+        todayKey: currentDayKey,
+      }),
+    [calendarMonthQuery, calendarTasks, currentDayKey, focusTaskId, sortedTasks],
+  );
+  const activeCalendarMonthValue = useMemo(() => formatMonthInputValue(activeCalendarMonth), [activeCalendarMonth]);
+  const activeCalendarMonthLabel = useMemo(
+    () => t("workspace.calendarMonthHeading", { month: formatCalendarMonthHeading(activeCalendarMonth) }),
+    [activeCalendarMonth],
+  );
+  const calendarDays = useMemo(
+    () =>
+      eachDayOfInterval({
+        start: startOfWeek(startOfMonth(activeCalendarMonth), { weekStartsOn: 0 }),
+        end: endOfWeek(endOfMonth(activeCalendarMonth), { weekStartsOn: 0 }),
+      }),
+    [activeCalendarMonth],
+  );
+  const isCurrentCalendarMonth = activeCalendarMonthValue === currentDayKey.slice(0, 7);
+  const visibleCalendarTasks = useMemo(
+    () => calendarTasks.filter((task) => task.dueDate?.slice(0, 7) === activeCalendarMonthValue),
+    [activeCalendarMonthValue, calendarTasks],
+  );
+  const monthGridTaskRange = useMemo(
+    () => ({
+      from: format(calendarDays[0] ?? startOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+      to: format(calendarDays[calendarDays.length - 1] ?? endOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+    }),
+    [activeCalendarMonth, calendarDays],
+  );
+  const monthGridCalendarTasks = useMemo(
+    () =>
+      calendarTasks.filter(
+        (task) => Boolean(task.dueDate) && task.dueDate >= monthGridTaskRange.from && task.dueDate <= monthGridTaskRange.to,
+      ),
+    [calendarTasks, monthGridTaskRange.from, monthGridTaskRange.to],
+  );
+  const hasScheduledCalendarTasks = calendarTasks.length > 0;
+  const hasVisibleCalendarTasks = visibleCalendarTasks.length > 0;
+  const agendaTasksByDueDate = useMemo(() => groupTasksByDueDate(visibleCalendarTasks), [visibleCalendarTasks]);
+  const monthGridTasksByDueDate = useMemo(() => groupTasksByDueDate(monthGridCalendarTasks), [monthGridCalendarTasks]);
+  const calendarEmptyState = useMemo(
+    () =>
+      hasScheduledCalendarTasks
+        ? {
+            title: t("workspace.calendarMonthEmptyTitle", { month: formatCalendarMonthHeading(activeCalendarMonth) }),
+            body: t("workspace.calendarMonthEmptyBody"),
+          }
+        : {
+            title: t("empty.noScheduledTasks"),
+            body: t("empty.noScheduledTasksBody"),
+          },
+    [activeCalendarMonth, hasScheduledCalendarTasks],
+  );
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
   const detailSummary = selectedTask ? formatTaskDisplayId(selectedTask) : t("empty.nothingSelected");
   const trashTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
@@ -1682,9 +1793,80 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     () => (taskFocusKey ? new Set(sortedTasks.filter((task) => matchesTaskFocus(task, taskFocusKey, currentDayKey)).map((task) => task.id)) : null),
     [currentDayKey, sortedTasks, taskFocusKey],
   );
+  const toggleBoardColumn = useCallback(
+    (status: TaskStatus) => {
+      const willCollapse = !collapsedBoardStatuses[status];
+
+      setCollapsedBoardStatuses((previous) => {
+        const next = { ...previous };
+        if (next[status]) {
+          delete next[status];
+        } else {
+          next[status] = true;
+        }
+        return next;
+      });
+
+      if (!willCollapse) {
+        return;
+      }
+
+      setExpandedBoardTaskId((previous) => {
+        if (!previous) {
+          return previous;
+        }
+
+        const expandedTask = taskById.get(previous);
+        return expandedTask?.status === status ? null : previous;
+      });
+    },
+    [collapsedBoardStatuses, taskById],
+  );
+  const changeBoardPage = useCallback((status: TaskStatus, direction: -1 | 1) => {
+    setBoardPageByStatus((previous) => {
+      const totalTasks = sortedTasks.filter((task) => task.status === status).length;
+      const totalPages = Math.max(1, Math.ceil(totalTasks / boardPageSize));
+      const nextPage = Math.min(totalPages, Math.max(1, (previous[status] ?? 1) + direction));
+      if ((previous[status] ?? 1) === nextPage) {
+        return previous;
+      }
+      return { ...previous, [status]: nextPage };
+    });
+
+    setExpandedBoardTaskId((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const expandedTask = taskById.get(previous);
+      return expandedTask?.status === status ? null : previous;
+    });
+  }, [boardPageSize, sortedTasks, taskById]);
+  const toggleBoardTaskMemo = useCallback((taskId: string) => {
+    setExpandedBoardTaskId((previous) => (previous === taskId ? null : taskId));
+  }, []);
   const boardGroups = useMemo(
     () => statusOrder.map((status) => ({ status, items: sortedTasks.filter((task) => task.status === status) })),
     [sortedTasks],
+  );
+  const paginatedBoardGroups = useMemo(
+    () =>
+      boardGroups.map((group) => {
+        const totalPages = Math.max(1, Math.ceil(group.items.length / boardPageSize));
+        const currentPage = clampBoardPage(boardPageByStatus[group.status], totalPages);
+        const startIndex = (currentPage - 1) * boardPageSize;
+
+        return {
+          ...group,
+          canGoNext: currentPage < totalPages,
+          canGoPrev: currentPage > 1,
+          currentPage,
+          isCollapsed: Boolean(collapsedBoardStatuses[group.status]),
+          totalPages,
+          visibleItems: group.items.slice(startIndex, startIndex + boardPageSize),
+        };
+      }),
+    [boardGroups, boardPageByStatus, boardPageSize, collapsedBoardStatuses],
   );
   const boardSummary = useMemo(() => {
     const overdueCount = sortedTasks.filter((task) => isTaskOverdue(task, currentDayKey)).length;
@@ -1721,58 +1903,102 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     ],
     [boardSummary],
   );
-  const boardOverviewGroups = boardGroups.map((group) => ({
+  useEffect(() => {
+    if (mode !== "board") {
+      return;
+    }
+
+    setBoardPageByStatus((previous) => {
+      let hasChanges = false;
+      const next = { ...previous };
+
+      for (const group of paginatedBoardGroups) {
+        if ((previous[group.status] ?? 1) !== group.currentPage) {
+          next[group.status] = group.currentPage;
+          hasChanges = true;
+        }
+      }
+
+      return hasChanges ? next : previous;
+    });
+  }, [mode, paginatedBoardGroups]);
+  const visibleBoardTaskIds = useMemo(
+    () =>
+      new Set(
+        paginatedBoardGroups.flatMap((group) =>
+          group.isCollapsed ? [] : group.visibleItems.map((task) => task.id),
+        ),
+      ),
+    [paginatedBoardGroups],
+  );
+  useEffect(() => {
+    if (mode !== "board") {
+      setExpandedBoardTaskId(null);
+      return;
+    }
+
+    if (!expandedBoardTaskId) {
+      return;
+    }
+
+    if (!visibleBoardTaskIds.has(expandedBoardTaskId)) {
+      setExpandedBoardTaskId(null);
+    }
+  }, [expandedBoardTaskId, mode, visibleBoardTaskIds]);
+  const boardOverviewGroups = paginatedBoardGroups.map((group) => ({
     status: group.status,
     label: statusLabel[group.status],
     description: boardColumnCopy(group.status),
     emptyLabel: t("empty.noTaskInState"),
-    items: group.items.map((task) => {
-      const taskFiles = filesByTaskId[task.id] ?? [];
+    countLabel: group.items.length,
+    isCollapsed: group.isCollapsed,
+    page: group.currentPage,
+    pageCount: group.totalPages,
+    pageLabel: t("workspace.pageStatus", { current: group.currentPage, total: group.totalPages }),
+    previousPageLabel: t("actions.back"),
+    nextPageLabel: t("actions.next"),
+    canGoPrev: group.canGoPrev,
+    canGoNext: group.canGoNext,
+    toggleLabel: group.isCollapsed ? t("workspace.expandBoardColumn") : t("workspace.collapseBoardColumn"),
+    toggleAriaLabel: `${statusLabel[group.status]} ${group.isCollapsed ? t("workspace.expandBoardColumn") : t("workspace.collapseBoardColumn")}`,
+    onToggleCollapse: toggleBoardColumn,
+    onPrevPage: (status: TaskStatus) => changeBoardPage(status, -1),
+    onNextPage: (status: TaskStatus) => changeBoardPage(status, 1),
+    items: group.visibleItems.map((task) => {
       const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
       const isDimmed = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
-      const isOverdue = isTaskOverdue(task, currentDayKey);
+      const detailToggleLabel = task.id === expandedBoardTaskId ? t("workspace.hideTaskMemoCompact") : t("workspace.showTaskMemoCompact");
+      const detailToggleAriaLabel = task.id === expandedBoardTaskId ? t("workspace.hideTaskMemo") : t("workspace.showTaskMemo");
 
       return {
         id: task.id,
-        displayId: formatTaskDisplayId(task),
         title: task.issueTitle,
-        description: task.issueDetailNote || t("empty.noDescription"),
         dueDateLabel: task.dueDate || "-",
-        workTypeLabel: labelForWorkType(task.workType, workTypeDefinitions),
-        assigneeLabel: task.assignee || t("empty.unassigned"),
-        fileCountLabel: t("workspace.fileCount", { count: taskFiles.length }),
+        detailNote: task.issueDetailNote || t("empty.noDescription"),
         status: task.status,
-        isActive: task.id === selectedTaskId,
+        isExpanded: task.id === expandedBoardTaskId,
+        isDimmed,
         className: clsx(
+          "task-card--compact",
           task.status === "done" && "task-state-card--done",
-          isDimmed && "task-state-card--dimmed",
-          isOverdue && "task-state-card--overdue",
+          deadlineBadge?.tone === "warn" && "task-state-card--overdue",
+          deadlineBadge?.tone === "accent" && "task-state-card--due-today",
+          deadlineBadge?.tone === "neutral" && "task-state-card--due-soon",
         ),
-        secondaryBadge: deadlineBadge ? (
-          <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
-            {deadlineBadge.label}
-          </span>
-        ) : null,
+        deadlineLabel: deadlineBadge?.label,
+        deadlineTone: deadlineBadge?.tone,
+        onToggleExpand: toggleBoardTaskMemo,
+        toggleLabel: detailToggleLabel,
+        toggleAriaLabel: `${task.issueTitle} ${detailToggleAriaLabel}`,
         actions: (
           <>
-            <button
-              className="secondary-button"
-              disabled={task.status === statusOrder[0]}
-              onClick={(event) => {
-                event.stopPropagation();
-                void shiftTaskStatus(task, -1);
-              }}
-              type="button"
-            >
+            <button className="secondary-button task-card__action-button" disabled={task.status === statusOrder[0]} onClick={() => void shiftTaskStatus(task, -1)} type="button">
               {t("actions.back")}
             </button>
             <button
-              className="primary-button"
+              className="primary-button task-card__action-button"
               disabled={task.status === statusOrder[statusOrder.length - 1]}
-              onClick={(event) => {
-                event.stopPropagation();
-                void shiftTaskStatus(task, 1);
-              }}
+              onClick={() => void shiftTaskStatus(task, 1)}
               type="button"
             >
               {t("actions.next")}
@@ -1782,27 +2008,123 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       };
     }),
   }));
-  const calendarBaseDate = useMemo(() => {
-    const firstDueDate = calendarTasks.find((task) => task.dueDate)?.dueDate;
-    return firstDueDate ? parseISO(firstDueDate) : new Date();
-  }, [calendarTasks]);
-  const calendarDays = useMemo(
-    () =>
-      eachDayOfInterval({
-        start: startOfWeek(startOfMonth(calendarBaseDate), { weekStartsOn: 1 }),
-        end: endOfWeek(endOfMonth(calendarBaseDate), { weekStartsOn: 1 }),
-      }),
-    [calendarBaseDate],
-  );
+  const calendarHolidayInterval = useMemo(() => {
+    if (usesAgendaView) {
+      return {
+        from: format(startOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+        to: format(endOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+      };
+    }
+
+    return {
+      from: format(calendarDays[0] ?? startOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+      to: format(calendarDays[calendarDays.length - 1] ?? endOfMonth(activeCalendarMonth), "yyyy-MM-dd"),
+    };
+  }, [activeCalendarMonth, calendarDays, usesAgendaView]);
+  const calendarHolidayDateSet = useMemo(() => {
+    if (calendarHolidayDateKeys === null) {
+      return null;
+    }
+
+    return new Set(calendarHolidayDateKeys);
+  }, [calendarHolidayDateKeys]);
+  const calendarHolidayLoadedMonthSet = useMemo(() => {
+    if (calendarHolidayLoadedMonths === null) {
+      return null;
+    }
+
+    return new Set(calendarHolidayLoadedMonths);
+  }, [calendarHolidayLoadedMonths]);
+  useEffect(() => {
+    if (mode !== "calendar" || isPreview) {
+      setCalendarHolidayDateKeys(null);
+      setCalendarHolidayLoadedMonths(null);
+      return;
+    }
+
+    let cancelled = false;
+    const abortController = new AbortController();
+    setCalendarHolidayDateKeys(null);
+    setCalendarHolidayLoadedMonths(null);
+
+    async function loadCalendarHolidays() {
+      try {
+        const params = new URLSearchParams({
+          from: calendarHolidayInterval.from,
+          to: calendarHolidayInterval.to,
+        });
+        const response = await fetch(`/api/calendar/holidays?${params.toString()}`, {
+          cache: "no-store",
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(await readErrorMessage(response, "loadDashboardFailed"));
+        }
+
+        const payload = (await response.json()) as { data: CalendarHolidayRangeData };
+        if (cancelled) {
+          return;
+        }
+
+        setCalendarHolidayDateKeys(payload.data.items.map((item) => item.date));
+        setCalendarHolidayLoadedMonths(payload.data.months.map((month) => month.month));
+      } catch {
+        if (cancelled || abortController.signal.aborted) {
+          return;
+        }
+
+        setCalendarHolidayDateKeys(null);
+        setCalendarHolidayLoadedMonths(null);
+      }
+    }
+
+    void loadCalendarHolidays();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [calendarHolidayInterval.from, calendarHolidayInterval.to, isPreview, mode]);
   const agendaGroups = useMemo(() => {
-    return Object.entries(tasksByDueDate)
+    return Object.entries(agendaTasksByDueDate)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([dayKey, items]) => ({
         dayKey,
         date: parseISO(dayKey),
-        items: sortTasksByActionId(items),
+        items,
       }));
-  }, [tasksByDueDate]);
+  }, [agendaTasksByDueDate]);
+  const updateCalendarMonth = useCallback(
+    (nextMonth: Date) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("month", formatMonthInputValue(nextMonth));
+      const nextQuery = params.toString();
+      const nextHref = (nextQuery ? `${pathname}?${nextQuery}` : pathname) as Route;
+      router.replace(nextHref, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+  const goToPreviousCalendarMonth = useCallback(() => {
+    updateCalendarMonth(addMonths(activeCalendarMonth, -1));
+  }, [activeCalendarMonth, updateCalendarMonth]);
+  const goToNextCalendarMonth = useCallback(() => {
+    updateCalendarMonth(addMonths(activeCalendarMonth, 1));
+  }, [activeCalendarMonth, updateCalendarMonth]);
+  const goToCurrentCalendarMonth = useCallback(() => {
+    updateCalendarMonth(parseISO(currentDayKey));
+  }, [currentDayKey, updateCalendarMonth]);
+  const handleCalendarMonthInputChange = useCallback(
+    (event: ReactChangeEvent<HTMLInputElement>) => {
+      const nextMonth = parseMonthInputValue(event.target.value);
+      if (!nextMonth) {
+        return;
+      }
+
+      updateCalendarMonth(nextMonth);
+    },
+    [updateCalendarMonth],
+  );
 
   function updateForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -2293,7 +2615,28 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const currentIndex = statusOrder.indexOf(task.status);
     const nextIndex = currentIndex + direction;
     if (nextIndex < 0 || nextIndex >= statusOrder.length) return;
-    await patchTask(task, { status: statusOrder[nextIndex] });
+    const nextStatus = statusOrder[nextIndex];
+    const updatedTask = await patchTask(task, { status: nextStatus });
+    if (!updatedTask || mode !== "board") {
+      return;
+    }
+
+    setCollapsedBoardStatuses((previous) => {
+      if (!previous[nextStatus]) {
+        return previous;
+      }
+
+      const next = { ...previous };
+      delete next[nextStatus];
+      return next;
+    });
+
+    const updatedTaskTree = sortedTasks.map((currentTask) => (currentTask.id === updatedTask.id ? updatedTask : currentTask));
+    setBoardPageByStatus((previous) => ({
+      ...previous,
+      [nextStatus]: getBoardPageForTask(updatedTaskTree, updatedTask.id, nextStatus, boardPageSize),
+    }));
+    setExpandedBoardTaskId(updatedTask.id);
   }
 
   async function moveToTrash(taskId: string) {
@@ -2854,13 +3197,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   title: "집중 영역",
                 }}
                 groups={boardOverviewGroups}
-                metaLabels={{
-                  assignee: labelForField("assignee"),
-                  dueDate: labelForField("dueDate"),
-                  fileCount: labelForField("linkedDocuments"),
-                  workType: labelForField("workType"),
-                }}
-                onTaskSelect={selectTask}
                 summaryCards={boardSummaryCards}
               />
             ) : null}
@@ -3314,71 +3650,148 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             ) : null}
 
             {mode === "calendar" ? (
-              usesAgendaView ? (
-                <div className="calendar-agenda">
-                  {agendaGroups.length === 0 ? (
-                    <div className="empty-state">
-                      <h3>{t("empty.noScheduledTasks")}</h3>
-                      <p>{t("empty.noScheduledTasksBody")}</p>
-                    </div>
-                  ) : (
-                    agendaGroups.map((group) => (
-                      <section className="calendar-agenda__day" key={group.dayKey}>
-                        <header className="calendar-agenda__header">
-                          <div>
-                            <h3>{formatMonthDay(group.date)}</h3>
-                            <p>{formatWeekdayLong(group.date)}</p>
-                          </div>
-                          <span>{group.items.length}</span>
-                        </header>
-                        <div className="calendar-agenda__items">
-                          {group.items.map((task) => (
-                            <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                              <strong>{formatTaskDisplayId(task)}</strong>
-                              <span>{task.issueTitle}</span>
-                              <small>
-                                {t("workspace.agendaMeta", { status: statusLabel[task.status], assignee: task.assignee || t("empty.unassigned") })}
-                              </small>
-                            </Link>
-                          ))}
-                        </div>
-                      </section>
-                    ))
-                  )}
-                </div>
-              ) : (
-                <div className="calendar-month">
-                  <div className="calendar-weekdays">
-                    {weekdayLabels.map((label) => (
-                      <span className="calendar-weekdays__label" key={label}>
-                        {label}
-                      </span>
-                    ))}
+              <div className="calendar-view">
+                <section className="calendar-nav">
+                  <div className="calendar-nav__heading">
+                    <h3>{activeCalendarMonthLabel}</h3>
+                    <p>{labelForMode("calendar")}</p>
                   </div>
-                  <div className="calendar-grid">
-                    {calendarDays.map((day) => {
-                      const dayKey = format(day, "yyyy-MM-dd");
-                      const dayTasks = tasksByDueDate[dayKey] ?? [];
+                  <div className="calendar-nav__actions">
+                    <button className="secondary-button calendar-nav__button" onClick={goToPreviousCalendarMonth} type="button">
+                      {t("workspace.calendarPreviousMonth")}
+                    </button>
+                    <button
+                      className="secondary-button calendar-nav__button"
+                      disabled={isCurrentCalendarMonth}
+                      onClick={goToCurrentCalendarMonth}
+                      type="button"
+                    >
+                      {t("workspace.calendarToday")}
+                    </button>
+                    <button className="secondary-button calendar-nav__button" onClick={goToNextCalendarMonth} type="button">
+                      {t("workspace.calendarNextMonth")}
+                    </button>
+                    <label className="calendar-nav__picker">
+                      <span>{t("workspace.calendarMonthPickerLabel")}</span>
+                      <input onChange={handleCalendarMonthInputChange} type="month" value={activeCalendarMonthValue} />
+                    </label>
+                  </div>
+                </section>
 
-                      return (
-                        <article className={clsx("calendar-cell", !isSameMonth(day, calendarBaseDate) && "calendar-cell--muted", isToday(day) && "calendar-cell--today")} key={dayKey}>
-                          <header>
-                            <span>{format(day, "d")}</span>
-                            <small>{formatDay(day)}</small>
+                {usesAgendaView ? (
+                  <div className="calendar-agenda">
+                    {!hasVisibleCalendarTasks ? (
+                      <div className="calendar-empty-state">
+                        <h3>{calendarEmptyState.title}</h3>
+                        <p>{calendarEmptyState.body}</p>
+                      </div>
+                    ) : (
+                      agendaGroups.map((group) => (
+                        <section
+                          className={clsx(
+                            "calendar-agenda__day",
+                            isCalendarHolidayDate(group.date, calendarHolidayDateSet, calendarHolidayLoadedMonthSet) && "calendar-agenda__day--holiday",
+                          )}
+                          key={group.dayKey}
+                        >
+                          <header className="calendar-agenda__header">
+                            <div>
+                              <h3>{formatMonthDay(group.date)}</h3>
+                              <p>{formatWeekdayLong(group.date)}</p>
+                            </div>
+                            <span>{group.items.length}</span>
                           </header>
-                          <div className="calendar-cell__items">
-                            {dayTasks.map((task) => (
-                              <Link className="calendar-link" href={`${basePath}/daily?taskId=${task.id}` as Route} key={task.id}>
-                                {formatTaskDisplayId(task)} {task.issueTitle}
-                              </Link>
-                            ))}
+                          <div className="calendar-agenda__items">
+                            {group.items.map((task) => {
+                              const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+
+                              return (
+                                <TaskPreviewCard
+                                  className={clsx("calendar-agenda__task-card", getTaskPreviewStateClassName(task, deadlineBadge?.tone))}
+                                  deadlineLabel={deadlineBadge?.label}
+                                  deadlineTone={deadlineBadge?.tone}
+                                  dueDateLabel={task.dueDate || "-"}
+                                  href={`${basePath}/daily?taskId=${task.id}` as Route}
+                                  id={task.id}
+                                  interactionMode="navigate-only"
+                                  key={task.id}
+                                  metaLine={t("workspace.agendaMeta", { status: statusLabel[task.status], assignee: task.assignee || t("empty.unassigned") })}
+                                  status={task.status}
+                                  taskNumber={formatTaskDisplayId(task)}
+                                  title={task.issueTitle}
+                                  variant="calendar-agenda"
+                                />
+                              );
+                            })}
                           </div>
-                        </article>
-                      );
-                    })}
+                        </section>
+                      ))
+                    )}
                   </div>
-                </div>
-              )
+                ) : (
+                  <div className="calendar-month">
+                    {!hasVisibleCalendarTasks ? (
+                      <div className="calendar-empty-state calendar-empty-state--inline">
+                        <h3>{calendarEmptyState.title}</h3>
+                        <p>{calendarEmptyState.body}</p>
+                      </div>
+                    ) : null}
+                    <div className="calendar-weekdays">
+                      {calendarWeekdayColumns.map((weekday) => (
+                        <span className={clsx("calendar-weekdays__label", weekday.isHoliday && "calendar-weekdays__label--holiday")} key={weekday.index}>
+                          {weekday.label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="calendar-grid">
+                      {calendarDays.map((day) => {
+                        const dayKey = format(day, "yyyy-MM-dd");
+                        const dayTasks = monthGridTasksByDueDate[dayKey] ?? [];
+                        const isHoliday = isCalendarHolidayDate(day, calendarHolidayDateSet, calendarHolidayLoadedMonthSet);
+
+                        return (
+                          <article
+                            className={clsx(
+                              "calendar-cell",
+                              isHoliday && "calendar-cell--holiday",
+                              !isSameMonth(day, activeCalendarMonth) && "calendar-cell--muted",
+                              isToday(day) && "calendar-cell--today",
+                            )}
+                            key={dayKey}
+                          >
+                            <header className="calendar-cell__header">
+                              <span>{format(day, "d")}</span>
+                              <small>{formatDay(day)}</small>
+                            </header>
+                            <div className="calendar-cell__items">
+                              {dayTasks.map((task) => {
+                                const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+
+                                return (
+                                  <TaskPreviewCard
+                                    className={clsx("calendar-cell__task-card", getTaskPreviewStateClassName(task, deadlineBadge?.tone))}
+                                    deadlineLabel={deadlineBadge?.label}
+                                    deadlineTone={deadlineBadge?.tone}
+                                    dueDateLabel={task.dueDate || "-"}
+                                    href={`${basePath}/daily?taskId=${task.id}` as Route}
+                                    id={task.id}
+                                    interactionMode="navigate-only"
+                                    key={task.id}
+                                    status={task.status}
+                                    taskNumber={formatTaskDisplayId(task)}
+                                    title={task.issueTitle}
+                                    variant="calendar-month"
+                                  />
+                                );
+                              })}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : null}
 
             {mode === "trash" ? (
@@ -3679,6 +4092,57 @@ function QuickCreateDateField({
   );
 }
 
+function DetailPanelDateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const nativeInputRef = useRef<HTMLInputElement>(null);
+  const pickerValue = isIsoDateValue(value) ? value : "";
+
+  function openPicker() {
+    const input = nativeInputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+    input.click();
+  }
+
+  return (
+    <div className="detail-date-shell detail-date-shell--detail">
+      <input
+        className="detail-date-shell__text"
+        inputMode="numeric"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={t("workspace.dateInputPlaceholder")}
+        value={value}
+      />
+      <input
+        aria-hidden="true"
+        className="detail-date-shell__native"
+        onChange={(event) => onChange(event.target.value)}
+        ref={nativeInputRef}
+        tabIndex={-1}
+        type="date"
+        value={pickerValue}
+      />
+      <button aria-label={t("workspace.datePickerAria", { label })} className="detail-date-shell__picker" onClick={openPicker} type="button">
+        <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+          <rect height="15" rx="2" stroke="currentColor" strokeWidth="1.8" width="16" x="4" y="6" />
+          <path d="M8 3v6M16 3v6M4 10h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function TaskListInlineEditor({
   columnKey,
   fieldKey,
@@ -3860,7 +4324,7 @@ function TaskFormFields({
         {layout === "composer" ? (
           <QuickCreateDateField label={labelForField("dueDate")} onChange={(value) => onChange("dueDate", value)} value={form.dueDate} />
         ) : (
-          <input className="detail-date-field" onChange={(event) => onChange("dueDate", event.target.value)} type="date" value={form.dueDate} />
+          <DetailPanelDateField label={labelForField("dueDate")} onChange={(value) => onChange("dueDate", value)} value={form.dueDate} />
         )}
         {renderResizeHandle("dueDate")}
       </label>
@@ -3928,7 +4392,7 @@ function TaskFormFields({
         {layout === "composer" ? (
           <QuickCreateDateField label={labelForField("reviewedAt")} onChange={(value) => onChange("reviewedAt", value)} value={form.reviewedAt} />
         ) : (
-          <input className="detail-date-field" onChange={(event) => onChange("reviewedAt", event.target.value)} type="date" value={form.reviewedAt} />
+          <DetailPanelDateField label={labelForField("reviewedAt")} onChange={(value) => onChange("reviewedAt", value)} value={form.reviewedAt} />
         )}
         {renderResizeHandle("reviewedAt")}
       </label>
@@ -4136,6 +4600,85 @@ function writeTaskListLayoutToStorage(storageKey: string, layout: TaskListLayout
   }
 }
 
+function createDefaultBoardCollapsedStatusMap(): BoardCollapsedStatusMap {
+  return BOARD_DEFAULT_COLLAPSED_STATUSES.reduce<BoardCollapsedStatusMap>((acc, status) => {
+    acc[status] = true;
+    return acc;
+  }, {});
+}
+
+function getBoardCollapsedStorageKey(userId: string, projectId: string) {
+  return `${BOARD_COLUMN_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+}
+
+function sanitizeBoardCollapsedStatuses(input: unknown): BoardCollapsedStatusMap {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  const next: BoardCollapsedStatusMap = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!isTaskStatus(key) || value !== true) continue;
+    next[key] = true;
+  }
+  return next;
+}
+
+function readBoardCollapsedStatusesFromStorage(storageKey: string) {
+  if (typeof window === "undefined") {
+    return createDefaultBoardCollapsedStatusMap();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) {
+      return createDefaultBoardCollapsedStatusMap();
+    }
+
+    return sanitizeBoardCollapsedStatuses(JSON.parse(raw));
+  } catch {
+    return createDefaultBoardCollapsedStatusMap();
+  }
+}
+
+function writeBoardCollapsedStatusesToStorage(storageKey: string, statuses: BoardCollapsedStatusMap) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(statuses));
+  } catch {
+    // Ignore storage write failures and keep the in-memory preference.
+  }
+}
+
+function groupTasksByDueDate(tasks: readonly TaskRecord[]) {
+  const groupedTasks = tasks.reduce<Record<string, TaskRecord[]>>((acc, task) => {
+    if (!task.dueDate) {
+      return acc;
+    }
+
+    if (!acc[task.dueDate]) {
+      acc[task.dueDate] = [];
+    }
+
+    acc[task.dueDate].push(task);
+    return acc;
+  }, {});
+
+  for (const [dayKey, items] of Object.entries(groupedTasks)) {
+    groupedTasks[dayKey] = sortTasksByActionId(items);
+  }
+
+  return groupedTasks;
+}
+
+function clampBoardPage(value: number | undefined, totalPages: number) {
+  const normalizedValue = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.max(1, Math.min(totalPages, normalizedValue));
+}
+
 function summarizeCategoricalFilterTriggerLabel(
   selectedValues: readonly string[] | undefined,
   options: ReadonlyArray<{ value: string; label: string }>,
@@ -4278,6 +4821,16 @@ function writeBooleanPreferenceToStorage(storageKey: string, value: boolean) {
   } catch {
     // Ignore storage write failures and keep the in-memory preference.
   }
+}
+
+function getBoardPageForTask(tasks: readonly TaskRecord[], taskId: string, status: TaskStatus, pageSize: number) {
+  const items = tasks.filter((task) => task.status === status);
+  const taskIndex = items.findIndex((task) => task.id === taskId);
+  if (taskIndex < 0) {
+    return 1;
+  }
+
+  return Math.floor(taskIndex / pageSize) + 1;
 }
 
 function pruneTaskListRowHeights(rowHeights: TaskListRowHeightMap, taskIds: Set<string>) {
@@ -4608,6 +5161,15 @@ function isTaskDueSoon(task: TaskRecord, referenceDay: string) {
   return Boolean(task.dueDate) && task.dueDate > referenceDay && task.dueDate <= addIsoDays(referenceDay, 3) && task.status !== "done";
 }
 
+function getTaskPreviewStateClassName(task: TaskRecord, deadlineTone?: "warn" | "accent" | "neutral") {
+  return clsx(
+    task.status === "done" && "task-state-card--done",
+    deadlineTone === "warn" && "task-state-card--overdue",
+    deadlineTone === "accent" && "task-state-card--due-today",
+    deadlineTone === "neutral" && "task-state-card--due-soon",
+  );
+}
+
 function matchesTaskFocus(task: TaskRecord, focusKey: TaskFocusKey, referenceDay: string) {
   switch (focusKey) {
     case "in_review":
@@ -4762,8 +5324,99 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function isCalendarHolidayDate(
+  date: Date,
+  holidayDateSet: ReadonlySet<string> | null = null,
+  loadedMonthSet: ReadonlySet<string> | null = null,
+) {
+  if (date.getDay() === 0) {
+    return true;
+  }
+
+  const dateKey = format(date, "yyyy-MM-dd");
+  const monthKey = dateKey.slice(0, 7);
+
+  if (loadedMonthSet?.has(monthKey)) {
+    return Boolean(holidayDateSet?.has(dateKey));
+  }
+
+  if (holidayDateSet) {
+    return holidayDateSet.has(dateKey);
+  }
+
+  return koreanPublicHolidays.isKoreanPublicHoliday(date);
+}
+
 function formatDay(date: Date) {
   return getWeekdayLabelByIndex(date.getDay());
+}
+
+function parseMonthInputValue(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}$/.test(normalized)) {
+    return null;
+  }
+
+  const [yearRaw, monthRaw] = normalized.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return startOfMonth(parseISO(`${yearRaw}-${monthRaw}-01`));
+}
+
+function formatMonthInputValue(date: Date) {
+  return format(startOfMonth(date), "yyyy-MM");
+}
+
+function formatCalendarMonthHeading(date: Date) {
+  return new Intl.DateTimeFormat(DEFAULT_UI_LOCALE_TAG, { year: "numeric", month: "long" }).format(date);
+}
+
+function resolveActiveCalendarMonth(input: {
+  monthParam: string | null;
+  focusTaskId: string | null;
+  tasks: readonly TaskRecord[];
+  calendarTasks: readonly TaskRecord[];
+  todayKey: string;
+}) {
+  const parsedMonth = parseMonthInputValue(input.monthParam);
+  if (parsedMonth) {
+    return parsedMonth;
+  }
+
+  if (input.focusTaskId) {
+    const focusedTask = input.tasks.find((task) => task.id === input.focusTaskId);
+    if (focusedTask?.dueDate) {
+      return startOfMonth(parseISO(focusedTask.dueDate));
+    }
+  }
+
+  const todayMonth = startOfMonth(parseISO(input.todayKey));
+  const todayMonthValue = input.todayKey.slice(0, 7);
+  if (input.calendarTasks.some((task) => task.dueDate?.slice(0, 7) === todayMonthValue)) {
+    return todayMonth;
+  }
+
+  const earliestDueDate = input.calendarTasks.reduce<string | null>((earliest, task) => {
+    if (!task.dueDate) {
+      return earliest;
+    }
+
+    if (!earliest || task.dueDate < earliest) {
+      return task.dueDate;
+    }
+
+    return earliest;
+  }, null);
+
+  if (earliestDueDate) {
+    return startOfMonth(parseISO(earliestDueDate));
+  }
+
+  return todayMonth;
 }
 
 function formatMonthDay(date: Date) {
