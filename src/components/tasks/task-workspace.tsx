@@ -327,7 +327,6 @@ type DailyTaskTableRowProps = {
   handleTaskListRowAutoFitDoubleClick: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
   handleTaskListRowResizeStart: (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => void;
   selectTask: (taskId: string) => void;
-  toggleTaskDetails: (taskId: string) => void;
 };
 
 type TrashTaskItem = {
@@ -395,7 +394,6 @@ const USE_MEMOIZED_DAILY_TASK_ROWS = true;
 const BOARD_PAGE_SIZE_MOBILE = 4;
 const BOARD_PAGE_SIZE_DEFAULT = 6;
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
-const TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX = 14;
 const DETAIL_PANEL_RESIZE_KEYBOARD_STEP = 24;
 const editableTaskFormKeys = [
   "dueDate",
@@ -476,6 +474,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [selectedTrashTaskIds, setSelectedTrashTaskIds] = useState<string[]>([]);
   const [selectedTrashFileIds, setSelectedTrashFileIds] = useState<string[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [activeTaskListInlineEditRowId, setActiveTaskListInlineEditRowId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TaskRecord | null>(null);
   const [draftDirtyFields, setDraftDirtyFields] = useState<DraftDirtyFieldMap>({});
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
@@ -535,6 +534,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
+  const activeTaskListInlineEditRowIdRef = useRef<string | null>(null);
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
@@ -789,11 +789,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [draft]);
 
   useEffect(() => {
+    activeTaskListInlineEditRowIdRef.current = activeTaskListInlineEditRowId;
+  }, [activeTaskListInlineEditRowId]);
+
+  useEffect(() => {
     parentTaskNumberDraftRef.current = parentTaskNumberDraft;
   }, [parentTaskNumberDraft]);
 
   useEffect(() => {
     if (!pendingTaskListFocusCell) {
+      return;
+    }
+
+    if (activeTaskListInlineEditRowId !== pendingTaskListFocusCell.taskId) {
       return;
     }
 
@@ -817,7 +825,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       editor.select();
     }
     setPendingTaskListFocusCell(null);
-  }, [draft, pendingTaskListFocusCell, selectedTaskId]);
+  }, [activeTaskListInlineEditRowId, draft, pendingTaskListFocusCell, selectedTaskId]);
 
   useEffect(() => {
     function syncViewport() {
@@ -1242,35 +1250,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [persistTaskListLayout],
   );
 
-  const measureTaskListRow = useCallback(
-    (taskId: string) => {
-      const row = dailyTreeRowsRef.current.find((entry) => entry.task.id === taskId);
-      if (!row) {
-        setTaskListRowHeight(taskId, TASK_LIST_ROW_MIN_HEIGHT, true);
-        return;
-      }
-
-      const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
-      const linkedDocumentsDisplay = formatLinkedDocumentsSummary(row.task, taskFiles);
-      const currentDraft = draftRef.current;
-      const rowDraft = currentDraft?.id === taskId ? currentDraft : null;
-      const nextHeight = measureTaskListRowHeight(
-        createTaskListRowPresentationContext({
-          task: row.task,
-          row,
-          rowDraft,
-          linkedDocumentsDisplay,
-          workTypeDefinitions,
-          categoryDefinitionsByField,
-        }),
-        taskListColumnWidthsRef.current,
-      );
-
-      setTaskListRowHeight(taskId, nextHeight, true);
-    },
-    [categoryDefinitionsByField, setTaskListRowHeight, workTypeDefinitions],
-  );
-
   const flushTaskListLayoutSave = useCallback(() => {
     if (taskListLayoutSaveTimerRef.current !== null) {
       window.clearTimeout(taskListLayoutSaveTimerRef.current);
@@ -1309,7 +1288,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
       const linkedDocumentsDisplay = formatLinkedDocumentsSummary(row.task, taskFiles);
       const currentDraft = draftRef.current;
-      const rowDraft = currentDraft?.id === taskId ? currentDraft : null;
+      const rowDraft =
+        activeTaskListInlineEditRowIdRef.current === taskId && currentDraft?.id === taskId ? currentDraft : null;
       const nextHeight = measureTaskListRowHeight(
         createTaskListRowPresentationContext({
           task: row.task,
@@ -1328,11 +1308,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(
     (taskId: string, event: ReactMouseEvent<HTMLElement>) => {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (bounds.bottom - event.clientY > TASK_LIST_ROW_AUTO_FIT_HIT_ZONE_PX) {
-        return;
-      }
-
       event.preventDefault();
       event.stopPropagation();
       autoFitTaskListRow(taskId);
@@ -1713,6 +1688,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
   useEffect(() => {
+    if (!selectedTaskId) {
+      setActiveTaskListInlineEditRowId(null);
+      setPendingTaskListFocusCell(null);
+      return;
+    }
+
+    setActiveTaskListInlineEditRowId((previous) => (previous === selectedTaskId ? previous : null));
+    setPendingTaskListFocusCell((previous) => (previous && previous.taskId === selectedTaskId ? previous : null));
+  }, [selectedTaskId]);
+  useEffect(() => {
     inlineSavingFieldsRef.current = inlineSavingFields;
   }, [inlineSavingFields]);
   useEffect(() => {
@@ -1757,20 +1742,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     filesByTaskIdRef.current = filesByTaskId;
   }, [filesByTaskId]);
-  useEffect(() => {
-    const taskIdsToMeasure = new Set(Object.keys(filesByTaskId));
-    if (selectedTaskId) {
-      taskIdsToMeasure.add(selectedTaskId);
-    }
-
-    for (const taskId of taskIdsToMeasure) {
-      if (!taskListVisibleTaskIdsRef.current.has(taskId)) {
-        continue;
-      }
-
-      measureTaskListRow(taskId);
-    }
-  }, [filesByTaskId, measureTaskListRow, selectedTaskId]);
   const calendarTasks = useMemo(() => sortedTasks.filter((task) => task.calendarLinked && task.dueDate), [sortedTasks]);
   const activeCalendarMonth = useMemo(
     () =>
@@ -3138,10 +3109,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const selectTask = useCallback((taskId: string) => {
     setSelectedTaskId(taskId);
+    setPendingTaskListFocusCell(null);
+    setActiveTaskListInlineEditRowId((previous) => (previous === taskId ? previous : null));
   }, []);
 
   const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
     setPendingTaskListFocusCell({ taskId, columnKey });
+    setActiveTaskListInlineEditRowId(taskId);
     setSelectedTaskId(taskId);
   }, []);
 
@@ -3153,11 +3127,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     setSelectedTaskId(taskId);
+    setPendingTaskListFocusCell(null);
+    setActiveTaskListInlineEditRowId((previous) => (previous === taskId ? previous : null));
     pinDetailPanel();
   }, [closeDetailPanel, pinDetailPanel]);
 
   const clearTaskSelection = useCallback(() => {
     setPendingTaskListFocusCell(null);
+    setActiveTaskListInlineEditRowId(null);
     setSelectedTaskId(null);
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
@@ -3666,13 +3643,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 moveTaskByOffset={moveTaskByOffset}
                                 registerTaskListRowCellRef={registerTaskListRowCellRef}
                                 row={row}
-                                rowDraft={task.id === selectedTaskId && draft?.id === task.id ? draft : null}
+                                rowDraft={task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null}
                                 rowHeight={taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT}
                                 saveInlineTaskListField={saveInlineTaskListField}
                                 selectTask={selectTask}
                                 taskDropPosition={taskDropState?.taskId === task.id ? taskDropState.position : null}
                                 taskFiles={filesByTaskId[task.id] ?? []}
-                                toggleTaskDetails={toggleTaskDetails}
                                 updateDraftForm={updateDraftForm}
                                 workTypeDefinitions={workTypeDefinitions}
                               />
@@ -3687,7 +3663,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           const isOverdueRow = isTaskOverdue(task, currentDayKey);
                           const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
                           const isDimmedRow = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
-                          const rowDraft = isSelectedRow && draft?.id === task.id ? draft : null;
+                          const rowDraft = task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null;
                           const rowPresentationContext = createTaskListRowPresentationContext({
                             task,
                             row,
@@ -3850,7 +3826,28 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             const isEditableCell = isEditableTaskListCellPresentation(presentation);
 
                             return (
-                              <td className={column.className} key={column.key} onClick={editableField ? () => focusTaskListEditableCell(task.id, column.key) : undefined}>
+                              <td
+                                className={column.className}
+                                key={column.key}
+                                onDoubleClick={
+                                  editableField
+                                    ? (event) => {
+                                        const target = event.target;
+                                        if (rowDraft && target instanceof HTMLElement) {
+                                          const inlineEditor = target.closest(
+                                            'input, textarea, select, button[data-task-multiselect-trigger="true"]',
+                                          );
+                                          if (inlineEditor) {
+                                            return;
+                                          }
+                                        }
+
+                                        event.stopPropagation();
+                                        focusTaskListEditableCell(task.id, column.key);
+                                      }
+                                    : undefined
+                                }
+                              >
                                 <div
                                   className={clsx("sheet-table__cell-shell", column.key === "actionId" && "sheet-table__cell-shell--tree")}
                                   ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
@@ -3897,8 +3894,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               onClick={() => selectTask(task.id)}
                               onDragOver={(event) => handleTaskRowDragOver(task, event)}
                               onDrop={(event) => void handleTaskRowDrop(task, event)}
-                              onDoubleClick={() => toggleTaskDetails(task.id)}
-                              onDoubleClickCapture={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
                             >
                               {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
                             </tr>
@@ -4382,7 +4377,6 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   handleTaskListRowAutoFitDoubleClick,
   handleTaskListRowResizeStart,
   selectTask,
-  toggleTaskDetails,
 }: DailyTaskTableRowProps) {
   const task = row.task;
   const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
@@ -4549,7 +4543,26 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
     const isEditableCell = isEditableTaskListCellPresentation(presentation);
 
     return (
-      <td className={column.className} key={column.key} onClick={editableField ? () => focusTaskListEditableCell(task.id, column.key) : undefined}>
+      <td
+        className={column.className}
+        key={column.key}
+        onDoubleClick={
+          editableField
+            ? (event) => {
+                const target = event.target;
+                if (rowDraft && target instanceof HTMLElement) {
+                  const inlineEditor = target.closest('input, textarea, select, button[data-task-multiselect-trigger="true"]');
+                  if (inlineEditor) {
+                    return;
+                  }
+                }
+
+                event.stopPropagation();
+                focusTaskListEditableCell(task.id, column.key);
+              }
+            : undefined
+        }
+      >
         <div
           className={clsx("sheet-table__cell-shell", column.key === "actionId" && "sheet-table__cell-shell--tree")}
           ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
@@ -4595,8 +4608,6 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
       onClick={() => selectTask(task.id)}
       onDragOver={(event) => handleTaskRowDragOver(task, event)}
       onDrop={(event) => void handleTaskRowDrop(task, event)}
-      onDoubleClick={() => toggleTaskDetails(task.id)}
-      onDoubleClickCapture={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
     >
       {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
     </tr>
