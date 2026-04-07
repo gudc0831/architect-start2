@@ -1,0 +1,4 @@
+Req: Keep the left sidebar width unchanged but make overflowed sidebar content reachable within the existing layout.
+Diff: Updated `src/app/globals.css` so `.sidebar` uses internal vertical scrolling with hidden horizontal overflow, contained overscroll, and a stable scrollbar gutter; removed the short-height media-query override that previously forced the sidebar back to auto height.
+Why: Sidebar content now includes more project, auth, and theme controls than a single shorter desktop viewport can always show, so the panel itself needs to scroll instead of growing the page layout or widening the rail.
+Verify/Time: `verify-browser-ui` desktop check on `http://127.0.0.1:3000/board` at `1366x768` confirmed `.sidebar` `scrollHeight 1462 > clientHeight 768` and bottom controls became reachable after internal scroll; `npm run typecheck` pass; `npm run build` pass with the same pre-existing Turbopack `data-guard` warnings only / 2026-04-07.

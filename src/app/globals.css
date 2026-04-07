@@ -214,6 +214,10 @@ a {
   border-right: 1px solid var(--theme-border-subtle-strong);
   background: var(--theme-surface-sidebar);
   backdrop-filter: blur(20px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
 }
 
 .sidebar__brand,
@@ -3812,7 +3816,6 @@ a {
 }
 
 @media (max-height: 820px) {
-  .sidebar,
   .detail-panel {
     position: static;
     height: auto;
