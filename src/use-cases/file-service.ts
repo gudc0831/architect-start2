@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { badRequest } from "@/lib/api/errors";
 import { fileRepository, taskRepository } from "@/repositories";
 import { storageProvider } from "@/storage";
+import { requireFileInSelectedProject, requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 
 export type FileScope = "active" | "trash";
@@ -36,10 +37,7 @@ export async function attachUploadedFile(input: { taskId: string; file: File; us
   }
 
   validateUpload(input.file);
-  const task = await taskRepository.findTaskById(taskId);
-  if (!task) {
-    throw notFound("Task not found", "TASK_NOT_FOUND");
-  }
+  const task = await requireTaskInSelectedProject(taskId);
 
   const stored = await storageProvider.upload({
     file: input.file,
@@ -61,11 +59,7 @@ export async function attachUploadedFile(input: { taskId: string; file: File; us
 
 export async function attachNextFileVersion(input: { fileId: string; file: File; userId?: string | null }) {
   validateUpload(input.file);
-  const source = await fileRepository.findFileById(input.fileId);
-
-  if (!source) {
-    throw notFound("File not found", "FILE_NOT_FOUND");
-  }
+  const source = await requireFileInSelectedProject(input.fileId);
 
   const siblings = await fileRepository.listActiveFiles(source.taskId);
   const sameGroup = siblings.filter((file) => file.fileGroupId === source.fileGroupId);
@@ -91,19 +85,17 @@ export async function attachNextFileVersion(input: { fileId: string; file: File;
 }
 
 export async function moveFileToTrash(fileId: string) {
+  await requireFileInSelectedProject(fileId);
   return fileRepository.moveFileToTrash(fileId);
 }
 
 export async function restoreFile(fileId: string) {
+  await requireFileInSelectedProject(fileId);
   return fileRepository.restoreFile(fileId);
 }
 
 export async function permanentlyDeleteFile(fileId: string) {
-  const file = await fileRepository.findFileById(fileId);
-
-  if (!file) {
-    throw notFound("File not found", "FILE_NOT_FOUND");
-  }
+  const file = await requireFileInSelectedProject(fileId);
 
   if (!file.deletedAt) {
     throw badRequest("Only trashed files can be deleted permanently", "FILE_NOT_IN_TRASH");

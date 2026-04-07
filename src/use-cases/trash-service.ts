@@ -1,7 +1,9 @@
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { badRequest, notFound } from "@/lib/api/errors";
-import { fileRepository, projectRepository, taskRepository } from "@/repositories";
+import { fileRepository, taskRepository } from "@/repositories";
 import { storageProvider } from "@/storage";
+import { requireFileInSelectedProject } from "@/use-cases/project-scope-guard";
+import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 
 type TrashSelectionInput = {
   taskIds?: string[] | null;
@@ -52,23 +54,26 @@ export async function bulkDeleteTrashSelection(input: TrashSelectionInput, userI
 }
 
 export async function emptyTrash(userId?: string | null) {
-  const project = await projectRepository.getProject();
-  const [trashedTasks, trashedFiles] = await Promise.all([
+  const project = await getSelectedTaskProject();
+  const [allTasks, trashedTasks, trashedFiles] = await Promise.all([
+    listAllTasks(),
     taskRepository.listTrashTasks(project.id),
     fileRepository.listTrashFiles(),
   ]);
+  const projectTaskIds = new Set(allTasks.map((task) => task.id));
+  const scopedTrashedFiles = trashedFiles.filter((file) => file.projectId === project.id || projectTaskIds.has(file.taskId));
 
   return permanentlyDeleteTrashSelection(
     {
       taskIds: trashedTasks.map((task) => task.id),
-      fileIds: trashedFiles.map((file) => file.id),
+      fileIds: scopedTrashedFiles.map((file) => file.id),
     },
     userId,
   );
 }
 
 async function listAllTasks() {
-  const project = await projectRepository.getProject();
+  const project = await getSelectedTaskProject();
   const [activeTasks, trashTasks] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     taskRepository.listTrashTasks(project.id),
@@ -98,11 +103,7 @@ async function resolveDeletedFiles(fileIds: string[]) {
   const files: FileRecord[] = [];
 
   for (const fileId of fileIds) {
-    const file = await fileRepository.findFileById(fileId);
-
-    if (!file) {
-      throw notFound("File not found", "FILE_NOT_FOUND");
-    }
+    const file = await requireFileInSelectedProject(fileId);
 
     if (!file.deletedAt) {
       throw badRequest("Only trashed files can be deleted permanently", "FILE_NOT_IN_TRASH");

@@ -2,10 +2,12 @@ import { createRequire } from "node:module";
 import type { AuthRole, AuthUser } from "@/domains/auth/types";
 import { forbidden, serviceUnavailable, unauthorized } from "@/lib/api/errors";
 import {
+  assertSafeAuthRuntime,
   getAuthFallbackUser,
   getAuthRuntimeConfigErrorMessage,
   hasAuthRuntimeConfig,
   isAuthStubMode,
+  isUnsafeNonCloudProductionMode,
 } from "@/lib/auth/auth-config";
 
 const require = createRequire(import.meta.url);
@@ -23,6 +25,10 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
   }
 
   if (!hasAuthRuntimeConfig()) {
+    if (isUnsafeNonCloudProductionMode()) {
+      return null;
+    }
+
     throw serviceUnavailable(
       getAuthRuntimeConfigErrorMessage() ?? "Cloud backend configuration is incomplete.",
       "CLOUD_ENV_MISSING",
@@ -58,6 +64,7 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
 }
 
 export async function requireUser() {
+  assertSafeAuthRuntime();
   const user = await getOptionalUser();
 
   if (!user) {

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { ProjectProvider } from "@/providers/project-provider";
+import { DashboardProvider } from "@/providers/dashboard-provider";
 import { ProjectShell } from "@/components/layout/project-shell";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -14,7 +15,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ProjectProvider>
-      <ProjectShell contentWidth={contentWidth}>{children}</ProjectShell>
+      <DashboardProvider>
+        <ProjectShell contentWidth={contentWidth}>{children}</ProjectShell>
+      </DashboardProvider>
     </ProjectProvider>
   );
 }
