@@ -1,0 +1,4 @@
+Req: Analyze why selecting and clearing tasks in the daily list feels slow.
+Diff: Analysis only; traced selection, inline-edit focus, deselection, and PATCH/update paths in `src/components/tasks/task-workspace.tsx`, `src/use-cases/task-service.ts`, and `src/repositories/postgres/store.ts`.
+Why: The daily table is rendered in one large component without row-level memoization or virtualization, so `selectedTaskId` changes trigger full table rerenders, a second render via draft sync, editable-cell focus DOM queries, and heavy detail-panel subtree swaps; inline checkbox/status edits additionally wait on PATCH + server-side reload/sanitize/version work.
+Verify/Time: Code-traced click/select/clear handlers, selection effect chain, table render loop, detail panel render path, inline editor commit path, and backend update flow / 2026-04-07.

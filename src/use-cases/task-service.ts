@@ -188,10 +188,11 @@ async function reorderTaskTree(activeTasks: TaskRecord[], strategy: TaskOrdering
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
   const project = await getSelectedTaskProject();
-  const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const currentTask = activeTasks.find((task) => task.id === taskId);
+  const currentTaskPromise = taskRepository.findTaskById(taskId);
+  const foundationSettingsPromise = loadAdminFoundationSettings();
+  const currentTask = await currentTaskPromise;
 
-  if (!currentTask) {
+  if (!currentTask || currentTask.projectId !== project.id || currentTask.deletedAt !== null) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
@@ -200,20 +201,23 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     throw badRequest("version is required", "TASK_VERSION_REQUIRED");
   }
 
-  const [effectiveCategories, foundationSettings] = await Promise.all([
-    loadEffectiveTaskCategories(currentTask.projectId),
-    loadAdminFoundationSettings(),
+  const shouldReparent =
+    Object.prototype.hasOwnProperty.call(input, "parentTaskNumber") ||
+    Object.prototype.hasOwnProperty.call(input, "parentTaskId");
+  const needsCategoryDefinitions = hasTaskCategoryPatch(input);
+  const [effectiveCategories, foundationSettings, activeTasks] = await Promise.all([
+    needsCategoryDefinitions ? loadEffectiveTaskCategories(currentTask.projectId) : Promise.resolve(undefined),
+    foundationSettingsPromise,
+    shouldReparent ? taskRepository.listActiveTasks(project.id) : Promise.resolve(undefined),
   ]);
   const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
   sanitized.ownerDiscipline = foundationSettings.ownerDiscipline;
   applyStatusSideEffects(currentTask, sanitized);
 
-  if (
-    Object.prototype.hasOwnProperty.call(input, "parentTaskNumber") ||
-    Object.prototype.hasOwnProperty.call(input, "parentTaskId")
-  ) {
-    const nextParentId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
-    const task = await reparentTask(currentTask, nextParentId, sanitized, activeTasks, expectedVersion, userId ?? null);
+  if (shouldReparent) {
+    const nextActiveTasks = activeTasks!;
+    const nextParentId = resolveParentTaskId(nextActiveTasks, input.parentTaskId, input.parentTaskNumber);
+    const task = await reparentTask(currentTask, nextParentId, sanitized, nextActiveTasks, expectedVersion, userId ?? null);
     return applyFoundationSettingsToTask(task, foundationSettings);
   }
 
@@ -388,15 +392,19 @@ async function syncDescendantHierarchy(tasks: TaskRecord[], rootTask: TaskRecord
 function sanitizeTaskUpdate(
   input: UpdateTaskInput,
   currentTask: TaskRecord,
-  effectiveCategories: EffectiveTaskCategories,
+  effectiveCategories?: EffectiveTaskCategories,
 ): UpdateTaskInput {
   const next: UpdateTaskInput = {};
+  if (hasTaskCategoryPatch(input) && !effectiveCategories) {
+    throw badRequest("task category definitions are required", "TASK_CATEGORY_DEFINITIONS_REQUIRED");
+  }
+  const categories = effectiveCategories as EffectiveTaskCategories;
 
   if (typeof input.dueDate === "string") next.dueDate = normalizeDate(input.dueDate);
   if (Object.prototype.hasOwnProperty.call(input, "workType")) {
     const normalizedWorkType = resolvePatchedWorkType(input.workType, {
       currentValue: currentTask.workType,
-      allowedCodes: effectiveCategories.workType,
+      allowedCodes: categories.workType,
     });
     if (normalizedWorkType !== undefined) {
       next.workType = normalizedWorkType;
@@ -406,7 +414,7 @@ function sanitizeTaskUpdate(
     next.coordinationScope = resolvePatchedTaskCategoryFieldValue(
       "coordinationScope",
       input.coordinationScope,
-      effectiveCategories.coordinationScope,
+      categories.coordinationScope,
       { allowLegacyTextWhenDefinitionsMissing: true },
     );
   }
@@ -414,7 +422,7 @@ function sanitizeTaskUpdate(
     next.requestedBy = resolvePatchedTaskCategoryFieldValue(
       "requestedBy",
       input.requestedBy,
-      effectiveCategories.requestedBy,
+      categories.requestedBy,
       { allowLegacyTextWhenDefinitionsMissing: true },
     );
   }
@@ -422,7 +430,7 @@ function sanitizeTaskUpdate(
     next.relatedDisciplines = resolvePatchedTaskCategoryFieldValue(
       "relatedDisciplines",
       input.relatedDisciplines,
-      effectiveCategories.relatedDisciplines,
+      categories.relatedDisciplines,
       { allowLegacyTextWhenDefinitionsMissing: true },
     );
   }
@@ -433,7 +441,7 @@ function sanitizeTaskUpdate(
     next.locationRef = resolvePatchedTaskCategoryFieldValue(
       "locationRef",
       input.locationRef,
-      effectiveCategories.locationRef,
+      categories.locationRef,
       { allowLegacyTextWhenDefinitionsMissing: true },
     );
   }
@@ -448,6 +456,16 @@ function sanitizeTaskUpdate(
   }
 
   return next;
+}
+
+function hasTaskCategoryPatch(input: UpdateTaskInput) {
+  return (
+    Object.prototype.hasOwnProperty.call(input, "workType") ||
+    Object.prototype.hasOwnProperty.call(input, "coordinationScope") ||
+    Object.prototype.hasOwnProperty.call(input, "requestedBy") ||
+    Object.prototype.hasOwnProperty.call(input, "relatedDisciplines") ||
+    Object.prototype.hasOwnProperty.call(input, "locationRef")
+  );
 }
 
 function applyStatusSideEffects(currentTask: TaskRecord, next: UpdateTaskInput) {

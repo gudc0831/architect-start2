@@ -21,7 +21,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -39,8 +39,8 @@ import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-head
 import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
 import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
 import { useAuthUser } from "@/providers/auth-provider";
+import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
-import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
@@ -148,6 +148,11 @@ type TaskDropState = {
   position: TaskDropPosition;
 };
 
+type TaskDetailPanelInteractionState = {
+  selectedTaskId: string | null;
+  isDetailExpanded: boolean;
+};
+
 type TaskFormDisplayState = {
   actionId?: string | number | null;
   issueId?: string | null;
@@ -166,14 +171,6 @@ type TaskFormDisplayState = {
   issueDetailNote: string;
   status: TaskStatus;
   decision: string;
-};
-
-type SystemMode = {
-  backendMode: string;
-  dataMode: string;
-  uploadMode: string;
-  hasSupabase: boolean;
-  hasFirebaseProjectId: boolean;
 };
 
 type EditableTaskFormKey =
@@ -220,6 +217,8 @@ type LinkedDocumentsDisplay = {
   primary: string;
   secondary: string | null;
 };
+
+const EMPTY_TASK_FILES: readonly FileRecord[] = [];
 
 type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
@@ -299,6 +298,36 @@ type PendingTaskListFocusCell = {
   columnKey: TaskListColumnKey;
 };
 
+type DailyTaskTableRowProps = {
+  row: TaskTreeRow;
+  taskFiles: readonly FileRecord[];
+  rowHeight: number;
+  currentDayKey: string;
+  hideIssueIdOverdueBadge: boolean;
+  hasActiveDailyFilters: boolean;
+  isReorderingTasks: boolean;
+  isSelectedRow: boolean;
+  isDimmedRow: boolean;
+  rowDraft: TaskRecord | null;
+  inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
+  taskDropPosition: TaskDropPosition | null;
+  workTypeDefinitions: readonly WorkTypeDefinition[];
+  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
+  registerTaskListRowCellRef: (taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => void;
+  focusTaskListEditableCell: (taskId: string, columnKey: TaskListColumnKey) => void;
+  updateDraftForm: TaskFormChangeHandler;
+  saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
+  handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
+  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => void;
+  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => Promise<void> | void;
+  clearTaskDragInteraction: () => void;
+  handleTaskListRowAutoFitDoubleClick: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
+  handleTaskListRowResizeStart: (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => void;
+  selectTask: (taskId: string) => void;
+  toggleTaskDetails: (taskId: string) => void;
+};
+
 type TrashTaskItem = {
   kind: "task";
   id: string;
@@ -347,6 +376,7 @@ const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
 const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
+const USE_MEMOIZED_DAILY_TASK_ROWS = true;
 const BOARD_PAGE_SIZE_MOBILE = 4;
 const BOARD_PAGE_SIZE_DEFAULT = 6;
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
@@ -428,8 +458,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     categoryDefinitionsByField,
     workTypesLoaded,
   } = useProjectMeta();
-  const [tasks, setTasks] = useState<TaskRecord[]>([]);
-  const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedTrashTaskIds, setSelectedTrashTaskIds] = useState<string[]>([]);
   const [selectedTrashFileIds, setSelectedTrashFileIds] = useState<string[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -443,12 +471,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [pendingVersionUpload, setPendingVersionUpload] = useState<File | null>(null);
   const [versionTargetId, setVersionTargetId] = useState("");
-  const [systemMode, setSystemMode] = useState<SystemMode | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isReorderingTasks, setIsReorderingTasks] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [calendarHolidayDateKeys, setCalendarHolidayDateKeys] = useState<string[] | null>(null);
   const [calendarHolidayLoadedMonths, setCalendarHolidayLoadedMonths] = useState<string[] | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
@@ -496,12 +521,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
+  const inlineSavingFieldsRef = useRef<Partial<Record<TaskListColumnKey, boolean>>>({});
+  const detailPanelInteractionRef = useRef<TaskDetailPanelInteractionState>({
+    selectedTaskId: null,
+    isDetailExpanded: false,
+  });
   const previousSelectedTaskIdRef = useRef<string | null>(null);
   const isClearingSelectionRef = useRef(false);
   const saveSelectedTaskRef = useRef<() => Promise<boolean>>(async () => false);
 
   const isTrashMode = mode === "trash";
   const scope = isTrashMode ? "trash" : "active";
+  const { refreshDashboardScope } = useDashboardData();
+  const {
+    tasks,
+    setTasks,
+    files,
+    systemMode,
+    loading,
+    errorMessage,
+    setErrorMessage,
+    ensureLoaded,
+    refreshScope,
+  } = useDashboardScope(scope);
   const canExportTasks = mode === "daily" && !isPreview;
   const isMobileViewport = viewportWidth < MOBILE_BREAKPOINT;
   const isDetailDocked = viewportWidth >= DETAIL_PANEL_BREAKPOINT;
@@ -1216,7 +1258,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
       const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
-      const rowDraft = selectedTaskId === taskId && draft?.id === taskId ? draft : null;
+      const currentDraft = draftRef.current;
+      const rowDraft = currentDraft?.id === taskId ? currentDraft : null;
       const nextHeight = measureTaskListRowHeight(
         createTaskListRowPresentationContext({
           task: row.task,
@@ -1230,7 +1273,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       );
       setTaskListRowHeight(taskId, nextHeight, true);
     },
-    [categoryDefinitionsByField, draft, selectedTaskId, setTaskListRowHeight, workTypeDefinitions],
+    [categoryDefinitionsByField, setTaskListRowHeight, workTypeDefinitions],
   );
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(
@@ -1507,63 +1550,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     handleTaskListRowResizeMove,
   ]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setErrorMessage(null);
-
-    if (isPreview) {
-      // Preview mode never hits live APIs. It should stay stable even when auth or backend config is missing.
-      const nextTasks = scope === "trash" ? previewTasks.filter((task) => task.deletedAt) : previewTasks.filter((task) => !task.deletedAt);
-      const nextFiles = scope === "trash" ? previewFiles.filter((file) => file.deletedAt) : previewFiles.filter((file) => !file.deletedAt);
-
-      setTasks(nextTasks);
-      setFiles(nextFiles);
-      setSystemMode(previewSystemMode);
-      setSelectedTaskId((prev) => {
-        if (focusTaskId && nextTasks.some((task) => task.id === focusTaskId)) return focusTaskId;
-        if (prev && nextTasks.some((task) => task.id === prev)) return prev;
-        return nextTasks[0]?.id ?? null;
-      });
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const [taskResponse, fileResponse, statusResponse] = await Promise.all([
-        fetch(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
-        fetch(`/api/files${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
-        fetch("/api/system/status", { cache: "no-store" }),
-      ]);
-
-      if (!taskResponse.ok) {
-        throw new Error(await readErrorMessage(taskResponse, "loadTasksFailed"));
-      }
-      if (!fileResponse.ok) {
-        throw new Error(await readErrorMessage(fileResponse, "loadFilesFailed"));
-      }
-
-      const taskJson = (await taskResponse.json()) as { data: TaskRecord[] };
-      const fileJson = (await fileResponse.json()) as { data: FileRecord[] };
-      const statusJson = statusResponse.ok ? ((await statusResponse.json()) as { data: SystemMode }) : { data: null };
-
-      setTasks(taskJson.data);
-      setFiles(fileJson.data);
-      setSystemMode(statusJson.data ?? null);
-      setSelectedTaskId((prev) => {
-        if (focusTaskId && taskJson.data.some((task) => task.id === focusTaskId)) return focusTaskId;
-        if (prev && taskJson.data.some((task) => task.id === prev)) return prev;
-        return taskJson.data[0]?.id ?? null;
-      });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }));
-    } finally {
-      setLoading(false);
-    }
-  }, [focusTaskId, isPreview, scope]);
+  const refreshAllDashboardData = useCallback(async () => {
+    await Promise.all([
+      refreshDashboardScope("active", { force: true }),
+      refreshDashboardScope("trash", { force: true }),
+    ]);
+  }, [refreshDashboardScope]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    void ensureLoaded();
+  }, [ensureLoaded]);
+
+  useEffect(() => {
+    setSelectedTaskId((previous) => {
+      if (focusTaskId && tasks.some((task) => task.id === focusTaskId)) {
+        return focusTaskId;
+      }
+
+      if (previous && tasks.some((task) => task.id === previous)) {
+        return previous;
+      }
+
+      return tasks[0]?.id ?? null;
+    });
+  }, [focusTaskId, tasks]);
 
   const currentDayKey = todayKey();
   const sortedTasks = useMemo(() => buildStoredOrderTaskTree(tasks), [tasks]);
@@ -1618,7 +1628,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [detailPanelWidth],
   );
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
-  const selectedTask = useMemo(() => sortedTasks.find((task) => task.id === selectedTaskId) ?? null, [selectedTaskId, sortedTasks]);
+  const selectedTask = useMemo(() => (selectedTaskId ? taskById.get(selectedTaskId) ?? null : null), [selectedTaskId, taskById]);
 
   useEffect(() => {
     if (mode !== "daily") {
@@ -1637,6 +1647,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     selectedTaskRef.current = selectedTask;
   }, [selectedTask]);
+  useEffect(() => {
+    inlineSavingFieldsRef.current = inlineSavingFields;
+  }, [inlineSavingFields]);
+  useEffect(() => {
+    detailPanelInteractionRef.current = {
+      selectedTaskId,
+      isDetailExpanded,
+    };
+  }, [isDetailExpanded, selectedTaskId]);
   const selectedParentTask = useMemo(() => {
     if (!selectedTask?.parentTaskId) return null;
     return taskById.get(selectedTask.parentTaskId) ?? null;
@@ -2148,32 +2167,41 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateDraftForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
-    if (draftRef.current) {
-      draftRef.current = { ...draftRef.current, [key]: value };
-    }
-    markDraftFieldDirty(key);
-    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
-  }
-
-  function updateParentTaskNumberDraft(value: string) {
-    parentTaskNumberDraftRef.current = value;
-    markDraftFieldDirty("parentTaskNumber");
-    setParentTaskNumberDraft(value);
-  }
-
-  function applyTaskServerUpdate(updatedTask: TaskRecord, clearedDirtyFields: readonly DraftDirtyField[] = []) {
-    const nextDirtyFields = clearDraftDirtyFieldMap(draftDirtyFieldsRef.current, clearedDirtyFields);
-    draftDirtyFieldsRef.current = nextDirtyFields;
-    setDraftDirtyFields(nextDirtyFields);
-    setTasks((previous) => previous.map((task) => (task.id === updatedTask.id ? updatedTask : task)));
-    setDraft((previous) => {
-      if (!previous || previous.id !== updatedTask.id) {
-        return previous;
+  const updateDraftForm = useCallback(
+    <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => {
+      if (draftRef.current) {
+        draftRef.current = { ...draftRef.current, [key]: value };
       }
-      return mergeTaskIntoDraft(updatedTask, previous, nextDirtyFields);
-    });
-  }
+      markDraftFieldDirty(key);
+      setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
+    },
+    [markDraftFieldDirty],
+  );
+
+  const updateParentTaskNumberDraft = useCallback(
+    (value: string) => {
+      parentTaskNumberDraftRef.current = value;
+      markDraftFieldDirty("parentTaskNumber");
+      setParentTaskNumberDraft(value);
+    },
+    [markDraftFieldDirty],
+  );
+
+  const applyTaskServerUpdate = useCallback(
+    (updatedTask: TaskRecord, clearedDirtyFields: readonly DraftDirtyField[] = []) => {
+      const nextDirtyFields = clearDraftDirtyFieldMap(draftDirtyFieldsRef.current, clearedDirtyFields);
+      draftDirtyFieldsRef.current = nextDirtyFields;
+      setDraftDirtyFields(nextDirtyFields);
+      setTasks((previous) => previous.map((task) => (task.id === updatedTask.id ? updatedTask : task)));
+      setDraft((previous) => {
+        if (!previous || previous.id !== updatedTask.id) {
+          return previous;
+        }
+        return mergeTaskIntoDraft(updatedTask, previous, nextDirtyFields);
+      });
+    },
+    [setTasks],
+  );
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -2208,7 +2236,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const json = (await response.json()) as { data: TaskRecord };
-    await loadData();
+    await refreshScope({ force: true });
     setSelectedTaskId(json.data.id);
     setForm(buildDefaultTaskForm());
     if (canCollapseCreateForm) {
@@ -2243,7 +2271,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       if (!response.ok) {
         const message = await readErrorMessage(response, "saveTaskFailed");
         if (response.status === 409) {
-          await loadData();
+          await refreshScope({ force: true });
         }
         throw new Error(message);
       }
@@ -2260,6 +2288,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   saveSelectedTaskRef.current = saveSelectedTask;
+
+  const hasSelectedTaskDraftChanges = useCallback(() => {
+    const currentTask = selectedTaskRef.current;
+    const currentDraft = draftRef.current;
+    if (!currentTask || !currentDraft || currentTask.id !== currentDraft.id) {
+      return false;
+    }
+
+    for (const field of editableTaskFormKeys) {
+      if (!Object.is(currentTask[field], currentDraft[field])) {
+        return true;
+      }
+    }
+
+    const selectedParentTaskNumber = selectedParentTaskRef.current ? formatTaskDisplayId(selectedParentTaskRef.current) : "";
+    return normalizeParentTaskNumberInput(parentTaskNumberDraftRef.current) !== normalizeParentTaskNumberInput(selectedParentTaskNumber);
+  }, []);
 
   async function exportDailyTasks() {
     if (isExportDisabled) {
@@ -2309,165 +2354,185 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
   }
 
-  async function reorderDailyTasks(
-    command:
-      | {
-          action: "manual_move";
-          movedTaskId: string;
-          targetParentTaskId: string | null;
-          targetIndex: number;
+  const reorderDailyTasks = useCallback(
+    async (
+      command:
+        | {
+            action: "manual_move";
+            movedTaskId: string;
+            targetParentTaskId: string | null;
+            targetIndex: number;
+          }
+        | {
+            action: "auto_sort";
+            strategy: "priority" | "action_id";
+          },
+      nextMode: DailyTaskSortMode,
+    ) => {
+      if (isPreview) {
+        setErrorMessage(t("errors.previewMutationNotAllowed"));
+        return false;
+      }
+
+      if (isReorderingTasks) {
+        return false;
+      }
+
+      if (hasSelectedTaskDraftChanges()) {
+        const didSave = await saveSelectedTaskRef.current();
+        if (!didSave) {
+          return false;
         }
-      | {
-          action: "auto_sort";
-          strategy: "priority" | "action_id";
+      }
+
+      setIsReorderingTasks(true);
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/tasks/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(command),
+        });
+
+        if (!response.ok) {
+          setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+          return false;
+        }
+
+        const json = (await response.json()) as { data: TaskRecord[] };
+        setTasks(json.data);
+        setTaskSortMode(nextMode);
+        if (command.action === "manual_move") {
+          setSelectedTaskId(command.movedTaskId);
+        }
+        return true;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+        return false;
+      } finally {
+        setIsReorderingTasks(false);
+        setIsTaskOrderMenuOpen(false);
+        setTaskDragState(null);
+        setTaskDropState(null);
+      }
+    },
+    [hasSelectedTaskDraftChanges, isPreview, isReorderingTasks, setErrorMessage, setTasks],
+  );
+
+  const moveTaskByOffset = useCallback(
+    async (taskId: string, offset: -1 | 1) => {
+      if (hasActiveDailyFilters) {
+        return;
+      }
+
+      const task = dailyTreeRows.find((row) => row.task.id === taskId)?.task;
+      if (!task) {
+        return;
+      }
+
+      const parentTaskId = task.parentTaskId ?? null;
+      const siblingIds = dailyTreeRows
+        .filter((row) => (row.task.parentTaskId ?? null) === parentTaskId)
+        .map((row) => row.task.id);
+      const currentIndex = siblingIds.indexOf(taskId);
+      const nextIndex = currentIndex + offset;
+      const targetIndex = offset > 0 ? nextIndex + 1 : nextIndex;
+
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblingIds.length) {
+        return;
+      }
+
+      await reorderDailyTasks(
+        {
+          action: "manual_move",
+          movedTaskId: taskId,
+          targetParentTaskId: parentTaskId,
+          targetIndex,
         },
-    nextMode: DailyTaskSortMode,
-  ) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
-      return false;
-    }
+        "manual",
+      );
+    },
+    [dailyTreeRows, hasActiveDailyFilters, reorderDailyTasks],
+  );
 
-    if (isReorderingTasks) {
-      return false;
-    }
-
-    if (hasSelectedTaskDraftChanges()) {
-      const didSave = await saveSelectedTaskRef.current();
-      if (!didSave) {
-        return false;
-      }
-    }
-
-    setIsReorderingTasks(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/tasks/reorder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(command),
-      });
-
-      if (!response.ok) {
-        setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
-        return false;
+  const handleTaskRowDragStart = useCallback(
+    (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => {
+      if (hasActiveDailyFilters || isMobileViewport || isReorderingTasks) {
+        event.preventDefault();
+        return;
       }
 
-      const json = (await response.json()) as { data: TaskRecord[] };
-      setTasks(json.data);
-      setTaskSortMode(nextMode);
-      if (command.action === "manual_move") {
-        setSelectedTaskId(command.movedTaskId);
-      }
-      return true;
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
-      return false;
-    } finally {
-      setIsReorderingTasks(false);
-      setIsTaskOrderMenuOpen(false);
-      setTaskDragState(null);
+      setTaskDragState({ taskId: task.id, parentTaskId: task.parentTaskId ?? null });
       setTaskDropState(null);
-    }
-  }
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", task.id);
+    },
+    [hasActiveDailyFilters, isMobileViewport, isReorderingTasks],
+  );
 
-  async function moveTaskByOffset(taskId: string, offset: -1 | 1) {
-    if (hasActiveDailyFilters) {
-      return;
-    }
+  const handleTaskRowDragOver = useCallback(
+    (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => {
+      if (!taskDragState || taskDragState.taskId === task.id) {
+        return;
+      }
 
-    const task = dailyTreeRows.find((row) => row.task.id === taskId)?.task;
-    if (!task) {
-      return;
-    }
+      const targetParentTaskId = task.parentTaskId ?? null;
+      if (taskDragState.parentTaskId !== targetParentTaskId) {
+        return;
+      }
 
-    const parentTaskId = task.parentTaskId ?? null;
-    const siblingIds = dailyTreeRows
-      .filter((row) => (row.task.parentTaskId ?? null) === parentTaskId)
-      .map((row) => row.task.id);
-    const currentIndex = siblingIds.indexOf(taskId);
-    const nextIndex = currentIndex + offset;
-    const targetIndex = offset > 0 ? nextIndex + 1 : nextIndex;
-
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblingIds.length) {
-      return;
-    }
-
-    await reorderDailyTasks(
-      {
-        action: "manual_move",
-        movedTaskId: taskId,
-        targetParentTaskId: parentTaskId,
-        targetIndex,
-      },
-      "manual",
-    );
-  }
-
-  function handleTaskRowDragStart(task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) {
-    if (hasActiveDailyFilters || isMobileViewport || isReorderingTasks) {
       event.preventDefault();
-      return;
-    }
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
+      setTaskDropState({ taskId: task.id, position });
+    },
+    [taskDragState],
+  );
 
-    setTaskDragState({ taskId: task.id, parentTaskId: task.parentTaskId ?? null });
+  const handleTaskRowDrop = useCallback(
+    async (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => {
+      if (!taskDragState) {
+        return;
+      }
+
+      const targetParentTaskId = task.parentTaskId ?? null;
+      if (taskDragState.parentTaskId !== targetParentTaskId) {
+        return;
+      }
+
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
+      const siblingIds = dailyTreeRows
+        .filter((row) => (row.task.parentTaskId ?? null) === targetParentTaskId)
+        .map((row) => row.task.id)
+        .filter((taskId) => taskId !== taskDragState.taskId);
+      const targetIndexBase = siblingIds.indexOf(task.id);
+
+      if (targetIndexBase < 0) {
+        setTaskDragState(null);
+        setTaskDropState(null);
+        return;
+      }
+
+      await reorderDailyTasks(
+        {
+          action: "manual_move",
+          movedTaskId: taskDragState.taskId,
+          targetParentTaskId,
+          targetIndex: targetIndexBase + (position === "after" ? 1 : 0),
+        },
+        "manual",
+      );
+    },
+    [dailyTreeRows, taskDragState, reorderDailyTasks],
+  );
+
+  const clearTaskDragInteraction = useCallback(() => {
+    setTaskDragState(null);
     setTaskDropState(null);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", task.id);
-  }
-
-  function handleTaskRowDragOver(task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) {
-    if (!taskDragState || taskDragState.taskId === task.id) {
-      return;
-    }
-
-    const targetParentTaskId = task.parentTaskId ?? null;
-    if (taskDragState.parentTaskId !== targetParentTaskId) {
-      return;
-    }
-
-    event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
-    setTaskDropState({ taskId: task.id, position });
-  }
-
-  async function handleTaskRowDrop(task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) {
-    if (!taskDragState) {
-      return;
-    }
-
-    const targetParentTaskId = task.parentTaskId ?? null;
-    if (taskDragState.parentTaskId !== targetParentTaskId) {
-      return;
-    }
-
-    event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
-    const siblingIds = dailyTreeRows
-      .filter((row) => (row.task.parentTaskId ?? null) === targetParentTaskId)
-      .map((row) => row.task.id)
-      .filter((taskId) => taskId !== taskDragState.taskId);
-    const targetIndexBase = siblingIds.indexOf(task.id);
-
-    if (targetIndexBase < 0) {
-      setTaskDragState(null);
-      setTaskDropState(null);
-      return;
-    }
-
-    await reorderDailyTasks(
-      {
-        action: "manual_move",
-        movedTaskId: taskDragState.taskId,
-        targetParentTaskId,
-        targetIndex: targetIndexBase + (position === "after" ? 1 : 0),
-      },
-      "manual",
-    );
-  }
+  }, []);
 
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
     if (column.headerControl?.kind === "sortMenu") {
@@ -2538,38 +2603,41 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     );
   }
 
-  async function patchTask(
-    task: Pick<TaskRecord, "id" | "version">,
-    payload: Partial<TaskRecord>,
-    options: {
-      clearedDirtyFields?: readonly DraftDirtyField[];
-      fallbackKey?: ErrorCopyKey;
-    } = {},
-  ) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
-      return null;
-    }
-
-    const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, version: task.version }),
-    });
-
-    if (!response.ok) {
-      setErrorMessage(await readErrorMessage(response, options.fallbackKey ?? "updateTaskFailed"));
-      if (response.status === 409) {
-        await loadData();
+  const patchTask = useCallback(
+    async (
+      task: Pick<TaskRecord, "id" | "version">,
+      payload: Partial<TaskRecord>,
+      options: {
+        clearedDirtyFields?: readonly DraftDirtyField[];
+        fallbackKey?: ErrorCopyKey;
+      } = {},
+    ) => {
+      if (isPreview) {
+        setErrorMessage(t("errors.previewMutationNotAllowed"));
+        return null;
       }
-      return null;
-    }
 
-    const json = (await response.json()) as { data: TaskRecord };
-    applyTaskServerUpdate(json.data, options.clearedDirtyFields ?? []);
-    setSelectedTaskId(task.id);
-    return json.data;
-  }
+      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, version: task.version }),
+      });
+
+      if (!response.ok) {
+        setErrorMessage(await readErrorMessage(response, options.fallbackKey ?? "updateTaskFailed"));
+        if (response.status === 409) {
+          await refreshScope({ force: true });
+        }
+        return null;
+      }
+
+      const json = (await response.json()) as { data: TaskRecord };
+      applyTaskServerUpdate(json.data, options.clearedDirtyFields ?? []);
+      setSelectedTaskId(task.id);
+      return json.data;
+    },
+    [applyTaskServerUpdate, isPreview, refreshScope, setErrorMessage],
+  );
 
   async function saveDetailCalendarLinked(nextValue: boolean) {
     const currentDraft = draftRef.current;
@@ -2609,26 +2677,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
   }
 
-  async function saveInlineTaskListField(columnKey: TaskListColumnKey) {
-    const field = getEditableTaskListField(columnKey);
-    const currentDraft = draftRef.current;
-    const currentTask = selectedTaskRef.current;
-    if (!field || !currentDraft || !currentTask || currentDraft.id !== currentTask.id) return;
-    if (inlineSavingFields[columnKey]) return;
+  const saveInlineTaskListField = useCallback(
+    async (columnKey: TaskListColumnKey) => {
+      const field = getEditableTaskListField(columnKey);
+      const currentDraft = draftRef.current;
+      const currentTask = selectedTaskRef.current;
+      if (!field || !currentDraft || !currentTask || currentDraft.id !== currentTask.id) return;
+      if (inlineSavingFieldsRef.current[columnKey]) return;
 
-    if (Object.is(currentDraft[field], currentTask[field])) {
-      clearDraftDirtyFields([field]);
-      return;
-    }
+      if (Object.is(currentDraft[field], currentTask[field])) {
+        clearDraftDirtyFields([field]);
+        return;
+      }
 
-    setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
+      setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
 
-    try {
-      await patchTask(currentDraft, { [field]: currentDraft[field] } as Partial<TaskRecord>, { clearedDirtyFields: [field] });
-    } finally {
-      setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
-    }
-  }
+      try {
+        await patchTask(currentDraft, { [field]: currentDraft[field] } as Partial<TaskRecord>, { clearedDirtyFields: [field] });
+      } finally {
+        setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+      }
+    },
+    [clearDraftDirtyFields, patchTask],
+  );
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
     const currentIndex = statusOrder.indexOf(task.status);
     const nextIndex = currentIndex + direction;
@@ -2668,7 +2739,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(await readErrorMessage(response, "moveTaskToTrashFailed"));
       return;
     }
-    await loadData();
+    await refreshAllDashboardData();
   }
 
   async function restoreTask(taskId: string) {
@@ -2682,7 +2753,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(await readErrorMessage(response, "restoreTaskFailed"));
       return;
     }
-    await loadData();
+    await refreshAllDashboardData();
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
@@ -2699,7 +2770,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
       return;
     }
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   async function uploadSelectedFile() {
@@ -2728,7 +2799,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     setPendingVersionUpload(null);
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   async function moveFileToTrash(fileId: string) {
@@ -2742,7 +2813,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(await readErrorMessage(response, "moveFileToTrashFailed"));
       return;
     }
-    await loadData();
+    await refreshAllDashboardData();
   }
 
   async function restoreFile(fileId: string) {
@@ -2756,7 +2827,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(await readErrorMessage(response, "restoreFileFailed"));
       return;
     }
-    await loadData();
+    await refreshAllDashboardData();
   }
 
   async function deleteTaskPermanently(task: TaskRecord) {
@@ -2781,7 +2852,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   async function deleteFilePermanently(file: FileRecord) {
@@ -2807,7 +2878,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   async function deleteSelectedTrashItems() {
@@ -2844,7 +2915,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     setSelectedTrashTaskIds([]);
     setSelectedTrashFileIds([]);
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   async function emptyTrashItems() {
@@ -2870,7 +2941,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     setSelectedTrashTaskIds([]);
     setSelectedTrashFileIds([]);
-    await loadData();
+    await refreshScope({ force: true });
   }
 
   function toggleTrashTaskSelection(taskId: string) {
@@ -2892,42 +2963,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setSelectedTrashFileIds(files.map((file) => file.id));
   }
 
-  function expandDetailPanel() {
+  const expandDetailPanel = useCallback(() => {
     setDetailPanelState("expanded");
-  }
+  }, []);
 
-  function collapseDetailPanel() {
+  const collapseDetailPanel = useCallback(() => {
     setDetailPanelState("collapsed");
-  }
+  }, []);
 
-  function pinDetailPanel() {
+  const pinDetailPanel = useCallback(() => {
     setIsDetailPanelSticky(true);
     expandDetailPanel();
-  }
+  }, [expandDetailPanel]);
 
-  function closeDetailPanel() {
+  const closeDetailPanel = useCallback(() => {
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
-  }
+  }, []);
 
-  function selectTask(taskId: string) {
+  const selectTask = useCallback((taskId: string) => {
     setSelectedTaskId(taskId);
-  }
+  }, []);
 
-  function focusTaskListEditableCell(taskId: string, columnKey: TaskListColumnKey) {
+  const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
     setPendingTaskListFocusCell({ taskId, columnKey });
     setSelectedTaskId(taskId);
-  }
+  }, []);
 
-  function toggleTaskDetails(taskId: string) {
-    if (selectedTaskId === taskId && isDetailExpanded) {
+  const toggleTaskDetails = useCallback((taskId: string) => {
+    const currentState = detailPanelInteractionRef.current;
+    if (currentState.selectedTaskId === taskId && currentState.isDetailExpanded) {
       closeDetailPanel();
       return;
     }
 
     setSelectedTaskId(taskId);
     pinDetailPanel();
-  }
+  }, [closeDetailPanel, pinDetailPanel]);
 
   const clearTaskSelection = useCallback(() => {
     setPendingTaskListFocusCell(null);
@@ -2935,23 +3007,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
   }, []);
-
-  function hasSelectedTaskDraftChanges() {
-    const currentTask = selectedTaskRef.current;
-    const currentDraft = draftRef.current;
-    if (!currentTask || !currentDraft || currentTask.id !== currentDraft.id) {
-      return false;
-    }
-
-    for (const field of editableTaskFormKeys) {
-      if (!Object.is(currentTask[field], currentDraft[field])) {
-        return true;
-      }
-    }
-
-    const selectedParentTaskNumber = selectedParentTaskRef.current ? formatTaskDisplayId(selectedParentTaskRef.current) : "";
-    return normalizeParentTaskNumberInput(parentTaskNumberDraftRef.current) !== normalizeParentTaskNumberInput(selectedParentTaskNumber);
-  }
 
   function handleWorkspaceBackgroundClick(event: ReactMouseEvent<HTMLElement>) {
     if (mode !== "daily" || !isDetailExpanded) return;
@@ -3052,7 +3107,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return () => {
       document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
     };
-  }, [clearTaskSelection, isMobileViewport, mode, saving, selectedTaskId]);
+  }, [clearTaskSelection, hasSelectedTaskDraftChanges, isMobileViewport, mode, saving, selectedTaskId]);
 
   function handleDetailPanelPointerEnter() {
     if (!canHoverDetails) return;
@@ -3434,6 +3489,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       <tbody>
                         {dailyTreeRows.map((row) => {
                           const task = row.task;
+                          if (USE_MEMOIZED_DAILY_TASK_ROWS) {
+                            return (
+                              <DailyTaskTableRow
+                                categoryDefinitionsByField={categoryDefinitionsByField}
+                                clearTaskDragInteraction={clearTaskDragInteraction}
+                                currentDayKey={currentDayKey}
+                                focusTaskListEditableCell={focusTaskListEditableCell}
+                                handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
+                                handleTaskListRowResizeStart={handleTaskListRowResizeStart}
+                                handleTaskRowDragOver={handleTaskRowDragOver}
+                                handleTaskRowDragStart={handleTaskRowDragStart}
+                                handleTaskRowDrop={handleTaskRowDrop}
+                                hasActiveDailyFilters={hasActiveDailyFilters}
+                                hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
+                                inlineSavingFields={inlineSavingFields}
+                                isDimmedRow={Boolean(focusedTaskIds && !focusedTaskIds.has(task.id))}
+                                isReorderingTasks={isReorderingTasks}
+                                isSelectedRow={task.id === selectedTaskId}
+                                key={task.id}
+                                moveTaskByOffset={moveTaskByOffset}
+                                registerTaskListRowCellRef={registerTaskListRowCellRef}
+                                row={row}
+                                rowDraft={task.id === selectedTaskId && draft?.id === task.id ? draft : null}
+                                rowHeight={taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT}
+                                saveInlineTaskListField={saveInlineTaskListField}
+                                selectTask={selectTask}
+                                taskDropPosition={taskDropState?.taskId === task.id ? taskDropState.position : null}
+                                taskFiles={filesByTaskId[task.id] ?? []}
+                                toggleTaskDetails={toggleTaskDetails}
+                                updateDraftForm={updateDraftForm}
+                                workTypeDefinitions={workTypeDefinitions}
+                              />
+                            );
+                          }
                           const taskFiles = filesByTaskId[task.id] ?? [];
                           const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
                           const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
@@ -4048,6 +4137,272 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       )}
     </section>
   );
+}
+
+const DailyTaskTableRow = memo(function DailyTaskTableRow({
+  row,
+  taskFiles,
+  rowHeight,
+  currentDayKey,
+  hideIssueIdOverdueBadge,
+  hasActiveDailyFilters,
+  isReorderingTasks,
+  isSelectedRow,
+  isDimmedRow,
+  rowDraft,
+  inlineSavingFields,
+  taskDropPosition,
+  workTypeDefinitions,
+  categoryDefinitionsByField,
+  registerTaskListRowCellRef,
+  focusTaskListEditableCell,
+  updateDraftForm,
+  saveInlineTaskListField,
+  moveTaskByOffset,
+  handleTaskRowDragStart,
+  handleTaskRowDragOver,
+  handleTaskRowDrop,
+  clearTaskDragInteraction,
+  handleTaskListRowAutoFitDoubleClick,
+  handleTaskListRowResizeStart,
+  selectTask,
+  toggleTaskDetails,
+}: DailyTaskTableRowProps) {
+  const task = row.task;
+  const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+  const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
+  const rowAutoFitAria = rowResizeAria;
+  const isOverdueRow = isTaskOverdue(task, currentDayKey);
+  const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+  const rowPresentationContext = createTaskListRowPresentationContext({
+    task,
+    row,
+    rowDraft,
+    linkedDocumentsDisplay,
+    workTypeDefinitions,
+    categoryDefinitionsByField,
+  });
+
+  const renderTaskListCellContent = (columnKey: TaskListColumnKey, presentation: TaskListCellPresentation) => {
+    switch (presentation.kind) {
+      case "tree":
+        return (
+          <div className="task-tree">
+            {presentation.isChildTask ? (
+              <span aria-hidden="true" className="task-tree__guides">
+                {presentation.ancestorGuideFlags.map((hasNextSibling, index) => (
+                  <span className={clsx("task-tree__lane", hasNextSibling && "task-tree__lane--continue")} key={task.id + "-lane-" + index} />
+                ))}
+                <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
+              </span>
+            ) : null}
+            <button
+              aria-label="Reorder task"
+              className="task-tree__drag-handle"
+              disabled={hasActiveDailyFilters || isReorderingTasks}
+              draggable={!hasActiveDailyFilters && !isReorderingTasks}
+              onClick={(event) => event.stopPropagation()}
+              onDragEnd={clearTaskDragInteraction}
+              onDragStart={(event) => handleTaskRowDragStart(task, event)}
+              type="button"
+            >
+              ↕
+            </button>
+            <span
+              className={clsx(
+                "task-tree__badge",
+                presentation.isParentTask && "task-tree__badge--parent",
+                presentation.isChildTask && "task-tree__badge--child",
+                presentation.isBranchTask && "task-tree__badge--branch",
+              )}
+            >
+              {presentation.actionId}
+            </span>
+            {deadlineBadge && !hideIssueIdOverdueBadge ? (
+              <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
+                {deadlineBadge.label}
+              </span>
+            ) : null}
+            {isSelectedRow ? (
+              <span className="task-tree__actions">
+                <button
+                  aria-label="Move task up"
+                  className="task-tree__move-button"
+                  disabled={hasActiveDailyFilters || isReorderingTasks}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void moveTaskByOffset(task.id, -1);
+                  }}
+                  type="button"
+                >
+                  ↑
+                </button>
+                <button
+                  aria-label="Move task down"
+                  className="task-tree__move-button"
+                  disabled={hasActiveDailyFilters || isReorderingTasks}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void moveTaskByOffset(task.id, 1);
+                  }}
+                  type="button"
+                >
+                  ↓
+                </button>
+              </span>
+            ) : null}
+          </div>
+        );
+      case "text":
+        return presentation.text;
+      case "title":
+        return (
+          <span
+            className={clsx(
+              "sheet-table__title-copy",
+              presentation.isParentTask && "sheet-table__title-copy--parent",
+              presentation.isChildTask && "sheet-table__title-copy--child",
+              presentation.isBranchTask && "sheet-table__title-copy--branch",
+            )}
+          >
+            {presentation.text}
+          </span>
+        );
+      case "files":
+        return (
+          <>
+            <strong>{presentation.primary}</strong>
+            {presentation.secondary ? <small>{presentation.secondary}</small> : null}
+          </>
+        );
+      case "readonly-checkbox":
+        return (
+          <span className="sheet-table__readonly-checkbox" aria-label={labelForField("calendarLinked")}>
+            <input checked={presentation.checked} disabled readOnly tabIndex={-1} type="checkbox" />
+          </span>
+        );
+      case "readonly-status":
+        return <span className={clsx("status-pill", `status-pill--${presentation.value}`)}>{labelForStatus(presentation.value)}</span>;
+      case "editable-date":
+      case "editable-text":
+        if (!rowDraft) return null;
+        return (
+          <TaskListInlineEditor
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            columnKey={columnKey}
+            fieldKey={presentation.fieldKey}
+            form={rowDraft}
+            onChange={updateDraftForm}
+            onCommit={saveInlineTaskListField}
+            saving={Boolean(inlineSavingFields[columnKey])}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        );
+      case "editable-checkbox":
+        if (!rowDraft) return null;
+        return (
+          <TaskListInlineEditor
+            columnKey={columnKey}
+            fieldKey="calendarLinked"
+            form={rowDraft}
+            onChange={updateDraftForm}
+            onCommit={saveInlineTaskListField}
+            saving={Boolean(inlineSavingFields[columnKey])}
+          />
+        );
+      case "editable-categorical":
+        if (!rowDraft) return null;
+        return (
+          <TaskListInlineEditor
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            columnKey={columnKey}
+            fieldKey={presentation.fieldKey}
+            form={rowDraft}
+            onChange={updateDraftForm}
+            onCommit={saveInlineTaskListField}
+            saving={Boolean(inlineSavingFields[columnKey])}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        );
+    }
+  };
+
+  const renderTaskListCell = (column: TaskListColumnConfig) => {
+    const editableField = getEditableTaskListField(column.key);
+    const presentation = buildTaskListCellPresentation(column.key, rowPresentationContext);
+    const isEditableCell = isEditableTaskListCellPresentation(presentation);
+
+    return (
+      <td className={column.className} key={column.key} onClick={editableField ? () => focusTaskListEditableCell(task.id, column.key) : undefined}>
+        <div
+          className={clsx("sheet-table__cell-shell", column.key === "actionId" && "sheet-table__cell-shell--tree")}
+          ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
+          style={{ height: `${rowHeight}px` }}
+        >
+          <div
+            className={clsx(
+              "sheet-table__cell-content",
+              isEditableCell && "sheet-table__cell-content--editable",
+              isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
+            )}
+          >
+            {renderTaskListCellContent(column.key, presentation)}
+          </div>
+          <button
+            aria-label={rowResizeAria}
+            className="sheet-table__row-resize-handle"
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleTaskListRowAutoFitDoubleClick(task.id, event);
+            }}
+            onPointerDown={(event) => handleTaskListRowResizeStart(task.id, event)}
+            title={rowAutoFitAria}
+            type="button"
+          />
+        </div>
+      </td>
+    );
+  };
+
+  return (
+    <tr
+      className={clsx(
+        isSelectedRow && "sheet-row--active",
+        "task-state-row",
+        `task-state-row--${task.status}`,
+        isOverdueRow && "task-state-row--overdue",
+        isDimmedRow && "task-state-row--dimmed",
+        taskDropPosition && `task-state-row--drop-${taskDropPosition}`,
+      )}
+      data-task-row-id={task.id}
+      onClick={() => selectTask(task.id)}
+      onDragOver={(event) => handleTaskRowDragOver(task, event)}
+      onDrop={(event) => void handleTaskRowDrop(task, event)}
+      onDoubleClick={() => toggleTaskDetails(task.id)}
+      onDoubleClickCapture={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
+    >
+      {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
+    </tr>
+  );
+}, areDailyTaskTableRowPropsEqual);
+
+function areDailyTaskTableRowPropsEqual(previous: DailyTaskTableRowProps, next: DailyTaskTableRowProps) {
+  if (previous.row !== next.row) return false;
+  if (previous.taskFiles !== next.taskFiles) return false;
+  if (previous.rowHeight !== next.rowHeight) return false;
+  if (previous.currentDayKey !== next.currentDayKey) return false;
+  if (previous.hideIssueIdOverdueBadge !== next.hideIssueIdOverdueBadge) return false;
+  if (previous.hasActiveDailyFilters !== next.hasActiveDailyFilters) return false;
+  if (previous.isReorderingTasks !== next.isReorderingTasks) return false;
+  if (previous.isSelectedRow !== next.isSelectedRow) return false;
+  if (previous.isDimmedRow !== next.isDimmedRow) return false;
+  if (previous.rowDraft !== next.rowDraft) return false;
+  if (previous.taskDropPosition !== next.taskDropPosition) return false;
+  if (previous.workTypeDefinitions !== next.workTypeDefinitions) return false;
+  if (previous.categoryDefinitionsByField !== next.categoryDefinitionsByField) return false;
+  if (previous.isSelectedRow && previous.inlineSavingFields !== next.inlineSavingFields) return false;
+  return true;
 }
 
 function DetailPanelPinIcon() {
@@ -5155,7 +5510,7 @@ function isIsoDateValue(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function formatLinkedDocumentsSummary(taskFiles: FileRecord[]) {
+function formatLinkedDocumentsSummary(taskFiles: readonly FileRecord[]) {
   if (taskFiles.length === 0) {
     return { primary: t("empty.addFilePrompt"), secondary: null as string | null };
   }
