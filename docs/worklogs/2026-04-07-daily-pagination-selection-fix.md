@@ -1,0 +1,4 @@
+Req: In paged daily list mode, fix the broken `2 -> 3` page advance and prevent page-only navigation from auto-selecting the first task on the destination page.
+Diff: Updated `src/components/tasks/task-workspace.tsx` so paged navigation clears selection, skips one selection-driven page resync after explicit page changes, and leaves paged mode unselected when the current selection falls out of view.
+Why: Page navigation and selection sync were coupled, so moving between pages could re-select a task and snap the list back to another page.
+Verify/Time: `npm run typecheck` passed, `npm run lint` passed with 3 existing warnings in `src/components/tasks/task-categorical-fields.tsx`; `verify-browser-ui` confirmed `1 -> 2 -> 3 -> 4 -> 5 -> 4`, direct page jumps `2 -> 5 -> 4`, and `선택된 작업 없음` remaining visible after each move on `/daily`, plus mobile pagination visibility at `390x844`.

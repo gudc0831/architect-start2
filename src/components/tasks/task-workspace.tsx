@@ -540,6 +540,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
   const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
   const dailyListViewModePreferenceReadyKeyRef = useRef<string | null>(null);
+  const skipDailyTaskPageSelectionSyncRef = useRef(false);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -1732,6 +1733,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     () => clampBoardPage(dailyTaskPage, Math.max(dailyTaskPageCount, 1)),
     [dailyTaskPage, dailyTaskPageCount],
   );
+  const dailyTaskPageNavigationItems = useMemo(
+    () => buildDailyTaskPageNavigationItems(Math.max(dailyTaskPageCount, 1), resolvedDailyTaskPage),
+    [dailyTaskPageCount, resolvedDailyTaskPage],
+  );
   const activeDailyTaskPage = useMemo<DailyTaskTreePage | null>(
     () => dailyTaskTreePages[resolvedDailyTaskPage - 1] ?? null,
     [dailyTaskTreePages, resolvedDailyTaskPage],
@@ -1784,23 +1789,31 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return previous;
       }
 
+      if (isPagedDailyListView) {
+        return null;
+      }
+
       return visibleDailyTasks[0]?.id ?? null;
     });
-  }, [mode, visibleDailyTasks]);
+  }, [isPagedDailyListView, mode, visibleDailyTasks]);
 
   useEffect(() => {
     if (!isPagedDailyListView) {
+      skipDailyTaskPageSelectionSyncRef.current = false;
+      return;
+    }
+
+    if (skipDailyTaskPageSelectionSyncRef.current) {
+      skipDailyTaskPageSelectionSyncRef.current = false;
       return;
     }
 
     if (!selectedTaskId) {
-      setDailyTaskPage(1);
       return;
     }
 
     const nextPage = getDailyTaskPageForTask(dailyTaskTreePages, selectedTaskId);
     if (nextPage === null) {
-      setDailyTaskPage(1);
       return;
     }
 
@@ -3300,31 +3313,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
       }
 
-      const nextPageRows = dailyTaskTreePages[clampedPage - 1]?.rows ?? [];
-      const nextPageTaskIdSet = new Set(nextPageRows.map((row) => row.task.id));
+      skipDailyTaskPageSelectionSyncRef.current = true;
+      clearTaskSelection();
       setDailyTaskPage(clampedPage);
-
-      if (selectedTaskId && nextPageTaskIdSet.has(selectedTaskId)) {
-        return;
-      }
-
-      const nextTaskId = nextPageRows[0]?.task.id ?? null;
-      if (!nextTaskId) {
-        clearTaskSelection();
-        return;
-      }
-
-      selectTask(nextTaskId);
     },
     [
       clearTaskSelection,
       dailyTaskPageCount,
-      dailyTaskTreePages,
       hasSelectedTaskDraftChanges,
       isPagedDailyListView,
       resolvedDailyTaskPage,
-      selectTask,
-      selectedTaskId,
     ],
   );
 
@@ -3694,15 +3692,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </div>
                     <div className="daily-task-list__toolbar-actions">
                       <button
-                        className="secondary-button daily-task-list__toolbar-button"
+                        className="secondary-button daily-task-list__toolbar-button daily-task-list__toolbar-nav-button"
                         disabled={resolvedDailyTaskPage <= 1}
                         onClick={() => void goToDailyTaskPage(resolvedDailyTaskPage - 1)}
                         type="button"
                       >
                         {t("actions.back")}
                       </button>
+                      <div
+                        aria-label={t("workspace.dailyListPaginationAria")}
+                        className="daily-task-list__toolbar-pages"
+                        role="group"
+                      >
+                        {dailyTaskPageNavigationItems.map((item) =>
+                          item.kind === "ellipsis" ? (
+                            <span aria-hidden="true" className="daily-task-list__toolbar-ellipsis" key={item.key}>
+                              …
+                            </span>
+                          ) : (
+                            <button
+                              aria-current={item.page === resolvedDailyTaskPage ? "page" : undefined}
+                              aria-label={t("workspace.dailyListGoToPage", { page: item.page })}
+                              className={clsx(
+                                "secondary-button daily-task-list__toolbar-page-button",
+                                item.page === resolvedDailyTaskPage && "daily-task-list__toolbar-page-button--active",
+                              )}
+                              disabled={item.page === resolvedDailyTaskPage}
+                              key={item.key}
+                              onClick={() => void goToDailyTaskPage(item.page)}
+                              type="button"
+                            >
+                              {item.page}
+                            </button>
+                          ),
+                        )}
+                      </div>
                       <button
-                        className="secondary-button daily-task-list__toolbar-button"
+                        className="secondary-button daily-task-list__toolbar-button daily-task-list__toolbar-nav-button"
                         disabled={resolvedDailyTaskPage >= dailyTaskPageCount}
                         onClick={() => void goToDailyTaskPage(resolvedDailyTaskPage + 1)}
                         type="button"
@@ -5700,6 +5726,45 @@ function writeDailyListViewModeToStorage(storageKey: string, value: DailyListVie
 function getDailyTaskPageForTask(pages: readonly DailyTaskTreePage[], taskId: string) {
   const pageIndex = pages.findIndex((page) => page.rows.some((row) => row.task.id === taskId));
   return pageIndex < 0 ? null : pageIndex + 1;
+}
+
+function buildDailyTaskPageNavigationItems(totalPages: number, currentPage: number) {
+  const normalizedTotalPages = Math.max(1, Math.floor(totalPages));
+  const normalizedCurrentPage = clampBoardPage(currentPage, normalizedTotalPages);
+  const visiblePages = new Set<number>([1, normalizedTotalPages, normalizedCurrentPage]);
+
+  for (let page = normalizedCurrentPage - 1; page <= normalizedCurrentPage + 1; page += 1) {
+    if (page > 1 && page < normalizedTotalPages) {
+      visiblePages.add(page);
+    }
+  }
+
+  if (normalizedCurrentPage <= 3) {
+    visiblePages.add(2);
+    visiblePages.add(3);
+    visiblePages.add(4);
+  }
+
+  if (normalizedCurrentPage >= normalizedTotalPages - 2) {
+    visiblePages.add(normalizedTotalPages - 1);
+    visiblePages.add(normalizedTotalPages - 2);
+    visiblePages.add(normalizedTotalPages - 3);
+  }
+
+  const sortedPages = [...visiblePages].filter((page) => page >= 1 && page <= normalizedTotalPages).sort((left, right) => left - right);
+  const items: Array<{ key: string; kind: "page"; page: number } | { key: string; kind: "ellipsis" }> = [];
+  let previousPage = 0;
+
+  for (const page of sortedPages) {
+    if (previousPage > 0 && page - previousPage > 1) {
+      items.push({ key: `ellipsis-${previousPage}-${page}`, kind: "ellipsis" });
+    }
+
+    items.push({ key: `page-${page}`, kind: "page", page });
+    previousPage = page;
+  }
+
+  return items;
 }
 
 function getBoardPageForTask(tasks: readonly TaskRecord[], taskId: string, status: TaskStatus, pageSize: number) {

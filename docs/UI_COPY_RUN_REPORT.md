@@ -7,19 +7,19 @@
 - translator-status.json is missing or does not list applied screens.
 
 ## 검증 결과
-- Report generatedAt: 2026-04-03T01:04:29.650Z
+- Report generatedAt: 2026-04-07T23:34:15.108Z
 - Translator agent status: unknown
 - Translator generatedAt: unknown
 - Validator agent status: failed
-- Validator generatedAt: 2026-04-03T01:04:29.463Z
-- typecheck: passed (exit=0, 3812ms)
-- lint: passed (exit=0, 10020ms)
-- build: passed (exit=0, 25280ms)
-- Failure count: 9
+- Validator generatedAt: 2026-04-07T23:34:14.868Z
+- typecheck: passed (exit=0, 6485ms)
+- lint: passed (exit=0, 13054ms)
+- build: passed (exit=0, 51768ms)
+- Failure count: 13
 
 ## 남은 경고
-- src/components/admin/admin-foundation-shell.tsx:37 Potential raw UI leak: json.error?.message
-- src/providers/project-provider.tsx:82 Potential raw UI leak: json.error?.message
+- src/components/admin/admin-foundation-shell.tsx:41 Potential raw UI leak: json.error?.message
+- src/providers/project-provider.tsx:75 Potential raw UI leak: json.error?.message
 
 ## 영어 UI 전환 시 주의 식별자
 - Routes: /board, /daily, /calendar, /trash

@@ -1514,10 +1514,12 @@ a {
 }
 
 .daily-task-list__toolbar-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.45rem;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .daily-task-list__toolbar-button {
@@ -1525,6 +1527,36 @@ a {
   padding: 0.42rem 0.75rem;
   border-radius: 999px;
   font-size: 0.76rem;
+}
+
+.daily-task-list__toolbar-pages {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.daily-task-list__toolbar-page-button {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.42rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.daily-task-list__toolbar-page-button--active {
+  background: rgba(41, 92, 67, 0.14);
+  color: var(--theme-text-accent);
+  box-shadow: inset 0 0 0 1px rgba(41, 92, 67, 0.16);
+}
+
+.daily-task-list__toolbar-ellipsis {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 0 0.1rem;
 }
 
 .daily-task-list__filters-label {
@@ -3920,9 +3952,15 @@ a {
 
   .daily-task-list__toolbar-actions {
     width: 100%;
+    justify-content: space-between;
   }
 
-  .daily-task-list__toolbar-button {
+  .daily-task-list__toolbar-pages {
+    order: 2;
+    width: 100%;
+  }
+
+  .daily-task-list__toolbar-nav-button {
     flex: 1 1 0;
   }
 

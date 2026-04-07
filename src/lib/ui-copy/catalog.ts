@@ -108,6 +108,8 @@ export type UICatalog = {
     dailyListViewModeAria: string;
     dailyListViewFull: string;
     dailyListViewPaged: string;
+    dailyListPaginationAria: string;
+    dailyListGoToPage: string;
     dailyListPageRange: string;
     pageStatus: string;
     weekdays: {
@@ -392,6 +394,8 @@ export const uiCopyCatalog = {
       dailyListViewModeAria: "일일목록 보기 전환",
       dailyListViewFull: "전체",
       dailyListViewPaged: "50개씩",
+      dailyListPaginationAria: "일일목록 페이지 이동",
+      dailyListGoToPage: "{{page}}페이지로 이동",
       dailyListPageRange: "{{from}}-{{to}} / {{total}}",
       pageStatus: "{{current}} / {{total}}",
       weekdays: {
@@ -701,6 +705,8 @@ export const uiCopyCatalog = {
       dailyListViewModeAria: "Switch daily list view",
       dailyListViewFull: "All",
       dailyListViewPaged: "50 per page",
+      dailyListPaginationAria: "Daily list pagination",
+      dailyListGoToPage: "Go to page {{page}}",
       dailyListPageRange: "{{from}}-{{to}} / {{total}}",
       pageStatus: "{{current}} / {{total}}",
       weekdays: {
