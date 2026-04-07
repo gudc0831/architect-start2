@@ -1,5 +1,5 @@
 import type { AdminFoundationSettings } from "@/domains/admin/foundation-settings";
-import type { TaskRecord, TaskStatus } from "@/domains/task/types";
+import type { TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
 import {
   normalizeTaskCategoryFieldValue,
   resolvePatchedTaskCategoryFieldValue,
@@ -39,14 +39,18 @@ type EffectiveTaskCategories = {
 
 export async function listTasks(scope: TaskScope) {
   const project = await getSelectedTaskProject();
-  const [tasks, foundationSettings] = await Promise.all([
+  const [tasks, foundationSettings, fileSummaryByTaskId] = await Promise.all([
     scope === "trash"
       ? taskRepository.listTrashTasks(project.id)
       : taskRepository.listActiveTasks(project.id),
     loadAdminFoundationSettings(),
+    loadTaskFileSummaryByScope(scope, project.id),
   ]);
   const orderedTasks = scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
-  return applyFoundationSettingsToTasks(orderedTasks, foundationSettings);
+  return applyFoundationSettingsToTasks(orderedTasks, foundationSettings).map((task) => ({
+    ...task,
+    fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
+  }));
 }
 
 export async function reorderTasks(command: TaskReorderCommand, userId?: string | null): Promise<TaskRecord[]> {
@@ -66,7 +70,11 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
   }
 
   const nextTasks = await taskRepository.listActiveTasks(project.id);
-  return applyFoundationSettingsToTasks(flattenTaskTree(nextTasks), foundationSettings);
+  const fileSummaryByTaskId = await loadTaskFileSummaryByScope("active", project.id);
+  return applyFoundationSettingsToTasks(flattenTaskTree(nextTasks), foundationSettings).map((task) => ({
+    ...task,
+    fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
+  }));
 }
 
 export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
@@ -192,7 +200,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
   const foundationSettingsPromise = loadAdminFoundationSettings();
   const currentTask = await currentTaskPromise;
 
-  if (!currentTask || currentTask.projectId !== project.id || currentTask.deletedAt !== null) {
+  if (!currentTask || currentTask.projectId !== project.id || currentTask.deletedAt !== null || currentTask.purgedAt) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
@@ -450,6 +458,7 @@ function sanitizeTaskUpdate(
   if (typeof input.decision === "string") next.decision = normalizeText(input.decision);
   if (typeof input.isDaily === "boolean") next.isDaily = input.isDaily;
   if (typeof input.deletedAt === "string" || input.deletedAt === null) next.deletedAt = input.deletedAt;
+  if (typeof input.purgedAt === "string" || input.purgedAt === null) next.purgedAt = input.purgedAt;
 
   if (typeof input.status === "string") {
     next.status = normalizeStatus(input.status);
@@ -625,6 +634,45 @@ async function listAllTasks() {
     taskRepository.listTrashTasks(project.id),
   ]);
   return [...activeTasks, ...trashTasks];
+}
+
+type TaskFileSummaryState = TaskFileSummary & {
+  latestCreatedAt: string | null;
+};
+
+const emptyTaskFileSummary: TaskFileSummaryState = {
+  count: 0,
+  latestFileName: null,
+  latestCreatedAt: null,
+};
+
+async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
+  const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listActiveFiles();
+  const summaryByTaskId: Record<string, TaskFileSummaryState> = {};
+
+  for (const file of files) {
+    if (file.projectId !== projectId || file.purgedAt) {
+      continue;
+    }
+
+    const current = summaryByTaskId[file.taskId] ?? emptyTaskFileSummary;
+    const isLatest = !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt;
+    summaryByTaskId[file.taskId] = {
+      count: current.count + 1,
+      latestFileName: isLatest ? file.originalName : current.latestFileName,
+      latestCreatedAt: isLatest ? file.createdAt : current.latestCreatedAt,
+    };
+  }
+
+  return Object.fromEntries(
+    Object.entries(summaryByTaskId).map(([taskId, summary]) => [
+      taskId,
+      {
+        count: summary.count,
+        latestFileName: summary.latestFileName,
+      },
+    ]),
+  );
 }
 
 function flattenTaskTree(tasks: TaskRecord[]) {

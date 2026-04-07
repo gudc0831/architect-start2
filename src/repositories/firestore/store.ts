@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
 import {
@@ -115,6 +115,7 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
     updatedAt,
     updatedBy: typeof data.updatedBy === "string" ? String(data.updatedBy) : null,
     deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
+    purgedAt: data.purgedAt ? toIsoString(data.purgedAt as FirestoreValue) : null,
   };
 };
 
@@ -137,7 +138,7 @@ const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => 
     updatedAt: toIsoString(data.updatedAt as FirestoreValue) || toIsoString(data.createdAt as FirestoreValue),
     uploadedBy: typeof data.uploadedBy === "string" ? String(data.uploadedBy) : null,
     deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
-    downloadUrl: null,
+    purgedAt: data.purgedAt ? toIsoString(data.purgedAt as FirestoreValue) : null,
   };
 };
 
@@ -178,7 +179,7 @@ class FirestoreTaskRepository implements TaskRepository {
     const snapshot = await getDocs(collection(db, taskCollectionName));
     const items = snapshot.docs
       .map((entry) => toTaskRecord(entry.id, entry.data()))
-      .filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId));
+      .filter((task) => !task.deletedAt && !task.purgedAt && (!projectId || task.projectId === projectId));
     return items.sort(compareTasksBySiblingOrder);
   }
 
@@ -189,7 +190,7 @@ class FirestoreTaskRepository implements TaskRepository {
     const snapshot = await getDocs(collection(db, taskCollectionName));
     const items = snapshot.docs
       .map((entry) => toTaskRecord(entry.id, entry.data()))
-      .filter((task) => Boolean(task.deletedAt) && (!projectId || task.projectId === projectId));
+      .filter((task) => Boolean(task.deletedAt) && !task.purgedAt && (!projectId || task.projectId === projectId));
     return sortByDeletedAt(items);
   }
 
@@ -198,7 +199,8 @@ class FirestoreTaskRepository implements TaskRepository {
     if (!db) return null;
     const snapshot = await getDoc(doc(db, taskCollectionName, taskId));
     if (!snapshot.exists()) return null;
-    return toTaskRecord(snapshot.id, snapshot.data());
+    const record = toTaskRecord(snapshot.id, snapshot.data());
+    return record.purgedAt ? null : record;
   }
 
   async getNextTaskNumber(projectId: string) {
@@ -246,6 +248,7 @@ class FirestoreTaskRepository implements TaskRepository {
       updatedAt: timestamp,
       updatedBy: input.updatedBy ?? input.createdBy ?? null,
       deletedAt: null,
+      purgedAt: null,
     };
 
     await setDoc(ref, record);
@@ -287,6 +290,7 @@ class FirestoreTaskRepository implements TaskRepository {
       updatedBy: normalizedPersistedInput.updatedBy ?? currentTask.updatedBy,
       version: currentTask.version + 1,
       deletedAt: input.deletedAt === undefined ? undefined : input.deletedAt,
+      purgedAt: input.purgedAt === undefined ? undefined : input.purgedAt,
     } as Record<string, unknown>);
     const snapshot = await getDoc(targetRef);
 
@@ -414,7 +418,10 @@ class FirestoreTaskRepository implements TaskRepository {
       throw new Error("Firestore is not configured");
     }
 
-    await deleteDoc(doc(db, taskCollectionName, taskId));
+    await updateDoc(doc(db, taskCollectionName, taskId), {
+      purgedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
   }
 }
 
@@ -424,7 +431,9 @@ class FirestoreFileRepository implements FileRepository {
     if (!db) return [];
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
-    const items = snapshot.docs.map((entry) => toFileRecord(entry.id, entry.data())).filter((file) => !file.deletedAt && (!taskId || file.taskId === taskId));
+    const items = snapshot.docs
+      .map((entry) => toFileRecord(entry.id, entry.data()))
+      .filter((file) => !file.deletedAt && !file.purgedAt && (!taskId || file.taskId === taskId));
     return latestFiles(items);
   }
 
@@ -433,7 +442,9 @@ class FirestoreFileRepository implements FileRepository {
     if (!db) return [];
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
-    const items = snapshot.docs.map((entry) => toFileRecord(entry.id, entry.data())).filter((file) => Boolean(file.deletedAt) && (!taskId || file.taskId === taskId));
+    const items = snapshot.docs
+      .map((entry) => toFileRecord(entry.id, entry.data()))
+      .filter((file) => Boolean(file.deletedAt) && !file.purgedAt && (!taskId || file.taskId === taskId));
     return sortByDeletedAt(items);
   }
 
@@ -442,7 +453,8 @@ class FirestoreFileRepository implements FileRepository {
     if (!db) return null;
     const snapshot = await getDoc(doc(db, fileCollectionName, fileId));
     if (!snapshot.exists()) return null;
-    return toFileRecord(snapshot.id, snapshot.data());
+    const record = toFileRecord(snapshot.id, snapshot.data());
+    return record.purgedAt ? null : record;
   }
 
   async listFilesByTask(taskId: string) {
@@ -452,7 +464,7 @@ class FirestoreFileRepository implements FileRepository {
     const snapshot = await getDocs(collection(db, fileCollectionName));
     return snapshot.docs
       .map((entry) => toFileRecord(entry.id, entry.data()))
-      .filter((file) => file.taskId === taskId)
+      .filter((file) => file.taskId === taskId && !file.purgedAt)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
@@ -479,6 +491,7 @@ class FirestoreFileRepository implements FileRepository {
       updatedAt: new Date().toISOString(),
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
+      purgedAt: null,
     };
 
     const ref = doc(collection(db, fileCollectionName));
@@ -493,7 +506,7 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const targetRef = doc(db, fileCollectionName, fileId);
-    await updateDoc(targetRef, { deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await updateDoc(targetRef, { deletedAt: new Date().toISOString(), purgedAt: null, updatedAt: new Date().toISOString() });
     const snapshot = await getDoc(targetRef);
 
     if (!snapshot.exists()) {
@@ -510,7 +523,7 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const targetRef = doc(db, fileCollectionName, fileId);
-    await updateDoc(targetRef, { deletedAt: null, updatedAt: new Date().toISOString() });
+    await updateDoc(targetRef, { deletedAt: null, purgedAt: null, updatedAt: new Date().toISOString() });
     const snapshot = await getDoc(targetRef);
 
     if (!snapshot.exists()) {
@@ -526,7 +539,7 @@ class FirestoreFileRepository implements FileRepository {
       throw new Error("Firestore is not configured");
     }
 
-    await deleteDoc(doc(db, fileCollectionName, fileId));
+    await updateDoc(doc(db, fileCollectionName, fileId), { purgedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   }
 
   async moveFilesToTrashByTask(taskId: string) {
@@ -534,7 +547,7 @@ class FirestoreFileRepository implements FileRepository {
     if (!db) return;
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
-    const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
+    const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId && !entry.data().purgedAt);
     const deletedAt = new Date().toISOString();
     await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt, updatedAt: deletedAt })));
   }
@@ -544,7 +557,7 @@ class FirestoreFileRepository implements FileRepository {
     if (!db) return;
 
     const snapshot = await getDocs(collection(db, fileCollectionName));
-    const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId);
+    const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId && !entry.data().purgedAt);
     const updatedAt = new Date().toISOString();
     await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null, updatedAt })));
   }

@@ -35,6 +35,13 @@ export type TaskRecord = {
   updatedAt: string;
   updatedBy: string | null;
   deletedAt: string | null;
+  purgedAt: string | null;
+  fileSummary?: TaskFileSummary | null;
+};
+
+export type TaskFileSummary = {
+  count: number;
+  latestFileName: string | null;
 };
 
 export type FileRecord = {
@@ -54,7 +61,7 @@ export type FileRecord = {
   updatedAt: string;
   uploadedBy: string | null;
   deletedAt: string | null;
-  downloadUrl: string | null;
+  purgedAt: string | null;
 };
 
 export type DashboardMode = "board" | "daily" | "calendar" | "trash";

@@ -26,6 +26,7 @@ type ProjectContextValue = {
   workTypeDefinitions: WorkTypeDefinition[];
   categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
   workTypesLoaded: boolean;
+  selectionVersion: number;
   switchProject: (projectId: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
   refreshWorkTypes: () => Promise<void>;
@@ -47,6 +48,7 @@ const ProjectContext = createContext<ProjectContextValue>({
   workTypeDefinitions: [],
   categoryDefinitionsByField: {},
   workTypesLoaded: false,
+  selectionVersion: 0,
   switchProject: async () => {},
   refreshProjects: async () => {},
   refreshWorkTypes: async () => {},
@@ -91,6 +93,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [projectLoaded, setProjectLoaded] = useState(false);
   const [projectSource, setProjectSource] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectionVersion, setSelectionVersion] = useState(0);
   const lastCommittedRef = useRef<{ projectId: string | null; projectName: string }>({
     projectId: null,
     projectName: defaultProjectName,
@@ -128,6 +131,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setCurrentProjectId(selectedProject.id);
     setProjectNameState(selectedProject.name);
     setProjectSource(selectedProject.source);
+    if (
+      lastCommittedRef.current.projectId !== selectedProject.id ||
+      lastCommittedRef.current.projectName !== selectedProject.name
+    ) {
+      setSelectionVersion((previous) => previous + 1);
+    }
     lastCommittedRef.current = {
       projectId: selectedProject.id,
       projectName: selectedProject.name,
@@ -247,6 +256,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         workTypeDefinitions,
         categoryDefinitionsByField,
         workTypesLoaded: true,
+        selectionVersion: 0,
         switchProject: async () => {},
         refreshProjects: async () => {},
         refreshWorkTypes: async () => {},
@@ -262,6 +272,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         workTypeDefinitions,
         categoryDefinitionsByField,
         workTypesLoaded,
+        selectionVersion,
         switchProject,
         refreshProjects,
         refreshWorkTypes,
@@ -273,7 +284,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       };
 
   // Remount consumers when the selected project changes so task/file fetch effects re-run against the new project scope.
-  const providerKey = isPreview ? `preview:${previewProjectId}` : `project:${currentProjectId ?? "none"}`;
+  const providerKey = isPreview ? `preview:${previewProjectId}` : `project:${currentProjectId ?? "none"}:${selectionVersion}`;
 
   return <ProjectContext.Provider key={providerKey} value={value}>{children}</ProjectContext.Provider>;
 }

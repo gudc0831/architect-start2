@@ -49,6 +49,20 @@ export class SupabaseStorageProvider implements StorageProvider {
     return new Uint8Array(await data.arrayBuffer());
   }
 
+  async getObjectMetadata(input: { storageBucket: string; objectPath: string }) {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase.storage.from(input.storageBucket).info(input.objectPath);
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      sizeBytes: typeof data.size === "number" ? data.size : 0,
+      mimeType: data.contentType ?? null,
+    };
+  }
+
   async createSignedDownloadUrl(input: {
     storageBucket: string;
     objectPath: string;

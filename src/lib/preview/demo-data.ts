@@ -71,6 +71,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-101",
@@ -105,6 +106,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-102",
@@ -139,6 +141,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-107",
@@ -173,6 +176,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-106",
@@ -207,6 +211,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-103",
@@ -241,6 +246,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-1),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-104",
@@ -275,6 +281,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-3),
     updatedBy: "preview-user",
     deletedAt: null,
+    purgedAt: null,
   },
   {
     id: "task-105",
@@ -309,6 +316,7 @@ export const previewTasks: TaskRecord[] = [
     updatedAt: isoStamp(-8),
     updatedBy: "preview-user",
     deletedAt: "2026-03-09T09:00:00.000Z",
+    purgedAt: null,
   },
 ];
 
@@ -330,7 +338,7 @@ export const previewFiles: FileRecord[] = [
     updatedAt: new Date().toISOString(),
     uploadedBy: "preview-user",
     deletedAt: null,
-    downloadUrl: null,
+    purgedAt: null,
   },
   {
     id: "file-101",
@@ -349,7 +357,7 @@ export const previewFiles: FileRecord[] = [
     updatedAt: new Date().toISOString(),
     uploadedBy: "preview-user",
     deletedAt: null,
-    downloadUrl: null,
+    purgedAt: null,
   },
   {
     id: "file-102",
@@ -368,6 +376,6 @@ export const previewFiles: FileRecord[] = [
     updatedAt: new Date().toISOString(),
     uploadedBy: "preview-user",
     deletedAt: "2026-03-10T15:00:00.000Z",
-    downloadUrl: null,
+    purgedAt: null,
   },
 ];

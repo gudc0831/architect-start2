@@ -28,6 +28,18 @@ export class LocalDevStorageProvider implements StorageProvider {
     return new Uint8Array(await readFile(sourcePath));
   }
 
+  async getObjectMetadata(input: { storageBucket: string; objectPath: string }) {
+    try {
+      const bytes = await this.download(input);
+      return {
+        sizeBytes: bytes.byteLength,
+        mimeType: null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async createSignedDownloadUrl(_input: {
     storageBucket: string;
     objectPath: string;

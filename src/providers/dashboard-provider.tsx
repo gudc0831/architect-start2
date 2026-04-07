@@ -29,6 +29,10 @@ export type DashboardSystemMode = {
 type DashboardScopeState = {
   tasks: TaskRecord[];
   files: FileRecord[];
+  filesByTaskId: Record<string, FileRecord[]>;
+  loadedTaskFileIds: string[];
+  requestedTaskFileIds: string[];
+  loadingTaskFileIds: string[];
   systemMode: DashboardSystemMode | null;
   loading: boolean;
   loaded: boolean;
@@ -44,18 +48,35 @@ type DashboardRefreshOptions = {
   force?: boolean;
 };
 
+type DashboardTaskFilesRefreshOptions = {
+  force?: boolean;
+};
+
 type DashboardDataContextValue = {
   stateByScope: DashboardStateByScope;
   ensureDashboardScopeLoaded: (scope: DashboardScope) => Promise<void>;
   refreshDashboardScope: (scope: DashboardScope, options?: DashboardRefreshOptions) => Promise<void>;
+  ensureDashboardTaskFilesLoaded: (
+    scope: DashboardScope,
+    taskId: string,
+    options?: DashboardTaskFilesRefreshOptions,
+  ) => Promise<void>;
+  refreshDashboardTaskFiles: (
+    scope: DashboardScope,
+    taskId: string,
+    options?: DashboardTaskFilesRefreshOptions,
+  ) => Promise<void>;
   setDashboardTasks: (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => void;
-  setDashboardFiles: (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => void;
   setDashboardErrorMessage: (scope: DashboardScope, updater: SetStateAction<string | null>) => void;
 };
 
 const emptyScopeState = (): DashboardScopeState => ({
   tasks: [],
   files: [],
+  filesByTaskId: {},
+  loadedTaskFileIds: [],
+  requestedTaskFileIds: [],
+  loadingTaskFileIds: [],
   systemMode: null,
   loading: false,
   loaded: false,
@@ -69,19 +90,44 @@ function createEmptyStateByScope(): DashboardStateByScope {
   };
 }
 
-function buildDashboardOwnerKey(currentProjectId: string | null, isPreview: boolean) {
-  return `${currentProjectId ?? "no-project"}:${isPreview ? "preview" : "live"}`;
+function buildDashboardOwnerKey(currentProjectId: string | null, selectionVersion: number, isPreview: boolean) {
+  return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}`;
+}
+
+function groupFilesByTaskId(files: FileRecord[]) {
+  return files.reduce<Record<string, FileRecord[]>>((acc, file) => {
+    if (!acc[file.taskId]) {
+      acc[file.taskId] = [];
+    }
+
+    acc[file.taskId].push(file);
+    return acc;
+  }, {});
+}
+
+function flattenFilesByTaskId(filesByTaskId: Record<string, FileRecord[]>) {
+  return Object.values(filesByTaskId).flat();
 }
 
 const DashboardDataContext = createContext<DashboardDataContextValue | null>(null);
 
 function buildPreviewScopeState(scope: DashboardScope): DashboardScopeState {
-  const tasks = scope === "trash" ? previewTasks.filter((task) => task.deletedAt) : previewTasks.filter((task) => !task.deletedAt);
-  const files = scope === "trash" ? previewFiles.filter((file) => file.deletedAt) : previewFiles.filter((file) => !file.deletedAt);
+  const tasks =
+    scope === "trash"
+      ? previewTasks.filter((task) => task.deletedAt && !task.purgedAt)
+      : previewTasks.filter((task) => !task.deletedAt && !task.purgedAt);
+  const files =
+    scope === "trash"
+      ? previewFiles.filter((file) => file.deletedAt && !file.purgedAt)
+      : previewFiles.filter((file) => !file.deletedAt && !file.purgedAt);
 
   return {
     tasks,
     files,
+    filesByTaskId: groupFilesByTaskId(files),
+    loadedTaskFileIds: [...new Set(files.map((file) => file.taskId))],
+    requestedTaskFileIds: [...new Set(files.map((file) => file.taskId))],
+    loadingTaskFileIds: [],
     systemMode: previewSystemMode,
     loading: false,
     loaded: true,
@@ -101,8 +147,8 @@ async function readDashboardErrorMessage(response: Response, fallbackKey: ErrorC
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
-  const { currentProjectId, projectLoaded } = useProjectMeta();
-  const ownerKey = buildDashboardOwnerKey(currentProjectId, isPreview);
+  const { currentProjectId, projectLoaded, selectionVersion } = useProjectMeta();
+  const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview);
   const emptyStateByScope = useMemo(() => createEmptyStateByScope(), []);
   const [providerState, setProviderState] = useState<DashboardProviderState>(() => ({
     ownerKey,
@@ -125,6 +171,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     active: 0,
     trash: 0,
   });
+  const taskFilesInFlightRef = useRef<Record<string, { ownerKey: string; requestId: number; promise: Promise<void> }>>({});
+  const taskFilesRequestIdRef = useRef<Record<string, number>>({});
 
   stateRef.current = providerState;
 
@@ -138,6 +186,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       active: 0,
       trash: 0,
     };
+    taskFilesInFlightRef.current = {};
+    taskFilesRequestIdRef.current = {};
     setProviderState({
       ownerKey,
       stateByScope: createEmptyStateByScope(),
@@ -187,21 +237,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const [taskResponse, fileResponse, statusResponse] = await Promise.all([
+          const [taskResponse, statusResponse] = await Promise.all([
             fetch(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
-            fetch(`/api/files${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
             fetch("/api/system/status", { cache: "no-store" }),
           ]);
 
           if (!taskResponse.ok) {
             throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
           }
-          if (!fileResponse.ok) {
-            throw new Error(await readDashboardErrorMessage(fileResponse, "loadFilesFailed"));
-          }
 
           const taskJson = (await taskResponse.json()) as { data: TaskRecord[] };
-          const fileJson = (await fileResponse.json()) as { data: FileRecord[] };
           const statusJson = statusResponse.ok ? ((await statusResponse.json()) as { data: DashboardSystemMode }) : { data: null };
 
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
@@ -219,7 +264,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                 ...previous.stateByScope,
                 [scope]: {
                   tasks: taskJson.data,
-                  files: fileJson.data,
+                  files: previous.stateByScope[scope].files,
+                  filesByTaskId: previous.stateByScope[scope].filesByTaskId,
+                  loadedTaskFileIds: previous.stateByScope[scope].loadedTaskFileIds,
+                  requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds,
+                  loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds,
                   systemMode: statusJson.data ?? null,
                   loading: false,
                   loaded: true,
@@ -291,6 +340,166 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [fetchDashboardScope, isPreview],
   );
 
+  const fetchDashboardTaskFiles = useCallback(
+    async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
+      const force = options?.force ?? false;
+      const normalizedTaskId = taskId.trim();
+
+      if (isPreview || !normalizedTaskId) {
+        return;
+      }
+
+      const currentState = stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
+      if (!force && currentState.loadedTaskFileIds.includes(normalizedTaskId)) {
+        return;
+      }
+      if (!force && currentState.requestedTaskFileIds.includes(normalizedTaskId)) {
+        return;
+      }
+
+      const taskFileKey = `${scope}:${normalizedTaskId}`;
+      const currentInFlight = taskFilesInFlightRef.current[taskFileKey];
+      if (!force && currentInFlight?.ownerKey === ownerKey) {
+        return currentInFlight.promise;
+      }
+
+      setProviderState((previous) => {
+        if (previous.ownerKey !== ownerKey) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          stateByScope: {
+            ...previous.stateByScope,
+            [scope]: {
+              ...previous.stateByScope[scope],
+              requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds.includes(normalizedTaskId)
+                ? previous.stateByScope[scope].requestedTaskFileIds
+                : [...previous.stateByScope[scope].requestedTaskFileIds, normalizedTaskId],
+              loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds.includes(normalizedTaskId)
+                ? previous.stateByScope[scope].loadingTaskFileIds
+                : [...previous.stateByScope[scope].loadingTaskFileIds, normalizedTaskId],
+              errorMessage: null,
+            },
+          },
+        };
+      });
+
+      const requestId = (taskFilesRequestIdRef.current[taskFileKey] ?? 0) + 1;
+      taskFilesRequestIdRef.current[taskFileKey] = requestId;
+
+      const request = (async () => {
+        try {
+          const response = await fetch(
+            `/api/files?scope=${scope === "trash" ? "trash" : "active"}&taskId=${encodeURIComponent(normalizedTaskId)}`,
+            { cache: "no-store" },
+          );
+
+          if (!response.ok) {
+            throw new Error(await readDashboardErrorMessage(response, "loadFilesFailed"));
+          }
+
+          const json = (await response.json()) as { data: FileRecord[] };
+
+          if (stateRef.current.ownerKey !== ownerKey || taskFilesRequestIdRef.current[taskFileKey] !== requestId) {
+            return;
+          }
+
+          setProviderState((previous) => {
+            if (previous.ownerKey !== ownerKey || taskFilesRequestIdRef.current[taskFileKey] !== requestId) {
+              return previous;
+            }
+
+            const nextFilesByTaskId = {
+              ...previous.stateByScope[scope].filesByTaskId,
+              [normalizedTaskId]: json.data,
+            };
+
+            return {
+              ...previous,
+              stateByScope: {
+                ...previous.stateByScope,
+                [scope]: {
+                  ...previous.stateByScope[scope],
+                  filesByTaskId: nextFilesByTaskId,
+                  files: flattenFilesByTaskId(nextFilesByTaskId),
+                  loadedTaskFileIds: previous.stateByScope[scope].loadedTaskFileIds.includes(normalizedTaskId)
+                    ? previous.stateByScope[scope].loadedTaskFileIds
+                    : [...previous.stateByScope[scope].loadedTaskFileIds, normalizedTaskId],
+                  requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds,
+                  loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds.filter((id) => id !== normalizedTaskId),
+                  errorMessage: null,
+                },
+              },
+            };
+          });
+        } catch (error) {
+          if (stateRef.current.ownerKey !== ownerKey || taskFilesRequestIdRef.current[taskFileKey] !== requestId) {
+            return;
+          }
+
+          setProviderState((previous) => {
+            if (previous.ownerKey !== ownerKey || taskFilesRequestIdRef.current[taskFileKey] !== requestId) {
+              return previous;
+            }
+
+            return {
+              ...previous,
+              stateByScope: {
+                ...previous.stateByScope,
+                [scope]: {
+                  ...previous.stateByScope[scope],
+                  requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds.includes(normalizedTaskId)
+                    ? previous.stateByScope[scope].requestedTaskFileIds
+                    : [...previous.stateByScope[scope].requestedTaskFileIds, normalizedTaskId],
+                  loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds.filter((id) => id !== normalizedTaskId),
+                  errorMessage: error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }),
+                },
+              },
+            };
+          });
+        } finally {
+          const activeRequest = taskFilesInFlightRef.current[taskFileKey];
+          if (activeRequest?.ownerKey === ownerKey && activeRequest.requestId === requestId) {
+            delete taskFilesInFlightRef.current[taskFileKey];
+          }
+        }
+      })();
+
+      taskFilesInFlightRef.current[taskFileKey] = {
+        ownerKey,
+        requestId,
+        promise: request,
+      };
+
+      return request;
+    },
+    [isPreview, ownerKey],
+  );
+
+  const ensureDashboardTaskFilesLoaded = useCallback(
+    async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
+      if (isPreview) {
+        return;
+      }
+
+      await fetchDashboardTaskFiles(scope, taskId, options);
+    },
+    [fetchDashboardTaskFiles, isPreview],
+  );
+
+  const refreshDashboardTaskFiles = useCallback(
+    async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
+      if (isPreview) {
+        return;
+      }
+
+      await fetchDashboardTaskFiles(scope, taskId, { force: options?.force ?? true });
+    },
+    [fetchDashboardTaskFiles, isPreview],
+  );
+
   const setDashboardTasks = useCallback(
     (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => {
       setProviderState((previous) => {
@@ -305,29 +514,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             [scope]: {
               ...previous.stateByScope[scope],
               tasks: typeof updater === "function" ? updater(previous.stateByScope[scope].tasks) : updater,
-              loaded: true,
-            },
-          },
-        };
-      });
-    },
-    [ownerKey],
-  );
-
-  const setDashboardFiles = useCallback(
-    (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => {
-      setProviderState((previous) => {
-        if (previous.ownerKey !== ownerKey) {
-          return previous;
-        }
-
-        return {
-          ...previous,
-          stateByScope: {
-            ...previous.stateByScope,
-            [scope]: {
-              ...previous.stateByScope[scope],
-              files: typeof updater === "function" ? updater(previous.stateByScope[scope].files) : updater,
               loaded: true,
             },
           },
@@ -365,15 +551,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       stateByScope: visibleStateByScope,
       ensureDashboardScopeLoaded,
       refreshDashboardScope,
+      ensureDashboardTaskFilesLoaded,
+      refreshDashboardTaskFiles,
       setDashboardTasks,
-      setDashboardFiles,
       setDashboardErrorMessage,
     }),
     [
       ensureDashboardScopeLoaded,
+      ensureDashboardTaskFilesLoaded,
       refreshDashboardScope,
+      refreshDashboardTaskFiles,
       setDashboardErrorMessage,
-      setDashboardFiles,
       setDashboardTasks,
       visibleStateByScope,
     ],
@@ -401,13 +589,16 @@ export function useDashboardScope(scope: DashboardScope) {
     stateByScope,
     ensureDashboardScopeLoaded,
     refreshDashboardScope,
+    ensureDashboardTaskFilesLoaded,
+    refreshDashboardTaskFiles,
     setDashboardTasks,
-    setDashboardFiles,
     setDashboardErrorMessage,
   } = context;
   const previewState = useMemo(() => buildPreviewScopeState(scope), [scope]);
   const scopeState = stateByScope[scope];
   const computedLoading = scopeState.loading || (!scopeState.loaded && !scopeState.errorMessage);
+  const files = useMemo(() => flattenFilesByTaskId(scopeState.filesByTaskId), [scopeState.filesByTaskId]);
+  const filesByTaskId = useMemo(() => scopeState.filesByTaskId, [scopeState.filesByTaskId]);
 
   const ensureLoaded = useCallback(() => {
     if (isPreview) {
@@ -439,15 +630,26 @@ export function useDashboardScope(scope: DashboardScope) {
     [isPreview, scope, setDashboardTasks],
   );
 
-  const setFiles = useCallback(
-    (updater: SetStateAction<FileRecord[]>) => {
+  const ensureTaskFilesLoaded = useCallback(
+    (taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
       if (isPreview) {
-        return;
+        return Promise.resolve();
       }
 
-      setDashboardFiles(scope, updater);
+      return ensureDashboardTaskFilesLoaded(scope, taskId, options);
     },
-    [isPreview, scope, setDashboardFiles],
+    [ensureDashboardTaskFilesLoaded, isPreview, scope],
+  );
+
+  const refreshTaskFiles = useCallback(
+    (taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
+      if (isPreview) {
+        return Promise.resolve();
+      }
+
+      return refreshDashboardTaskFiles(scope, taskId, options);
+    },
+    [isPreview, refreshDashboardTaskFiles, scope],
   );
 
   const setErrorMessage = useCallback(
@@ -469,32 +671,43 @@ export function useDashboardScope(scope: DashboardScope) {
             ...previewState,
             loading: false,
             errorMessage: localPreviewErrorMessage,
+            files: previewState.files,
+            filesByTaskId: previewState.filesByTaskId,
+            loadedTaskFileIds: previewState.loadedTaskFileIds,
+            loadingTaskFileIds: previewState.loadingTaskFileIds,
             ensureLoaded,
             refreshScope,
+            ensureTaskFilesLoaded,
+            refreshTaskFiles,
             setTasks,
-            setFiles,
             setErrorMessage,
           }
         : {
             ...scopeState,
+            files,
+            filesByTaskId,
             loading: computedLoading,
             ensureLoaded,
             refreshScope,
+            ensureTaskFilesLoaded,
+            refreshTaskFiles,
             setTasks,
-            setFiles,
             setErrorMessage,
           },
     [
       computedLoading,
       ensureLoaded,
+      ensureTaskFilesLoaded,
       isPreview,
       localPreviewErrorMessage,
       previewState,
       refreshScope,
+      refreshTaskFiles,
       scopeState,
       setErrorMessage,
-      setFiles,
       setTasks,
+      files,
+      filesByTaskId,
     ],
   );
 }

@@ -93,6 +93,7 @@ model Task {
   createdBy          String?     @map("created_by") @db.Uuid
   updatedBy          String?     @map("updated_by") @db.Uuid
   deletedAt          DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  purgedAt           DateTime?   @map("purged_at") @db.Timestamptz(6)
   project            Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   parent             Task?       @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
   children           Task[]      @relation("TaskHierarchy")
@@ -103,7 +104,7 @@ model Task {
   files              File[]
 
   @@unique([projectId, taskNumber])
-  @@index([projectId, deletedAt])
+  @@index([projectId, deletedAt, purgedAt])
   @@index([parentTaskId])
   @@map("tasks")
 }
@@ -124,11 +125,12 @@ model File {
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   uploadedBy      String?   @map("uploaded_by") @db.Uuid
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  purgedAt        DateTime? @map("purged_at") @db.Timestamptz(6)
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
 
-  @@index([taskId, deletedAt])
+  @@index([taskId, deletedAt, purgedAt])
   @@index([fileGroupId, version])
   @@map("files")
 }

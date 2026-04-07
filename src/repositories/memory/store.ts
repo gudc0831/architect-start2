@@ -91,6 +91,7 @@ function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
       updatedAt,
       updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
       deletedAt: typeof raw.deletedAt === "string" ? raw.deletedAt : raw.deletedAt === null ? null : null,
+      purgedAt: typeof raw.purgedAt === "string" ? raw.purgedAt : raw.purgedAt === null ? null : null,
     } satisfies TaskRecord;
   });
 
@@ -142,18 +143,18 @@ class MemoryTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const tasks = await readTasks();
     return tasks
-      .filter((task) => !task.deletedAt && (!projectId || task.projectId === projectId))
+      .filter((task) => !task.deletedAt && !task.purgedAt && (!projectId || task.projectId === projectId))
       .sort(compareTasksBySiblingOrder);
   }
 
   async listTrashTasks(projectId?: string) {
     const tasks = await readTasks();
-    return tasks.filter((task) => !!task.deletedAt && (!projectId || task.projectId === projectId));
+    return tasks.filter((task) => !!task.deletedAt && !task.purgedAt && (!projectId || task.projectId === projectId));
   }
 
   async findTaskById(taskId: string) {
     const tasks = await readTasks();
-    return tasks.find((task) => task.id === taskId) ?? null;
+    return tasks.find((task) => task.id === taskId && !task.purgedAt) ?? null;
   }
 
   async getNextTaskNumber(projectId?: string) {
@@ -198,6 +199,7 @@ class MemoryTaskRepository implements TaskRepository {
       updatedAt: timestamp,
       updatedBy: input.updatedBy ?? input.createdBy ?? null,
       deletedAt: null,
+      purgedAt: null,
     };
 
     tasks.unshift(record);
@@ -214,6 +216,9 @@ class MemoryTaskRepository implements TaskRepository {
     }
 
     const current = tasks[index];
+    if (current.purgedAt) {
+      throw new Error("Task not found");
+    }
     const { parentTaskNumber: _parentTaskNumber, updatedBy, ...persistedInput } = input;
     const nextStatus = normalizeStatus(persistedInput.status ?? current.status);
     const normalizedPersistedInput = {
@@ -288,7 +293,7 @@ class MemoryTaskRepository implements TaskRepository {
 
     for (let index = 0; index < tasks.length; index += 1) {
       const current = tasks[index];
-      if (current.projectId !== projectId) {
+      if (current.projectId !== projectId || current.purgedAt) {
         continue;
       }
 
@@ -324,13 +329,16 @@ class MemoryTaskRepository implements TaskRepository {
 
   async deleteTask(taskId: string) {
     const tasks = await readTasks();
-    const next = tasks.filter((task) => task.id !== taskId);
-
-    if (next.length === tasks.length) {
+    const current = tasks.find((task) => task.id === taskId);
+    if (!current) {
       throw new Error("Task not found");
     }
 
-    await writeLocalStore("tasks", next, { reason: "tasks.delete" });
+    const timestamp = now();
+    const updated = tasks.map((task) =>
+      task.id === taskId ? { ...task, purgedAt: timestamp, updatedAt: timestamp } : task,
+    );
+    await writeLocalStore("tasks", updated, { reason: "tasks.delete" });
   }
 }
 
@@ -392,7 +400,7 @@ function normalizeFileRecords(files: Array<Record<string, unknown>>) {
       updatedAt,
       uploadedBy: typeof raw.uploadedBy === "string" ? raw.uploadedBy : null,
       deletedAt: typeof raw.deletedAt === "string" ? raw.deletedAt : raw.deletedAt === null ? null : null,
-      downloadUrl: null,
+      purgedAt: typeof raw.purgedAt === "string" ? raw.purgedAt : raw.purgedAt === null ? null : null,
     } satisfies FileRecord;
   });
 }
@@ -405,25 +413,25 @@ async function readFiles() {
 class MemoryFileRepository implements FileRepository {
   async listActiveFiles(taskId?: string) {
     const files = await readFiles();
-    return latestFiles(files.filter((file) => !file.deletedAt && (!taskId || file.taskId === taskId)));
+    return latestFiles(files.filter((file) => !file.deletedAt && !file.purgedAt && (!taskId || file.taskId === taskId)));
   }
 
   async listTrashFiles(taskId?: string) {
     const files = await readFiles();
     return files
-      .filter((file) => !!file.deletedAt && (!taskId || file.taskId === taskId))
+      .filter((file) => !!file.deletedAt && !file.purgedAt && (!taskId || file.taskId === taskId))
       .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
   }
 
   async findFileById(fileId: string) {
     const files = await readFiles();
-    return files.find((file) => file.id === fileId) ?? null;
+    return files.find((file) => file.id === fileId && !file.purgedAt) ?? null;
   }
 
   async listFilesByTask(taskId: string) {
     const files = await readFiles();
     return files
-      .filter((file) => file.taskId === taskId)
+      .filter((file) => file.taskId === taskId && !file.purgedAt)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
@@ -447,7 +455,7 @@ class MemoryFileRepository implements FileRepository {
       updatedAt: now(),
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
-      downloadUrl: null,
+      purgedAt: null,
     };
 
     files.unshift(record);
@@ -463,7 +471,12 @@ class MemoryFileRepository implements FileRepository {
       throw new Error("File not found");
     }
 
-    const next = { ...files[index], deletedAt: now(), updatedAt: now() };
+    const current = files[index];
+    if (current.purgedAt) {
+      throw new Error("File not found");
+    }
+
+    const next = { ...current, deletedAt: now(), updatedAt: now() };
     files[index] = next;
     await writeLocalStore("files", files, { reason: "files.trash" });
     return next;
@@ -477,7 +490,12 @@ class MemoryFileRepository implements FileRepository {
       throw new Error("File not found");
     }
 
-    const next = { ...files[index], deletedAt: null, updatedAt: now() };
+    const current = files[index];
+    if (current.purgedAt) {
+      throw new Error("File not found");
+    }
+
+    const next = { ...current, deletedAt: null, updatedAt: now() };
     files[index] = next;
     await writeLocalStore("files", files, { reason: "files.restore" });
     return next;
@@ -485,26 +503,31 @@ class MemoryFileRepository implements FileRepository {
 
   async deleteFile(fileId: string) {
     const files = await readFiles();
-    const next = files.filter((file) => file.id !== fileId);
-
-    if (next.length === files.length) {
+    const found = files.find((file) => file.id === fileId);
+    if (!found) {
       throw new Error("File not found");
     }
 
+    const timestamp = now();
+    const next = files.map((file) => (file.id === fileId ? { ...file, purgedAt: timestamp, updatedAt: timestamp } : file));
     await writeLocalStore("files", next, { reason: "files.delete" });
   }
 
   async moveFilesToTrashByTask(taskId: string) {
     const files = await readFiles();
     const deletedAt = now();
-    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt, updatedAt: deletedAt } : file));
+    const next = files.map((file) =>
+      file.taskId === taskId && !file.purgedAt ? { ...file, deletedAt, updatedAt: deletedAt } : file,
+    );
     await writeLocalStore("files", next, { reason: "files.bulk-trash" });
   }
 
   async restoreFilesByTask(taskId: string) {
     const files = await readFiles();
     const restoredAt = now();
-    const next = files.map((file) => (file.taskId === taskId ? { ...file, deletedAt: null, updatedAt: restoredAt } : file));
+    const next = files.map((file) =>
+      file.taskId === taskId && !file.purgedAt ? { ...file, deletedAt: null, updatedAt: restoredAt } : file,
+    );
     await writeLocalStore("files", next, { reason: "files.bulk-restore" });
   }
 }

@@ -29,6 +29,9 @@ export const storageProvider: StorageProvider = {
   async download(input) {
     return getStorageProvider().download(input);
   },
+  async getObjectMetadata(input) {
+    return getStorageProvider().getObjectMetadata(input);
+  },
   async createSignedDownloadUrl(input) {
     return getStorageProvider().createSignedDownloadUrl(input);
   },

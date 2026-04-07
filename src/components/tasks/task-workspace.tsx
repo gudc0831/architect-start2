@@ -43,6 +43,7 @@ import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provi
 import { useProjectMeta } from "@/providers/project-provider";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
   matchesTaskCategoricalFilter,
@@ -345,6 +346,19 @@ type TrashFileItem = {
 
 type TrashItem = TrashTaskItem | TrashFileItem;
 type BoardCollapsedStatusMap = Partial<Record<TaskStatus, true>>;
+type UploadIntentResponse = {
+  uploadMode?: "direct" | "relay" | string;
+  projectId?: string | null;
+  taskId?: string | null;
+  sourceFileId?: string | null;
+  bucket?: string | null;
+  storageBucket?: string | null;
+  objectPath?: string | null;
+  fileGroupId?: string | null;
+  nextVersion?: number | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+};
 const WIDE_BREAKPOINT = 1440;
 const MOBILE_BREAKPOINT = 768;
 const TABLET_BREAKPOINT = 1100;
@@ -535,17 +549,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const isTrashMode = mode === "trash";
   const scope = isTrashMode ? "trash" : "active";
-  const { refreshDashboardScope } = useDashboardData();
+  const { refreshDashboardScope, refreshDashboardTaskFiles } = useDashboardData();
   const {
     tasks,
     setTasks,
     files,
+    loadedTaskFileIds,
+    loadingTaskFileIds,
     systemMode,
     loading,
     errorMessage,
     setErrorMessage,
     ensureLoaded,
     refreshScope,
+    ensureTaskFilesLoaded,
+    refreshTaskFiles,
   } = useDashboardScope(scope);
   const canExportTasks = mode === "daily" && !isPreview;
   const isMobileViewport = viewportWidth < MOBILE_BREAKPOINT;
@@ -1201,10 +1219,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 
   const setTaskListRowHeight = useCallback(
-    (taskId: string, nextHeight: number, shouldPersist = false) => {
-      const clampedHeight = clampTaskListRowHeight(nextHeight);
-      const currentHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
-      if (currentHeight === clampedHeight && !shouldPersist) {
+      (taskId: string, nextHeight: number, shouldPersist = false) => {
+        const clampedHeight = clampTaskListRowHeight(nextHeight);
+        const currentHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
+        if (currentHeight === clampedHeight && !shouldPersist) {
         return;
       }
 
@@ -1222,6 +1240,35 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
     },
     [persistTaskListLayout],
+  );
+
+  const measureTaskListRow = useCallback(
+    (taskId: string) => {
+      const row = dailyTreeRowsRef.current.find((entry) => entry.task.id === taskId);
+      if (!row) {
+        setTaskListRowHeight(taskId, TASK_LIST_ROW_MIN_HEIGHT, true);
+        return;
+      }
+
+      const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
+      const linkedDocumentsDisplay = formatLinkedDocumentsSummary(row.task, taskFiles);
+      const currentDraft = draftRef.current;
+      const rowDraft = currentDraft?.id === taskId ? currentDraft : null;
+      const nextHeight = measureTaskListRowHeight(
+        createTaskListRowPresentationContext({
+          task: row.task,
+          row,
+          rowDraft,
+          linkedDocumentsDisplay,
+          workTypeDefinitions,
+          categoryDefinitionsByField,
+        }),
+        taskListColumnWidthsRef.current,
+      );
+
+      setTaskListRowHeight(taskId, nextHeight, true);
+    },
+    [categoryDefinitionsByField, setTaskListRowHeight, workTypeDefinitions],
   );
 
   const flushTaskListLayoutSave = useCallback(() => {
@@ -1260,7 +1307,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
-      const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+      const linkedDocumentsDisplay = formatLinkedDocumentsSummary(row.task, taskFiles);
       const currentDraft = draftRef.current;
       const rowDraft = currentDraft?.id === taskId ? currentDraft : null;
       const nextHeight = measureTaskListRowHeight(
@@ -1560,6 +1607,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     ]);
   }, [refreshDashboardScope]);
 
+  const refreshTaskFileCaches = useCallback(
+    async (taskId: string) => {
+      const normalizedTaskId = taskId.trim();
+      if (!normalizedTaskId) {
+        return;
+      }
+
+      await Promise.all([
+        refreshDashboardTaskFiles("active", normalizedTaskId, { force: true }),
+        refreshDashboardTaskFiles("trash", normalizedTaskId, { force: true }),
+      ]);
+    },
+    [refreshDashboardTaskFiles],
+  );
+
   useEffect(() => {
     void ensureLoaded();
   }, [ensureLoaded]);
@@ -1667,6 +1729,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     selectedParentTaskRef.current = selectedParentTask;
   }, [selectedParentTask]);
+  const selectedTaskFilesLoaded = Boolean(selectedTask?.id && loadedTaskFileIds.includes(selectedTask.id));
+  useEffect(() => {
+    if (isTrashMode) {
+      if (tasks.length === 0) {
+        return;
+      }
+
+      void Promise.all(tasks.map((task) => ensureTaskFilesLoaded(task.id)));
+      return;
+    }
+
+    if (!selectedTask?.id || selectedTaskFilesLoaded) {
+      return;
+    }
+
+    void ensureTaskFilesLoaded(selectedTask.id);
+  }, [ensureTaskFilesLoaded, isTrashMode, selectedTask?.id, selectedTaskFilesLoaded, tasks]);
   const filesByTaskId = useMemo(() => {
     return files.reduce<Record<string, FileRecord[]>>((acc, file) => {
       if (!acc[file.taskId]) acc[file.taskId] = [];
@@ -1678,6 +1757,20 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     filesByTaskIdRef.current = filesByTaskId;
   }, [filesByTaskId]);
+  useEffect(() => {
+    const taskIdsToMeasure = new Set(Object.keys(filesByTaskId));
+    if (selectedTaskId) {
+      taskIdsToMeasure.add(selectedTaskId);
+    }
+
+    for (const taskId of taskIdsToMeasure) {
+      if (!taskListVisibleTaskIdsRef.current.has(taskId)) {
+        continue;
+      }
+
+      measureTaskListRow(taskId);
+    }
+  }, [filesByTaskId, measureTaskListRow, selectedTaskId]);
   const calendarTasks = useMemo(() => sortedTasks.filter((task) => task.calendarLinked && task.dueDate), [sortedTasks]);
   const activeCalendarMonth = useMemo(
     () =>
@@ -1740,13 +1833,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [activeCalendarMonth, hasScheduledCalendarTasks],
   );
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
+  const selectedTaskFilesLoading = Boolean(selectedTask?.id && loadingTaskFileIds.includes(selectedTask.id));
   const previewableSelectedFiles = useMemo(() => selectedFiles.filter((file) => isFilePreviewable(file)), [selectedFiles]);
   const activePreviewFile = useMemo(
     () => previewableSelectedFiles.find((file) => file.id === activePreviewFileId) ?? previewableSelectedFiles[0] ?? null,
     [activePreviewFileId, previewableSelectedFiles],
   );
   const activePreviewKind = activePreviewFile ? getFilePreviewKind(activePreviewFile) : null;
-  const activePreviewUrl = activePreviewFile && !isPreview ? buildFileContentUrl(activePreviewFile.id, "inline") : null;
+  const activePreviewUrl =
+    activePreviewFile && !isPreview
+      ? buildFileContentUrl(activePreviewFile.id, "inline", { allowDeleted: Boolean(activePreviewFile.deletedAt) })
+      : null;
   const detailSummary = selectedTask ? formatTaskDisplayId(selectedTask) : t("empty.nothingSelected");
   const trashTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
   const trashFileIdSet = useMemo(() => new Set(files.map((file) => file.id)), [files]);
@@ -2761,6 +2858,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
     await refreshAllDashboardData();
+    await refreshTaskFileCaches(taskId);
   }
 
   async function restoreTask(taskId: string) {
@@ -2775,6 +2873,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
     await refreshAllDashboardData();
+    await refreshTaskFileCaches(taskId);
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
@@ -2783,15 +2882,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const body = new FormData();
-    body.append("file", file);
-    body.append("taskId", taskId);
-    const response = await fetch("/api/upload", { method: "POST", body });
-    if (!response.ok) {
-      setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
-      return;
+    try {
+      const intent = await uploadFileWithIntent({ taskId, file });
+      if (!intent) {
+        const body = new FormData();
+        body.append("file", file);
+        body.append("taskId", taskId);
+        const response = await fetch("/api/upload", { method: "POST", body });
+        if (!response.ok) {
+          setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
+          return;
+        }
+      }
+      await refreshTaskFiles(taskId, { force: true });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
     }
-    await refreshScope({ force: true });
   }
 
   async function uploadSelectedFile() {
@@ -2807,20 +2913,38 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const body = new FormData();
-    body.append("file", pendingVersionUpload);
-    const response = await fetch(`/api/files/${encodeURIComponent(versionTargetId)}/version`, {
-      method: "POST",
-      body,
-    });
-
-    if (!response.ok) {
-      setErrorMessage(await readErrorMessage(response, "uploadNextVersionFailed"));
+    const targetFile = selectedFiles.find((file) => file.id === versionTargetId);
+    if (!targetFile) {
+      setErrorMessage(t("workspace.privateStorage"));
       return;
     }
 
-    setPendingVersionUpload(null);
-    await refreshScope({ force: true });
+    try {
+      const intent = await uploadFileWithIntent({
+        taskId: targetFile.taskId,
+        file: pendingVersionUpload,
+        replaceFileId: versionTargetId,
+      });
+
+      if (!intent) {
+        const body = new FormData();
+        body.append("file", pendingVersionUpload);
+        const response = await fetch(`/api/files/${encodeURIComponent(versionTargetId)}/version`, {
+          method: "POST",
+          body,
+        });
+
+        if (!response.ok) {
+          setErrorMessage(await readErrorMessage(response, "uploadNextVersionFailed"));
+          return;
+        }
+      }
+
+      setPendingVersionUpload(null);
+      await refreshTaskFiles(targetFile.taskId, { force: true });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : t("errors.uploadNextVersionFailed"));
+    }
   }
 
   async function moveFileToTrash(fileId: string) {
@@ -2829,12 +2953,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const sourceFile = files.find((candidate) => candidate.id === fileId);
+
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/trash`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "moveFileToTrashFailed"));
       return;
     }
-    await refreshAllDashboardData();
+    await refreshTaskFileCaches(sourceFile?.taskId ?? selectedTask?.id ?? "");
   }
 
   async function restoreFile(fileId: string) {
@@ -2843,12 +2969,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const sourceFile = files.find((candidate) => candidate.id === fileId);
+
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/restore`, { method: "POST" });
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "restoreFileFailed"));
       return;
     }
-    await refreshAllDashboardData();
+    await refreshTaskFileCaches(sourceFile?.taskId ?? selectedTask?.id ?? "");
   }
 
   async function deleteTaskPermanently(task: TaskRecord) {
@@ -2858,9 +2986,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      t("workspace.deleteTaskPermanentlyConfirm", {
-        name: `${formatTaskDisplayId(task)} ${task.issueTitle}`.trim(),
-      }),
+      `Remove "${`${formatTaskDisplayId(task)} ${task.issueTitle}`.trim()}" from the workspace permanently? It will not be restorable from the UI.`,
     );
 
     if (!confirmed) {
@@ -2874,6 +3000,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     await refreshScope({ force: true });
+    await refreshTaskFileCaches(task.id);
   }
 
   async function deleteFilePermanently(file: FileRecord) {
@@ -2883,10 +3010,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      t("workspace.deleteFilePermanentlyConfirm", {
-        name: file.originalName,
-        version: file.versionLabel,
-      }),
+      `Remove "${file.originalName} ${file.versionLabel}" from the workspace permanently? It will not be restorable from the UI.`,
     );
 
     if (!confirmed) {
@@ -2899,7 +3023,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    await refreshScope({ force: true });
+    await refreshTaskFileCaches(file.taskId);
   }
 
   async function deleteSelectedTrashItems() {
@@ -2913,10 +3037,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      t("workspace.deleteSelectedConfirm", {
-        taskCount: selectedTrashTaskIds.length,
-        fileCount: selectedTrashFileIds.length,
-      }),
+      `Remove the selected trash items from the workspace permanently? Tasks: ${selectedTrashTaskIds.length}, files: ${selectedTrashFileIds.length}. They will not be restorable from the UI.`,
     );
 
     if (!confirmed) {
@@ -2937,6 +3058,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setSelectedTrashTaskIds([]);
     setSelectedTrashFileIds([]);
     await refreshScope({ force: true });
+
+    const affectedTaskIds = new Set(selectedTrashTaskIds);
+    for (const fileId of selectedTrashFileIds) {
+      const file = files.find((candidate) => candidate.id === fileId);
+      if (file) {
+        affectedTaskIds.add(file.taskId);
+      }
+    }
+
+    await Promise.all([...affectedTaskIds].map((taskId) => refreshTaskFileCaches(taskId)));
   }
 
   async function emptyTrashItems() {
@@ -2949,7 +3080,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const confirmed = window.confirm(t("workspace.emptyTrashConfirm"));
+    const confirmed = window.confirm("Remove every trash item from the workspace permanently? They will not be restorable from the UI.");
     if (!confirmed) {
       return;
     }
@@ -2963,6 +3094,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setSelectedTrashTaskIds([]);
     setSelectedTrashFileIds([]);
     await refreshScope({ force: true });
+    await Promise.all(
+      trashItems.map((item) => refreshTaskFileCaches(item.kind === "task" ? item.task.id : item.file.taskId)),
+    );
   }
 
   function toggleTrashTaskSelection(taskId: string) {
@@ -3377,7 +3511,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         const isParentTask = row.hasChildren;
                         const isBranchTask = isChildTask && isParentTask;
                         const taskFiles = filesByTaskId[task.id] ?? [];
-                        const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+                        const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
                         const hierarchyDepth = Math.min(row.depth, 3);
                         const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
                         const isDimmed = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
@@ -3545,7 +3679,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             );
                           }
                           const taskFiles = filesByTaskId[task.id] ?? [];
-                          const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+                          const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
                           const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
                           const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
                           const rowAutoFitAria = rowResizeAria;
@@ -3964,7 +4098,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 {item.file.originalName} <span className="file-pill__version">{item.file.versionLabel}</span>
                               </strong>
                             </div>
-                            <p>{item.file.downloadUrl ? t("workspace.downloadAvailable") : t("workspace.privateStorage")}</p>
+                            <p>{formatFileAttachmentMeta(item.file)}</p>
                             <small>{t("workspace.deletedDateMeta", { date: fileSafeDate(item.file.deletedAt) })}</small>
                           </>
                         )}
@@ -4124,7 +4258,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         </div>
                       ) : null}
                       <div className="file-list">
-                        {selectedFiles.length === 0 ? <p>{t("empty.noLinkedDocuments")}</p> : null}
+                        {selectedTaskFilesLoading ? <p>{t("system.loading")}</p> : null}
+                        {!selectedTaskFilesLoading && selectedFiles.length === 0 ? <p>{t("empty.noLinkedDocuments")}</p> : null}
                         {selectedFiles.map((file) => (
                           <article className="file-pill" key={file.id}>
                             <div className="file-pill__meta">
@@ -4136,12 +4271,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <div className="file-pill__actions">
                               {!isPreview ? (
                                 <>
-                                  <a className="secondary-button" href={buildFileContentUrl(file.id, "inline")} rel="noreferrer" target="_blank">
+                                  <a
+                                    className="secondary-button"
+                                    href={buildFileContentUrl(file.id, "inline", { allowDeleted: Boolean(file.deletedAt) })}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                  >
                                     {t("actions.open")}
                                   </a>
-                                  <a className="secondary-button" download={file.originalName} href={buildFileContentUrl(file.id, "attachment")}>
+                                  <button
+                                    className="secondary-button"
+                                    onClick={() => void downloadFileAttachment(file).catch(() => setErrorMessage("파일을 내려받지 못했습니다."))}
+                                    type="button"
+                                  >
                                     {t("actions.save")}
-                                  </a>
+                                  </button>
                                 </>
                               ) : null}
                               <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
@@ -4241,7 +4385,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   toggleTaskDetails,
 }: DailyTaskTableRowProps) {
   const task = row.task;
-  const linkedDocumentsDisplay = formatLinkedDocumentsSummary(taskFiles);
+  const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
   const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
   const rowAutoFitAria = rowResizeAria;
   const isOverdueRow = isTaskOverdue(task, currentDayKey);
@@ -5582,8 +5726,20 @@ function isIsoDateValue(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function formatLinkedDocumentsSummary(taskFiles: readonly FileRecord[]) {
+function formatLinkedDocumentsSummary(task: Pick<TaskRecord, "fileSummary">, taskFiles: readonly FileRecord[]) {
   if (taskFiles.length === 0) {
+    const fileCount = task.fileSummary?.count ?? 0;
+    if (fileCount > 0) {
+      const latestFileName = task.fileSummary?.latestFileName?.trim() || labelForField("linkedDocuments");
+      return {
+        primary:
+          fileCount > 1
+            ? t("workspace.linkedDocumentSummaryMulti", { name: latestFileName, count: fileCount - 1 })
+            : latestFileName,
+        secondary: t("empty.moreFilesAvailable"),
+      };
+    }
+
     return { primary: t("empty.addFilePrompt"), secondary: null as string | null };
   }
 
@@ -5722,8 +5878,193 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0);
 }
 
-function buildFileContentUrl(fileId: string, disposition: "inline" | "attachment") {
-  return `/api/files/${encodeURIComponent(fileId)}/content?disposition=${disposition}`;
+async function readUploadIntentResponse(response: Response): Promise<UploadIntentResponse | null> {
+  const json = (await response.json().catch(() => null)) as unknown;
+
+  if (!json || typeof json !== "object") {
+    return null;
+  }
+
+  const payload = json as { data?: UploadIntentResponse | null } & UploadIntentResponse;
+
+  if ("data" in payload) {
+    return payload.data ?? null;
+  }
+
+  return payload;
+}
+
+async function requestUploadIntent(payload: {
+  taskId: string;
+  originalName: string;
+  sizeBytes: number;
+  mimeType: string | null;
+  fileId?: string | null;
+  fallbackKey: ErrorCopyKey;
+}): Promise<UploadIntentResponse | null> {
+  const response = await fetch("/api/files/upload-intents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      taskId: payload.taskId,
+      originalName: payload.originalName,
+      sizeBytes: payload.sizeBytes,
+      mimeType: payload.mimeType,
+      fileId: payload.fileId ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, payload.fallbackKey));
+  }
+
+  return readUploadIntentResponse(response);
+}
+
+function isDirectUploadIntent(intent: UploadIntentResponse | null) {
+  if (!intent) {
+    return false;
+  }
+
+  const bucket = String(intent.bucket ?? intent.storageBucket ?? "").trim();
+  const objectPath = String(intent.objectPath ?? "").trim();
+  return Boolean(bucket && objectPath) && intent.uploadMode !== "relay";
+}
+
+async function uploadFileWithIntent(input: {
+  taskId: string;
+  file: File;
+  replaceFileId?: string | null;
+}) {
+  const intent = await requestUploadIntent({
+    taskId: input.taskId,
+    originalName: input.file.name,
+    sizeBytes: input.file.size,
+    mimeType: input.file.type || null,
+    fileId: input.replaceFileId ?? null,
+    fallbackKey: input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed",
+  });
+
+  if (!intent || !isDirectUploadIntent(intent)) {
+    return null;
+  }
+
+  const directIntent = intent;
+  const bucket = String(directIntent.bucket ?? directIntent.storageBucket ?? "").trim();
+  const objectPath = String(directIntent.objectPath ?? "").trim();
+  const supabase = createSupabaseBrowserClient();
+
+  const { error: uploadError } = await supabase.storage.from(bucket).upload(objectPath, input.file, {
+    contentType: input.file.type || undefined,
+    upsert: false,
+  });
+
+  if (uploadError) {
+    throw new Error(uploadError.message);
+  }
+
+  try {
+    const commitResponse = await fetch("/api/files/commit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: directIntent.projectId,
+        taskId: input.taskId,
+        sourceFileId: directIntent.sourceFileId ?? null,
+        originalName: input.file.name,
+        sizeBytes: input.file.size,
+        mimeType: input.file.type || null,
+        fileGroupId: directIntent.fileGroupId ?? null,
+        objectPath,
+        storageBucket: bucket,
+        nextVersion: directIntent.nextVersion ?? null,
+      }),
+    });
+
+    if (!commitResponse.ok) {
+      throw new Error(await readErrorMessage(commitResponse, input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed"));
+    }
+  } catch (error) {
+    await supabase.storage.from(bucket).remove([objectPath]).catch(() => {});
+    throw error;
+  }
+
+  return intent;
+}
+
+async function downloadFileAttachment(file: Pick<FileRecord, "id" | "originalName" | "deletedAt">) {
+  let response = await requestSignedDownloadResponse(file.id);
+
+  if (!response || !response.ok) {
+    response = await fetch(
+      buildFileContentUrl(file.id, "attachment", {
+        allowDeleted: Boolean(file.deletedAt),
+      }),
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error("download failed");
+  }
+
+  const blob = await response.blob();
+  downloadBlob(blob, file.originalName);
+}
+
+async function requestFileDownloadUrl(fileId: string) {
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/download-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const json = (await response.json().catch(() => null)) as
+    | { data?: { url?: string | null } | null }
+    | { url?: string | null }
+    | null;
+
+  if (json && "data" in json) {
+    return json.data?.url ?? null;
+  }
+
+  return json && "url" in json ? json.url ?? null : null;
+}
+
+async function requestSignedDownloadResponse(fileId: string, allowRetry = true): Promise<Response | null> {
+  const url = await requestFileDownloadUrl(fileId);
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok && allowRetry && [401, 403, 404].includes(response.status)) {
+      return requestSignedDownloadResponse(fileId, false);
+    }
+
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+function buildFileContentUrl(
+  fileId: string,
+  disposition: "inline" | "attachment",
+  options?: { allowDeleted?: boolean },
+) {
+  const params = new URLSearchParams({
+    disposition,
+  });
+
+  if (options?.allowDeleted) {
+    params.set("allowDeleted", "1");
+  }
+
+  return `/api/files/${encodeURIComponent(fileId)}/content?${params.toString()}`;
 }
 
 function formatFileAttachmentMeta(file: Pick<FileRecord, "originalName" | "mimeType" | "sizeBytes">) {

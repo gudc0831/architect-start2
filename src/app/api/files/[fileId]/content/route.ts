@@ -15,7 +15,8 @@ export async function GET(
     const { fileId } = await context.params;
     const { searchParams } = new URL(request.url);
     const disposition = resolveDisposition(searchParams.get("disposition"));
-    const { file, content, contentType } = await readFileContent(fileId);
+    const allowDeleted = resolveAllowDeleted(searchParams.get("allowDeleted"));
+    const { file, content, contentType } = await readFileContent(fileId, { allowDeleted });
 
     return new NextResponse(Buffer.from(content), {
       headers: {
@@ -41,6 +42,10 @@ function resolveDisposition(value: string | null): FileContentDisposition {
   }
 
   throw badRequest("disposition must be inline or attachment", "FILE_CONTENT_DISPOSITION_INVALID");
+}
+
+function resolveAllowDeleted(value: string | null) {
+  return value === "1" || value === "true";
 }
 
 function buildContentDisposition(disposition: FileContentDisposition, originalName: string) {

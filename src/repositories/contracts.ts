@@ -1,6 +1,6 @@
 import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
-import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
+import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 export type TaskOrderUpdateInput = {
   id: string;
@@ -64,6 +64,7 @@ export type UpdateTaskInput = Partial<
     | "decision"
     | "completedAt"
     | "deletedAt"
+    | "purgedAt"
   >
 > & {
   parentTaskNumber?: string | null;
@@ -133,3 +134,5 @@ export interface PreferenceRepository {
   getTaskListLayout(profileId: string): Promise<TaskListLayoutPreference>;
   saveTaskListLayout(profileId: string, layout: TaskListLayoutPreference): Promise<TaskListLayoutPreference>;
 }
+
+export type TaskFileSummaryMap = Record<string, TaskFileSummary>;

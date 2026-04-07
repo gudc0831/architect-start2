@@ -23,7 +23,7 @@ import type {
   UpdateTaskInput,
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
-import type { FileRecord, TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskFileSummary, TaskRecord } from "@/domains/task/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import { storageProvider } from "@/storage";
 
@@ -75,6 +75,7 @@ function toTaskRecord(task: {
   updatedAt: Date;
   updatedBy: string | null;
   deletedAt: Date | null;
+  purgedAt: Date | null;
 }): TaskRecord {
   const status = normalizeTaskStatus(task.status, DEFAULT_TASK_STATUS);
   return {
@@ -110,10 +111,11 @@ function toTaskRecord(task: {
     updatedAt: task.updatedAt.toISOString(),
     updatedBy: task.updatedBy,
     deletedAt: task.deletedAt ? task.deletedAt.toISOString() : null,
+    purgedAt: task.purgedAt ? task.purgedAt.toISOString() : null,
   };
 }
 
-async function toFileRecord(file: {
+function toFileRecord(file: {
   id: string;
   taskId: string;
   projectId: string;
@@ -128,14 +130,8 @@ async function toFileRecord(file: {
   updatedAt: Date;
   uploadedBy: string | null;
   deletedAt: Date | null;
-}): Promise<FileRecord> {
-  const downloadUrl = file.deletedAt
-    ? null
-    : await storageProvider.createSignedDownloadUrl({
-        storageBucket: file.storageBucket,
-        objectPath: file.objectPath,
-      });
-
+  purgedAt: Date | null;
+}): FileRecord {
   return {
     id: file.id,
     taskId: file.taskId,
@@ -153,8 +149,48 @@ async function toFileRecord(file: {
     updatedAt: file.updatedAt.toISOString(),
     uploadedBy: file.uploadedBy,
     deletedAt: file.deletedAt ? file.deletedAt.toISOString() : null,
-    downloadUrl,
+    purgedAt: file.purgedAt ? file.purgedAt.toISOString() : null,
   };
+}
+
+function applyTaskFileSummary(task: TaskRecord, fileSummaryByTaskId: Map<string, TaskFileSummary>): TaskRecord {
+  return {
+    ...task,
+    fileSummary: fileSummaryByTaskId.get(task.id) ?? { count: 0, latestFileName: null },
+  };
+}
+
+function buildTaskFileSummaryMap(files: FileRecord[]) {
+  const summaryByTaskId = new Map<string, TaskFileSummary & { latestCreatedAt: string | null }>();
+
+  for (const file of files) {
+    const current = summaryByTaskId.get(file.taskId);
+    if (!current) {
+      summaryByTaskId.set(file.taskId, {
+        count: 1,
+        latestFileName: file.originalName,
+        latestCreatedAt: file.createdAt,
+      });
+      continue;
+    }
+
+    summaryByTaskId.set(file.taskId, {
+      count: current.count + 1,
+      latestFileName:
+        !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.originalName : current.latestFileName,
+      latestCreatedAt: !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.createdAt : current.latestCreatedAt,
+    });
+  }
+
+  return new Map(
+    [...summaryByTaskId.entries()].map(([taskId, summary]) => [
+      taskId,
+      {
+        count: summary.count,
+        latestFileName: summary.latestFileName,
+      },
+    ]),
+  );
 }
 
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
@@ -221,33 +257,64 @@ class PostgresProjectRepository implements ProjectRepository {
 class PostgresTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const tasks = await prisma.task.findMany({
-      where: {
-        projectId: project.id,
-        deletedAt: null,
-      },
-      orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
-    });
+    const [tasks, files] = await Promise.all([
+      prisma.task.findMany({
+        where: {
+          projectId: project.id,
+          deletedAt: null,
+          purgedAt: null,
+        },
+        orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
+      }),
+      prisma.file.findMany({
+        where: {
+          projectId: project.id,
+          deletedAt: null,
+          purgedAt: null,
+        },
+        orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
+      }),
+    ]);
 
-    return tasks.map(toTaskRecord);
+    const latestByGroup = new Map<string, (typeof files)[number]>();
+    for (const file of files) {
+      if (!latestByGroup.has(file.fileGroupId)) {
+        latestByGroup.set(file.fileGroupId, file);
+      }
+    }
+
+    const fileSummaryByTaskId = buildTaskFileSummaryMap([...latestByGroup.values()].map(toFileRecord));
+    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
   }
 
   async listTrashTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const tasks = await prisma.task.findMany({
-      where: {
-        projectId: project.id,
-        deletedAt: { not: null },
-      },
-      orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
-    });
+    const [tasks, files] = await Promise.all([
+      prisma.task.findMany({
+        where: {
+          projectId: project.id,
+          deletedAt: { not: null },
+          purgedAt: null,
+        },
+        orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
+      }),
+      prisma.file.findMany({
+        where: {
+          projectId: project.id,
+          deletedAt: { not: null },
+          purgedAt: null,
+        },
+        orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
+      }),
+    ]);
 
-    return tasks.map(toTaskRecord);
+    const fileSummaryByTaskId = buildTaskFileSummaryMap(files.map(toFileRecord));
+    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
   }
 
   async findTaskById(taskId: string) {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
-    return task ? toTaskRecord(task) : null;
+    return task && !task.purgedAt ? toTaskRecord(task) : null;
   }
 
   async getNextTaskNumber(projectId: string) {
@@ -280,6 +347,7 @@ class PostgresTaskRepository implements TaskRepository {
         isDaily: input.isDaily,
         createdBy: input.createdBy ?? null,
         updatedBy: input.updatedBy ?? input.createdBy ?? null,
+        purgedAt: null,
       },
     });
 
@@ -299,6 +367,7 @@ class PostgresTaskRepository implements TaskRepository {
         siblingOrder: data.siblingOrder,
         isDaily: data.isDaily,
         deletedAt: input.deletedAt === null ? null : input.deletedAt ? new Date(input.deletedAt) : undefined,
+        purgedAt: input.purgedAt === null ? null : input.purgedAt ? new Date(input.purgedAt) : undefined,
         updatedBy: updatedBy ?? undefined,
         version: { increment: 1 },
       },
@@ -323,6 +392,7 @@ class PostgresTaskRepository implements TaskRepository {
         siblingOrder: data.siblingOrder,
         isDaily: data.isDaily,
         deletedAt: input.deletedAt === null ? null : input.deletedAt ? new Date(input.deletedAt) : undefined,
+        purgedAt: input.purgedAt === null ? null : input.purgedAt ? new Date(input.purgedAt) : undefined,
         updatedBy: updatedBy ?? undefined,
         version: {
           increment: 1,
@@ -375,6 +445,7 @@ class PostgresTaskRepository implements TaskRepository {
         updated_by = coalesce(${updatedBy ?? null}, updated_by),
         version = version + 1
       where project_id = ${projectId}
+        and purged_at is null
         and issue_id is distinct from concat(${issuePrefix}, '-', lpad(task_number::text, 3, '0'))
     `);
 
@@ -386,6 +457,7 @@ class PostgresTaskRepository implements TaskRepository {
       where: { id: taskId },
       data: {
         deletedAt: new Date(),
+        purgedAt: null,
         updatedBy: updatedBy ?? undefined,
         version: { increment: 1 },
       },
@@ -399,6 +471,7 @@ class PostgresTaskRepository implements TaskRepository {
       where: { id: taskId },
       data: {
         deletedAt: null,
+        purgedAt: null,
         updatedBy: updatedBy ?? undefined,
         version: { increment: 1 },
       },
@@ -408,7 +481,12 @@ class PostgresTaskRepository implements TaskRepository {
   }
 
   async deleteTask(taskId: string) {
-    await prisma.task.delete({ where: { id: taskId } });
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        purgedAt: new Date(),
+      },
+    });
   }
 }
 
@@ -417,6 +495,7 @@ class PostgresFileRepository implements FileRepository {
     const files = await prisma.file.findMany({
       where: {
         deletedAt: null,
+        purgedAt: null,
         ...(taskId ? { taskId } : {}),
       },
       orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
@@ -429,33 +508,34 @@ class PostgresFileRepository implements FileRepository {
       }
     }
 
-    return Promise.all([...latestByGroup.values()].map((file) => toFileRecord(file)));
+    return [...latestByGroup.values()].map((file) => toFileRecord(file));
   }
 
   async listTrashFiles(taskId?: string) {
     const files = await prisma.file.findMany({
       where: {
         deletedAt: { not: null },
+        purgedAt: null,
         ...(taskId ? { taskId } : {}),
       },
       orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
     });
 
-    return Promise.all(files.map((file) => toFileRecord(file)));
+    return files.map((file) => toFileRecord(file));
   }
 
   async findFileById(fileId: string) {
     const file = await prisma.file.findUnique({ where: { id: fileId } });
-    return file ? toFileRecord(file) : null;
+    return file && !file.purgedAt ? toFileRecord(file) : null;
   }
 
   async listFilesByTask(taskId: string) {
     const files = await prisma.file.findMany({
-      where: { taskId },
+      where: { taskId, purgedAt: null },
       orderBy: [{ createdAt: "desc" }, { version: "desc" }],
     });
 
-    return Promise.all(files.map((file) => toFileRecord(file)));
+    return files.map((file) => toFileRecord(file));
   }
 
   async attachFile(input: CreateFileInput) {
@@ -472,6 +552,7 @@ class PostgresFileRepository implements FileRepository {
         objectPath: input.objectPath,
         version: input.version ?? 1,
         uploadedBy: input.uploadedBy ?? null,
+        purgedAt: null,
       },
     });
 
@@ -481,7 +562,7 @@ class PostgresFileRepository implements FileRepository {
   async moveFileToTrash(fileId: string) {
     const file = await prisma.file.update({
       where: { id: fileId },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), purgedAt: null },
     });
 
     return toFileRecord(file);
@@ -490,26 +571,31 @@ class PostgresFileRepository implements FileRepository {
   async restoreFile(fileId: string) {
     const file = await prisma.file.update({
       where: { id: fileId },
-      data: { deletedAt: null },
+      data: { deletedAt: null, purgedAt: null },
     });
 
     return toFileRecord(file);
   }
 
   async deleteFile(fileId: string) {
-    await prisma.file.delete({ where: { id: fileId } });
+    await prisma.file.update({
+      where: { id: fileId },
+      data: {
+        purgedAt: new Date(),
+      },
+    });
   }
 
   async moveFilesToTrashByTask(taskId: string) {
     await prisma.file.updateMany({
-      where: { taskId },
+      where: { taskId, purgedAt: null },
       data: { deletedAt: new Date() },
     });
   }
 
   async restoreFilesByTask(taskId: string) {
     await prisma.file.updateMany({
-      where: { taskId },
+      where: { taskId, purgedAt: null },
       data: { deletedAt: null },
     });
   }

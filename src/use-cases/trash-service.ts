@@ -1,7 +1,6 @@
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { fileRepository, taskRepository } from "@/repositories";
-import { storageProvider } from "@/storage";
 import { requireFileInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 
@@ -136,15 +135,6 @@ async function deleteStoredFileRecord(file: FileRecord, requireTrash: boolean) {
   if (requireTrash && !file.deletedAt) {
     throw badRequest("Only trashed files can be deleted permanently", "FILE_NOT_IN_TRASH");
   }
-
-  const storageBucket = file.storageBucket.trim();
-  const objectPath = file.objectPath.trim();
-
-  if (!storageBucket || !objectPath) {
-    throw badRequest("File storage location is invalid", "FILE_STORAGE_PATH_INVALID");
-  }
-
-  await storageProvider.delete({ storageBucket, objectPath });
   await fileRepository.deleteFile(file.id);
 }
 

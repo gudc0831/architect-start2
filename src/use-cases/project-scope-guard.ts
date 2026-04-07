@@ -7,7 +7,7 @@ export async function requireTaskInSelectedProject(taskId: string): Promise<Task
   const project = await getSelectedTaskProject();
   const task = await taskRepository.findTaskById(taskId);
 
-  if (!task || task.projectId !== project.id) {
+  if (!task || task.projectId !== project.id || task.purgedAt) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
@@ -18,7 +18,7 @@ export async function requireFileInSelectedProject(fileId: string): Promise<File
   const project = await getSelectedTaskProject();
   const file = await fileRepository.findFileById(fileId);
 
-  if (!file) {
+  if (!file || file.purgedAt) {
     throw notFound("File not found", "FILE_NOT_FOUND");
   }
 
@@ -27,7 +27,7 @@ export async function requireFileInSelectedProject(fileId: string): Promise<File
   }
 
   const task = await taskRepository.findTaskById(file.taskId);
-  if (!task || task.projectId !== project.id) {
+  if (!task || task.projectId !== project.id || task.purgedAt) {
     throw notFound("File not found", "FILE_NOT_FOUND");
   }
 

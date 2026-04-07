@@ -1,4 +1,3 @@
-import { backendMode } from "@/lib/backend-mode";
 import { requireOwnerDiscipline } from "@/domains/admin/foundation-settings";
 import {
   assertCreatableTaskCategoryCode,
@@ -10,8 +9,8 @@ import {
 import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
 import { badRequest, conflict, serviceUnavailable } from "@/lib/api/errors";
 import { getProjectSessionProjectId } from "@/lib/project-session";
+import { taskRepository } from "@/repositories";
 import { adminRepository } from "@/repositories/admin";
-import { updateProject } from "@/use-cases/project-service";
 
 function sanitizeName(value: string) {
   return value.trim();
@@ -129,33 +128,24 @@ export async function renameCurrentProjectForSession(projectId: string, name: st
     throw conflict("Selected project no longer exists", "PROJECT_SELECTION_STALE");
   }
 
-  if (backendMode === "local") {
-    await adminRepository.setCurrentProject(normalizedProjectId);
-    const updatedProject = await updateProject(normalizedName, userId);
-    await adminRepository.updateProject(normalizedProjectId, {
-      name: updatedProject.name,
-      updatedBy: userId,
-    });
-
-    return {
-      id: selectedProject.id,
-      name: updatedProject.name,
-      source: updatedProject.source,
-      currentProjectId: selectedProject.id,
-    };
-  }
-
-  if (backendMode === "cloud") {
-    throw serviceUnavailable(
-      "Cloud project rename is blocked until selected-project task syncing is wired through task repositories.",
-      "PROJECT_RENAME_INTEGRATION_PENDING",
-    );
-  }
-
   const updatedProject = await adminRepository.updateProject(normalizedProjectId, {
     name: normalizedName,
     updatedBy: userId,
   });
+
+  try {
+    await taskRepository.syncProjectTaskIssueIds(updatedProject.id, updatedProject.name, userId);
+  } catch (error) {
+    if (selectedProject.name !== updatedProject.name) {
+      await adminRepository.updateProject(normalizedProjectId, {
+        name: selectedProject.name,
+        updatedBy: userId,
+      });
+      await taskRepository.syncProjectTaskIssueIds(selectedProject.id, selectedProject.name, userId);
+    }
+
+    throw error;
+  }
 
   return {
     id: updatedProject.id,
