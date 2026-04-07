@@ -2898,6 +2898,54 @@ a {
   font-size: 0.88rem;
 }
 
+.detail-preview,
+.detail-preview__surface,
+.detail-preview__picker {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.detail-preview {
+  padding: 1rem;
+  border: 1px solid rgba(126, 141, 130, 0.3);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(249, 251, 248, 0.96), rgba(240, 246, 242, 0.92));
+}
+
+.detail-preview__picker {
+  gap: 0.4rem;
+}
+
+.detail-preview__picker span,
+.detail-preview__meta,
+.detail-preview__status,
+.detail-preview__placeholder {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.detail-preview__frame,
+.detail-preview__image {
+  width: 100%;
+  min-height: 320px;
+  border: 1px solid rgba(126, 141, 130, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.detail-preview__frame {
+  display: block;
+}
+
+.detail-preview__image {
+  display: block;
+  max-height: 420px;
+  min-height: 0;
+  object-fit: contain;
+}
+
 .detail-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3262,6 +3310,17 @@ a {
   padding: 0.95rem 1rem;
   border-radius: 18px;
   background: var(--panel-strong);
+}
+
+.file-pill__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.file-pill__meta strong {
+  overflow-wrap: anywhere;
 }
 
 .file-pill__version {

@@ -26,6 +26,9 @@ export const storageProvider: StorageProvider = {
   async delete(input) {
     return getStorageProvider().delete(input);
   },
+  async download(input) {
+    return getStorageProvider().download(input);
+  },
   async createSignedDownloadUrl(input) {
     return getStorageProvider().createSignedDownloadUrl(input);
   },

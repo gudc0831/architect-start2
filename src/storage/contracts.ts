@@ -15,6 +15,10 @@ export interface StorageProvider {
     storageBucket: string;
     objectPath: string;
   }): Promise<void>;
+  download(input: {
+    storageBucket: string;
+    objectPath: string;
+  }): Promise<Uint8Array>;
   createSignedDownloadUrl(input: {
     storageBucket: string;
     objectPath: string;

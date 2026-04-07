@@ -41,6 +41,7 @@ import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
+import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
@@ -471,6 +472,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [pendingVersionUpload, setPendingVersionUpload] = useState<File | null>(null);
   const [versionTargetId, setVersionTargetId] = useState("");
+  const [activePreviewFileId, setActivePreviewFileId] = useState("");
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isReorderingTasks, setIsReorderingTasks] = useState(false);
@@ -1737,6 +1740,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [activeCalendarMonth, hasScheduledCalendarTasks],
   );
   const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
+  const previewableSelectedFiles = useMemo(() => selectedFiles.filter((file) => isFilePreviewable(file)), [selectedFiles]);
+  const activePreviewFile = useMemo(
+    () => previewableSelectedFiles.find((file) => file.id === activePreviewFileId) ?? previewableSelectedFiles[0] ?? null,
+    [activePreviewFileId, previewableSelectedFiles],
+  );
+  const activePreviewKind = activePreviewFile ? getFilePreviewKind(activePreviewFile) : null;
+  const activePreviewUrl = activePreviewFile && !isPreview ? buildFileContentUrl(activePreviewFile.id, "inline") : null;
   const detailSummary = selectedTask ? formatTaskDisplayId(selectedTask) : t("empty.nothingSelected");
   const trashTaskIdSet = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
   const trashFileIdSet = useMemo(() => new Set(files.map((file) => file.id)), [files]);
@@ -1807,6 +1817,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     setVersionTargetId((prev) => (selectedFiles.some((file) => file.id === prev) ? prev : selectedFiles[0].id));
   }, [selectedFiles]);
+  useEffect(() => {
+    if (previewableSelectedFiles.length === 0) {
+      setActivePreviewFileId("");
+      return;
+    }
+
+    setActivePreviewFileId((prev) => (previewableSelectedFiles.some((file) => file.id === prev) ? prev : previewableSelectedFiles[0].id));
+  }, [previewableSelectedFiles]);
+  useEffect(() => {
+    setIsPreviewLoading(Boolean(activePreviewUrl));
+  }, [activePreviewUrl]);
 
   const focusedTaskIds = useMemo(
     () => (taskFocusKey ? new Set(sortedTasks.filter((task) => matchesTaskFocus(task, taskFocusKey, currentDayKey)).map((task) => task.id)) : null),
@@ -4106,17 +4127,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         {selectedFiles.length === 0 ? <p>{t("empty.noLinkedDocuments")}</p> : null}
                         {selectedFiles.map((file) => (
                           <article className="file-pill" key={file.id}>
-                            <div>
+                            <div className="file-pill__meta">
                               <strong>
                                 {file.originalName} <span className="file-pill__version">{file.versionLabel}</span>
                               </strong>
-                              <small>{file.downloadUrl ? t("workspace.downloadAvailable") : t("workspace.privateStorage")}</small>
+                              <small>{formatFileAttachmentMeta(file)}</small>
                             </div>
                             <div className="file-pill__actions">
-                              {file.downloadUrl ? (
-                                <a className="secondary-button" href={file.downloadUrl} rel="noreferrer" target="_blank">
-                                  {t("actions.download")}
-                                </a>
+                              {!isPreview ? (
+                                <>
+                                  <a className="secondary-button" href={buildFileContentUrl(file.id, "inline")} rel="noreferrer" target="_blank">
+                                    {t("actions.open")}
+                                  </a>
+                                  <a className="secondary-button" download={file.originalName} href={buildFileContentUrl(file.id, "attachment")}>
+                                    {t("actions.save")}
+                                  </a>
+                                </>
                               ) : null}
                               <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
                                 {t("actions.remove")}
@@ -4125,6 +4151,52 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           </article>
                         ))}
                       </div>
+                      {!isPreview && selectedFiles.length > 0 ? (
+                        <section className="detail-preview">
+                          <div className="detail-section__header">
+                            <h4>{t("workspace.filePreviewTitle")}</h4>
+                          </div>
+                          {previewableSelectedFiles.length > 1 ? (
+                            <label className="detail-preview__picker">
+                              <span>{t("workspace.previewFileLabel")}</span>
+                              <select onChange={(event) => setActivePreviewFileId(event.target.value)} value={activePreviewFile?.id ?? ""}>
+                                {previewableSelectedFiles.map((file) => (
+                                  <option key={file.id} value={file.id}>
+                                    {file.originalName} {file.versionLabel}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+                          {activePreviewFile && activePreviewUrl && activePreviewKind ? (
+                            <div className="detail-preview__surface">
+                              <p className="detail-preview__meta">{activePreviewFile.originalName} - {formatFileAttachmentMeta(activePreviewFile)}</p>
+                              {isPreviewLoading ? <p className="detail-preview__status">{t("workspace.previewLoading")}</p> : null}
+                              {activePreviewKind === "image" ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  alt={activePreviewFile.originalName}
+                                  className="detail-preview__image"
+                                  key={activePreviewUrl}
+                                  onError={() => setIsPreviewLoading(false)}
+                                  onLoad={() => setIsPreviewLoading(false)}
+                                  src={activePreviewUrl}
+                                />
+                              ) : (
+                                <iframe
+                                  className="detail-preview__frame"
+                                  key={activePreviewUrl}
+                                  onLoad={() => setIsPreviewLoading(false)}
+                                  src={activePreviewUrl}
+                                  title={`${t("workspace.filePreviewTitle")} ${activePreviewFile.originalName}`}
+                                />
+                              )}
+                            </div>
+                          ) : (
+                            <p className="detail-preview__placeholder">{t("workspace.previewUnavailable")}</p>
+                          )}
+                        </section>
+                      ) : null}
                     </section>
                   </div>
                 ) : (
@@ -5648,6 +5720,49 @@ function downloadBlob(blob: Blob, filename: string) {
   link.click();
   link.remove();
   window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0);
+}
+
+function buildFileContentUrl(fileId: string, disposition: "inline" | "attachment") {
+  return `/api/files/${encodeURIComponent(fileId)}/content?disposition=${disposition}`;
+}
+
+function formatFileAttachmentMeta(file: Pick<FileRecord, "originalName" | "mimeType" | "sizeBytes">) {
+  const extension = getFileExtension(file.originalName);
+  const mimeSubtype = String(file.mimeType ?? "")
+    .split("/")
+    .at(1)
+    ?.split(";")[0]
+    ?.trim()
+    .toUpperCase();
+  const typeLabel = extension ? extension.toUpperCase() : mimeSubtype || "FILE";
+  return `${typeLabel} - ${formatFileSize(file.sizeBytes)}`;
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let unitIndex = 0;
+  let value = sizeBytes;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function getFileExtension(originalName: string) {
+  const trimmed = originalName.trim();
+  const extensionIndex = trimmed.lastIndexOf(".");
+  if (extensionIndex < 0 || extensionIndex === trimmed.length - 1) {
+    return "";
+  }
+
+  return trimmed.slice(extensionIndex + 1);
 }
 
 function resolveExportFilename(contentDisposition: string | null) {

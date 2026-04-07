@@ -84,6 +84,9 @@ export type UICatalog = {
     statusHistoryPlaceholder: string;
     linkedDocumentSummaryMulti: string;
     agendaMeta: string;
+    filePreviewTitle: string;
+    previewFileLabel: string;
+    previewUnavailable: string;
     pinDetailPanel: string;
     unpinDetailPanel: string;
     expandDetailPanel: string;
@@ -200,6 +203,7 @@ export type UICatalog = {
     moveToTrash: string;
     uploadFile: string;
     uploadNextVersion: string;
+    open: string;
     download: string;
     remove: string;
   };
@@ -340,6 +344,9 @@ export const uiCopyCatalog = {
       statusHistoryPlaceholder: "첫 저장 후 자동으로 기록됩니다.",
       linkedDocumentSummaryMulti: "{{name}} 외 {{count}}개",
       agendaMeta: "{{status}} / {{assignee}}",
+      filePreviewTitle: "문서 미리보기",
+      previewFileLabel: "미리보기 파일",
+      previewUnavailable: "이 작업에 패널 미리보기를 지원하는 파일이 없습니다.",
       pinDetailPanel: "패널 고정",
       unpinDetailPanel: "패널 고정 해제",
       expandDetailPanel: "패널 펼치기",
@@ -483,6 +490,7 @@ export const uiCopyCatalog = {
       moveToTrash: "휴지통으로 이동",
       uploadFile: "파일 업로드",
       uploadNextVersion: "새 버전 업로드",
+      open: "열기",
       download: "다운로드",
       remove: "휴지통으로 이동",
     },
@@ -621,6 +629,9 @@ export const uiCopyCatalog = {
       statusHistoryPlaceholder: "Tracked automatically after the first save.",
       linkedDocumentSummaryMulti: "{{name}} +{{count}} more",
       agendaMeta: "{{status}} / {{assignee}}",
+      filePreviewTitle: "Document preview",
+      previewFileLabel: "Preview file",
+      previewUnavailable: "No files on this task support inline preview in the detail panel.",
       pinDetailPanel: "Pin panel",
       unpinDetailPanel: "Unpin panel",
       expandDetailPanel: "Expand panel",
@@ -764,6 +775,7 @@ export const uiCopyCatalog = {
       moveToTrash: "Move to trash",
       uploadFile: "Upload file",
       uploadNextVersion: "Upload next version",
+      open: "Open",
       download: "Download",
       remove: "Remove",
     },

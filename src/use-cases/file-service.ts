@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
+import { resolveFileContentType } from "@/domains/file/metadata";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
 import { badRequest } from "@/lib/api/errors";
 import { fileRepository, taskRepository } from "@/repositories";
@@ -110,6 +111,27 @@ export async function permanentlyDeleteFile(fileId: string) {
 
   await storageProvider.delete({ storageBucket, objectPath });
   await fileRepository.deleteFile(fileId);
+}
+
+export async function readFileContent(fileId: string) {
+  const file = await requireFileInSelectedProject(fileId);
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be opened", "FILE_NOT_ACTIVE");
+  }
+
+  const storageBucket = file.storageBucket.trim();
+  const objectPath = file.objectPath.trim();
+
+  if (!storageBucket || !objectPath) {
+    throw badRequest("File storage location is invalid", "FILE_STORAGE_PATH_INVALID");
+  }
+
+  const content = await storageProvider.download({ storageBucket, objectPath });
+  return {
+    file,
+    content,
+    contentType: resolveFileContentType(file),
+  };
 }
 
 function validateUpload(file: File) {
