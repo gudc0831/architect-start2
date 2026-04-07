@@ -103,6 +103,12 @@
 - `task 단위 lazy file loading`
 - `download 시점 signed URL 발급`
 
+### 추후 권한 구조 예약
+
+- 지금은 `admin / member`와 프로젝트 멤버십 관리 뼈대만 있음
+- 후속 기능으로 `프로젝트별 viewer / editor / manager / admin` 권한 구조를 설계한다
+- 적용 시점에는 프로젝트 목록 조회, task/file/project 수정 API, 관리자 URL 접근을 모두 역할 기준으로 재검토한다
+
 ## 4. 전환 시점
 
 ### Vercel Hobby -> Pro
@@ -133,8 +139,13 @@
 6. migration/seed/admin bootstrap은 배포와 분리해서 수동 실행
 7. cloud 변경 전에는 `npm run data:backup`
 
-## 6. 참고 문서
+## 6. 배포 전 세부 구현 계획
+
+- 배포 전 필수 구현 항목의 실제 작업 순서, 파일별 진입점, 완료 기준, 검증 루프는 [`docs/2026-04-07-predeploy-implementation-plan.md`](docs/2026-04-07-predeploy-implementation-plan.md)를 기준으로 본다.
+
+## 7. 참고 문서
 
 - 회의록 누적본: [`docs/PLAN_MEETING_LOG.md`](docs/PLAN_MEETING_LOG.md)
 - 이전 상세 검토: [`docs/2026-04-06-phase1-cost-preservation-upload-plan.md`](docs/2026-04-06-phase1-cost-preservation-upload-plan.md)
 - 플랫폼 handoff: [`docs/2026-04-06-platform-decision-handoff.md`](docs/2026-04-06-platform-decision-handoff.md)
+- 배포 전 세부 구현 계획: [`docs/2026-04-07-predeploy-implementation-plan.md`](docs/2026-04-07-predeploy-implementation-plan.md)
