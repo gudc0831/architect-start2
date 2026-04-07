@@ -105,6 +105,10 @@ export type UICatalog = {
     hideTaskMemo: string;
     showTaskMemoCompact: string;
     hideTaskMemoCompact: string;
+    dailyListViewModeAria: string;
+    dailyListViewFull: string;
+    dailyListViewPaged: string;
+    dailyListPageRange: string;
     pageStatus: string;
     weekdays: {
       mon: string;
@@ -385,6 +389,10 @@ export const uiCopyCatalog = {
       hideTaskMemo: "메모 숨기기",
       showTaskMemoCompact: "메모",
       hideTaskMemoCompact: "접기",
+      dailyListViewModeAria: "일일목록 보기 전환",
+      dailyListViewFull: "전체",
+      dailyListViewPaged: "50개씩",
+      dailyListPageRange: "{{from}}-{{to}} / {{total}}",
       pageStatus: "{{current}} / {{total}}",
       weekdays: {
         mon: "월",
@@ -690,6 +698,10 @@ export const uiCopyCatalog = {
       hideTaskMemo: "Hide memo",
       showTaskMemoCompact: "Memo",
       hideTaskMemoCompact: "Hide",
+      dailyListViewModeAria: "Switch daily list view",
+      dailyListViewFull: "All",
+      dailyListViewPaged: "50 per page",
+      dailyListPageRange: "{{from}}-{{to}} / {{total}}",
       pageStatus: "{{current}} / {{total}}",
       weekdays: {
         mon: "Mon",

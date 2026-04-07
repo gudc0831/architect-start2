@@ -59,6 +59,7 @@ import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domain
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
 import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import {
+  buildTaskTreePages,
   buildTaskTreeRows,
   dailyTaskListColumns,
   formatActionId,
@@ -66,6 +67,8 @@ import {
   formatDateTimeField,
   sortTasksByActionId,
   type DailyTaskListColumnConfig as TaskListColumnConfig,
+  type DailyTaskTreePage,
+  type DailyListViewMode,
   type DailyTaskSortMode,
   type TaskTreeRow,
 } from "@/domains/task/daily-list";
@@ -208,6 +211,7 @@ type TaskListRowResizeState = {
   taskId: string;
   startY: number;
   startHeight: number;
+  currentHeight: number;
 };
 
 type DetailPanelResizeState = {
@@ -389,6 +393,8 @@ const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
+const DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE = "list-view-mode";
+const DAILY_TASK_PAGE_SIZE = 50;
 const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
 const USE_MEMOIZED_DAILY_TASK_ROWS = true;
 const BOARD_PAGE_SIZE_MOBILE = 4;
@@ -497,6 +503,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [isTaskOrderMenuOpen, setIsTaskOrderMenuOpen] = useState(false);
   const [taskFocusKey, setTaskFocusKey] = useState<TaskFocusKey | null>(null);
   const [hideIssueIdOverdueBadge, setHideIssueIdOverdueBadge] = useState(false);
+  const [dailyListViewMode, setDailyListViewMode] = useState<DailyListViewMode>("full");
+  const [dailyTaskPage, setDailyTaskPage] = useState(1);
   const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
@@ -531,6 +539,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
   const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
+  const dailyListViewModePreferenceReadyKeyRef = useRef<string | null>(null);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -574,6 +583,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     viewportWidth < MOBILE_BREAKPOINT ? "stacked" : viewportWidth < TABLET_BREAKPOINT ? "wrapped" : "strip";
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
+  const isPagedDailyListView = mode === "daily" && dailyListViewMode === "paged";
   const isDetailPanelResizable = mode === "daily" && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
@@ -586,6 +596,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       : null;
   const issueIdOverdueBadgePreferenceStorageKey = categoricalFilterStorageBaseKey
     ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE)
+    : null;
+  const dailyListViewModePreferenceStorageKey = categoricalFilterStorageBaseKey
+    ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE)
     : null;
   const boardCollapsedStorageKey =
     mode === "board" && currentProjectId && (authUser?.id || isPreview)
@@ -995,6 +1008,38 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [hideIssueIdOverdueBadge, issueIdOverdueBadgePreferenceStorageKey]);
 
   useEffect(() => {
+    if (mode !== "daily") {
+      setDailyListViewMode("full");
+      setDailyTaskPage(1);
+      dailyListViewModePreferenceReadyKeyRef.current = null;
+      return;
+    }
+
+    if (!dailyListViewModePreferenceStorageKey) {
+      setDailyListViewMode("full");
+      setDailyTaskPage(1);
+      dailyListViewModePreferenceReadyKeyRef.current = "__none__";
+      return;
+    }
+
+    setDailyListViewMode(readDailyListViewModeFromStorage(dailyListViewModePreferenceStorageKey));
+    setDailyTaskPage(1);
+    dailyListViewModePreferenceReadyKeyRef.current = dailyListViewModePreferenceStorageKey;
+  }, [dailyListViewModePreferenceStorageKey, mode]);
+
+  useEffect(() => {
+    if (!dailyListViewModePreferenceStorageKey) {
+      return;
+    }
+
+    if (dailyListViewModePreferenceReadyKeyRef.current !== dailyListViewModePreferenceStorageKey) {
+      return;
+    }
+
+    writeDailyListViewModeToStorage(dailyListViewModePreferenceStorageKey, dailyListViewMode);
+  }, [dailyListViewMode, dailyListViewModePreferenceStorageKey]);
+
+  useEffect(() => {
     if (mode !== "board") {
       setCollapsedBoardStatuses(createDefaultBoardCollapsedStatusMap());
       setBoardPageByStatus({});
@@ -1191,6 +1236,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     taskListRowCellRefs.current.set(taskId, rowRefs);
   }, []);
 
+  const applyTaskListRowHeightToDom = useCallback((taskId: string, nextHeight: number) => {
+    const clampedHeight = clampTaskListRowHeight(nextHeight);
+    const rowRefs = taskListRowCellRefs.current.get(taskId);
+    if (!rowRefs) {
+      return clampedHeight;
+    }
+
+    const nextHeightValue = `${clampedHeight}px`;
+    rowRefs.forEach((node) => {
+      if (node.style.height !== nextHeightValue) {
+        node.style.height = nextHeightValue;
+      }
+    });
+
+    return clampedHeight;
+  }, []);
+
   const persistTaskListLayout = useCallback(
     (
       nextColumnWidths: ResolvedTaskListColumnWidthMap = taskListColumnWidthsRef.current,
@@ -1227,10 +1289,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 
   const setTaskListRowHeight = useCallback(
-      (taskId: string, nextHeight: number, shouldPersist = false) => {
-        const clampedHeight = clampTaskListRowHeight(nextHeight);
-        const currentHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
-        if (currentHeight === clampedHeight && !shouldPersist) {
+    (taskId: string, nextHeight: number, shouldPersist = false) => {
+      const clampedHeight = applyTaskListRowHeightToDom(taskId, nextHeight);
+      const currentHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
+      if (currentHeight === clampedHeight && !shouldPersist) {
         return;
       }
 
@@ -1247,7 +1309,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         persistTaskListLayout(taskListColumnWidthsRef.current, nextRowHeights);
       }
     },
-    [persistTaskListLayout],
+    [applyTaskListRowHeightToDom, persistTaskListLayout],
   );
 
   const flushTaskListLayoutSave = useCallback(() => {
@@ -1285,7 +1347,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
 
-      const taskFiles = filesByTaskIdRef.current[taskId] ?? [];
+      const taskFiles = filesByTaskIdRef.current[taskId] ?? EMPTY_TASK_FILES;
       const linkedDocumentsDisplay = formatLinkedDocumentsSummary(row.task, taskFiles);
       const currentDraft = draftRef.current;
       const rowDraft =
@@ -1365,11 +1427,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const handleTaskListRowResizeMove = useCallback((event: PointerEvent) => {
     const resizeState = taskListRowResizeStateRef.current;
     if (!resizeState) return;
-    setTaskListRowHeight(resizeState.taskId, resizeState.startHeight + event.clientY - resizeState.startY);
-  }, [setTaskListRowHeight]);
+    const nextHeight = applyTaskListRowHeightToDom(
+      resizeState.taskId,
+      resizeState.startHeight + event.clientY - resizeState.startY,
+    );
+    if (resizeState.currentHeight === nextHeight) return;
+    taskListLayoutInteractionVersionRef.current += 1;
+    resizeState.currentHeight = nextHeight;
+  }, [applyTaskListRowHeightToDom]);
 
   const handleTaskListRowResizeEnd = useCallback(() => {
-    if (!taskListRowResizeStateRef.current) return;
+    const resizeState = taskListRowResizeStateRef.current;
+    if (!resizeState) return;
 
     taskListRowResizeStateRef.current = null;
     window.removeEventListener("pointermove", handleTaskListRowResizeMove);
@@ -1377,8 +1446,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     window.removeEventListener("pointercancel", handleTaskListRowResizeEnd);
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-    persistTaskListLayout(taskListColumnWidthsRef.current, taskListRowHeightsRef.current);
-  }, [handleTaskListRowResizeMove, persistTaskListLayout]);
+    setTaskListRowHeight(resizeState.taskId, resizeState.currentHeight, true);
+  }, [handleTaskListRowResizeMove, setTaskListRowHeight]);
 
   const handleTaskListRowResizeStart = useCallback(
     (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1386,10 +1455,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       event.stopPropagation();
       handleTaskListRowResizeEnd();
 
+      const startHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
+
       taskListRowResizeStateRef.current = {
         taskId,
         startY: event.clientY,
-        startHeight: taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT,
+        startHeight,
+        currentHeight: startHeight,
       };
 
       window.addEventListener("pointermove", handleTaskListRowResizeMove);
@@ -1654,10 +1726,42 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     );
   }, [categoricalFieldContext, hasActiveDailyFilters, mode, normalizedSelectedCategoricalFilters, sortedTasks]);
   const dailyTreeRows = useMemo(() => buildTaskTreeRows(visibleDailyTasks), [visibleDailyTasks]);
+  const dailyTaskTreePages = useMemo(() => buildTaskTreePages(dailyTreeRows, DAILY_TASK_PAGE_SIZE), [dailyTreeRows]);
+  const dailyTaskPageCount = dailyTaskTreePages.length;
+  const resolvedDailyTaskPage = useMemo(
+    () => clampBoardPage(dailyTaskPage, Math.max(dailyTaskPageCount, 1)),
+    [dailyTaskPage, dailyTaskPageCount],
+  );
+  const activeDailyTaskPage = useMemo<DailyTaskTreePage | null>(
+    () => dailyTaskTreePages[resolvedDailyTaskPage - 1] ?? null,
+    [dailyTaskTreePages, resolvedDailyTaskPage],
+  );
+  const displayedDailyTreeRows = useMemo(
+    () => (isPagedDailyListView ? activeDailyTaskPage?.rows ?? [] : dailyTreeRows),
+    [activeDailyTaskPage, dailyTreeRows, isPagedDailyListView],
+  );
+  const displayedDailyTaskRangeLabel = useMemo(() => {
+    if (!isPagedDailyListView || !activeDailyTaskPage) {
+      return null;
+    }
+
+    return t("workspace.dailyListPageRange", {
+      from: activeDailyTaskPage.startRowNumber,
+      to: activeDailyTaskPage.endRowNumber,
+      total: dailyTreeRows.length,
+    });
+  }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
+  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
   }, [dailyTreeRows]);
+
+  useEffect(() => {
+    if (dailyTaskPage !== resolvedDailyTaskPage) {
+      setDailyTaskPage(resolvedDailyTaskPage);
+    }
+  }, [dailyTaskPage, resolvedDailyTaskPage]);
 
   const taskListTableWidth = useMemo(() => dailyTaskListColumns.reduce((total, column) => total + taskListColumnWidths[column.key], 0), [taskListColumnWidths]);
   const workspaceBodyStyle = useMemo(
@@ -1683,6 +1787,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return visibleDailyTasks[0]?.id ?? null;
     });
   }, [mode, visibleDailyTasks]);
+
+  useEffect(() => {
+    if (!isPagedDailyListView) {
+      return;
+    }
+
+    if (!selectedTaskId) {
+      setDailyTaskPage(1);
+      return;
+    }
+
+    const nextPage = getDailyTaskPageForTask(dailyTaskTreePages, selectedTaskId);
+    if (nextPage === null) {
+      setDailyTaskPage(1);
+      return;
+    }
+
+    setDailyTaskPage((previous) => (previous === nextPage ? previous : nextPage));
+  }, [dailyTaskTreePages, isPagedDailyListView, selectedTaskId]);
 
   useEffect(() => {
     selectedTaskRef.current = selectedTask;
@@ -1803,7 +1926,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           },
     [activeCalendarMonth, hasScheduledCalendarTasks],
   );
-  const selectedFiles = useMemo(() => (selectedTask ? filesByTaskId[selectedTask.id] ?? [] : []), [filesByTaskId, selectedTask]);
+  const selectedFiles = useMemo(
+    () => (selectedTask ? filesByTaskId[selectedTask.id] ?? EMPTY_TASK_FILES : EMPTY_TASK_FILES),
+    [filesByTaskId, selectedTask],
+  );
   const selectedTaskFilesLoading = Boolean(selectedTask?.id && loadingTaskFileIds.includes(selectedTask.id));
   const previewableSelectedFiles = useMemo(() => selectedFiles.filter((file) => isFilePreviewable(file)), [selectedFiles]);
   const activePreviewFile = useMemo(
@@ -2511,7 +2637,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const moveTaskByOffset = useCallback(
     async (taskId: string, offset: -1 | 1) => {
-      if (hasActiveDailyFilters) {
+      if (isDailyManualReorderDisabled) {
         return;
       }
 
@@ -2542,12 +2668,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         "manual",
       );
     },
-    [dailyTreeRows, hasActiveDailyFilters, reorderDailyTasks],
+    [dailyTreeRows, isDailyManualReorderDisabled, reorderDailyTasks],
   );
 
   const handleTaskRowDragStart = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => {
-      if (hasActiveDailyFilters || isMobileViewport || isReorderingTasks) {
+      if (isDailyManualReorderDisabled || isMobileViewport || isReorderingTasks) {
         event.preventDefault();
         return;
       }
@@ -2557,7 +2683,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
     },
-    [hasActiveDailyFilters, isMobileViewport, isReorderingTasks],
+    [isDailyManualReorderDisabled, isMobileViewport, isReorderingTasks],
   );
 
   const handleTaskRowDragOver = useCallback(
@@ -3140,6 +3266,68 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setDetailPanelState("collapsed");
   }, []);
 
+  const handleDailyListViewModeChange = useCallback(
+    (nextMode: DailyListViewMode) => {
+      if (nextMode === dailyListViewMode) {
+        return;
+      }
+
+      if (nextMode === "paged") {
+        const nextPage = selectedTaskId ? getDailyTaskPageForTask(dailyTaskTreePages, selectedTaskId) : null;
+        setDailyTaskPage(nextPage ?? 1);
+      }
+
+      setDailyListViewMode(nextMode);
+    },
+    [dailyListViewMode, dailyTaskTreePages, selectedTaskId],
+  );
+
+  const goToDailyTaskPage = useCallback(
+    async (nextPage: number) => {
+      if (!isPagedDailyListView) {
+        return;
+      }
+
+      const clampedPage = clampBoardPage(nextPage, Math.max(dailyTaskPageCount, 1));
+      if (clampedPage === resolvedDailyTaskPage) {
+        return;
+      }
+
+      if (hasSelectedTaskDraftChanges()) {
+        const didSave = await saveSelectedTaskRef.current();
+        if (!didSave) {
+          return;
+        }
+      }
+
+      const nextPageRows = dailyTaskTreePages[clampedPage - 1]?.rows ?? [];
+      const nextPageTaskIdSet = new Set(nextPageRows.map((row) => row.task.id));
+      setDailyTaskPage(clampedPage);
+
+      if (selectedTaskId && nextPageTaskIdSet.has(selectedTaskId)) {
+        return;
+      }
+
+      const nextTaskId = nextPageRows[0]?.task.id ?? null;
+      if (!nextTaskId) {
+        clearTaskSelection();
+        return;
+      }
+
+      selectTask(nextTaskId);
+    },
+    [
+      clearTaskSelection,
+      dailyTaskPageCount,
+      dailyTaskTreePages,
+      hasSelectedTaskDraftChanges,
+      isPagedDailyListView,
+      resolvedDailyTaskPage,
+      selectTask,
+      selectedTaskId,
+    ],
+  );
+
   function handleWorkspaceBackgroundClick(event: ReactMouseEvent<HTMLElement>) {
     if (mode !== "daily" || !isDetailExpanded) return;
     const target = event.target;
@@ -3457,7 +3645,33 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       <p className="workspace__meta">실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.</p>
                     </div>
                   </div>
-                  <p className="daily-sheet__focus-copy">{t("workspace.dailyFocusSummary")}</p>
+                  <div className="daily-sheet__focus-summary-bar">
+                    <p className="daily-sheet__focus-copy">{t("workspace.dailyFocusSummary")}</p>
+                    <div aria-label={t("workspace.dailyListViewModeAria")} className="daily-sheet__view-mode-toggle" role="group">
+                      <button
+                        aria-pressed={dailyListViewMode === "full"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          dailyListViewMode === "full" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleDailyListViewModeChange("full")}
+                        type="button"
+                      >
+                        {t("workspace.dailyListViewFull")}
+                      </button>
+                      <button
+                        aria-pressed={dailyListViewMode === "paged"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          dailyListViewMode === "paged" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleDailyListViewModeChange("paged")}
+                        type="button"
+                      >
+                        {t("workspace.dailyListViewPaged")}
+                      </button>
+                    </div>
+                  </div>
                   <TaskFocusStrip
                     activeKey={taskFocusKey}
                     ariaLabel="일일 실행 집중 영역"
@@ -3467,6 +3681,37 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     variant="compact"
                   />
                 </section>
+
+                {isPagedDailyListView && activeDailyTaskPage ? (
+                  <div className="daily-task-list__toolbar">
+                    <div className="daily-task-list__toolbar-meta">
+                      {displayedDailyTaskRangeLabel ? (
+                        <span className="daily-task-list__toolbar-range">{displayedDailyTaskRangeLabel}</span>
+                      ) : null}
+                      <span className="daily-task-list__toolbar-page">
+                        {t("workspace.pageStatus", { current: resolvedDailyTaskPage, total: Math.max(dailyTaskPageCount, 1) })}
+                      </span>
+                    </div>
+                    <div className="daily-task-list__toolbar-actions">
+                      <button
+                        className="secondary-button daily-task-list__toolbar-button"
+                        disabled={resolvedDailyTaskPage <= 1}
+                        onClick={() => void goToDailyTaskPage(resolvedDailyTaskPage - 1)}
+                        type="button"
+                      >
+                        {t("actions.back")}
+                      </button>
+                      <button
+                        className="secondary-button daily-task-list__toolbar-button"
+                        disabled={resolvedDailyTaskPage >= dailyTaskPageCount}
+                        onClick={() => void goToDailyTaskPage(resolvedDailyTaskPage + 1)}
+                        type="button"
+                      >
+                        {t("actions.next")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 {isMobileViewport ? (
                   <>
@@ -3482,12 +3727,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         </div>
                       ))}
                     <div className="daily-mobile-list">
-                      {dailyTreeRows.map((row) => {
+                      {displayedDailyTreeRows.map((row) => {
                         const task = row.task;
                         const isChildTask = row.depth > 0;
                         const isParentTask = row.hasChildren;
                         const isBranchTask = isChildTask && isParentTask;
-                        const taskFiles = filesByTaskId[task.id] ?? [];
+                        const taskFiles = filesByTaskId[task.id] ?? EMPTY_TASK_FILES;
                         const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
                         const hierarchyDepth = Math.min(row.depth, 3);
                         const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
@@ -3564,7 +3809,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
-                                disabled={hasActiveDailyFilters || isReorderingTasks}
+                                disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, -1);
@@ -3576,7 +3821,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="아래로 이동"
                                 className="secondary-button"
-                                disabled={hasActiveDailyFilters || isReorderingTasks}
+                                disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, 1);
@@ -3593,7 +3838,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </div>
                   </>
                 ) : (
-                  <div className={clsx("sheet-wrapper", dailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}>
+                  <div className={clsx("sheet-wrapper", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}>
                     <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
                       <colgroup>
                         {dailyTaskListColumns.map((column) => (
@@ -3619,7 +3864,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {dailyTreeRows.map((row) => {
+                        {displayedDailyTreeRows.map((row) => {
                           const task = row.task;
                           if (USE_MEMOIZED_DAILY_TASK_ROWS) {
                             return (
@@ -3633,7 +3878,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 handleTaskRowDragOver={handleTaskRowDragOver}
                                 handleTaskRowDragStart={handleTaskRowDragStart}
                                 handleTaskRowDrop={handleTaskRowDrop}
-                                hasActiveDailyFilters={hasActiveDailyFilters}
+                                hasActiveDailyFilters={isDailyManualReorderDisabled}
                                 hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
                                 inlineSavingFields={inlineSavingFields}
                                 isDimmedRow={Boolean(focusedTaskIds && !focusedTaskIds.has(task.id))}
@@ -3648,13 +3893,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 saveInlineTaskListField={saveInlineTaskListField}
                                 selectTask={selectTask}
                                 taskDropPosition={taskDropState?.taskId === task.id ? taskDropState.position : null}
-                                taskFiles={filesByTaskId[task.id] ?? []}
+                                taskFiles={filesByTaskId[task.id] ?? EMPTY_TASK_FILES}
                                 updateDraftForm={updateDraftForm}
                                 workTypeDefinitions={workTypeDefinitions}
                               />
                             );
                           }
-                          const taskFiles = filesByTaskId[task.id] ?? [];
+                          const taskFiles = filesByTaskId[task.id] ?? EMPTY_TASK_FILES;
                           const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
                           const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
                           const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
@@ -3689,8 +3934,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                     <button
                                       aria-label="행 순서 변경"
                                       className="task-tree__drag-handle"
-                                      disabled={hasActiveDailyFilters || isReorderingTasks}
-                                      draggable={!hasActiveDailyFilters && !isReorderingTasks}
+                                      disabled={isDailyManualReorderDisabled || isReorderingTasks}
+                                      draggable={!isDailyManualReorderDisabled && !isReorderingTasks}
                                       onClick={(event) => event.stopPropagation()}
                                       onDragEnd={() => {
                                         setTaskDragState(null);
@@ -3721,7 +3966,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                         <button
                                           aria-label="위로 이동"
                                           className="task-tree__move-button"
-                                          disabled={hasActiveDailyFilters || isReorderingTasks}
+                                          disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                           onClick={(event) => {
                                             event.stopPropagation();
                                             void moveTaskByOffset(task.id, -1);
@@ -3733,7 +3978,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                         <button
                                           aria-label="아래로 이동"
                                           className="task-tree__move-button"
-                                          disabled={hasActiveDailyFilters || isReorderingTasks}
+                                          disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                           onClick={(event) => {
                                             event.stopPropagation();
                                             void moveTaskByOffset(task.id, 1);
@@ -5421,6 +5666,40 @@ function writeBooleanPreferenceToStorage(storageKey: string, value: boolean) {
   } catch {
     // Ignore storage write failures and keep the in-memory preference.
   }
+}
+
+function readDailyListViewModeFromStorage(storageKey: string): DailyListViewMode {
+  if (typeof window === "undefined") {
+    return "full";
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) === "paged" ? "paged" : "full";
+  } catch {
+    return "full";
+  }
+}
+
+function writeDailyListViewModeToStorage(storageKey: string, value: DailyListViewMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (value === "full") {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // Ignore storage write failures and keep the in-memory preference.
+  }
+}
+
+function getDailyTaskPageForTask(pages: readonly DailyTaskTreePage[], taskId: string) {
+  const pageIndex = pages.findIndex((page) => page.rows.some((row) => row.task.id === taskId));
+  return pageIndex < 0 ? null : pageIndex + 1;
 }
 
 function getBoardPageForTask(tasks: readonly TaskRecord[], taskId: string, status: TaskStatus, pageSize: number) {

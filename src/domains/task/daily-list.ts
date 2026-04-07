@@ -6,6 +6,7 @@ import type { TaskCategoricalFilterFieldKey } from "@/lib/task-categorical-filte
 import { t } from "@/lib/ui-copy";
 
 export type DailyTaskSortMode = "manual" | "auto";
+export type DailyListViewMode = "full" | "paged";
 
 export type DailyTaskListHeaderControl =
   | {
@@ -28,6 +29,12 @@ export type TaskTreeRow = {
   isLastChild: boolean;
   ancestorHasNextSibling: boolean[];
   hasChildren: boolean;
+};
+
+export type DailyTaskTreePage = {
+  rows: TaskTreeRow[];
+  startRowNumber: number;
+  endRowNumber: number;
 };
 
 export const dailyTaskListColumns: readonly DailyTaskListColumnConfig[] = [
@@ -131,6 +138,52 @@ export function buildTaskTreeRows(tasks: TaskRecord[]) {
   });
 
   return rows;
+}
+
+export function buildTaskTreePages(rows: readonly TaskTreeRow[], pageSize = 50): DailyTaskTreePage[] {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const normalizedPageSize = Math.max(1, Math.floor(pageSize));
+  const rootGroups: TaskTreeRow[][] = [];
+
+  for (const row of rows) {
+    if (rootGroups.length === 0 || row.depth === 0) {
+      rootGroups.push([row]);
+      continue;
+    }
+
+    rootGroups[rootGroups.length - 1].push(row);
+  }
+
+  const pages: DailyTaskTreePage[] = [];
+  let currentRows: TaskTreeRow[] = [];
+  let nextStartRowNumber = 1;
+
+  for (const group of rootGroups) {
+    if (currentRows.length > 0 && currentRows.length + group.length > normalizedPageSize) {
+      pages.push({
+        rows: currentRows,
+        startRowNumber: nextStartRowNumber,
+        endRowNumber: nextStartRowNumber + currentRows.length - 1,
+      });
+      nextStartRowNumber += currentRows.length;
+      currentRows = [];
+    }
+
+    currentRows.push(...group);
+  }
+
+  if (currentRows.length > 0) {
+    pages.push({
+      rows: currentRows,
+      startRowNumber: nextStartRowNumber,
+      endRowNumber: nextStartRowNumber + currentRows.length - 1,
+    });
+  }
+
+  return pages;
 }
 
 export function buildTaskHierarchyPathMap(tasks: TaskRecord[]) {

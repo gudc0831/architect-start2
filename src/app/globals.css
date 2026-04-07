@@ -881,14 +881,61 @@ a {
   background: rgba(252, 253, 250, 0.92);
 }
 
+.daily-sheet__focus-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
 .daily-sheet__focus-copy {
   margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.daily-sheet__view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+  padding: 0.2rem;
+  border: 1px solid rgba(126, 141, 130, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.daily-sheet__view-mode-button {
+  min-height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.42rem 0.75rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.daily-sheet__view-mode-button:hover:not(:disabled),
+.daily-sheet__view-mode-button:focus-visible {
+  background: rgba(41, 92, 67, 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.daily-sheet__view-mode-button--active {
+  background: rgba(41, 92, 67, 0.14);
+  color: var(--theme-text-accent);
+  box-shadow: inset 0 0 0 1px rgba(41, 92, 67, 0.16);
 }
 
 .daily-sheet__focus-strip {
@@ -1430,6 +1477,54 @@ a {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.85rem;
+}
+
+.daily-task-list__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.9rem 0 0.95rem;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(126, 141, 130, 0.2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.daily-task-list__toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.daily-task-list__toolbar-range,
+.daily-task-list__toolbar-page {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.daily-task-list__toolbar-range {
+  color: var(--text);
+}
+
+.daily-task-list__toolbar-page {
+  color: var(--muted);
+}
+
+.daily-task-list__toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+}
+
+.daily-task-list__toolbar-button {
+  min-height: 2rem;
+  padding: 0.42rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
 }
 
 .daily-task-list__filters-label {
@@ -3708,6 +3803,14 @@ a {
     padding: 0.72rem 0.82rem;
   }
 
+  .daily-sheet__focus-summary-bar {
+    flex-wrap: wrap;
+  }
+
+  .daily-sheet__view-mode-toggle {
+    margin-left: auto;
+  }
+
   .sidebar__brand {
     padding: 0.8rem 0.85rem;
   }
@@ -3808,6 +3911,19 @@ a {
 
   .daily-task-card__meta {
     grid-template-columns: 1fr;
+  }
+
+  .daily-task-list__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .daily-task-list__toolbar-actions {
+    width: 100%;
+  }
+
+  .daily-task-list__toolbar-button {
+    flex: 1 1 0;
   }
 
   .board-summary {
