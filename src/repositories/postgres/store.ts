@@ -7,8 +7,13 @@ import {
   DEFAULT_TASK_STATUS,
   normalizeTaskStatus,
 } from "@/domains/task/status";
-import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
-import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference } from "@/domains/preferences/types";
+import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
+import {
+  DEFAULT_THEME_ID,
+  sanitizeQuickCreateWidths,
+  sanitizeTaskListLayoutPreference,
+  sanitizeThemeId,
+} from "@/domains/preferences/types";
 import { defaultProjectName } from "@/lib/runtime-config";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 import type {
@@ -664,6 +669,36 @@ class PostgresPreferenceRepository implements PreferenceRepository {
       rowHeights: record.taskListRowHeights,
       detailPanelWidth: record.taskListDetailPanelWidth,
     });
+  }
+
+  async getThemePreference(profileId: string): Promise<ThemePreference> {
+    const record = await prisma.profilePreference.findUnique({
+      where: { profileId },
+      select: { themeId: true },
+    });
+
+    return {
+      themeId: sanitizeThemeId(record?.themeId ?? DEFAULT_THEME_ID),
+    };
+  }
+
+  async saveThemePreference(profileId: string, themeId: ThemeId): Promise<ThemePreference> {
+    const nextThemeId = sanitizeThemeId(themeId);
+    const record = await prisma.profilePreference.upsert({
+      where: { profileId },
+      update: {
+        themeId: nextThemeId,
+      },
+      create: {
+        profileId,
+        themeId: nextThemeId,
+      },
+      select: { themeId: true },
+    });
+
+    return {
+      themeId: sanitizeThemeId(record.themeId),
+    };
   }
 }
 export const postgresProjectRepository = new PostgresProjectRepository();

@@ -1,5 +1,6 @@
 ﻿import type { AuthRole } from "../../domains/auth/types";
 import type { DashboardMode, TaskStatus } from "../../domains/task/types";
+import type { ThemeId } from "../../domains/preferences/types";
 
 export type UiLocale = "ko" | "en";
 export type ProjectSourceLabelKey = "postgres" | "local-file" | "firestore" | "preview" | "memory" | "unknown";
@@ -23,6 +24,13 @@ export type UICatalog = {
     previewNote: string;
     checkingSession: string;
     localAuthNote: string;
+  };
+  themes: {
+    label: string;
+    helper: string;
+    saving: string;
+    saveFailed: string;
+    options: Record<ThemeId, { label: string; description: string }>;
   };
   login: {
     title: string;
@@ -283,6 +291,26 @@ export const uiCopyCatalog = {
       previewNote: "미리보기 모드는 데모 데이터를 사용하며 수정은 비활성화됩니다.",
       checkingSession: "세션 확인 중...",
       localAuthNote: "현재 로컬 플레이스홀더 사용자로 인증 중입니다. 이후 Supabase를 연결해 실제 로그인으로 전환할 수 있습니다.",
+    },
+    themes: {
+      label: "테마",
+      helper: "지금은 테마 전환 준비 단계라 선택을 바꿔도 화면은 동일하게 유지됩니다.",
+      saving: "테마 저장 중...",
+      saveFailed: "테마를 저장하지 못했습니다. 이전 선택으로 되돌렸습니다.",
+      options: {
+        classic: {
+          label: "Classic",
+          description: "현재 기본 토큰 세트입니다.",
+        },
+        "swiss-modern": {
+          label: "Swiss Modern",
+          description: "그리드 중심의 구조적 테마 슬롯입니다.",
+        },
+        productivity: {
+          label: "Productivity",
+          description: "업무형 SaaS 테마 슬롯입니다.",
+        },
+      },
     },
     login: {
       title: "로그인",
@@ -568,6 +596,26 @@ export const uiCopyCatalog = {
       previewNote: "Preview mode uses demo data and disables mutations.",
       checkingSession: "Checking session...",
       localAuthNote: "Authentication is currently using a local placeholder user. Connect Supabase later to enable real sign-in.",
+    },
+    themes: {
+      label: "Theme",
+      helper: "This phase only prepares theme switching, so the visible UI stays the same for every option.",
+      saving: "Saving theme...",
+      saveFailed: "Could not save the theme. Reverted to the previous selection.",
+      options: {
+        classic: {
+          label: "Classic",
+          description: "Current default token set.",
+        },
+        "swiss-modern": {
+          label: "Swiss Modern",
+          description: "Structured grid-first theme slot.",
+        },
+        productivity: {
+          label: "Productivity",
+          description: "Productivity SaaS theme slot.",
+        },
+      },
     },
     login: {
       title: "Login",

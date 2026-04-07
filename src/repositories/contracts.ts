@@ -1,4 +1,4 @@
-import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
+import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
 
@@ -133,6 +133,8 @@ export interface PreferenceRepository {
   saveQuickCreateWidths(profileId: string, widths: QuickCreateWidthMap): Promise<QuickCreateWidthMap>;
   getTaskListLayout(profileId: string): Promise<TaskListLayoutPreference>;
   saveTaskListLayout(profileId: string, layout: TaskListLayoutPreference): Promise<TaskListLayoutPreference>;
+  getThemePreference(profileId: string): Promise<ThemePreference>;
+  saveThemePreference(profileId: string, themeId: ThemeId): Promise<ThemePreference>;
 }
 
 export type TaskFileSummaryMap = Record<string, TaskFileSummary>;

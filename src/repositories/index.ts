@@ -151,4 +151,10 @@ export const preferenceRepository: PreferenceRepository = {
   saveTaskListLayout(profileId, layout) {
     return getPreferenceRepository().saveTaskListLayout(profileId, layout);
   },
+  getThemePreference(profileId) {
+    return getPreferenceRepository().getThemePreference(profileId);
+  },
+  saveThemePreference(profileId, themeId) {
+    return getPreferenceRepository().saveThemePreference(profileId, themeId);
+  },
 };

@@ -1,5 +1,6 @@
 ﻿import type { AuthRole } from "@/domains/auth/types";
 import { normalizeTaskStatus, TASK_STATUS_HISTORY_ENTRY_PATTERN } from "@/domains/task/status";
+import type { ThemeId } from "@/domains/preferences/types";
 import type { DashboardMode, TaskStatus } from "@/domains/task/types";
 import { uiCopyCatalog, type ProjectSourceLabelKey, type UICatalog, type UiLocale, type UploadModeLabelKey } from "@/lib/ui-copy/catalog";
 
@@ -106,6 +107,14 @@ export function labelForField(field: FieldLabelKey) {
 export function labelForRole(role: AuthRole | null | undefined) {
   if (!role) return t("system.unknown");
   return getCatalog().system.roles[role] ?? t("system.unknown");
+}
+
+export function labelForTheme(themeId: ThemeId) {
+  return getCatalog().themes.options[themeId].label;
+}
+
+export function describeTheme(themeId: ThemeId) {
+  return getCatalog().themes.options[themeId].description;
 }
 
 export function labelForProjectSource(source: string | null | undefined) {

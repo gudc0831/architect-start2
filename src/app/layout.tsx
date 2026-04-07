@@ -1,6 +1,7 @@
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { AuthProvider } from "@/providers/auth-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
 import { t } from "@/lib/ui-copy";
 
 export const metadata = {
@@ -13,7 +14,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ko">
       <body>
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <ThemeProvider>
+            <AppShell>{children}</AppShell>
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>

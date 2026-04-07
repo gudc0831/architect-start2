@@ -1,3 +1,63 @@
+export const themeIds = ["classic", "swiss-modern", "productivity"] as const;
+
+export type ThemeId = (typeof themeIds)[number];
+export type ThemePreference = {
+  themeId: ThemeId;
+};
+
+export type ThemeDefinition = {
+  id: ThemeId;
+  dataTheme: ThemeId;
+  labelKey: `themes.options.${ThemeId}.label`;
+  descriptionKey: `themes.options.${ThemeId}.description`;
+};
+
+export const DEFAULT_THEME_ID: ThemeId = "classic";
+
+export const themeDefinitions = {
+  classic: {
+    id: "classic",
+    dataTheme: "classic",
+    labelKey: "themes.options.classic.label",
+    descriptionKey: "themes.options.classic.description",
+  },
+  "swiss-modern": {
+    id: "swiss-modern",
+    dataTheme: "swiss-modern",
+    labelKey: "themes.options.swiss-modern.label",
+    descriptionKey: "themes.options.swiss-modern.description",
+  },
+  productivity: {
+    id: "productivity",
+    dataTheme: "productivity",
+    labelKey: "themes.options.productivity.label",
+    descriptionKey: "themes.options.productivity.description",
+  },
+} satisfies Record<ThemeId, ThemeDefinition>;
+
+export const orderedThemeDefinitions = themeIds.map((themeId) => themeDefinitions[themeId]);
+
+export function isThemeId(value: string): value is ThemeId {
+  return themeIds.includes(value as ThemeId);
+}
+
+export function sanitizeThemeId(input: unknown): ThemeId {
+  if (typeof input === "string" && isThemeId(input)) {
+    return input;
+  }
+
+  return DEFAULT_THEME_ID;
+}
+
+export function sanitizeThemePreference(input: unknown): ThemePreference {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { themeId: DEFAULT_THEME_ID };
+  }
+
+  const value = input as { themeId?: unknown };
+  return { themeId: sanitizeThemeId(value.themeId) };
+}
+
 export const quickCreateFieldKeys = [
   "actionId",
   "dueDate",

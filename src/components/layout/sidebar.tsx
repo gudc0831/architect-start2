@@ -4,6 +4,7 @@ import clsx from "clsx";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeSelector } from "@/components/layout/theme-selector";
 import { useAuthState, useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
@@ -111,9 +112,12 @@ export function Sidebar() {
         )}
         {isLocalAuthPlaceholder && !isPreview ? <p>{t("sidebar.localAuthNote")}</p> : null}
         {!isPreview ? (
-          <button className="secondary-button" onClick={() => void handleLogout()} type="button">
-            {t("actions.logout")}
-          </button>
+          <>
+            <ThemeSelector />
+            <button className="secondary-button" onClick={() => void handleLogout()} type="button">
+              {t("actions.logout")}
+            </button>
+          </>
         ) : null}
       </div>
     </aside>

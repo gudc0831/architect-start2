@@ -1,5 +1,5 @@
-import type { QuickCreateWidthMap, TaskListLayoutPreference } from "@/domains/preferences/types";
-import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference } from "@/domains/preferences/types";
+import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemePreference } from "@/domains/preferences/types";
+import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference, sanitizeThemeId } from "@/domains/preferences/types";
 import { preferenceRepository } from "@/repositories";
 
 export async function getQuickCreateWidths(profileId: string) {
@@ -16,4 +16,12 @@ export async function getTaskListLayout(profileId: string) {
 
 export async function updateTaskListLayout(profileId: string, layout: unknown): Promise<TaskListLayoutPreference> {
   return preferenceRepository.saveTaskListLayout(profileId, sanitizeTaskListLayoutPreference(layout));
+}
+
+export async function getThemePreference(profileId: string): Promise<ThemePreference> {
+  return preferenceRepository.getThemePreference(profileId);
+}
+
+export async function updateThemePreference(profileId: string, themeId: unknown): Promise<ThemePreference> {
+  return preferenceRepository.saveThemePreference(profileId, sanitizeThemeId(themeId));
 }

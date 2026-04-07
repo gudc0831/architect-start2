@@ -8,11 +8,11 @@
   display: grid;
   gap: 1rem;
   padding: 1.25rem;
-  border: 1px solid rgba(165, 179, 167, 0.35);
+  border: 1px solid var(--theme-border-subtle);
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 247, 0.97)),
-    radial-gradient(circle at top left, rgba(217, 232, 222, 0.36), transparent 36%);
+    linear-gradient(180deg, var(--theme-surface-panel-strong), var(--panel)),
+    radial-gradient(circle at top left, var(--theme-surface-note), transparent 36%);
   box-shadow: var(--shadow-soft);
 }
 
@@ -49,10 +49,10 @@
 .statusBanner {
   margin: 0;
   padding: 0.85rem 1rem;
-  border: 1px solid rgba(120, 133, 118, 0.22);
+  border: 1px solid var(--theme-border-field-soft);
   border-radius: 16px;
-  background: rgba(236, 242, 238, 0.92);
-  color: #345043;
+  background: var(--theme-surface-secondary-button);
+  color: var(--theme-text-accent-strong);
   font-size: 0.9rem;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -94,8 +94,8 @@
   align-items: center;
   padding: 0.35rem 0.65rem;
   border-radius: 999px;
-  background: rgba(237, 243, 239, 0.92);
-  color: #506054;
+  background: var(--theme-surface-secondary-button);
+  color: var(--theme-text-subtle);
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1;
@@ -122,7 +122,7 @@
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.2;
-  color: #536257;
+  color: var(--theme-text-subtle);
 }
 
 .field input,
@@ -163,27 +163,27 @@
 .button:focus-visible,
 .projectSwitchButton:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(41, 92, 67, 0.14);
+  box-shadow: 0 0 0 4px var(--theme-accent-focus-ring);
 }
 
 .buttonPrimary {
   background: var(--accent);
-  border-color: rgba(41, 92, 67, 0.78);
-  color: #fff;
+  border-color: var(--theme-accent-border-strong);
+  color: var(--theme-text-contrast);
 }
 
 .buttonPrimary:hover:not(:disabled) {
-  background: #224f39;
+  background: var(--theme-accent-solid-hover);
 }
 
 .buttonSecondary {
-  background: rgba(237, 243, 239, 0.95);
-  border-color: rgba(126, 141, 130, 0.34);
+  background: var(--theme-surface-secondary-button);
+  border-color: var(--theme-border-field-soft);
   color: var(--text);
 }
 
 .buttonSecondary:hover:not(:disabled) {
-  background: rgba(230, 238, 232, 0.98);
+  background: var(--theme-surface-secondary-button-hover);
 }
 
 .projectLayout,
@@ -202,9 +202,9 @@
   display: grid;
   gap: 0.9rem;
   padding: 1rem;
-  border: 1px solid rgba(165, 179, 167, 0.28);
+  border: 1px solid var(--theme-border-subtle);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--theme-surface-soft-strong);
 }
 
 .subcardHeader,
@@ -250,19 +250,19 @@
   gap: 0.75rem;
   min-height: 52px;
   padding: 0.85rem 0.95rem;
-  border: 1px solid rgba(126, 141, 130, 0.3);
+  border: 1px solid var(--theme-border-field);
   border-radius: 16px;
   text-align: left;
 }
 
 .projectSwitchButtonActive {
-  background: linear-gradient(180deg, rgba(41, 92, 67, 0.98), rgba(36, 82, 59, 0.98));
-  border-color: rgba(41, 92, 67, 0.82);
-  color: #fff;
+  background: linear-gradient(180deg, var(--theme-accent), var(--theme-accent-solid-hover));
+  border-color: var(--theme-accent-border-strong);
+  color: var(--theme-text-contrast);
 }
 
 .projectSwitchButtonInactive {
-  background: rgba(242, 246, 243, 0.96);
+  background: var(--panel);
   color: var(--text);
 }
 
@@ -304,7 +304,7 @@
 .memberRow {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.95fr) 124px;
   padding-top: 0.9rem;
-  border-top: 1px solid rgba(197, 205, 196, 0.7);
+  border-top: 1px solid var(--line);
 }
 
 .memberRowFirst {
@@ -345,7 +345,7 @@
   display: grid;
   gap: 0.9rem;
   padding-top: 0.9rem;
-  border-top: 1px solid rgba(197, 205, 196, 0.7);
+  border-top: 1px solid var(--line);
 }
 
 .definitionRowFirst {
@@ -385,15 +385,15 @@
 }
 
 .codeChip {
-  border: 1px solid rgba(126, 141, 130, 0.22);
-  background: rgba(237, 243, 239, 0.92);
-  color: #476052;
+  border: 1px solid var(--theme-border-field-soft);
+  background: var(--theme-surface-secondary-button);
+  color: var(--theme-text-subtle);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
 }
 
 .metaBadge {
-  background: rgba(222, 232, 224, 0.96);
-  color: #45614f;
+  background: var(--accent-soft);
+  color: var(--theme-text-accent-strong);
   font-weight: 700;
 }
 
@@ -403,8 +403,8 @@
 }
 
 .stateBadgeActive {
-  background: rgba(217, 232, 222, 0.96);
-  color: #1d5f44;
+  background: var(--theme-surface-note);
+  color: var(--theme-text-accent);
 }
 
 .stateBadgeInactive {
@@ -432,9 +432,9 @@
   gap: 0.65rem;
   min-height: 44px;
   padding: 0.72rem 0.85rem;
-  border: 1px solid rgba(126, 141, 130, 0.3);
+  border: 1px solid var(--theme-border-field);
   border-radius: 14px;
-  background: rgba(250, 252, 249, 0.92);
+  background: var(--panel);
 }
 
 .checkboxField span {
@@ -442,7 +442,7 @@
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.2;
-  color: #536257;
+  color: var(--theme-text-subtle);
 }
 
 .checkboxInput {
@@ -463,7 +463,7 @@
   display: grid;
   gap: 0.85rem;
   padding-top: 0.95rem;
-  border-top: 1px solid rgba(197, 205, 196, 0.7);
+  border-top: 1px solid var(--line);
 }
 
 .addFields {
