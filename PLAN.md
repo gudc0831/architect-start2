@@ -149,3 +149,19 @@
 - 이전 상세 검토: [`docs/2026-04-06-phase1-cost-preservation-upload-plan.md`](docs/2026-04-06-phase1-cost-preservation-upload-plan.md)
 - 플랫폼 handoff: [`docs/2026-04-06-platform-decision-handoff.md`](docs/2026-04-06-platform-decision-handoff.md)
 - 배포 전 세부 구현 계획: [`docs/2026-04-07-predeploy-implementation-plan.md`](docs/2026-04-07-predeploy-implementation-plan.md)
+
+## 8. 멀티유저 전환 계획
+
+- 멀티유저 전환의 실제 구현 순서, 대상 파일, 권한/멤버십/동시성 처리 기준은 [`docs/2026-04-07-multi-user-transition-plan.md`](docs/2026-04-07-multi-user-transition-plan.md)에서 관리한다.
+- `PLAN.md`는 운영 방향과 상세 계획 문서로 들어가는 길잡이 역할만 유지한다.
+- 1차 멀티유저 권한 모델은 `admin / manager / member`로 고정한다.
+- `viewer / editor` 권한은 2차 확장 단계에서 별도 설계한다. 이후 작업에서 누락하지 않도록 멀티유저 상세 계획 문서에서 계속 추적한다.
+- `local` 모드는 단일 사용자 개발 보조 모드로만 유지하고, 실제 멀티유저 검증 책임은 `cloud` 모드에만 둔다.
+- 멀티유저 사용자 식별은 Google 이메일 로그인 기준으로 설계하고, 협업 표시용 `shortName`은 3글자 이내 자동 생성 규칙을 별도 계획 문서에서 관리한다.
+- `admin`은 모든 프로젝트에 전역 접근 권한을 가지며, 프로젝트별 역할 구분은 1차에서 `manager / member`로만 본다.
+- 협업 UX 기준은 Google Sheets형 공동 작업 경험으로 두고, 그리드 반응성/기술 선택은 [`docs/2026-04-07-spreadsheet-grid-performance-plan.md`](docs/2026-04-07-spreadsheet-grid-performance-plan.md)와 함께 본다.
+
+## 9. 스프레드시트급 반응성 전환 계획
+
+- daily grid를 Google Sheets / Excel에 가까운 체감 성능으로 전환하는 계획은 앞으로의 계획에 포함한다.
+- `PLAN.md`에는 항목만 유지하고, 실제 단계별 구현 순서와 기준은 [`docs/2026-04-07-spreadsheet-grid-performance-plan.md`](docs/2026-04-07-spreadsheet-grid-performance-plan.md)에서 관리한다.
