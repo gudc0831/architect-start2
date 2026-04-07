@@ -219,13 +219,6 @@ export class LocalAdminRepository implements AdminRepository {
         ? store.selectedProjectId
         : store.projects[0]?.id ?? null;
 
-    if (currentProjectId) {
-      const currentProject = store.projects.find((project) => project.id === currentProjectId);
-      if (currentProject) {
-        await syncLegacyProjectMeta(currentProject);
-      }
-    }
-
     return buildSelection(store.projects, currentProjectId);
   }
 

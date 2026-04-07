@@ -79,6 +79,9 @@ export const taskRepository: TaskRepository = {
   updateTaskOrders(inputs) {
     return getTaskRepository().updateTaskOrders(inputs);
   },
+  syncProjectTaskIssueIds(projectId, projectName, updatedBy) {
+    return getTaskRepository().syncProjectTaskIssueIds(projectId, projectName, updatedBy);
+  },
   moveTaskToTrash(taskId, updatedBy) {
     return getTaskRepository().moveTaskToTrash(taskId, updatedBy);
   },

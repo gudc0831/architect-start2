@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { localDataRoot } from "@/lib/runtime-config";
 
 export type DataGuardMode = "strict" | "warn";
 
-export const dataGuardRoot = join(process.cwd(), "output", "data-guard");
+export const dataGuardRoot = join(localDataRoot, "data-guard");
 export const localGuardStatePath = join(dataGuardRoot, "local-state.json");
 export const cloudGuardStatePath = join(dataGuardRoot, "cloud-state.json");
 export const dataGuardAuditLogPath = join(dataGuardRoot, "audit.log");

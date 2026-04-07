@@ -1,8 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { XMLParser } from "fast-xml-parser";
-import { pathExists, writeJsonFile } from "@/lib/data-guard/shared";
-import { holidayApiServiceKey, localHolidayCacheRoot } from "@/lib/runtime-config";
+import { holidayApiServiceKey } from "@/lib/runtime-config";
 import type {
   CalendarHolidayMonthSource,
   CalendarHolidayRangeData,
@@ -27,6 +24,8 @@ type HolidayCacheRecord = {
   items: CalendarHolidayRecord[];
   source: "api";
 };
+
+const holidayMonthCache = new Map<string, HolidayCacheRecord>();
 
 type ResolvedHolidayMonth = {
   month: string;
@@ -62,7 +61,7 @@ async function resolveHolidayMonth(month: string): Promise<ResolvedHolidayMonth>
     };
   }
 
-  const cache = await readHolidayMonthCache(month);
+  const cache = readHolidayMonthCache(month);
   if (cache && isHolidayCacheFresh(cache)) {
     return {
       month,
@@ -147,23 +146,8 @@ async function fetchOfficialHolidayMonth(month: string) {
   );
 }
 
-async function readHolidayMonthCache(month: string) {
-  const cachePath = getHolidayMonthCachePath(month);
-  if (!(await pathExists(cachePath))) {
-    return null;
-  }
-
-  try {
-    const raw = await readFile(cachePath, "utf8");
-    const parsed = JSON.parse(raw) as HolidayCacheRecord;
-    if (parsed.month !== month || !Array.isArray(parsed.items)) {
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    return null;
-  }
+function readHolidayMonthCache(month: string) {
+  return holidayMonthCache.get(month) ?? null;
 }
 
 async function writeHolidayMonthCache(month: string, items: CalendarHolidayRecord[]) {
@@ -176,10 +160,16 @@ async function writeHolidayMonthCache(month: string, items: CalendarHolidayRecor
     source: "api",
   };
 
-  try {
-    await writeJsonFile(getHolidayMonthCachePath(month), record);
-  } catch {
-    // Ignore cache write failures on read-only or serverless filesystems.
+  holidayMonthCache.set(month, record);
+
+  for (const [cachedMonth, cachedRecord] of holidayMonthCache.entries()) {
+    if (cachedMonth === month) {
+      continue;
+    }
+
+    if (cachedRecord.expiresAt !== null && new Date(cachedRecord.expiresAt).getTime() <= now.getTime()) {
+      holidayMonthCache.delete(cachedMonth);
+    }
   }
 }
 
@@ -189,10 +179,6 @@ function isHolidayCacheFresh(cache: HolidayCacheRecord) {
   }
 
   return new Date(cache.expiresAt).getTime() > Date.now();
-}
-
-function getHolidayMonthCachePath(month: string) {
-  return join(localHolidayCacheRoot, `${month}.json`);
 }
 
 function listMonthKeysInRange(from: string, to: string) {

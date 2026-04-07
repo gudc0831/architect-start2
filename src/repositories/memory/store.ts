@@ -281,6 +281,39 @@ class MemoryTaskRepository implements TaskRepository {
     return updatedTasks;
   }
 
+  async syncProjectTaskIssueIds(projectId: string, projectName: string, updatedBy?: string | null) {
+    const tasks = await readTasks();
+    const timestamp = now();
+    let updatedCount = 0;
+
+    for (let index = 0; index < tasks.length; index += 1) {
+      const current = tasks[index];
+      if (current.projectId !== projectId) {
+        continue;
+      }
+
+      const nextIssueId = buildProjectIssueId(projectName, current.taskNumber || current.actionId || 1);
+      if (current.issueId === nextIssueId) {
+        continue;
+      }
+
+      tasks[index] = {
+        ...current,
+        issueId: nextIssueId,
+        updatedAt: timestamp,
+        updatedBy: updatedBy ?? current.updatedBy,
+        version: current.version + 1,
+      };
+      updatedCount += 1;
+    }
+
+    if (updatedCount > 0) {
+      await writeLocalStore("tasks", tasks, { reason: "tasks.issue-id-sync" });
+    }
+
+    return updatedCount;
+  }
+
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {
     return this.updateTask(taskId, { deletedAt: now(), updatedBy: updatedBy ?? null });
   }

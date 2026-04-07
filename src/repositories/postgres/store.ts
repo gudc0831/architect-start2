@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { buildProjectIssueId } from "@/domains/task/identifiers";
+import { buildProjectIssueId, buildProjectIssuePrefix } from "@/domains/task/identifiers";
 import {
   canonicalizeTaskStatusHistory,
   DEFAULT_TASK_STATUS,
@@ -362,6 +363,22 @@ class PostgresTaskRepository implements TaskRepository {
     });
 
     return records.map(toTaskRecord);
+  }
+
+  async syncProjectTaskIssueIds(projectId: string, projectName: string, updatedBy?: string | null) {
+    const issuePrefix = buildProjectIssuePrefix(projectName);
+    const result = await prisma.$executeRaw(Prisma.sql`
+      update tasks
+      set
+        issue_id = concat(${issuePrefix}, '-', lpad(task_number::text, 3, '0')),
+        updated_at = now(),
+        updated_by = coalesce(${updatedBy ?? null}, updated_by),
+        version = version + 1
+      where project_id = ${projectId}
+        and issue_id is distinct from concat(${issuePrefix}, '-', lpad(task_number::text, 3, '0'))
+    `);
+
+    return Number(result);
   }
 
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {

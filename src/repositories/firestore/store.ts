@@ -355,6 +355,51 @@ class FirestoreTaskRepository implements TaskRepository {
     return updatedTasks;
   }
 
+  async syncProjectTaskIssueIds(projectId: string, projectName: string, updatedBy?: string | null) {
+    const db = getDb();
+    if (!db) {
+      throw new Error("Firestore is not configured");
+    }
+
+    const [activeTasks, trashTasks] = await Promise.all([this.listActiveTasks(projectId), this.listTrashTasks(projectId)]);
+    const tasks = [...activeTasks, ...trashTasks];
+    if (tasks.length === 0) {
+      return 0;
+    }
+
+    const timestamp = new Date().toISOString();
+    const chunkSize = 500;
+    let updatedCount = 0;
+
+    for (let index = 0; index < tasks.length; index += chunkSize) {
+      const batch = writeBatch(db);
+      const chunk = tasks.slice(index, index + chunkSize);
+      let chunkUpdated = false;
+
+      for (const task of chunk) {
+        const nextIssueId = buildProjectIssueId(projectName, task.taskNumber || task.actionId || 1);
+        if (task.issueId === nextIssueId) {
+          continue;
+        }
+
+        batch.update(doc(db, taskCollectionName, task.id), {
+          issueId: nextIssueId,
+          updatedAt: timestamp,
+          updatedBy: updatedBy ?? task.updatedBy ?? null,
+          version: task.version + 1,
+        } as Record<string, unknown>);
+        updatedCount += 1;
+        chunkUpdated = true;
+      }
+
+      if (chunkUpdated) {
+        await batch.commit();
+      }
+    }
+
+    return updatedCount;
+  }
+
   async moveTaskToTrash(taskId: string, updatedBy?: string | null) {
     return this.updateTask(taskId, { deletedAt: new Date().toISOString(), updatedBy: updatedBy ?? null });
   }

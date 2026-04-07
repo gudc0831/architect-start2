@@ -16,17 +16,8 @@ type ProjectSelectionPayload = {
   currentProjectId: string | null;
   availableProjects: Array<{ id: string; name: string; source?: string }>;
   source?: string | null;
-};
-
-type WorkTypePayload = {
-  currentProjectId: string | null;
-  definitions: WorkTypeDefinition[];
-};
-
-type CategoryDefinitionsPayload = {
-  currentProjectId: string | null;
-  definitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
   workTypeDefinitions: WorkTypeDefinition[];
+  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
 };
 
 type ProjectContextValue = {
@@ -120,12 +111,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }
 
   const applyProjectSelection = useCallback((
-    payload: {
-      currentProjectId: string | null;
-      availableProjects: Array<{ id: string; name: string; source?: string }>;
-      source?: string | null;
-    },
-    options?: { loaded?: boolean },
+    payload: ProjectSelectionPayload,
+    options?: { loaded?: boolean; workTypesLoaded?: boolean },
   ) => {
     const projects = payload.availableProjects.map((project) => toProjectOption(project, payload.source ?? null));
     const selectedProject =
@@ -147,8 +134,20 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     };
     persistLocalSelection(selectedProject.id, selectedProject.name);
 
+    if (Array.isArray(payload.workTypeDefinitions)) {
+      setWorkTypeDefinitions(payload.workTypeDefinitions);
+    }
+
+    if (payload.categoryDefinitionsByField) {
+      setCategoryDefinitionsByField(payload.categoryDefinitionsByField);
+    }
+
     if (options?.loaded ?? true) {
       setProjectLoaded(true);
+    }
+
+    if (options?.workTypesLoaded ?? true) {
+      setWorkTypesLoaded(true);
     }
   }, []);
 
@@ -158,11 +157,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, [applyProjectSelection]);
 
   const refreshWorkTypes = useCallback(async () => {
-    const data = await readApiData<CategoryDefinitionsPayload>("/api/categories", { cache: "no-store" });
-    setWorkTypeDefinitions(Array.isArray(data.workTypeDefinitions) ? data.workTypeDefinitions : []);
-    setCategoryDefinitionsByField(data.definitionsByField ?? {});
-    setWorkTypesLoaded(true);
-  }, []);
+    const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
+    applyProjectSelection(data, { loaded: false });
+  }, [applyProjectSelection]);
 
   useEffect(() => {
     if (isPreview) {
@@ -190,45 +187,6 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         setProjectNameState(defaultProjectName);
         setProjectSource(null);
         setProjectLoaded(true);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [applyProjectSelection, isPreview]);
-
-  useEffect(() => {
-    if (isPreview) {
-      setWorkTypeDefinitions(buildSystemWorkTypeDefinitions());
-      setCategoryDefinitionsByField({
-        workType: buildSystemWorkTypeDefinitions(),
-        coordinationScope: [],
-        requestedBy: [],
-        relatedDisciplines: [],
-        locationRef: [],
-      });
-      setWorkTypesLoaded(true);
-      return;
-    }
-
-    let isMounted = true;
-    setWorkTypesLoaded(false);
-
-    void readApiData<CategoryDefinitionsPayload>("/api/categories", { cache: "no-store" })
-      .then((data) => {
-        if (!isMounted) {
-          return;
-        }
-
-        setWorkTypeDefinitions(Array.isArray(data.workTypeDefinitions) ? data.workTypeDefinitions : []);
-        setCategoryDefinitionsByField(data.definitionsByField ?? {});
-        setWorkTypesLoaded(true);
-      })
-      .catch(() => {
-        if (!isMounted) {
-          return;
-        }
-
         setWorkTypeDefinitions([]);
         setCategoryDefinitionsByField({});
         setWorkTypesLoaded(true);
@@ -237,7 +195,24 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [currentProjectId, isPreview]);
+  }, [applyProjectSelection, isPreview]);
+
+  useEffect(() => {
+    if (!isPreview) {
+      return;
+    }
+
+    const definitions = buildSystemWorkTypeDefinitions();
+    setWorkTypeDefinitions(definitions);
+    setCategoryDefinitionsByField({
+      workType: definitions,
+      coordinationScope: [],
+      requestedBy: [],
+      relatedDisciplines: [],
+      locationRef: [],
+    });
+    setWorkTypesLoaded(true);
+  }, [isPreview]);
 
   const switchProject = useCallback(async (projectId: string) => {
     if (isPreview || !projectId || projectId === currentProjectId) {
@@ -252,7 +227,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId }),
       });
-      applyProjectSelection(data, { loaded: true });
+      applyProjectSelection(data);
     } finally {
       setIsSyncing(false);
     }

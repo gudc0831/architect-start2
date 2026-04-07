@@ -102,6 +102,7 @@ export interface TaskRepository {
   updateTask(taskId: string, input: UpdateTaskInput): Promise<TaskRecord>;
   updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput): Promise<TaskRecord | null>;
   updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>): Promise<TaskRecord[]>;
+  syncProjectTaskIssueIds(projectId: string, projectName: string, updatedBy?: string | null): Promise<number>;
   moveTaskToTrash(taskId: string, updatedBy?: string | null): Promise<TaskRecord>;
   restoreTask(taskId: string, updatedBy?: string | null): Promise<TaskRecord>;
   deleteTask(taskId: string): Promise<void>;

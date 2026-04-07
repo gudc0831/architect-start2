@@ -1822,9 +1822,37 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [collapsedBoardStatuses, taskById],
   );
+  const boardData = useMemo(() => {
+    const itemsByStatus = Object.create(null) as Record<TaskStatus, typeof sortedTasks>;
+    for (const status of statusOrder) {
+      itemsByStatus[status] = [];
+    }
+
+    let overdueCount = 0;
+    for (const task of sortedTasks) {
+      itemsByStatus[task.status].push(task);
+      if (isTaskOverdue(task, currentDayKey)) {
+        overdueCount += 1;
+      }
+    }
+
+    const byStatus = statusOrder.reduce(
+      (acc, status) => {
+        acc[status] = itemsByStatus[status].length;
+        return acc;
+      },
+      {} as Record<TaskStatus, number>,
+    );
+
+    return {
+      groups: statusOrder.map((status) => ({ status, items: itemsByStatus[status] })),
+      byStatus,
+      overdueCount,
+    };
+  }, [currentDayKey, sortedTasks]);
   const changeBoardPage = useCallback((status: TaskStatus, direction: -1 | 1) => {
     setBoardPageByStatus((previous) => {
-      const totalTasks = sortedTasks.filter((task) => task.status === status).length;
+      const totalTasks = boardData.byStatus[status];
       const totalPages = Math.max(1, Math.ceil(totalTasks / boardPageSize));
       const nextPage = Math.min(totalPages, Math.max(1, (previous[status] ?? 1) + direction));
       if ((previous[status] ?? 1) === nextPage) {
@@ -1841,17 +1869,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const expandedTask = taskById.get(previous);
       return expandedTask?.status === status ? null : previous;
     });
-  }, [boardPageSize, sortedTasks, taskById]);
+  }, [boardData.byStatus, boardPageSize, taskById]);
   const toggleBoardTaskMemo = useCallback((taskId: string) => {
     setExpandedBoardTaskId((previous) => (previous === taskId ? null : taskId));
   }, []);
-  const boardGroups = useMemo(
-    () => statusOrder.map((status) => ({ status, items: sortedTasks.filter((task) => task.status === status) })),
-    [sortedTasks],
-  );
   const paginatedBoardGroups = useMemo(
     () =>
-      boardGroups.map((group) => {
+      boardData.groups.map((group) => {
         const totalPages = Math.max(1, Math.ceil(group.items.length / boardPageSize));
         const currentPage = clampBoardPage(boardPageByStatus[group.status], totalPages);
         const startIndex = (currentPage - 1) * boardPageSize;
@@ -1866,24 +1890,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           visibleItems: group.items.slice(startIndex, startIndex + boardPageSize),
         };
       }),
-    [boardGroups, boardPageByStatus, boardPageSize, collapsedBoardStatuses],
+    [boardData.groups, boardPageByStatus, boardPageSize, collapsedBoardStatuses],
   );
   const boardSummary = useMemo(() => {
-    const overdueCount = sortedTasks.filter((task) => isTaskOverdue(task, currentDayKey)).length;
-    const byStatus = statusOrder.reduce(
-      (acc, status) => ({ ...acc, [status]: sortedTasks.filter((task) => task.status === status).length }),
-      {} as Record<TaskStatus, number>,
-    );
-
     return {
       total: sortedTasks.length,
-      overdue: overdueCount,
-      byStatus,
-      inReview: sortedTasks.filter((task) => task.status === "in_review").length,
-      inDiscussion: sortedTasks.filter((task) => task.status === "in_discussion").length,
-      blocked: sortedTasks.filter((task) => task.status === "blocked").length,
+      overdue: boardData.overdueCount,
+      byStatus: boardData.byStatus,
+      inReview: boardData.byStatus.in_review,
+      inDiscussion: boardData.byStatus.in_discussion,
+      blocked: boardData.byStatus.blocked,
     };
-  }, [currentDayKey, sortedTasks]);
+  }, [boardData, sortedTasks.length]);
   const boardFocusItems = useMemo(
     () => [
       { key: "in_review", label: labelForStatus("in_review"), count: boardSummary.inReview, appearance: "in_review" as const },
