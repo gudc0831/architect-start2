@@ -300,21 +300,21 @@ export const uiCopyCatalog = {
     },
     themes: {
       label: "테마",
-      helper: "지금은 테마 전환 준비 단계라 선택을 바꿔도 화면은 동일하게 유지됩니다.",
+      helper: "테마를 바꾸면 화면 색상, 표면 톤, 강조색이 즉시 반영됩니다.",
       saving: "테마 저장 중...",
       saveFailed: "테마를 저장하지 못했습니다. 이전 선택으로 되돌렸습니다.",
       options: {
         classic: {
           label: "Classic",
-          description: "현재 기본 토큰 세트입니다.",
+          description: "지금 보이던 기본 화면을 그대로 유지한 테마입니다.",
         },
         "swiss-modern": {
           label: "Swiss Modern",
-          description: "그리드 중심의 구조적 테마 슬롯입니다.",
+          description: "차가운 뉴트럴 톤과 블루 포인트를 쓰는 정돈된 테마입니다.",
         },
         productivity: {
           label: "Productivity",
-          description: "업무형 SaaS 테마 슬롯입니다.",
+          description: "따뜻한 샌드 톤과 집중형 강조색을 쓰는 업무형 테마입니다.",
         },
       },
     },
@@ -611,21 +611,21 @@ export const uiCopyCatalog = {
     },
     themes: {
       label: "Theme",
-      helper: "This phase only prepares theme switching, so the visible UI stays the same for every option.",
+      helper: "Changing the theme now updates the visible color, surface, and accent system immediately.",
       saving: "Saving theme...",
       saveFailed: "Could not save the theme. Reverted to the previous selection.",
       options: {
         classic: {
           label: "Classic",
-          description: "Current default token set.",
+          description: "Preserves the current default look exactly as it appears now.",
         },
         "swiss-modern": {
           label: "Swiss Modern",
-          description: "Structured grid-first theme slot.",
+          description: "A cool neutral palette with crisp blue accents.",
         },
         productivity: {
           label: "Productivity",
-          description: "Productivity SaaS theme slot.",
+          description: "A warmer sand palette tuned for focused productivity work.",
         },
       },
     },
