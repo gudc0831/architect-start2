@@ -1,0 +1,5 @@
+Req: Make the desktop daily row-height interaction feel spreadsheet-fast by shipping the safe Phase 1 virtualization boundary from the grid performance plan.
+Diff: Updated `src/components/tasks/task-workspace.tsx` to virtualize the desktop daily `<tbody>`, keep selected/editing rows mounted via pinned window segments, disable HTML drag reorder while virtualized, and keep row resize on the DOM fast path.
+Why: The old path re-rendered the full daily table and also fell back to full mount when the list started below the fold; the new viewport calculation keeps the mounted row set bounded before and during scroll.
+Verify: `npm run typecheck`; `npm run build`; browser QA on `http://127.0.0.1:3000/daily` confirmed virtual rows + spacer rows mount, selected row `arch-task-001` stays mounted after `window.scrollTo(6000)`, drag handle on `arch-task-100` is disabled under virtualization, and row height resized from `52px` to `98px`.
+Risk: HTML drag reorder is intentionally disabled only while virtualization is active; live resize window math still commits the persisted row-height map on pointer-up rather than every pointer-move.
