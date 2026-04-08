@@ -1,0 +1,5 @@
+Req: Refine the `DailyGridBodyV2` spike plan through a 5-agent review process, fill missing decisions, and avoid any code changes while converging on a plan that no review lane still requires editing.
+Diff: Updated `docs/2026-04-09-daily-grid-body-v2-spike-plan.md` with spike guardrails, explicit source-of-truth decisions, shared module boundaries, DOM registry and type extraction, header/body scroll-sync rules, pointer-capture and IME/focus parity notes, quantitative verification notes, gate checkpoints, and 5-lane review closure criteria.
+Why: The first draft had the right direction but still left hidden coupling risk around row index ownership, header sync, overlay DOM refs, rollout gating, and stop/go checkpoints.
+Verify: Re-read the revised plan against five review lenses: architecture, performance, UX/regression, sequencing, and rollout/verification. No application code was modified in this task.
+Risk: This closes planning ambiguity, not implementation risk; final approval still depends on the actual Step 0~3 spike behaving as documented on `preview/daily` and real `daily`.

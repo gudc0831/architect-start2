@@ -213,6 +213,7 @@ type TaskListRowResizeState = {
   startY: number;
   startHeight: number;
   currentHeight: number;
+  pendingHeight: number;
 };
 
 type DetailPanelResizeState = {
@@ -318,9 +319,15 @@ type TaskListDesktopViewportState = {
   height: number;
 };
 
+type TaskListLiveRowHeight = {
+  taskId: string;
+  height: number;
+};
+
 type TaskListLayoutSnapshot = {
   rowHeights: TaskListRowHeightMap;
   viewport: TaskListDesktopViewportState;
+  liveRowHeight: TaskListLiveRowHeight | null;
 };
 
 type TaskListRowInteractionSnapshot = {
@@ -343,6 +350,7 @@ type TaskListLayoutStore = {
   getSnapshot: () => TaskListLayoutSnapshot;
   replaceRowHeights: (rowHeights: TaskListRowHeightMap) => void;
   setViewportState: (viewport: TaskListDesktopViewportState) => void;
+  setLiveRowHeight: (liveRowHeight: TaskListLiveRowHeight | null) => void;
 };
 
 type DailyTaskTableWindowItem =
@@ -620,6 +628,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListRowCellRefs = useRef<Map<string, Map<TaskListColumnKey, HTMLDivElement>>>(new Map());
   const taskListScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const taskListViewportFrameRef = useRef<number | null>(null);
+  const taskListRowResizeFrameRef = useRef<number | null>(null);
   const dailyTreeRowsRef = useRef<TaskTreeRow[]>([]);
   const filesByTaskIdRef = useRef<Record<string, FileRecord[]>>({});
   const taskListVisibleTaskIdsRef = useRef<Set<string>>(new Set());
@@ -1334,6 +1343,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     detailPanelWidthRef.current = nextDetailPanelWidth;
     setTaskListColumnWidths(nextColumnWidths);
     taskListLayoutStore.replaceRowHeights(nextRowHeights);
+    taskListLayoutStore.setLiveRowHeight(null);
     setDetailPanelWidth(nextDetailPanelWidth);
   }, [taskListLayoutStore]);
 
@@ -1374,6 +1384,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return clampedHeight;
   }, []);
 
+  const syncTaskListLiveRowHeight = useCallback(
+    (taskId: string, nextHeight: number | null) => {
+      const currentLiveRowHeight = taskListLayoutStore.getSnapshot().liveRowHeight;
+      if (nextHeight === null) {
+        if (currentLiveRowHeight === null) {
+          return;
+        }
+        taskListLayoutStore.setLiveRowHeight(null);
+        return;
+      }
+
+      const clampedHeight = clampTaskListRowHeight(nextHeight);
+      if (currentLiveRowHeight?.taskId === taskId && currentLiveRowHeight.height === clampedHeight) {
+        return;
+      }
+      taskListLayoutStore.setLiveRowHeight({ taskId, height: clampedHeight });
+    },
+    [taskListLayoutStore],
+  );
+
   const persistTaskListLayout = useCallback(
     (
       nextColumnWidths: ResolvedTaskListColumnWidthMap = taskListColumnWidthsRef.current,
@@ -1391,6 +1421,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
       detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
       taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
+      taskListLayoutStore.setLiveRowHeight(null);
       writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
       if (!canPersistTaskListLayoutToServer) return;
@@ -1415,6 +1446,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const clampedHeight = applyTaskListRowHeightToDom(taskId, nextHeight);
       const currentHeight = taskListRowHeightsRef.current[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
       if (currentHeight === clampedHeight && !shouldPersist) {
+        syncTaskListLiveRowHeight(taskId, null);
         return;
       }
 
@@ -1422,12 +1454,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const nextRowHeights = { ...taskListRowHeightsRef.current, [taskId]: clampedHeight };
       taskListRowHeightsRef.current = nextRowHeights;
       taskListLayoutStore.replaceRowHeights(nextRowHeights);
+      syncTaskListLiveRowHeight(taskId, null);
 
       if (shouldPersist) {
         persistTaskListLayout(taskListColumnWidthsRef.current, nextRowHeights);
       }
     },
-    [applyTaskListRowHeightToDom, persistTaskListLayout, taskListLayoutStore],
+    [applyTaskListRowHeightToDom, persistTaskListLayout, syncTaskListLiveRowHeight, taskListLayoutStore],
   );
 
   const flushTaskListLayoutSave = useCallback(() => {
@@ -1447,6 +1480,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
     detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
     taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
+    taskListLayoutStore.setLiveRowHeight(null);
     writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
     if (!canPersistTaskListLayoutToServer) return;
@@ -1481,10 +1515,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         workTypeDefinitions,
         categoryDefinitionsByField,
       });
-      const measurementCacheKey = buildTaskListRowMeasurementCacheKey(rowPresentationContext, taskListColumnWidthsRef.current);
+      const measurementCells = buildTaskListRowMeasurementCells(rowPresentationContext, taskListColumnWidthsRef.current);
+      const measurementCacheKey = buildTaskListRowMeasurementCacheKey(measurementCells);
       let nextHeight = taskListRowMeasurementCacheRef.current.get(measurementCacheKey);
       if (nextHeight === undefined) {
-        nextHeight = measureTaskListRowHeight(rowPresentationContext, taskListColumnWidthsRef.current);
+        nextHeight = measureTaskListRowHeight(measurementCells);
         if (taskListRowMeasurementCacheRef.current.size >= 400) {
           taskListRowMeasurementCacheRef.current.clear();
         }
@@ -1551,21 +1586,41 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [handleTaskListColumnResizeEnd, handleTaskListColumnResizeMove],
   );
 
-  const handleTaskListRowResizeMove = useCallback((event: PointerEvent) => {
+  const flushTaskListRowResizeFrame = useCallback(() => {
     const resizeState = taskListRowResizeStateRef.current;
     if (!resizeState) return;
-    const nextHeight = applyTaskListRowHeightToDom(
-      resizeState.taskId,
-      resizeState.startHeight + event.clientY - resizeState.startY,
-    );
+
+    taskListRowResizeFrameRef.current = null;
+    const nextHeight = applyTaskListRowHeightToDom(resizeState.taskId, resizeState.pendingHeight);
     if (resizeState.currentHeight === nextHeight) return;
     taskListLayoutInteractionVersionRef.current += 1;
     resizeState.currentHeight = nextHeight;
-  }, [applyTaskListRowHeightToDom]);
+    syncTaskListLiveRowHeight(resizeState.taskId, nextHeight);
+  }, [applyTaskListRowHeightToDom, syncTaskListLiveRowHeight]);
+
+  const handleTaskListRowResizeMove = useCallback((event: PointerEvent) => {
+    const resizeState = taskListRowResizeStateRef.current;
+    if (!resizeState) return;
+
+    resizeState.pendingHeight = resizeState.startHeight + event.clientY - resizeState.startY;
+    if (taskListRowResizeFrameRef.current !== null) {
+      return;
+    }
+
+    taskListRowResizeFrameRef.current = window.requestAnimationFrame(() => {
+      flushTaskListRowResizeFrame();
+    });
+  }, [flushTaskListRowResizeFrame]);
 
   const handleTaskListRowResizeEnd = useCallback(() => {
     const resizeState = taskListRowResizeStateRef.current;
     if (!resizeState) return;
+
+    if (taskListRowResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(taskListRowResizeFrameRef.current);
+      taskListRowResizeFrameRef.current = null;
+      flushTaskListRowResizeFrame();
+    }
 
     taskListRowResizeStateRef.current = null;
     window.removeEventListener("pointermove", handleTaskListRowResizeMove);
@@ -1574,7 +1629,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
     setTaskListRowHeight(resizeState.taskId, resizeState.currentHeight, true);
-  }, [handleTaskListRowResizeMove, setTaskListRowHeight]);
+  }, [flushTaskListRowResizeFrame, handleTaskListRowResizeMove, setTaskListRowHeight]);
 
   const handleTaskListRowResizeStart = useCallback(
     (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1589,6 +1644,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         startY: event.clientY,
         startHeight,
         currentHeight: startHeight,
+        pendingHeight: startHeight,
       };
 
       window.addEventListener("pointermove", handleTaskListRowResizeMove);
@@ -1913,6 +1969,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     if (!shouldVirtualizeDailyTaskTable) {
       taskListLayoutStore.setViewportState({ height: 0, scrollTop: 0 });
+      taskListLayoutStore.setLiveRowHeight(null);
       return;
     }
 
@@ -2172,6 +2229,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     if (!areTaskListRowHeightMapsEqual(taskListRowHeightsRef.current, nextRowHeights)) {
       taskListRowHeightsRef.current = nextRowHeights;
       taskListLayoutStore.replaceRowHeights(nextRowHeights);
+    }
+    const currentLiveRowHeight = taskListLayoutStore.getSnapshot().liveRowHeight;
+    if (currentLiveRowHeight && !nextVisibleTaskIds.has(currentLiveRowHeight.taskId)) {
+      taskListLayoutStore.setLiveRowHeight(null);
     }
   }, [mode, taskListLayoutStore, tasks, visibleDailyTasks]);
 
@@ -4644,18 +4705,19 @@ function DailyTaskTableBody({
   handleTaskListRowResizeStart,
   selectTask,
 }: DailyTaskTableBodyProps) {
-  const { rowHeights, viewport } = useTaskListLayoutSnapshot(layoutStore);
+  const { rowHeights, viewport, liveRowHeight } = useTaskListLayoutSnapshot(layoutStore);
   const dailyTaskTableWindow = useMemo(
     () =>
       buildDailyTaskTableWindow({
         enabled: shouldVirtualize,
         pinnedTaskIds,
+        liveRowHeight,
         viewportHeight: viewport.height,
         scrollTop: viewport.scrollTop,
         rowHeights,
         rows,
       }),
-    [pinnedTaskIds, rowHeights, rows, shouldVirtualize, viewport.height, viewport.scrollTop],
+    [liveRowHeight, pinnedTaskIds, rowHeights, rows, shouldVirtualize, viewport.height, viewport.scrollTop],
   );
 
   return (
@@ -4690,7 +4752,7 @@ function DailyTaskTableBody({
               registerTaskListRowCellRef={registerTaskListRowCellRef}
               row={row}
               rowDraft={task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null}
-              rowHeight={rowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT}
+              rowHeight={resolveTaskListDisplayedRowHeight(task.id, rowHeights, liveRowHeight)}
               saveInlineTaskListField={saveInlineTaskListField}
               selectTask={selectTask}
               taskFiles={filesByTaskId[task.id] ?? EMPTY_TASK_FILES}
@@ -4702,7 +4764,7 @@ function DailyTaskTableBody({
 
         const taskFiles = filesByTaskId[task.id] ?? EMPTY_TASK_FILES;
         const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
-        const rowHeight = rowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
+        const rowHeight = resolveTaskListDisplayedRowHeight(task.id, rowHeights, liveRowHeight);
         const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
         const rowAutoFitAria = rowResizeAria;
         const interactionSnapshot = interactionStore.getTaskSnapshot(task.id);
@@ -6288,6 +6350,7 @@ function buildDailyTaskTableWindow({
   enabled,
   rows,
   rowHeights,
+  liveRowHeight,
   scrollTop,
   viewportHeight,
   pinnedTaskIds,
@@ -6295,6 +6358,7 @@ function buildDailyTaskTableWindow({
   enabled: boolean;
   rows: readonly TaskTreeRow[];
   rowHeights: TaskListRowHeightMap;
+  liveRowHeight: TaskListLiveRowHeight | null;
   scrollTop: number;
   viewportHeight: number;
   pinnedTaskIds: ReadonlySet<string>;
@@ -6311,7 +6375,7 @@ function buildDailyTaskTableWindow({
 
   rows.forEach((row, index) => {
     rowOffsets[index] = totalHeight;
-    const nextHeight = (rowHeights[row.task.id] ?? TASK_LIST_ROW_MIN_HEIGHT) + DAILY_TASK_TABLE_ROW_CHROME_HEIGHT;
+    const nextHeight = resolveTaskListDisplayedRowHeight(row.task.id, rowHeights, liveRowHeight) + DAILY_TASK_TABLE_ROW_CHROME_HEIGHT;
     resolvedRowHeights[index] = nextHeight;
     totalHeight += nextHeight;
   });
@@ -6402,6 +6466,17 @@ function buildDailyTaskTableWindow({
   };
 }
 
+function resolveTaskListDisplayedRowHeight(
+  taskId: string,
+  rowHeights: TaskListRowHeightMap,
+  liveRowHeight: TaskListLiveRowHeight | null,
+) {
+  if (liveRowHeight?.taskId === taskId) {
+    return liveRowHeight.height;
+  }
+  return rowHeights[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
+}
+
 function getBoardPageForTask(tasks: readonly TaskRecord[], taskId: string, status: TaskStatus, pageSize: number) {
   const items = tasks.filter((task) => task.status === status);
   const taskIndex = items.findIndex((task) => task.id === taskId);
@@ -6441,6 +6516,12 @@ function areTaskListRowHeightMapsEqual(previous: TaskListRowHeightMap, next: Tas
 
 function areTaskListDesktopViewportStatesEqual(previous: TaskListDesktopViewportState, next: TaskListDesktopViewportState) {
   return previous.height === next.height && previous.scrollTop === next.scrollTop;
+}
+
+function areTaskListLiveRowHeightsEqual(previous: TaskListLiveRowHeight | null, next: TaskListLiveRowHeight | null) {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return previous.taskId === next.taskId && previous.height === next.height;
 }
 
 function arePendingTaskListFocusCellsEqual(
@@ -6495,6 +6576,7 @@ function createTaskListLayoutStore(): TaskListLayoutStore {
       height: 0,
       scrollTop: 0,
     },
+    liveRowHeight: null,
   };
   const listeners = new Set<() => void>();
 
@@ -6531,6 +6613,17 @@ function createTaskListLayoutStore(): TaskListLayoutStore {
       snapshot = {
         ...snapshot,
         viewport,
+      };
+      notify();
+    },
+    setLiveRowHeight(liveRowHeight) {
+      if (areTaskListLiveRowHeightsEqual(snapshot.liveRowHeight, liveRowHeight)) {
+        return;
+      }
+
+      snapshot = {
+        ...snapshot,
+        liveRowHeight,
       };
       notify();
     },
@@ -6880,54 +6973,93 @@ function appendTaskListCellMeasurementContent(container: HTMLElement, presentati
   }
 }
 
-function buildTaskListRowMeasurementCacheKey(
+type TaskListRowMeasurementCell = {
+  column: (typeof dailyTaskListColumns)[number];
+  width: number;
+  presentation: TaskListCellPresentation;
+};
+
+type TaskListRowMeasurementDom = {
+  host: HTMLDivElement;
+  shells: HTMLDivElement[];
+  contents: HTMLDivElement[];
+};
+
+let taskListRowMeasurementDom: TaskListRowMeasurementDom | null = null;
+
+function buildTaskListRowMeasurementCells(
   context: TaskListRowPresentationContext,
   columnWidths: ResolvedTaskListColumnWidthMap,
-) {
+): TaskListRowMeasurementCell[] {
+  return dailyTaskListColumns.map((column) => ({
+    column,
+    width: columnWidths[column.key],
+    presentation: buildTaskListCellPresentation(column.key, context),
+  }));
+}
+
+function buildTaskListRowMeasurementCacheKey(cells: readonly TaskListRowMeasurementCell[]) {
   return JSON.stringify(
-    dailyTaskListColumns.map((column) => ({
+    cells.map(({ column, width, presentation }) => ({
       key: column.key,
-      width: columnWidths[column.key],
-      presentation: buildTaskListCellPresentation(column.key, context),
+      width,
+      presentation,
     })),
   );
 }
 
-function measureTaskListRowHeight(context: TaskListRowPresentationContext, columnWidths: ResolvedTaskListColumnWidthMap) {
+function getTaskListRowMeasurementDom() {
   if (typeof document === "undefined") {
-    return TASK_LIST_ROW_MIN_HEIGHT;
+    return null;
+  }
+
+  if (taskListRowMeasurementDom && document.body.contains(taskListRowMeasurementDom.host)) {
+    return taskListRowMeasurementDom;
   }
 
   const host = document.createElement("div");
   host.className = "sheet-table__measure-host";
+  const shells: HTMLDivElement[] = [];
+  const contents: HTMLDivElement[] = [];
+
+  dailyTaskListColumns.forEach(() => {
+    const shell = document.createElement("div");
+    const content = document.createElement("div");
+    shell.appendChild(content);
+    host.appendChild(shell);
+    shells.push(shell);
+    contents.push(content);
+  });
+
   document.body.appendChild(host);
+  taskListRowMeasurementDom = { host, shells, contents };
+  return taskListRowMeasurementDom;
+}
 
-  try {
-    let nextHeight = TASK_LIST_ROW_MIN_HEIGHT;
-
-    for (const column of dailyTaskListColumns) {
-      const presentation = buildTaskListCellPresentation(column.key, context);
-      const shell = document.createElement("div");
-      shell.className = clsx("sheet-table__cell-shell", column.className, column.key === "actionId" && "sheet-table__cell-shell--tree");
-      shell.style.width = `${columnWidths[column.key]}px`;
-
-      const content = document.createElement("div");
-      content.className = clsx(
-        "sheet-table__cell-content",
-        isEditableTaskListCellPresentation(presentation) && "sheet-table__cell-content--editable",
-        isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
-      );
-      appendTaskListCellMeasurementContent(content, presentation);
-      shell.appendChild(content);
-      host.appendChild(shell);
-
-      nextHeight = Math.max(nextHeight, Math.ceil(shell.getBoundingClientRect().height));
-    }
-
-    return clampTaskListRowHeight(nextHeight);
-  } finally {
-    host.remove();
+function measureTaskListRowHeight(cells: readonly TaskListRowMeasurementCell[]) {
+  const measurementDom = getTaskListRowMeasurementDom();
+  if (!measurementDom) {
+    return TASK_LIST_ROW_MIN_HEIGHT;
   }
+
+  let nextHeight = TASK_LIST_ROW_MIN_HEIGHT;
+
+  cells.forEach(({ column, width, presentation }, index) => {
+    const shell = measurementDom.shells[index];
+    const content = measurementDom.contents[index];
+    shell.className = clsx("sheet-table__cell-shell", column.className, column.key === "actionId" && "sheet-table__cell-shell--tree");
+    shell.style.width = `${width}px`;
+    content.className = clsx(
+      "sheet-table__cell-content",
+      isEditableTaskListCellPresentation(presentation) && "sheet-table__cell-content--editable",
+      isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
+    );
+    content.replaceChildren();
+    appendTaskListCellMeasurementContent(content, presentation);
+    nextHeight = Math.max(nextHeight, Math.ceil(shell.getBoundingClientRect().height));
+  });
+
+  return clampTaskListRowHeight(nextHeight);
 }
 
 function isIsoDateValue(value: string) {

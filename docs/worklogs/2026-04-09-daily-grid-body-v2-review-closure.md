@@ -1,0 +1,5 @@
+Req: Refine the `DailyGridBodyV2` spike plan through a five-role review loop, keep filling gaps until the plan can be closed without further edits, and do not modify application code.
+Diff: Added and tightened the spike plan in `docs/2026-04-09-daily-grid-body-v2-spike-plan.md`, including explicit ownership boundaries, width/scroll source-of-truth rules, dependency limits, stronger verification outputs, and a review-closure section; only documentation changed.
+Why: The initial plan was directionally right but still had hidden ambiguity around ownership, validation, and rollout safety, which would have leaked risk into implementation.
+Verify: Re-read the full plan with line-level structure review, checked for unresolved architectural ambiguities and section consistency, and confirmed no application code files were edited in this pass.
+Risk: The plan is closed as a spike-entry document, but actual profiler findings during implementation may still reopen canvas or selector-granularity decisions.
