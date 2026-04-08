@@ -4727,7 +4727,7 @@ function DailyTaskTableBody({
                     </span>
                   ) : null}
                   <button
-                    aria-label="Reorder task"
+                    aria-label="재정렬"
                     className="task-tree__drag-handle"
                     disabled={isHtmlDragReorderDisabled || isReorderingTasks}
                     draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
@@ -4736,7 +4736,7 @@ function DailyTaskTableBody({
                     onDragStart={(event) => handleTaskRowDragStart(task, event)}
                     type="button"
                   >
-                    ⠿
+                    <span aria-hidden="true" className="task-tree__drag-grip" />
                   </button>
                   <span
                     className={clsx(
@@ -4992,7 +4992,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
               </span>
             ) : null}
             <button
-              aria-label="Reorder task"
+              aria-label="재정렬"
               className="task-tree__drag-handle"
               disabled={isHtmlDragReorderDisabled || isReorderingTasks}
               draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
@@ -5001,7 +5001,8 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
               onDragStart={(event) => handleTaskRowDragStart(task, event)}
               type="button"
             >
-              ??            </button>
+              <span aria-hidden="true" className="task-tree__drag-grip" />
+            </button>
             <span
               className={clsx(
                 "task-tree__badge",

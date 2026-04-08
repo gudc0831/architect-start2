@@ -2233,7 +2233,7 @@ a {
 .task-tree {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.32rem;
   min-width: 0;
 }
 
@@ -2264,7 +2264,19 @@ a {
 }
 
 .task-tree__drag-handle:hover,
-.task-tree__drag-handle:focus-visible,
+.task-tree__drag-handle:focus-visible {
+  border-color: transparent;
+  background: rgba(41, 92, 67, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(55, 87, 67, 0.18);
+  color: #355743;
+  outline: none;
+}
+
+.task-tree__drag-handle:hover .task-tree__drag-grip,
+.task-tree__drag-handle:focus-visible .task-tree__drag-grip {
+  opacity: 1;
+}
+
 .task-tree__move-button:hover,
 .task-tree__move-button:focus-visible {
   border-color: rgba(55, 87, 67, 0.4);
@@ -2393,6 +2405,13 @@ a {
 
 .task-state-row--new td:first-child .sheet-table__cell-shell::before {
   background: var(--task-status-new-accent);
+  min-width: 0.95rem;
+  min-height: 1.45rem;
+  padding: 0.14rem 0.1rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(65, 83, 69, 0.72);
 }
 
 .task-state-row--in_review td:first-child .sheet-table__cell-shell::before {
@@ -2401,6 +2420,17 @@ a {
 
 .task-state-row--in_discussion td:first-child .sheet-table__cell-shell::before {
   background: var(--task-status-in-discussion-accent);
+.task-tree__drag-grip {
+  display: block;
+  width: 0.32rem;
+  height: 0.96rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, currentColor 0.07rem, transparent 0.08rem) left top / 0.16rem 0.16rem repeat-y,
+    radial-gradient(circle, currentColor 0.07rem, transparent 0.08rem) right top / 0.16rem 0.16rem repeat-y;
+  opacity: 0.78;
+}
+
 }
 
 .task-state-row--blocked td:first-child .sheet-table__cell-shell::before {
