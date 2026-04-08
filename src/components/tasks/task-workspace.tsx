@@ -21,7 +21,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -239,6 +239,7 @@ type TaskListRowPresentationContext = {
   task: TaskRecord;
   row: TaskTreeRow;
   rowDraft: TaskRecord | null;
+  activeInlineColumnKey: TaskListColumnKey | null;
   linkedDocumentsDisplay: LinkedDocumentsDisplay;
   workTypeDefinitions: readonly WorkTypeDefinition[];
   categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
@@ -304,19 +305,98 @@ type PendingTaskListFocusCell = {
   columnKey: TaskListColumnKey;
 };
 
+type TaskListRowInteractionState = {
+  selectedTaskId: string | null;
+  activeInlineEditCell: PendingTaskListFocusCell | null;
+  taskDropState: TaskDropState | null;
+  focusedTaskIds: ReadonlySet<string> | null;
+};
+
+type TaskListDesktopViewportState = {
+  scrollTop: number;
+  height: number;
+};
+
+type TaskListLayoutSnapshot = {
+  rowHeights: TaskListRowHeightMap;
+  viewport: TaskListDesktopViewportState;
+};
+
+type TaskListRowInteractionSnapshot = {
+  isSelectedRow: boolean;
+  activeInlineColumnKey: TaskListColumnKey | null;
+  taskDropPosition: TaskDropPosition | null;
+  isDimmedRow: boolean;
+};
+
+type TaskListRowInteractionStore = {
+  subscribeToTask: (taskId: string, listener: () => void) => () => void;
+  getTaskSnapshot: (taskId: string) => TaskListRowInteractionSnapshot;
+  setState: (state: Partial<TaskListRowInteractionState>) => void;
+};
+
+type TaskListLayoutStore = {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => TaskListLayoutSnapshot;
+  replaceRowHeights: (rowHeights: TaskListRowHeightMap) => void;
+  setViewportState: (viewport: TaskListDesktopViewportState) => void;
+};
+
+type DailyTaskTableWindowItem =
+  | {
+      kind: "spacer";
+      key: string;
+      height: number;
+    }
+  | {
+      kind: "row";
+      row: TaskTreeRow;
+    };
+
 type DailyTaskTableRowProps = {
   row: TaskTreeRow;
   taskFiles: readonly FileRecord[];
   rowHeight: number;
   currentDayKey: string;
   hideIssueIdOverdueBadge: boolean;
-  hasActiveDailyFilters: boolean;
+  interactionStore: TaskListRowInteractionStore;
+  isManualReorderDisabled: boolean;
+  isHtmlDragReorderDisabled: boolean;
   isReorderingTasks: boolean;
-  isSelectedRow: boolean;
-  isDimmedRow: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
-  taskDropPosition: TaskDropPosition | null;
+  workTypeDefinitions: readonly WorkTypeDefinition[];
+  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
+  registerTaskListRowCellRef: (taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => void;
+  focusTaskListEditableCell: (taskId: string, columnKey: TaskListColumnKey) => void;
+  updateDraftForm: TaskFormChangeHandler;
+  saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
+  handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
+  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => void;
+  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => Promise<void> | void;
+  clearTaskDragInteraction: () => void;
+  handleTaskListRowAutoFitDoubleClick: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
+  handleTaskListRowResizeStart: (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => void;
+  selectTask: (taskId: string) => void;
+};
+
+type DailyTaskTableBodyProps = {
+  rows: readonly TaskTreeRow[];
+  pinnedTaskIds: ReadonlySet<string>;
+  shouldVirtualize: boolean;
+  layoutStore: TaskListLayoutStore;
+  interactionStore: TaskListRowInteractionStore;
+  filesByTaskId: Record<string, FileRecord[]>;
+  focusedTaskIds: ReadonlySet<string> | null;
+  currentDayKey: string;
+  hideIssueIdOverdueBadge: boolean;
+  isManualReorderDisabled: boolean;
+  isHtmlDragReorderDisabled: boolean;
+  isReorderingTasks: boolean;
+  activeTaskListInlineEditRowId: string | null;
+  draft: TaskRecord | null;
+  inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions: readonly WorkTypeDefinition[];
   categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
   registerTaskListRowCellRef: (taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => void;
@@ -395,6 +475,8 @@ const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filte
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
 const DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE = "list-view-mode";
 const DAILY_TASK_PAGE_SIZE = 50;
+const DAILY_TASK_TABLE_VIRTUAL_OVERSCAN = 2;
+const DAILY_TASK_TABLE_ROW_CHROME_HEIGHT = 1;
 const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
 const USE_MEMOIZED_DAILY_TASK_ROWS = true;
 const BOARD_PAGE_SIZE_MOBILE = 4;
@@ -481,6 +563,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [selectedTrashFileIds, setSelectedTrashFileIds] = useState<string[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeTaskListInlineEditRowId, setActiveTaskListInlineEditRowId] = useState<string | null>(null);
+  const [activeTaskListInlineEditCell, setActiveTaskListInlineEditCell] = useState<PendingTaskListFocusCell | null>(null);
   const [draft, setDraft] = useState<TaskRecord | null>(null);
   const [draftDirtyFields, setDraftDirtyFields] = useState<DraftDirtyFieldMap>({});
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
@@ -509,7 +592,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
-  const [taskDropState, setTaskDropState] = useState<TaskDropState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
   const [viewportWidth, setViewportWidth] = useState(WIDE_BREAKPOINT);
   const [hasViewportSync, setHasViewportSync] = useState(false);
@@ -520,7 +602,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [canHoverDetails, setCanHoverDetails] = useState(false);
   const [quickCreateWidths, setQuickCreateWidths] = useState<ResolvedQuickCreateWidthMap>(() => resolveQuickCreateWidths());
   const [taskListColumnWidths, setTaskListColumnWidths] = useState<ResolvedTaskListColumnWidthMap>(() => resolveTaskListColumnWidths());
-  const [taskListRowHeights, setTaskListRowHeights] = useState<TaskListRowHeightMap>({});
+  const taskListLayoutStore = useMemo(() => createTaskListLayoutStore(), []);
+  const taskListRowInteractionStore = useMemo(() => createTaskListRowInteractionStore(), []);
   const [detailPanelWidth, setDetailPanelWidth] = useState(DETAIL_PANEL_DEFAULT_WIDTH);
   const quickCreateWidthsRef = useRef<ResolvedQuickCreateWidthMap>(resolveQuickCreateWidths());
   const taskListColumnWidthsRef = useRef<ResolvedTaskListColumnWidthMap>(resolveTaskListColumnWidths());
@@ -530,11 +613,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListColumnResizeStateRef = useRef<TaskListColumnResizeState | null>(null);
   const taskListRowResizeStateRef = useRef<TaskListRowResizeState | null>(null);
   const detailPanelResizeStateRef = useRef<DetailPanelResizeState | null>(null);
+  const taskDropStateRef = useRef<TaskDropState | null>(null);
   const taskListRowCellRefs = useRef<Map<string, Map<TaskListColumnKey, HTMLDivElement>>>(new Map());
+  const taskListScrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const taskListViewportFrameRef = useRef<number | null>(null);
   const dailyTreeRowsRef = useRef<TaskTreeRow[]>([]);
   const filesByTaskIdRef = useRef<Record<string, FileRecord[]>>({});
   const taskListVisibleTaskIdsRef = useRef<Set<string>>(new Set());
   const taskListLayoutInteractionVersionRef = useRef(0);
+  const taskListRowMeasurementCacheRef = useRef<Map<string, number>>(new Map());
   const quickCreateSaveTimerRef = useRef<number | null>(null);
   const taskListLayoutSaveTimerRef = useRef<number | null>(null);
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
@@ -545,6 +632,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const activeTaskListInlineEditRowIdRef = useRef<string | null>(null);
+  const activeTaskListInlineEditCellRef = useRef<PendingTaskListFocusCell | null>(null);
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
@@ -609,6 +697,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const boardPageSize = isMobileViewport ? BOARD_PAGE_SIZE_MOBILE : BOARD_PAGE_SIZE_DEFAULT;
   const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
+  const deferredTaskFocusKey = useDeferredValue(taskFocusKey);
   const categoricalFieldContext = useMemo(
     () => ({
       workTypeDefinitions,
@@ -708,15 +797,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    setSelectedCategoricalFilters((previous) => ({
-      ...previous,
-      [openCategoricalFilterField]: normalizeTaskCategoricalFilterSelection(
-        openCategoricalFilterField,
-        effectiveDraftCategoricalFilters[openCategoricalFilterField],
-        categoricalFieldContext,
-      ),
-    }));
+    const fieldKey = openCategoricalFilterField;
+    const nextSelection = normalizeTaskCategoricalFilterSelection(
+      fieldKey,
+      effectiveDraftCategoricalFilters[fieldKey],
+      categoricalFieldContext,
+    );
     setOpenCategoricalFilterField(null);
+    startTransition(() => {
+      setSelectedCategoricalFilters((previous) => ({
+        ...previous,
+        [fieldKey]: nextSelection,
+      }));
+    });
   }, [categoricalFieldContext, effectiveDraftCategoricalFilters, openCategoricalFilterField]);
   const handleCategoricalFilterTriggerToggle = useCallback(
     (fieldKey: DailyCategoricalFilterFieldKey) => {
@@ -790,6 +883,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     draftDirtyFieldsRef.current = {};
     setDraftDirtyFields({});
   }, []);
+  const setTaskDropState = useCallback(
+    (nextState: TaskDropState | null) => {
+      if (areTaskDropStatesEqual(taskDropStateRef.current, nextState)) {
+        return;
+      }
+
+      taskDropStateRef.current = nextState;
+      taskListRowInteractionStore.setState({ taskDropState: nextState });
+    },
+    [taskListRowInteractionStore],
+  );
   const buildDefaultTaskForm = useCallback(
     (): TaskFormState => ({
       ...defaultForm(),
@@ -805,6 +909,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     activeTaskListInlineEditRowIdRef.current = activeTaskListInlineEditRowId;
   }, [activeTaskListInlineEditRowId]);
+
+  useEffect(() => {
+    activeTaskListInlineEditCellRef.current = activeTaskListInlineEditCell;
+  }, [activeTaskListInlineEditCell]);
+
+  useLayoutEffect(() => {
+    taskListRowInteractionStore.setState({
+      selectedTaskId,
+      activeInlineEditCell: activeTaskListInlineEditCell,
+    });
+  }, [activeTaskListInlineEditCell, selectedTaskId, taskListRowInteractionStore]);
 
   useEffect(() => {
     parentTaskNumberDraftRef.current = parentTaskNumberDraft;
@@ -834,6 +949,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
     editor.focus({ preventScroll: true });
     if (editor instanceof HTMLTextAreaElement || (editor instanceof HTMLInputElement && editor.type === "text")) {
       editor.select();
@@ -1216,9 +1332,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     taskListRowHeightsRef.current = nextRowHeights;
     detailPanelWidthRef.current = nextDetailPanelWidth;
     setTaskListColumnWidths(nextColumnWidths);
-    setTaskListRowHeights(nextRowHeights);
+    taskListLayoutStore.replaceRowHeights(nextRowHeights);
     setDetailPanelWidth(nextDetailPanelWidth);
-  }, []);
+  }, [taskListLayoutStore]);
 
   const registerTaskListRowCellRef = useCallback((taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => {
     const rowRefs = taskListRowCellRefs.current.get(taskId) ?? new Map<TaskListColumnKey, HTMLDivElement>();
@@ -1270,6 +1386,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
       detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
+      taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
       writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
       if (!canPersistTaskListLayoutToServer) return;
@@ -1286,7 +1403,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }).catch(() => {});
       }, TASK_LIST_LAYOUT_SAVE_DELAY_MS);
     },
-    [canPersistTaskListLayoutToServer, taskListLayoutStorageKey],
+    [canPersistTaskListLayoutToServer, taskListLayoutStorageKey, taskListLayoutStore],
   );
 
   const setTaskListRowHeight = useCallback(
@@ -1300,17 +1417,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       taskListLayoutInteractionVersionRef.current += 1;
       const nextRowHeights = { ...taskListRowHeightsRef.current, [taskId]: clampedHeight };
       taskListRowHeightsRef.current = nextRowHeights;
-      setTaskListRowHeights((prev) => {
-        const prevHeight = prev[taskId] ?? TASK_LIST_ROW_MIN_HEIGHT;
-        if (prevHeight === clampedHeight) return prev;
-        return { ...prev, [taskId]: clampedHeight };
-      });
+      taskListLayoutStore.replaceRowHeights(nextRowHeights);
 
       if (shouldPersist) {
         persistTaskListLayout(taskListColumnWidthsRef.current, nextRowHeights);
       }
     },
-    [applyTaskListRowHeightToDom, persistTaskListLayout],
+    [applyTaskListRowHeightToDom, persistTaskListLayout, taskListLayoutStore],
   );
 
   const flushTaskListLayoutSave = useCallback(() => {
@@ -1329,6 +1442,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     taskListRowHeightsRef.current = sanitizedLayout.rowHeights;
     detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
+    taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
     writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
     if (!canPersistTaskListLayoutToServer) return;
@@ -1339,7 +1453,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       body: JSON.stringify(sanitizedLayout),
       keepalive: true,
     }).catch(() => {});
-  }, [canPersistTaskListLayoutToServer, taskListLayoutStorageKey]);
+  }, [canPersistTaskListLayoutToServer, taskListLayoutStorageKey, taskListLayoutStore]);
   const autoFitTaskListRow = useCallback(
     (taskId: string) => {
       const row = dailyTreeRowsRef.current.find((entry) => entry.task.id === taskId);
@@ -1353,17 +1467,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const currentDraft = draftRef.current;
       const rowDraft =
         activeTaskListInlineEditRowIdRef.current === taskId && currentDraft?.id === taskId ? currentDraft : null;
-      const nextHeight = measureTaskListRowHeight(
-        createTaskListRowPresentationContext({
-          task: row.task,
-          row,
-          rowDraft,
-          linkedDocumentsDisplay,
-          workTypeDefinitions,
-          categoryDefinitionsByField,
-        }),
-        taskListColumnWidthsRef.current,
-      );
+      const activeInlineColumnKey =
+        activeTaskListInlineEditCellRef.current?.taskId === taskId ? activeTaskListInlineEditCellRef.current.columnKey : null;
+      const rowPresentationContext = createTaskListRowPresentationContext({
+        activeInlineColumnKey,
+        task: row.task,
+        row,
+        rowDraft,
+        linkedDocumentsDisplay,
+        workTypeDefinitions,
+        categoryDefinitionsByField,
+      });
+      const measurementCacheKey = buildTaskListRowMeasurementCacheKey(rowPresentationContext, taskListColumnWidthsRef.current);
+      let nextHeight = taskListRowMeasurementCacheRef.current.get(measurementCacheKey);
+      if (nextHeight === undefined) {
+        nextHeight = measureTaskListRowHeight(rowPresentationContext, taskListColumnWidthsRef.current);
+        if (taskListRowMeasurementCacheRef.current.size >= 400) {
+          taskListRowMeasurementCacheRef.current.clear();
+        }
+        taskListRowMeasurementCacheRef.current.set(measurementCacheKey, nextHeight);
+      }
       setTaskListRowHeight(taskId, nextHeight, true);
     },
     [categoryDefinitionsByField, setTaskListRowHeight, workTypeDefinitions],
@@ -1567,8 +1690,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [taskListColumnWidths]);
 
   useEffect(() => {
-    taskListRowHeightsRef.current = taskListRowHeights;
-  }, [taskListRowHeights]);
+    taskListRowMeasurementCacheRef.current.clear();
+  }, [taskListColumnWidths, workTypeDefinitions, categoryDefinitionsByField]);
 
   useEffect(() => {
     detailPanelWidthRef.current = detailPanelWidth;
@@ -1757,6 +1880,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     });
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
   const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView;
+  const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState;
+  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || shouldVirtualizeDailyTaskTable;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -1769,6 +1894,73 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [dailyTaskPage, resolvedDailyTaskPage]);
 
   const taskListTableWidth = useMemo(() => dailyTaskListColumns.reduce((total, column) => total + taskListColumnWidths[column.key], 0), [taskListColumnWidths]);
+  const syncTaskListViewportState = useCallback(() => {
+    const viewport = taskListScrollViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const bounds = viewport.getBoundingClientRect();
+    const viewportTop = Math.max(0, bounds.top);
+    const viewportBottom = Math.min(window.innerHeight, bounds.bottom);
+    const visibleHeight = Math.max(0, viewportBottom - viewportTop);
+    const fallbackHeight = Math.max(1, Math.min(window.innerHeight, Math.max(bounds.height, window.innerHeight)));
+    taskListLayoutStore.setViewportState({
+      height: visibleHeight > 0 ? visibleHeight : fallbackHeight,
+      scrollTop: Math.max(0, -bounds.top),
+    });
+  }, [taskListLayoutStore]);
+  useEffect(() => {
+    if (!shouldVirtualizeDailyTaskTable) {
+      taskListLayoutStore.setViewportState({ height: 0, scrollTop: 0 });
+      return;
+    }
+
+    const viewport = taskListScrollViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const scheduleSync = () => {
+      if (taskListViewportFrameRef.current !== null) {
+        return;
+      }
+
+      taskListViewportFrameRef.current = window.requestAnimationFrame(() => {
+        taskListViewportFrameRef.current = null;
+        syncTaskListViewportState();
+      });
+    };
+
+    syncTaskListViewportState();
+    window.addEventListener("scroll", scheduleSync, { passive: true });
+    window.addEventListener("resize", scheduleSync);
+    const resizeObserver = new ResizeObserver(() => scheduleSync());
+    resizeObserver.observe(viewport);
+
+    return () => {
+      window.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      resizeObserver.disconnect();
+      if (taskListViewportFrameRef.current !== null) {
+        window.cancelAnimationFrame(taskListViewportFrameRef.current);
+        taskListViewportFrameRef.current = null;
+      }
+    };
+  }, [displayedDailyTreeRows.length, shouldVirtualizeDailyTaskTable, syncTaskListViewportState, taskListLayoutStore, taskListTableWidth]);
+  const pinnedDailyTaskTableRowIds = useMemo(() => {
+    const next = new Set<string>();
+    if (selectedTaskId) {
+      next.add(selectedTaskId);
+    }
+    if (activeTaskListInlineEditRowId) {
+      next.add(activeTaskListInlineEditRowId);
+    }
+    if (pendingTaskListFocusCell) {
+      next.add(pendingTaskListFocusCell.taskId);
+    }
+    return next;
+  }, [activeTaskListInlineEditRowId, pendingTaskListFocusCell, selectedTaskId]);
   const workspaceBodyStyle = useMemo(
     () =>
       ({
@@ -1826,11 +2018,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     if (!selectedTaskId) {
       setActiveTaskListInlineEditRowId(null);
+      setActiveTaskListInlineEditCell(null);
       setPendingTaskListFocusCell(null);
       return;
     }
 
     setActiveTaskListInlineEditRowId((previous) => (previous === selectedTaskId ? previous : null));
+    setActiveTaskListInlineEditCell((previous) => (previous && previous.taskId === selectedTaskId ? previous : null));
     setPendingTaskListFocusCell((previous) => (previous && previous.taskId === selectedTaskId ? previous : null));
   }, [selectedTaskId]);
   useEffect(() => {
@@ -1975,8 +2169,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const allTrashSelected = trashItems.length > 0 && selectedTrashCount === trashItems.length;
 
   useEffect(() => {
-    taskListVisibleTaskIdsRef.current = new Set((mode === "daily" ? visibleDailyTasks : tasks).map((task) => task.id));
-  }, [mode, tasks, visibleDailyTasks]);
+    const nextVisibleTaskIds = new Set((mode === "daily" ? visibleDailyTasks : tasks).map((task) => task.id));
+    taskListVisibleTaskIdsRef.current = nextVisibleTaskIds;
+    const nextRowHeights = pruneTaskListRowHeights(taskListRowHeightsRef.current, nextVisibleTaskIds);
+    if (!areTaskListRowHeightMapsEqual(taskListRowHeightsRef.current, nextRowHeights)) {
+      taskListRowHeightsRef.current = nextRowHeights;
+      taskListLayoutStore.replaceRowHeights(nextRowHeights);
+    }
+  }, [mode, taskListLayoutStore, tasks, visibleDailyTasks]);
 
 
   useEffect(() => {
@@ -2037,9 +2237,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [activePreviewUrl]);
 
   const focusedTaskIds = useMemo(
-    () => (taskFocusKey ? new Set(sortedTasks.filter((task) => matchesTaskFocus(task, taskFocusKey, currentDayKey)).map((task) => task.id)) : null),
-    [currentDayKey, sortedTasks, taskFocusKey],
+    () =>
+      deferredTaskFocusKey
+        ? new Set(sortedTasks.filter((task) => matchesTaskFocus(task, deferredTaskFocusKey, currentDayKey)).map((task) => task.id))
+        : null,
+    [currentDayKey, deferredTaskFocusKey, sortedTasks],
   );
+  useLayoutEffect(() => {
+    taskListRowInteractionStore.setState({ focusedTaskIds });
+  }, [focusedTaskIds, taskListRowInteractionStore]);
   const toggleBoardColumn = useCallback(
     (status: TaskStatus) => {
       const willCollapse = !collapsedBoardStatuses[status];
@@ -2629,8 +2835,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
 
         const json = (await response.json()) as { data: TaskRecord[] };
-        setTasks(json.data);
-        setTaskSortMode(nextMode);
+        startTransition(() => {
+          setTasks(json.data);
+          setTaskSortMode(nextMode);
+        });
         if (command.action === "manual_move") {
           setSelectedTaskId(command.movedTaskId);
         }
@@ -2686,7 +2894,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const handleTaskRowDragStart = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => {
-      if (isDailyManualReorderDisabled || isMobileViewport || isReorderingTasks) {
+      if (isDailyHtmlDragReorderDisabled || isMobileViewport || isReorderingTasks) {
         event.preventDefault();
         return;
       }
@@ -2696,7 +2904,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
     },
-    [isDailyManualReorderDisabled, isMobileViewport, isReorderingTasks],
+    [isDailyHtmlDragReorderDisabled, isMobileViewport, isReorderingTasks],
   );
 
   const handleTaskRowDragOver = useCallback(
@@ -2769,33 +2977,33 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           actions={[
             {
               key: "manual",
-              label: "수동 정렬 유지",
-              description: "직접 옮긴 현재 순서를 유지합니다.",
+              label: "?섎룞 ?뺣젹 ?좎?",
+              description: "吏곸젒 ??릿 ?꾩옱 ?쒖꽌瑜??좎??⑸땲??",
               onSelect: () => setTaskSortMode("manual"),
             },
             {
               key: "auto",
-              label: "자동 정렬 실행",
-              description: "진행, 지연, 마감 순서로 다시 정렬합니다.",
+              label: "?먮룞 ?뺣젹 ?ㅽ뻾",
+              description: "吏꾪뻾, 吏?? 留덇컧 ?쒖꽌濡??ㅼ떆 ?뺣젹?⑸땲??",
               onSelect: () => {
                 void reorderDailyTasks({ action: "auto_sort", strategy: "priority" }, "auto");
               },
             },
             {
               key: "issue-id",
-              label: "Issue ID 순으로 복원",
-              description: "기본 이슈 번호 순서로 다시 정렬합니다.",
+              label: "Issue ID ?쒖쑝濡?蹂듭썝",
+              description: "湲곕낯 ?댁뒋 踰덊샇 ?쒖꽌濡??ㅼ떆 ?뺣젹?⑸땲??",
               onSelect: () => {
                 void reorderDailyTasks({ action: "auto_sort", strategy: "action_id" }, "auto");
               },
             },
           ]}
-          ariaLabel="업무 정렬 메뉴"
+          ariaLabel="?낅Т ?뺣젹 硫붾돱"
           isBusy={isReorderingTasks}
           auxiliaryToggleChecked={hideIssueIdOverdueBadge}
           auxiliaryToggleLabel={t("workspace.hideIssueIdOverdueBadge")}
           isOpen={isTaskOrderMenuOpen}
-          modeLabel={taskSortMode === "manual" ? "수동" : "자동"}
+          modeLabel={taskSortMode === "manual" ? "?섎룞" : "?먮룞"}
           onClose={() => setIsTaskOrderMenuOpen(false)}
           onToggleAuxiliaryToggle={() => setHideIssueIdOverdueBadge((previous) => !previous)}
           onToggleOpen={() => setIsTaskOrderMenuOpen((previous) => !previous)}
@@ -3248,11 +3456,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const selectTask = useCallback((taskId: string) => {
     setSelectedTaskId(taskId);
+    setActiveTaskListInlineEditCell(null);
     setPendingTaskListFocusCell(null);
     setActiveTaskListInlineEditRowId((previous) => (previous === taskId ? previous : null));
   }, []);
 
   const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
+    setActiveTaskListInlineEditCell({ taskId, columnKey });
     setPendingTaskListFocusCell({ taskId, columnKey });
     setActiveTaskListInlineEditRowId(taskId);
     setSelectedTaskId(taskId);
@@ -3266,12 +3476,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     setSelectedTaskId(taskId);
+    setActiveTaskListInlineEditCell(null);
     setPendingTaskListFocusCell(null);
     setActiveTaskListInlineEditRowId((previous) => (previous === taskId ? previous : null));
     pinDetailPanel();
   }, [closeDetailPanel, pinDetailPanel]);
 
   const clearTaskSelection = useCallback(() => {
+    setActiveTaskListInlineEditCell(null);
     setPendingTaskListFocusCell(null);
     setActiveTaskListInlineEditRowId(null);
     setSelectedTaskId(null);
@@ -3285,12 +3497,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
 
-      if (nextMode === "paged") {
-        const nextPage = selectedTaskId ? getDailyTaskPageForTask(dailyTaskTreePages, selectedTaskId) : null;
-        setDailyTaskPage(nextPage ?? 1);
-      }
+      const nextPage = nextMode === "paged" ? (selectedTaskId ? getDailyTaskPageForTask(dailyTaskTreePages, selectedTaskId) : null) : null;
+      startTransition(() => {
+        if (nextMode === "paged") {
+          setDailyTaskPage(nextPage ?? 1);
+        }
 
-      setDailyListViewMode(nextMode);
+        setDailyListViewMode(nextMode);
+      });
     },
     [dailyListViewMode, dailyTaskTreePages, selectedTaskId],
   );
@@ -3315,7 +3529,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       skipDailyTaskPageSelectionSyncRef.current = true;
       clearTaskSelection();
-      setDailyTaskPage(clampedPage);
+      startTransition(() => {
+        setDailyTaskPage(clampedPage);
+      });
     },
     [
       clearTaskSelection,
@@ -3581,11 +3797,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               <BoardTaskOverview
                 focusStrip={{
                   activeKey: taskFocusKey,
-                  ariaLabel: "업무 집중 영역",
-                  description: "지금 처리해야 할 일과 병목을 먼저 확인합니다.",
+                  ariaLabel: "?낅Т 吏묒쨷 ?곸뿭",
+                  description: "吏湲?泥섎━?댁빞 ???쇨낵 蹂묐ぉ??癒쇱? ?뺤씤?⑸땲??",
                   items: boardFocusItems,
                   onSelect: (key) => setTaskFocusKey((previous) => (previous === key ? null : (key as TaskFocusKey))),
-                  title: "집중 영역",
+                  title: "吏묒쨷 ?곸뿭",
                 }}
                 groups={boardOverviewGroups}
                 summaryCards={boardSummaryCards}
@@ -3639,8 +3855,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 <section className="daily-sheet__focus">
                   <div className="daily-sheet__focus-header">
                     <div>
-                      <p className="workspace__eyebrow">집중 영역</p>
-                      <p className="workspace__meta">실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.</p>
+                      <p className="workspace__eyebrow">吏묒쨷 ?곸뿭</p>
+                      <p className="workspace__meta">?ㅽ뻾 ?쒖꽌瑜?諛붽씀湲??꾩뿉 ?곗꽑 泥섎━援곗쓣 癒쇱? ?뺤씤?⑸땲??</p>
                     </div>
                   </div>
                   <div className="daily-sheet__focus-summary-bar">
@@ -3672,7 +3888,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   </div>
                   <TaskFocusStrip
                     activeKey={taskFocusKey}
-                    ariaLabel="일일 실행 집중 영역"
+                    ariaLabel="?쇱씪 ?ㅽ뻾 吏묒쨷 ?곸뿭"
                     className="daily-sheet__focus-strip"
                     items={boardFocusItems}
                     onSelect={(key) => setTaskFocusKey((previous) => (previous === key ? null : (key as TaskFocusKey)))}
@@ -3707,8 +3923,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         {dailyTaskPageNavigationItems.map((item) =>
                           item.kind === "ellipsis" ? (
                             <span aria-hidden="true" className="daily-task-list__toolbar-ellipsis" key={item.key}>
-                              …
-                            </span>
+                              ??                            </span>
                           ) : (
                             <button
                               aria-current={item.page === resolvedDailyTaskPage ? "page" : undefined}
@@ -3833,7 +4048,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
                             <div className="daily-task-card__reorder-actions">
                               <button
-                                aria-label="위로 이동"
+                                aria-label="?꾨줈 ?대룞"
                                 className="secondary-button"
                                 disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                 onClick={(event) => {
@@ -3842,10 +4057,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 }}
                                 type="button"
                               >
-                                ↑
-                              </button>
+                                ??                              </button>
                               <button
-                                aria-label="아래로 이동"
+                                aria-label="?꾨옒濡??대룞"
                                 className="secondary-button"
                                 disabled={isDailyManualReorderDisabled || isReorderingTasks}
                                 onClick={(event) => {
@@ -3854,8 +4068,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                 }}
                                 type="button"
                               >
-                                ↓
-                              </button>
+                                ??                              </button>
                             </div>
                           </div>
                           </article>
@@ -3864,7 +4077,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </div>
                   </>
                 ) : (
-                  <div className={clsx("sheet-wrapper", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}>
+                  <div
+                    className={clsx("sheet-wrapper", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}
+                    ref={taskListScrollViewportRef}
+                  >
                     <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
                       <colgroup>
                         {dailyTaskListColumns.map((column) => (
@@ -3890,286 +4106,37 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {displayedDailyTreeRows.map((row) => {
-                          const task = row.task;
-                          if (USE_MEMOIZED_DAILY_TASK_ROWS) {
-                            return (
-                              <DailyTaskTableRow
-                                categoryDefinitionsByField={categoryDefinitionsByField}
-                                clearTaskDragInteraction={clearTaskDragInteraction}
-                                currentDayKey={currentDayKey}
-                                focusTaskListEditableCell={focusTaskListEditableCell}
-                                handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
-                                handleTaskListRowResizeStart={handleTaskListRowResizeStart}
-                                handleTaskRowDragOver={handleTaskRowDragOver}
-                                handleTaskRowDragStart={handleTaskRowDragStart}
-                                handleTaskRowDrop={handleTaskRowDrop}
-                                hasActiveDailyFilters={isDailyManualReorderDisabled}
-                                hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
-                                inlineSavingFields={inlineSavingFields}
-                                isDimmedRow={Boolean(focusedTaskIds && !focusedTaskIds.has(task.id))}
-                                isReorderingTasks={isReorderingTasks}
-                                isSelectedRow={task.id === selectedTaskId}
-                                key={task.id}
-                                moveTaskByOffset={moveTaskByOffset}
-                                registerTaskListRowCellRef={registerTaskListRowCellRef}
-                                row={row}
-                                rowDraft={task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null}
-                                rowHeight={taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT}
-                                saveInlineTaskListField={saveInlineTaskListField}
-                                selectTask={selectTask}
-                                taskDropPosition={taskDropState?.taskId === task.id ? taskDropState.position : null}
-                                taskFiles={filesByTaskId[task.id] ?? EMPTY_TASK_FILES}
-                                updateDraftForm={updateDraftForm}
-                                workTypeDefinitions={workTypeDefinitions}
-                              />
-                            );
-                          }
-                          const taskFiles = filesByTaskId[task.id] ?? EMPTY_TASK_FILES;
-                          const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
-                          const rowHeight = taskListRowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
-                          const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
-                          const rowAutoFitAria = rowResizeAria;
-                          const isSelectedRow = task.id === selectedTaskId;
-                          const isOverdueRow = isTaskOverdue(task, currentDayKey);
-                          const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
-                          const isDimmedRow = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
-                          const rowDraft = task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null;
-                          const rowPresentationContext = createTaskListRowPresentationContext({
-                            task,
-                            row,
-                            rowDraft,
-                            linkedDocumentsDisplay,
-                            workTypeDefinitions,
-                            categoryDefinitionsByField,
-                          });
-
-                          const renderTaskListCellContent = (columnKey: TaskListColumnKey, presentation: TaskListCellPresentation) => {
-                            switch (presentation.kind) {
-                              case "tree":
-                                return (
-                                  <div className="task-tree">
-                                    {presentation.isChildTask ? (
-                                      <span aria-hidden="true" className="task-tree__guides">
-                                        {presentation.ancestorGuideFlags.map((hasNextSibling, index) => (
-                                          <span className={clsx("task-tree__lane", hasNextSibling && "task-tree__lane--continue")} key={task.id + "-lane-" + index} />
-                                        ))}
-                                        <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
-                                      </span>
-                                    ) : null}
-                                    <button
-                                      aria-label="행 순서 변경"
-                                      className="task-tree__drag-handle"
-                                      disabled={isDailyManualReorderDisabled || isReorderingTasks}
-                                      draggable={!isDailyManualReorderDisabled && !isReorderingTasks}
-                                      onClick={(event) => event.stopPropagation()}
-                                      onDragEnd={() => {
-                                        setTaskDragState(null);
-                                        setTaskDropState(null);
-                                      }}
-                                      onDragStart={(event) => handleTaskRowDragStart(task, event)}
-                                      type="button"
-                                    >
-                                      ⋮⋮
-                                    </button>
-                                    <span
-                                      className={clsx(
-                                        "task-tree__badge",
-                                        presentation.isParentTask && "task-tree__badge--parent",
-                                        presentation.isChildTask && "task-tree__badge--child",
-                                        presentation.isBranchTask && "task-tree__badge--branch",
-                                      )}
-                                    >
-                                      {presentation.actionId}
-                                    </span>
-                                    {deadlineBadge && !hideIssueIdOverdueBadge ? (
-                                      <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
-                                        {deadlineBadge.label}
-                                      </span>
-                                    ) : null}
-                                    {isSelectedRow ? (
-                                      <span className="task-tree__actions">
-                                        <button
-                                          aria-label="위로 이동"
-                                          className="task-tree__move-button"
-                                          disabled={isDailyManualReorderDisabled || isReorderingTasks}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void moveTaskByOffset(task.id, -1);
-                                          }}
-                                          type="button"
-                                        >
-                                          ↑
-                                        </button>
-                                        <button
-                                          aria-label="아래로 이동"
-                                          className="task-tree__move-button"
-                                          disabled={isDailyManualReorderDisabled || isReorderingTasks}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            void moveTaskByOffset(task.id, 1);
-                                          }}
-                                          type="button"
-                                        >
-                                          ↓
-                                        </button>
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                );
-                              case "text":
-                                return presentation.text;
-                              case "title":
-                                return (
-                                  <span
-                                    className={clsx(
-                                      "sheet-table__title-copy",
-                                      presentation.isParentTask && "sheet-table__title-copy--parent",
-                                      presentation.isChildTask && "sheet-table__title-copy--child",
-                                      presentation.isBranchTask && "sheet-table__title-copy--branch",
-                                    )}
-                                  >
-                                    {presentation.text}
-                                  </span>
-                                );
-                              case "files":
-                                return (
-                                  <>
-                                    <strong>{presentation.primary}</strong>
-                                    {presentation.secondary ? <small>{presentation.secondary}</small> : null}
-                                  </>
-                                );
-                              case "readonly-checkbox":
-                                return (
-                                  <span className="sheet-table__readonly-checkbox" aria-label={labelForField("calendarLinked")}>
-                                    <input checked={presentation.checked} disabled readOnly tabIndex={-1} type="checkbox" />
-                                  </span>
-                                );
-                              case "readonly-status":
-                                return <span className={clsx("status-pill", `status-pill--${presentation.value}`)}>{labelForStatus(presentation.value)}</span>;
-                              case "editable-date":
-                              case "editable-text":
-                                if (!rowDraft) return null;
-                                return (
-                                  <TaskListInlineEditor
-                                    columnKey={columnKey}
-                                    fieldKey={presentation.fieldKey}
-                                    form={rowDraft}
-                                    onChange={updateDraftForm}
-                                    onCommit={saveInlineTaskListField}
-                                    saving={Boolean(inlineSavingFields[columnKey])}
-                                    categoryDefinitionsByField={categoryDefinitionsByField}
-                                    workTypeDefinitions={workTypeDefinitions}
-                                  />
-                                );
-                              case "editable-checkbox":
-                                if (!rowDraft) return null;
-                                return (
-                                  <TaskListInlineEditor
-                                    columnKey={columnKey}
-                                    fieldKey="calendarLinked"
-                                    form={rowDraft}
-                                    onChange={updateDraftForm}
-                                    onCommit={saveInlineTaskListField}
-                                    saving={Boolean(inlineSavingFields[columnKey])}
-                                  />
-                                );
-                              case "editable-categorical":
-                                if (!rowDraft) return null;
-                                return (
-                                  <TaskListInlineEditor
-                                    columnKey={columnKey}
-                                    fieldKey={presentation.fieldKey}
-                                    form={rowDraft}
-                                    onChange={updateDraftForm}
-                                    onCommit={saveInlineTaskListField}
-                                    saving={Boolean(inlineSavingFields[columnKey])}
-                                    categoryDefinitionsByField={categoryDefinitionsByField}
-                                    workTypeDefinitions={workTypeDefinitions}
-                                  />
-                                );
-                            }
-                          };
-
-                          const renderTaskListCell = (column: TaskListColumnConfig) => {
-                            const editableField = getEditableTaskListField(column.key);
-                            const presentation = buildTaskListCellPresentation(column.key, rowPresentationContext);
-                            const isEditableCell = isEditableTaskListCellPresentation(presentation);
-
-                            return (
-                              <td
-                                className={column.className}
-                                key={column.key}
-                                onDoubleClick={
-                                  editableField
-                                    ? (event) => {
-                                        const target = event.target;
-                                        if (rowDraft && target instanceof HTMLElement) {
-                                          const inlineEditor = target.closest(
-                                            'input, textarea, select, button[data-task-multiselect-trigger="true"]',
-                                          );
-                                          if (inlineEditor) {
-                                            return;
-                                          }
-                                        }
-
-                                        event.stopPropagation();
-                                        focusTaskListEditableCell(task.id, column.key);
-                                      }
-                                    : undefined
-                                }
-                              >
-                                <div
-                                  className={clsx("sheet-table__cell-shell", column.key === "actionId" && "sheet-table__cell-shell--tree")}
-                                  ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
-                                  style={{ height: `${rowHeight}px` }}
-                                >
-                                  <div
-                                    className={clsx(
-                                      "sheet-table__cell-content",
-                                      isEditableCell && "sheet-table__cell-content--editable",
-                                      isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
-                                    )}
-                                  >
-                                    {renderTaskListCellContent(column.key, presentation)}
-                                  </div>
-                                  <button
-                                    aria-label={rowResizeAria}
-                                    className="sheet-table__row-resize-handle"
-                                    onDoubleClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      autoFitTaskListRow(task.id);
-                                    }}
-                                    onPointerDown={(event) => handleTaskListRowResizeStart(task.id, event)}
-                                    title={rowAutoFitAria}
-                                    type="button"
-                                  />
-                                </div>
-                              </td>
-                            );
-                          };
-
-                          return (
-                            <tr
-                              className={clsx(
-                                isSelectedRow && "sheet-row--active",
-                                "task-state-row",
-                                `task-state-row--${task.status}`,
-                                isOverdueRow && "task-state-row--overdue",
-                                isDimmedRow && "task-state-row--dimmed",
-                                taskDropState?.taskId === task.id && `task-state-row--drop-${taskDropState.position}`,
-                              )}
-                              data-task-row-id={task.id}
-                              key={task.id}
-                              onClick={() => selectTask(task.id)}
-                              onDragOver={(event) => handleTaskRowDragOver(task, event)}
-                              onDrop={(event) => void handleTaskRowDrop(task, event)}
-                            >
-                              {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
-                            </tr>
-                          );
-                        })}
+                        <DailyTaskTableBody
+                          activeTaskListInlineEditRowId={activeTaskListInlineEditRowId}
+                          categoryDefinitionsByField={categoryDefinitionsByField}
+                          clearTaskDragInteraction={clearTaskDragInteraction}
+                          currentDayKey={currentDayKey}
+                          draft={draft}
+                          filesByTaskId={filesByTaskId}
+                          focusTaskListEditableCell={focusTaskListEditableCell}
+                          focusedTaskIds={focusedTaskIds}
+                          handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
+                          handleTaskListRowResizeStart={handleTaskListRowResizeStart}
+                          handleTaskRowDragOver={handleTaskRowDragOver}
+                          handleTaskRowDragStart={handleTaskRowDragStart}
+                          handleTaskRowDrop={handleTaskRowDrop}
+                          hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
+                          inlineSavingFields={inlineSavingFields}
+                          interactionStore={taskListRowInteractionStore}
+                          isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
+                          isManualReorderDisabled={isDailyManualReorderDisabled}
+                          isReorderingTasks={isReorderingTasks}
+                          layoutStore={taskListLayoutStore}
+                          moveTaskByOffset={moveTaskByOffset}
+                          pinnedTaskIds={pinnedDailyTaskTableRowIds}
+                          registerTaskListRowCellRef={registerTaskListRowCellRef}
+                          rows={displayedDailyTreeRows}
+                          saveInlineTaskListField={saveInlineTaskListField}
+                          selectTask={selectTask}
+                          shouldVirtualize={shouldVirtualizeDailyTaskTable}
+                          updateDraftForm={updateDraftForm}
+                          workTypeDefinitions={workTypeDefinitions}
+                        />
                       </tbody>
                     </table>
                   </div>
@@ -4547,7 +4514,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   </a>
                                   <button
                                     className="secondary-button"
-                                    onClick={() => void downloadFileAttachment(file).catch(() => setErrorMessage("파일을 내려받지 못했습니다."))}
+                                    onClick={() => void downloadFileAttachment(file).catch(() => setErrorMessage("?뚯씪???대젮諛쏆? 紐삵뻽?듬땲??"))}
                                     type="button"
                                   >
                                     {t("actions.save")}
@@ -4621,19 +4588,364 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 }
 
+function TaskListSpacerRow({ height }: { height: number }) {
+  return (
+    <tr aria-hidden="true" role="presentation">
+      <td
+        colSpan={dailyTaskListColumns.length}
+        style={{
+          height: `${height}px`,
+          minHeight: `${height}px`,
+          padding: 0,
+          border: 0,
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
+    </tr>
+  );
+}
+
+function DailyTaskTableBody({
+  rows,
+  pinnedTaskIds,
+  shouldVirtualize,
+  layoutStore,
+  interactionStore,
+  filesByTaskId,
+  focusedTaskIds,
+  currentDayKey,
+  hideIssueIdOverdueBadge,
+  isManualReorderDisabled,
+  isHtmlDragReorderDisabled,
+  isReorderingTasks,
+  activeTaskListInlineEditRowId,
+  draft,
+  inlineSavingFields,
+  workTypeDefinitions,
+  categoryDefinitionsByField,
+  registerTaskListRowCellRef,
+  focusTaskListEditableCell,
+  updateDraftForm,
+  saveInlineTaskListField,
+  moveTaskByOffset,
+  handleTaskRowDragStart,
+  handleTaskRowDragOver,
+  handleTaskRowDrop,
+  clearTaskDragInteraction,
+  handleTaskListRowAutoFitDoubleClick,
+  handleTaskListRowResizeStart,
+  selectTask,
+}: DailyTaskTableBodyProps) {
+  const { rowHeights, viewport } = useTaskListLayoutSnapshot(layoutStore);
+  const dailyTaskTableWindow = useMemo(
+    () =>
+      buildDailyTaskTableWindow({
+        enabled: shouldVirtualize,
+        pinnedTaskIds,
+        viewportHeight: viewport.height,
+        scrollTop: viewport.scrollTop,
+        rowHeights,
+        rows,
+      }),
+    [pinnedTaskIds, rowHeights, rows, shouldVirtualize, viewport.height, viewport.scrollTop],
+  );
+
+  return (
+    <>
+      {dailyTaskTableWindow.items.map((item) => {
+        if (item.kind === "spacer") {
+          return <TaskListSpacerRow height={item.height} key={item.key} />;
+        }
+
+        const row = item.row;
+        const task = row.task;
+        if (USE_MEMOIZED_DAILY_TASK_ROWS) {
+          return (
+            <DailyTaskTableRow
+              categoryDefinitionsByField={categoryDefinitionsByField}
+              clearTaskDragInteraction={clearTaskDragInteraction}
+              currentDayKey={currentDayKey}
+              focusTaskListEditableCell={focusTaskListEditableCell}
+              handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
+              handleTaskListRowResizeStart={handleTaskListRowResizeStart}
+              handleTaskRowDragOver={handleTaskRowDragOver}
+              handleTaskRowDragStart={handleTaskRowDragStart}
+              handleTaskRowDrop={handleTaskRowDrop}
+              isHtmlDragReorderDisabled={isHtmlDragReorderDisabled}
+              isManualReorderDisabled={isManualReorderDisabled}
+              hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
+              inlineSavingFields={inlineSavingFields}
+              isReorderingTasks={isReorderingTasks}
+              interactionStore={interactionStore}
+              key={task.id}
+              moveTaskByOffset={moveTaskByOffset}
+              registerTaskListRowCellRef={registerTaskListRowCellRef}
+              row={row}
+              rowDraft={task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null}
+              rowHeight={rowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT}
+              saveInlineTaskListField={saveInlineTaskListField}
+              selectTask={selectTask}
+              taskFiles={filesByTaskId[task.id] ?? EMPTY_TASK_FILES}
+              updateDraftForm={updateDraftForm}
+              workTypeDefinitions={workTypeDefinitions}
+            />
+          );
+        }
+
+        const taskFiles = filesByTaskId[task.id] ?? EMPTY_TASK_FILES;
+        const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
+        const rowHeight = rowHeights[task.id] ?? TASK_LIST_ROW_MIN_HEIGHT;
+        const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
+        const rowAutoFitAria = rowResizeAria;
+        const interactionSnapshot = interactionStore.getTaskSnapshot(task.id);
+        const isOverdueRow = isTaskOverdue(task, currentDayKey);
+        const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
+        const isDimmedRow = Boolean(focusedTaskIds && !focusedTaskIds.has(task.id));
+        const rowDraft = task.id === activeTaskListInlineEditRowId && draft?.id === task.id ? draft : null;
+        const rowPresentationContext = createTaskListRowPresentationContext({
+          activeInlineColumnKey: interactionSnapshot.activeInlineColumnKey,
+          task,
+          row,
+          rowDraft,
+          linkedDocumentsDisplay,
+          workTypeDefinitions,
+          categoryDefinitionsByField,
+        });
+
+        const renderTaskListCellContent = (columnKey: TaskListColumnKey, presentation: TaskListCellPresentation) => {
+          switch (presentation.kind) {
+            case "tree":
+              return (
+                <div className="task-tree">
+                  {presentation.isChildTask ? (
+                    <span aria-hidden="true" className="task-tree__guides">
+                      {presentation.ancestorGuideFlags.map((hasNextSibling, index) => (
+                        <span className={clsx("task-tree__lane", hasNextSibling && "task-tree__lane--continue")} key={task.id + "-lane-" + index} />
+                      ))}
+                      <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
+                    </span>
+                  ) : null}
+                  <button
+                    aria-label="Reorder task"
+                    className="task-tree__drag-handle"
+                    disabled={isHtmlDragReorderDisabled || isReorderingTasks}
+                    draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
+                    onClick={(event) => event.stopPropagation()}
+                    onDragEnd={clearTaskDragInteraction}
+                    onDragStart={(event) => handleTaskRowDragStart(task, event)}
+                    type="button"
+                  >
+                    ⠿
+                  </button>
+                  <span
+                    className={clsx(
+                      "task-tree__badge",
+                      presentation.isParentTask && "task-tree__badge--parent",
+                      presentation.isChildTask && "task-tree__badge--child",
+                      presentation.isBranchTask && "task-tree__badge--branch",
+                    )}
+                  >
+                    {presentation.actionId}
+                  </span>
+                  {deadlineBadge && !hideIssueIdOverdueBadge ? (
+                    <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
+                      {deadlineBadge.label}
+                    </span>
+                  ) : null}
+                  {interactionSnapshot.isSelectedRow ? (
+                    <span className="task-tree__actions">
+                      <button
+                        aria-label="Move task up"
+                        className="task-tree__move-button"
+                        disabled={isManualReorderDisabled || isReorderingTasks}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void moveTaskByOffset(task.id, -1);
+                        }}
+                        type="button"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        aria-label="Move task down"
+                        className="task-tree__move-button"
+                        disabled={isManualReorderDisabled || isReorderingTasks}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void moveTaskByOffset(task.id, 1);
+                        }}
+                        type="button"
+                      >
+                        ↓
+                      </button>
+                    </span>
+                  ) : null}
+                </div>
+              );
+            case "text":
+              return presentation.text;
+            case "title":
+              return (
+                <span
+                  className={clsx(
+                    "sheet-table__title-copy",
+                    presentation.isParentTask && "sheet-table__title-copy--parent",
+                    presentation.isChildTask && "sheet-table__title-copy--child",
+                    presentation.isBranchTask && "sheet-table__title-copy--branch",
+                  )}
+                >
+                  {presentation.text}
+                </span>
+              );
+            case "files":
+              return (
+                <>
+                  <strong>{presentation.primary}</strong>
+                  {presentation.secondary ? <small>{presentation.secondary}</small> : null}
+                </>
+              );
+            case "readonly-checkbox":
+              return (
+                <span className="sheet-table__readonly-checkbox" aria-label={labelForField("calendarLinked")}>
+                  <input checked={presentation.checked} disabled readOnly tabIndex={-1} type="checkbox" />
+                </span>
+              );
+            case "readonly-status":
+              return <span className={clsx("status-pill", `status-pill--${presentation.value}`)}>{labelForStatus(presentation.value)}</span>;
+            case "editable-date":
+            case "editable-text":
+              if (!rowDraft) return null;
+              return (
+                <TaskListInlineEditor
+                  categoryDefinitionsByField={categoryDefinitionsByField}
+                  columnKey={columnKey}
+                  fieldKey={presentation.fieldKey}
+                  form={rowDraft}
+                  onChange={updateDraftForm}
+                  onCommit={saveInlineTaskListField}
+                  saving={Boolean(inlineSavingFields[columnKey])}
+                  workTypeDefinitions={workTypeDefinitions}
+                />
+              );
+            case "editable-checkbox":
+              if (!rowDraft) return null;
+              return (
+                <TaskListInlineEditor
+                  columnKey={columnKey}
+                  fieldKey="calendarLinked"
+                  form={rowDraft}
+                  onChange={updateDraftForm}
+                  onCommit={saveInlineTaskListField}
+                  saving={Boolean(inlineSavingFields[columnKey])}
+                />
+              );
+            case "editable-categorical":
+              if (!rowDraft) return null;
+              return (
+                <TaskListInlineEditor
+                  categoryDefinitionsByField={categoryDefinitionsByField}
+                  columnKey={columnKey}
+                  fieldKey={presentation.fieldKey}
+                  form={rowDraft}
+                  onChange={updateDraftForm}
+                  onCommit={saveInlineTaskListField}
+                  saving={Boolean(inlineSavingFields[columnKey])}
+                  workTypeDefinitions={workTypeDefinitions}
+                />
+              );
+          }
+        };
+
+        const renderTaskListCell = (column: TaskListColumnConfig) => {
+          const editableField = getEditableTaskListField(column.key);
+          const presentation = buildTaskListCellPresentation(column.key, rowPresentationContext);
+          const isEditableCell = isEditableTaskListCellPresentation(presentation);
+
+          return (
+            <td
+              className={column.className}
+              key={column.key}
+              onDoubleClick={
+                editableField
+                  ? (event) => {
+                      const target = event.target;
+                      if (rowDraft && target instanceof HTMLElement) {
+                        const inlineEditor = target.closest('input, textarea, select, button[data-task-multiselect-trigger="true"]');
+                        if (inlineEditor) {
+                          return;
+                        }
+                      }
+
+                      event.stopPropagation();
+                      focusTaskListEditableCell(task.id, column.key);
+                    }
+                  : undefined
+              }
+            >
+              <div
+                className={clsx("sheet-table__cell-shell", column.key === "actionId" && "sheet-table__cell-shell--tree")}
+                ref={(node) => registerTaskListRowCellRef(task.id, column.key, node)}
+                style={{ height: `${rowHeight}px` }}
+              >
+                <div
+                  className={clsx(
+                    "sheet-table__cell-content",
+                    isEditableCell && "sheet-table__cell-content--editable",
+                    isCenteredCategoricalColumn(column.key) && "sheet-table__cell-content--centered",
+                  )}
+                >
+                  {renderTaskListCellContent(column.key, presentation)}
+                </div>
+                <button
+                  aria-label={rowResizeAria}
+                  className="sheet-table__row-resize-handle"
+                  onDoubleClick={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
+                  onPointerDown={(event) => handleTaskListRowResizeStart(task.id, event)}
+                  title={rowAutoFitAria}
+                  type="button"
+                />
+              </div>
+            </td>
+          );
+        };
+
+        return (
+          <tr
+            className={clsx(
+              interactionSnapshot.isSelectedRow && "sheet-row--active",
+              "task-state-row",
+              `task-state-row--${task.status}`,
+              isOverdueRow && "task-state-row--overdue",
+              isDimmedRow && "task-state-row--dimmed",
+              interactionSnapshot.taskDropPosition && `task-state-row--drop-${interactionSnapshot.taskDropPosition}`,
+            )}
+            data-task-row-id={task.id}
+            key={task.id}
+            onClick={() => selectTask(task.id)}
+            onDragOver={(event) => handleTaskRowDragOver(task, event)}
+            onDrop={(event) => void handleTaskRowDrop(task, event)}
+          >
+            {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
 const DailyTaskTableRow = memo(function DailyTaskTableRow({
   row,
   taskFiles,
   rowHeight,
   currentDayKey,
   hideIssueIdOverdueBadge,
-  hasActiveDailyFilters,
+  interactionStore,
+  isManualReorderDisabled,
+  isHtmlDragReorderDisabled,
   isReorderingTasks,
-  isSelectedRow,
-  isDimmedRow,
   rowDraft,
   inlineSavingFields,
-  taskDropPosition,
   workTypeDefinitions,
   categoryDefinitionsByField,
   registerTaskListRowCellRef,
@@ -4650,12 +4962,14 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   selectTask,
 }: DailyTaskTableRowProps) {
   const task = row.task;
+  const { activeInlineColumnKey, isDimmedRow, isSelectedRow, taskDropPosition } = useTaskListRowInteractionState(interactionStore, task.id);
   const linkedDocumentsDisplay = formatLinkedDocumentsSummary(task, taskFiles);
   const rowResizeAria = t("workspace.resizeFieldAria", { field: formatTaskDisplayId(task) });
   const rowAutoFitAria = rowResizeAria;
   const isOverdueRow = isTaskOverdue(task, currentDayKey);
   const deadlineBadge = resolveTaskDeadlineBadge(task, currentDayKey);
   const rowPresentationContext = createTaskListRowPresentationContext({
+    activeInlineColumnKey,
     task,
     row,
     rowDraft,
@@ -4680,15 +4994,14 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             <button
               aria-label="Reorder task"
               className="task-tree__drag-handle"
-              disabled={hasActiveDailyFilters || isReorderingTasks}
-              draggable={!hasActiveDailyFilters && !isReorderingTasks}
+              disabled={isHtmlDragReorderDisabled || isReorderingTasks}
+              draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
               onClick={(event) => event.stopPropagation()}
               onDragEnd={clearTaskDragInteraction}
               onDragStart={(event) => handleTaskRowDragStart(task, event)}
               type="button"
             >
-              ↕
-            </button>
+              ??            </button>
             <span
               className={clsx(
                 "task-tree__badge",
@@ -4709,27 +5022,25 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <button
                   aria-label="Move task up"
                   className="task-tree__move-button"
-                  disabled={hasActiveDailyFilters || isReorderingTasks}
+                  disabled={isManualReorderDisabled || isReorderingTasks}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, -1);
                   }}
                   type="button"
                 >
-                  ↑
-                </button>
+                  ??                </button>
                 <button
                   aria-label="Move task down"
                   className="task-tree__move-button"
-                  disabled={hasActiveDailyFilters || isReorderingTasks}
+                  disabled={isManualReorderDisabled || isReorderingTasks}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, 1);
                   }}
                   type="button"
                 >
-                  ↓
-                </button>
+                  ??                </button>
               </span>
             ) : null}
           </div>
@@ -4891,15 +5202,14 @@ function areDailyTaskTableRowPropsEqual(previous: DailyTaskTableRowProps, next: 
   if (previous.rowHeight !== next.rowHeight) return false;
   if (previous.currentDayKey !== next.currentDayKey) return false;
   if (previous.hideIssueIdOverdueBadge !== next.hideIssueIdOverdueBadge) return false;
-  if (previous.hasActiveDailyFilters !== next.hasActiveDailyFilters) return false;
+  if (previous.interactionStore !== next.interactionStore) return false;
+  if (previous.isManualReorderDisabled !== next.isManualReorderDisabled) return false;
+  if (previous.isHtmlDragReorderDisabled !== next.isHtmlDragReorderDisabled) return false;
   if (previous.isReorderingTasks !== next.isReorderingTasks) return false;
-  if (previous.isSelectedRow !== next.isSelectedRow) return false;
-  if (previous.isDimmedRow !== next.isDimmedRow) return false;
   if (previous.rowDraft !== next.rowDraft) return false;
-  if (previous.taskDropPosition !== next.taskDropPosition) return false;
   if (previous.workTypeDefinitions !== next.workTypeDefinitions) return false;
   if (previous.categoryDefinitionsByField !== next.categoryDefinitionsByField) return false;
-  if (previous.isSelectedRow && previous.inlineSavingFields !== next.inlineSavingFields) return false;
+  if ((previous.rowDraft !== null || next.rowDraft !== null) && previous.inlineSavingFields !== next.inlineSavingFields) return false;
   return true;
 }
 
@@ -5767,6 +6077,124 @@ function buildDailyTaskPageNavigationItems(totalPages: number, currentPage: numb
   return items;
 }
 
+function buildDailyTaskTableWindow({
+  enabled,
+  rows,
+  rowHeights,
+  scrollTop,
+  viewportHeight,
+  pinnedTaskIds,
+}: {
+  enabled: boolean;
+  rows: readonly TaskTreeRow[];
+  rowHeights: TaskListRowHeightMap;
+  scrollTop: number;
+  viewportHeight: number;
+  pinnedTaskIds: ReadonlySet<string>;
+}) {
+  if (!enabled || rows.length === 0) {
+    return {
+      items: rows.map((row) => ({ kind: "row", row }) satisfies DailyTaskTableWindowItem),
+    };
+  }
+
+  const rowOffsets: number[] = [];
+  const resolvedRowHeights: number[] = [];
+  let totalHeight = 0;
+
+  rows.forEach((row, index) => {
+    rowOffsets[index] = totalHeight;
+    const nextHeight = (rowHeights[row.task.id] ?? TASK_LIST_ROW_MIN_HEIGHT) + DAILY_TASK_TABLE_ROW_CHROME_HEIGHT;
+    resolvedRowHeights[index] = nextHeight;
+    totalHeight += nextHeight;
+  });
+
+  if (viewportHeight <= 0 || totalHeight <= viewportHeight) {
+    return {
+      items: rows.map((row) => ({ kind: "row", row }) satisfies DailyTaskTableWindowItem),
+    };
+  }
+
+  const maxScrollTop = Math.max(0, totalHeight - viewportHeight);
+  const normalizedScrollTop = Math.min(Math.max(scrollTop, 0), maxScrollTop);
+  const viewportBottom = normalizedScrollTop + viewportHeight;
+
+  let visibleStartIndex = 0;
+  while (
+    visibleStartIndex < rows.length - 1 &&
+    rowOffsets[visibleStartIndex] + resolvedRowHeights[visibleStartIndex] < normalizedScrollTop
+  ) {
+    visibleStartIndex += 1;
+  }
+
+  let visibleEndIndex = visibleStartIndex;
+  while (visibleEndIndex < rows.length - 1 && rowOffsets[visibleEndIndex] < viewportBottom) {
+    visibleEndIndex += 1;
+  }
+
+  const startIndex = Math.max(0, visibleStartIndex - DAILY_TASK_TABLE_VIRTUAL_OVERSCAN);
+  const endIndex = Math.min(rows.length - 1, visibleEndIndex + DAILY_TASK_TABLE_VIRTUAL_OVERSCAN);
+  const pinnedIndexes = rows.reduce<number[]>((indexes, row, index) => {
+    if (pinnedTaskIds.has(row.task.id)) {
+      indexes.push(index);
+    }
+    return indexes;
+  }, []);
+  const mergedSegments = [{ start: startIndex, end: endIndex }, ...pinnedIndexes.map((index) => ({ start: index, end: index }))]
+    .sort((left, right) => left.start - right.start)
+    .reduce<Array<{ start: number; end: number }>>((segments, segment) => {
+      const previous = segments[segments.length - 1];
+      if (!previous) {
+        segments.push(segment);
+        return segments;
+      }
+
+      if (segment.start <= previous.end + 1) {
+        previous.end = Math.max(previous.end, segment.end);
+        return segments;
+      }
+
+      segments.push(segment);
+      return segments;
+    }, []);
+  const items: DailyTaskTableWindowItem[] = [];
+  let previousBottom = 0;
+
+  mergedSegments.forEach((segment, segmentIndex) => {
+    const segmentTop = rowOffsets[segment.start] ?? 0;
+    const gapHeight = Math.max(0, segmentTop - previousBottom);
+    if (gapHeight > 0) {
+      items.push({
+        kind: "spacer",
+        key: `daily-task-table-gap-${segmentIndex}`,
+        height: gapHeight,
+      });
+    }
+
+    for (let index = segment.start; index <= segment.end; index += 1) {
+      items.push({
+        kind: "row",
+        row: rows[index],
+      });
+    }
+
+    previousBottom = (rowOffsets[segment.end] ?? 0) + resolvedRowHeights[segment.end];
+  });
+
+  const bottomGapHeight = Math.max(0, totalHeight - previousBottom);
+  if (bottomGapHeight > 0) {
+    items.push({
+      kind: "spacer",
+      key: "daily-task-table-gap-bottom",
+      height: bottomGapHeight,
+    });
+  }
+
+  return {
+    items,
+  };
+}
+
 function getBoardPageForTask(tasks: readonly TaskRecord[], taskId: string, status: TaskStatus, pageSize: number) {
   const items = tasks.filter((task) => task.status === status);
   const taskIndex = items.findIndex((task) => task.id === taskId);
@@ -5790,17 +6218,252 @@ function pruneTaskListRowHeights(rowHeights: TaskListRowHeightMap, taskIds: Set<
   return next;
 }
 
+function areTaskListRowHeightMapsEqual(previous: TaskListRowHeightMap, next: TaskListRowHeightMap) {
+  if (previous === next) {
+    return true;
+  }
+
+  const previousEntries = Object.entries(previous);
+  const nextEntries = Object.entries(next);
+  if (previousEntries.length !== nextEntries.length) {
+    return false;
+  }
+
+  return previousEntries.every(([taskId, height]) => next[taskId] === height);
+}
+
+function areTaskListDesktopViewportStatesEqual(previous: TaskListDesktopViewportState, next: TaskListDesktopViewportState) {
+  return previous.height === next.height && previous.scrollTop === next.scrollTop;
+}
+
+function arePendingTaskListFocusCellsEqual(
+  previous: PendingTaskListFocusCell | null,
+  next: PendingTaskListFocusCell | null,
+) {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return previous.taskId === next.taskId && previous.columnKey === next.columnKey;
+}
+
+function areTaskDropStatesEqual(previous: TaskDropState | null, next: TaskDropState | null) {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return previous.taskId === next.taskId && previous.position === next.position;
+}
+
+function areFocusedTaskIdSetsEqual(previous: ReadonlySet<string> | null, next: ReadonlySet<string> | null) {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  if (previous.size !== next.size) return false;
+  for (const taskId of previous) {
+    if (!next.has(taskId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areTaskListRowInteractionStatesEqual(previous: TaskListRowInteractionState, next: TaskListRowInteractionState) {
+  return (
+    previous.selectedTaskId === next.selectedTaskId &&
+    arePendingTaskListFocusCellsEqual(previous.activeInlineEditCell, next.activeInlineEditCell) &&
+    areTaskDropStatesEqual(previous.taskDropState, next.taskDropState) &&
+    areFocusedTaskIdSetsEqual(previous.focusedTaskIds, next.focusedTaskIds)
+  );
+}
+
+function areTaskListRowInteractionSnapshotsEqual(previous: TaskListRowInteractionSnapshot, next: TaskListRowInteractionSnapshot) {
+  return (
+    previous.isSelectedRow === next.isSelectedRow &&
+    previous.activeInlineColumnKey === next.activeInlineColumnKey &&
+    previous.taskDropPosition === next.taskDropPosition &&
+    previous.isDimmedRow === next.isDimmedRow
+  );
+}
+
+function createTaskListLayoutStore(): TaskListLayoutStore {
+  let snapshot: TaskListLayoutSnapshot = {
+    rowHeights: {},
+    viewport: {
+      height: 0,
+      scrollTop: 0,
+    },
+  };
+  const listeners = new Set<() => void>();
+
+  const notify = () => {
+    listeners.forEach((listener) => listener());
+  };
+
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot() {
+      return snapshot;
+    },
+    replaceRowHeights(rowHeights) {
+      if (areTaskListRowHeightMapsEqual(snapshot.rowHeights, rowHeights)) {
+        return;
+      }
+
+      snapshot = {
+        ...snapshot,
+        rowHeights,
+      };
+      notify();
+    },
+    setViewportState(viewport) {
+      if (areTaskListDesktopViewportStatesEqual(snapshot.viewport, viewport)) {
+        return;
+      }
+
+      snapshot = {
+        ...snapshot,
+        viewport,
+      };
+      notify();
+    },
+  };
+}
+
+function createTaskListRowInteractionStore(): TaskListRowInteractionStore {
+  let state: TaskListRowInteractionState = {
+    selectedTaskId: null,
+    activeInlineEditCell: null,
+    taskDropState: null,
+    focusedTaskIds: null,
+  };
+  const listenersByTaskId = new Map<string, Set<() => void>>();
+  const snapshotCache = new Map<string, TaskListRowInteractionSnapshot>();
+
+  const buildSnapshot = (nextState: TaskListRowInteractionState, taskId: string): TaskListRowInteractionSnapshot => ({
+    isSelectedRow: nextState.selectedTaskId === taskId,
+    activeInlineColumnKey: nextState.activeInlineEditCell?.taskId === taskId ? nextState.activeInlineEditCell.columnKey : null,
+    taskDropPosition: nextState.taskDropState?.taskId === taskId ? nextState.taskDropState.position : null,
+    isDimmedRow: nextState.focusedTaskIds ? !nextState.focusedTaskIds.has(taskId) : false,
+  });
+
+  const updateTaskSnapshot = (nextState: TaskListRowInteractionState, taskId: string) => {
+    const previous = snapshotCache.get(taskId);
+    const next = buildSnapshot(nextState, taskId);
+    if (previous && areTaskListRowInteractionSnapshotsEqual(previous, next)) {
+      return false;
+    }
+
+    snapshotCache.set(taskId, next);
+    return true;
+  };
+
+  const notifyTasks = (nextState: TaskListRowInteractionState, taskIds: Set<string>) => {
+    taskIds.forEach((taskId) => {
+      if (!updateTaskSnapshot(nextState, taskId)) {
+        return;
+      }
+
+      listenersByTaskId.get(taskId)?.forEach((listener) => listener());
+    });
+  };
+
+  return {
+    subscribeToTask(taskId, listener) {
+      const listeners = listenersByTaskId.get(taskId) ?? new Set<() => void>();
+      listeners.add(listener);
+      listenersByTaskId.set(taskId, listeners);
+
+      return () => {
+        const nextListeners = listenersByTaskId.get(taskId);
+        if (!nextListeners) {
+          return;
+        }
+
+        nextListeners.delete(listener);
+        if (nextListeners.size === 0) {
+          listenersByTaskId.delete(taskId);
+        }
+      };
+    },
+    getTaskSnapshot(taskId) {
+      const cached = snapshotCache.get(taskId);
+      if (cached) {
+        return cached;
+      }
+
+      const next = buildSnapshot(state, taskId);
+      snapshotCache.set(taskId, next);
+      return next;
+    },
+    setState(partialState) {
+      const nextState = {
+        ...state,
+        ...partialState,
+      };
+      if (areTaskListRowInteractionStatesEqual(state, nextState)) {
+        return;
+      }
+
+      const affectedTaskIds = new Set<string>();
+      const shouldNotifyAllTasks =
+        partialState.focusedTaskIds !== undefined && !areFocusedTaskIdSetsEqual(state.focusedTaskIds, nextState.focusedTaskIds);
+      if (shouldNotifyAllTasks) {
+        listenersByTaskId.forEach((_, taskId) => {
+          affectedTaskIds.add(taskId);
+        });
+      } else {
+        if (state.selectedTaskId) {
+          affectedTaskIds.add(state.selectedTaskId);
+        }
+        if (nextState.selectedTaskId) {
+          affectedTaskIds.add(nextState.selectedTaskId);
+        }
+        if (state.activeInlineEditCell?.taskId) {
+          affectedTaskIds.add(state.activeInlineEditCell.taskId);
+        }
+        if (nextState.activeInlineEditCell?.taskId) {
+          affectedTaskIds.add(nextState.activeInlineEditCell.taskId);
+        }
+        if (state.taskDropState?.taskId) {
+          affectedTaskIds.add(state.taskDropState.taskId);
+        }
+        if (nextState.taskDropState?.taskId) {
+          affectedTaskIds.add(nextState.taskDropState.taskId);
+        }
+      }
+
+      state = nextState;
+      notifyTasks(nextState, affectedTaskIds);
+    },
+  };
+}
+
+function useTaskListLayoutSnapshot(store: TaskListLayoutStore) {
+  const subscribe = useCallback((listener: () => void) => store.subscribe(listener), [store]);
+  const getSnapshot = useCallback(() => store.getSnapshot(), [store]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+function useTaskListRowInteractionState(store: TaskListRowInteractionStore, taskId: string) {
+  const subscribe = useCallback((listener: () => void) => store.subscribeToTask(taskId, listener), [store, taskId]);
+  const getSnapshot = useCallback(() => store.getTaskSnapshot(taskId), [store, taskId]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 function createTaskListRowPresentationContext(context: TaskListRowPresentationContext) {
   return context;
 }
 
 function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: TaskListRowPresentationContext): TaskListCellPresentation {
-  const { task, row, rowDraft, linkedDocumentsDisplay, workTypeDefinitions, categoryDefinitionsByField } = context;
+  const { task, row, rowDraft, activeInlineColumnKey, linkedDocumentsDisplay, workTypeDefinitions, categoryDefinitionsByField } = context;
   const categoricalFieldContext = { workTypeDefinitions, categoryDefinitionsByField };
   const isChildTask = row.depth > 0;
   const isParentTask = row.hasChildren;
   const isBranchTask = isChildTask && isParentTask;
   const ancestorGuideFlags = row.depth > 1 ? row.ancestorHasNextSibling.slice(0, row.depth - 1) : [];
+  const displayTask = rowDraft ?? task;
+  const isActiveInlineColumn = rowDraft !== null && activeInlineColumnKey === columnKey;
 
   switch (columnKey) {
     case "actionId":
@@ -5814,83 +6477,83 @@ function buildTaskListCellPresentation(columnKey: TaskListColumnKey, context: Ta
         ancestorGuideFlags,
       };
     case "dueDate":
-      return rowDraft ? { kind: "editable-date", fieldKey: "dueDate", value: rowDraft.dueDate } : { kind: "text", text: task.dueDate || "-" };
+      return isActiveInlineColumn ? { kind: "editable-date", fieldKey: "dueDate", value: rowDraft.dueDate } : { kind: "text", text: displayTask.dueDate || "-" };
     case "workType":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "workType",
             value: rowDraft.workType,
             label: labelForTaskCategoricalFieldValue("workType", rowDraft.workType, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForTaskCategoricalFieldValue("workType", task.workType, categoricalFieldContext) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("workType", displayTask.workType, categoricalFieldContext) };
     case "coordinationScope":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "coordinationScope",
             value: rowDraft.coordinationScope,
             label: labelForTaskCategoricalFieldValue("coordinationScope", rowDraft.coordinationScope, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForTaskCategoricalFieldValue("coordinationScope", task.coordinationScope, categoricalFieldContext) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("coordinationScope", displayTask.coordinationScope, categoricalFieldContext) };
     case "requestedBy":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "requestedBy",
             value: rowDraft.requestedBy,
             label: labelForTaskCategoricalFieldValue("requestedBy", rowDraft.requestedBy, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForTaskCategoricalFieldValue("requestedBy", task.requestedBy, categoricalFieldContext) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("requestedBy", displayTask.requestedBy, categoricalFieldContext) };
     case "relatedDisciplines":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "relatedDisciplines",
             value: rowDraft.relatedDisciplines,
             label: labelForTaskCategoricalFieldValue("relatedDisciplines", rowDraft.relatedDisciplines, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForTaskCategoricalFieldValue("relatedDisciplines", task.relatedDisciplines, categoricalFieldContext) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("relatedDisciplines", displayTask.relatedDisciplines, categoricalFieldContext) };
     case "assignee":
-      return rowDraft ? { kind: "editable-text", fieldKey: "assignee", value: rowDraft.assignee } : { kind: "text", text: task.assignee || "-" };
+      return isActiveInlineColumn ? { kind: "editable-text", fieldKey: "assignee", value: rowDraft.assignee } : { kind: "text", text: displayTask.assignee || "-" };
     case "issueTitle":
-      return rowDraft
+      return isActiveInlineColumn
         ? { kind: "editable-text", fieldKey: "issueTitle", value: rowDraft.issueTitle, isTitle: true }
         : {
             kind: "title",
-            text: task.issueTitle,
+            text: displayTask.issueTitle,
             isChildTask,
             isParentTask,
             isBranchTask,
           };
     case "reviewedAt":
-      return rowDraft ? { kind: "editable-date", fieldKey: "reviewedAt", value: rowDraft.reviewedAt } : { kind: "text", text: task.reviewedAt || "-" };
+      return isActiveInlineColumn ? { kind: "editable-date", fieldKey: "reviewedAt", value: rowDraft.reviewedAt } : { kind: "text", text: displayTask.reviewedAt || "-" };
     case "locationRef":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "locationRef",
             value: rowDraft.locationRef,
             label: labelForTaskCategoricalFieldValue("locationRef", rowDraft.locationRef, categoricalFieldContext),
           }
-        : { kind: "text", text: labelForTaskCategoricalFieldValue("locationRef", task.locationRef, categoricalFieldContext) };
+        : { kind: "text", text: labelForTaskCategoricalFieldValue("locationRef", displayTask.locationRef, categoricalFieldContext) };
     case "calendarLinked":
-      return rowDraft ? { kind: "editable-checkbox", checked: rowDraft.calendarLinked } : { kind: "readonly-checkbox", checked: task.calendarLinked };
+      return isActiveInlineColumn ? { kind: "editable-checkbox", checked: rowDraft.calendarLinked } : { kind: "readonly-checkbox", checked: displayTask.calendarLinked };
     case "issueDetailNote":
-      return rowDraft
+      return isActiveInlineColumn
         ? { kind: "editable-text", fieldKey: "issueDetailNote", value: rowDraft.issueDetailNote }
-        : { kind: "text", text: task.issueDetailNote || "-" };
+        : { kind: "text", text: displayTask.issueDetailNote || "-" };
     case "status":
-      return rowDraft
+      return isActiveInlineColumn
         ? {
             kind: "editable-categorical",
             fieldKey: "status",
             value: rowDraft.status,
             label: labelForTaskCategoricalFieldValue("status", rowDraft.status, categoricalFieldContext),
           }
-        : { kind: "readonly-status", value: task.status };
+        : { kind: "readonly-status", value: displayTask.status };
     case "decision":
-      return rowDraft ? { kind: "editable-text", fieldKey: "decision", value: rowDraft.decision } : { kind: "text", text: task.decision || "-" };
+      return isActiveInlineColumn ? { kind: "editable-text", fieldKey: "decision", value: rowDraft.decision } : { kind: "text", text: displayTask.decision || "-" };
     case "linkedDocuments":
       return {
         kind: "files",
@@ -6038,6 +6701,19 @@ function appendTaskListCellMeasurementContent(container: HTMLElement, presentati
       );
       return;
   }
+}
+
+function buildTaskListRowMeasurementCacheKey(
+  context: TaskListRowPresentationContext,
+  columnWidths: ResolvedTaskListColumnWidthMap,
+) {
+  return JSON.stringify(
+    dailyTaskListColumns.map((column) => ({
+      key: column.key,
+      width: columnWidths[column.key],
+      presentation: buildTaskListCellPresentation(column.key, context),
+    })),
+  );
 }
 
 function measureTaskListRowHeight(context: TaskListRowPresentationContext, columnWidths: ResolvedTaskListColumnWidthMap) {
@@ -6614,4 +7290,3 @@ function formatWeekdayLong(date: Date) {
 function fileSafeDate(value: string | null) {
   return value ? value.slice(0, 10) : "-";
 }
-

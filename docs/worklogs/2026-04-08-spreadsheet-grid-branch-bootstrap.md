@@ -1,0 +1,4 @@
+Req: Use the current clean commit as the new spreadsheet-grid baseline, create the working branch structure from it, and keep the branch-operations docs aligned with the actual bootstrap so later sessions can resume safely.
+Diff: Created local branches `codex/grid-baseline-20260408`, `codex/grid-integration-20260408`, and switched onto `codex/grid-p1-virtualization`; updated `docs/2026-04-07-spreadsheet-grid-branch-operations.md` to reflect the real 2026-04-08 bootstrap state and commands.
+Why: The earlier branch plan assumed an older dirty snapshot. The real work should start from the current clean commit `601845b`, and the docs need to match the actual branch topology to avoid confusion later.
+Verify: Checked `git status -sb`, `git branch --list "codex/grid-*"`, `git branch --show-current`, and `git log --oneline --decorate --graph --max-count=12` before/after the bootstrap.

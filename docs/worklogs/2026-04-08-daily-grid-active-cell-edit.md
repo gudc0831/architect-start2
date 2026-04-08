@@ -1,0 +1,5 @@
+Req: Continue the spreadsheet-performance work by reducing selected-row edit DOM so the desktop daily grid opens an editor only for the active cell.
+Diff: Updated `src/components/tasks/task-workspace.tsx` to track an active inline edit cell separately from the selected row, render draft-backed display cells for the rest of the row, and keep only the active cell in `TaskListInlineEditor` mode.
+Why: Even after row virtualization, the selected row still expanded many editable controls at once; limiting that to one active cell lowers DOM churn and gets closer to spreadsheet-style interaction.
+Verify: `npm run typecheck`; `npm run build`; browser QA confirmed on `http://127.0.0.1:3000/daily` that the selected row starts with `0` inline editors while virtual rows/spacers still render, and on `http://127.0.0.1:3000/preview/daily` a selected row moved from `0` inline editors to `1` after a `dblclick`, then back to `0` after a row click.
+Risk: This step keeps the active cell open until another row click or cell activation changes it; it does not yet add spreadsheet-style keyboard navigation between cells.
