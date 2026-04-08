@@ -1,0 +1,5 @@
+Req: Finish spreadsheet-grid phases 3, 4, and 5 on `codex/grid-p1-virtualization` and verify completion against the plan doc.
+Diff: Moved daily grid `viewport` and `rowHeights` into an external layout store, rendered desktop daily `<tbody>` through a store-subscribed body component, routed row dimming through the row interaction store, and added auto-fit measurement caching with invalidation on width/definition changes.
+Why: Remove parent React rerenders from the scroll and row-height hot paths, keep row-level fan-out granular, and close the remaining Phase 3/4 gaps before keeping the Phase 5 canvas decision as a documented gate.
+Verify: `npm run typecheck`; `npm run build`; `preview/daily` browser QA confirmed `task-101` resized to `112px` while `task-102` stayed `52px` during drag, `50개씩` switched to paged mode, and Playwright console errors stayed at `0`.
+Risk: Preview row-height persistence after synthetic `pointerup` was not conclusively proven by browser automation, so storage commit remains code-verified and UI-verified but not end-to-end browser-proven.
