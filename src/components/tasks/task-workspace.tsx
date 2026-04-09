@@ -22,7 +22,6 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
 import clsx from "clsx";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -35,10 +34,18 @@ import {
   type TaskCategoricalFieldKey,
 } from "@/components/tasks/task-categorical-fields";
 import { BoardTaskOverview } from "@/components/tasks/board-task-overview";
+import { DailyGridBodyV2 } from "@/components/tasks/daily-grid-body-v2";
+import { DailyGridHeaderV2 } from "@/components/tasks/daily-grid-header-v2";
+import { createTaskEditorDraftStore, useTaskEditorDraftStoreSnapshot, type TaskEditorDraftStore } from "@/components/tasks/task-editor-draft-store";
+import { createTaskGridDomRegistry, createTaskGridCellKey } from "@/components/tasks/task-grid-dom-registry";
+import { createTaskListRowMetricsStore } from "@/components/tasks/task-grid-metrics-store";
+import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-overlay";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
 import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
+import { TaskQuickCreate } from "@/components/tasks/task-quick-create";
+import type { TaskQuickCreateFormValues } from "@/components/tasks/task-quick-create-state";
 import { useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
@@ -384,8 +391,8 @@ type DailyTaskTableRowProps = {
   saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
   handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
-  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => void;
-  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => Promise<void> | void;
+  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => void;
+  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => Promise<void> | void;
   clearTaskDragInteraction: () => void;
   handleTaskListRowAutoFitDoubleClick: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
   handleTaskListRowResizeStart: (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -416,8 +423,8 @@ type DailyTaskTableBodyProps = {
   saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
   handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
-  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => void;
-  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => Promise<void> | void;
+  handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => void;
+  handleTaskRowDrop: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => Promise<void> | void;
   clearTaskDragInteraction: () => void;
   handleTaskListRowAutoFitDoubleClick: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
   handleTaskListRowResizeStart: (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -490,6 +497,7 @@ const DAILY_TASK_TABLE_VIRTUAL_OVERSCAN = 2;
 const DAILY_TASK_TABLE_ROW_CHROME_HEIGHT = 1;
 const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
 const USE_MEMOIZED_DAILY_TASK_ROWS = true;
+const USE_DAILY_GRID_BODY_V2 = true;
 const BOARD_PAGE_SIZE_MOBILE = 4;
 const BOARD_PAGE_SIZE_DEFAULT = 6;
 const TASK_LIST_LAYOUT_SAVE_DELAY_MS = 250;
@@ -575,7 +583,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [draft, setDraft] = useState<TaskRecord | null>(null);
   const [draftDirtyFields, setDraftDirtyFields] = useState<DraftDirtyFieldMap>({});
   const [parentTaskNumberDraft, setParentTaskNumberDraft] = useState("");
-  const [form, setForm] = useState<TaskFormState>(defaultForm);
   const [selectedCategoricalFilters, setSelectedCategoricalFilters] = useState<DailyCategoricalFilterMap>({});
   const [draftCategoricalFilters, setDraftCategoricalFilters] = useState<DailyCategoricalFilterMap>({});
   const [openCategoricalFilterField, setOpenCategoricalFilterField] = useState<DailyCategoricalFilterFieldKey | null>(null);
@@ -611,7 +618,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [quickCreateWidths, setQuickCreateWidths] = useState<ResolvedQuickCreateWidthMap>(() => resolveQuickCreateWidths());
   const [taskListColumnWidths, setTaskListColumnWidths] = useState<ResolvedTaskListColumnWidthMap>(() => resolveTaskListColumnWidths());
   const taskListLayoutStore = useMemo(() => createTaskListLayoutStore(), []);
+  const taskListRowMetricsStore = useMemo(() => createTaskListRowMetricsStore(), []);
   const taskListRowInteractionStore = useMemo(() => createTaskListRowInteractionStore(), []);
+  const taskGridDomRegistry = useMemo(() => createTaskGridDomRegistry(), []);
+  const taskEditorDraftStore = useMemo(() => createTaskEditorDraftStore<TaskRecord>(), []);
   const { activeInlineEditCell: activeTaskListInlineEditCell, selectedTaskId } =
     useTaskListRowInteractionSnapshot(taskListRowInteractionStore);
   const activeTaskListInlineEditRowId = activeTaskListInlineEditCell?.taskId ?? null;
@@ -936,6 +946,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }),
     [defaultCreateWorkType],
   );
+  const quickCreateInitialValues = useMemo<TaskQuickCreateFormValues>(() => buildDefaultTaskForm(), [buildDefaultTaskForm]);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -944,6 +955,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     activeTaskListInlineEditCellRef.current = activeTaskListInlineEditCell;
   }, [activeTaskListInlineEditCell]);
+
+  useEffect(() => {
+    if (!activeTaskListInlineEditCell) {
+      taskEditorDraftStore.clear();
+    }
+  }, [activeTaskListInlineEditCell, taskEditorDraftStore]);
 
   useEffect(() => {
     parentTaskNumberDraftRef.current = parentTaskNumberDraft;
@@ -1004,21 +1021,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setIsCreateFormOpen(true);
     }
   }, [hasInitializedCreateForm, viewportWidth]);
-
-  useEffect(() => {
-    setForm((previous) => {
-      const normalizedCurrentValue = getWorkTypeSelectValue(previous.workType, workTypeDefinitions);
-      const nextWorkType = normalizedCurrentValue || defaultCreateWorkType;
-      if (nextWorkType === previous.workType) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        workType: nextWorkType,
-      };
-    });
-  }, [defaultCreateWorkType, workTypeDefinitions]);
 
   useEffect(() => {
     if (mode !== "daily") {
@@ -1334,6 +1336,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     };
   }, [handleQuickCreateResizeEnd, handleQuickCreateResizeMove]);
 
+  const clearTaskListRowMetricsTransientHeight = useCallback(() => {
+    const liveRowHeight = taskListRowMetricsStore.getSnapshot().liveRowHeight;
+    if (!liveRowHeight) {
+      return;
+    }
+
+    taskListRowMetricsStore.setTransientRowHeight(liveRowHeight.taskId, null);
+  }, [taskListRowMetricsStore]);
+
   const applyTaskListLayout = useCallback((layout: TaskListLayoutPreference) => {
     const nextColumnWidths = resolveTaskListColumnWidths(layout.columnWidths);
     const nextRowHeights = pruneTaskListRowHeights(layout.rowHeights, taskListVisibleTaskIdsRef.current);
@@ -1344,10 +1355,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setTaskListColumnWidths(nextColumnWidths);
     taskListLayoutStore.replaceRowHeights(nextRowHeights);
     taskListLayoutStore.setLiveRowHeight(null);
+    taskListRowMetricsStore.replaceRowHeights(nextRowHeights);
+    clearTaskListRowMetricsTransientHeight();
     setDetailPanelWidth(nextDetailPanelWidth);
-  }, [taskListLayoutStore]);
+  }, [clearTaskListRowMetricsTransientHeight, taskListLayoutStore, taskListRowMetricsStore]);
 
   const registerTaskListRowCellRef = useCallback((taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => {
+    taskGridDomRegistry.registerCell(taskId, columnKey, node);
     const rowRefs = taskListRowCellRefs.current.get(taskId) ?? new Map<TaskListColumnKey, HTMLDivElement>();
     if (node) {
       rowRefs.set(columnKey, node);
@@ -1362,10 +1376,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     taskListRowCellRefs.current.set(taskId, rowRefs);
-  }, []);
+  }, [taskGridDomRegistry]);
   const getTaskListRowCellNode = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
-    return taskListRowCellRefs.current.get(taskId)?.get(columnKey) ?? null;
-  }, []);
+    return taskGridDomRegistry.getCell(taskId, columnKey) as HTMLDivElement | null;
+  }, [taskGridDomRegistry]);
 
   const applyTaskListRowHeightToDom = useCallback((taskId: string, nextHeight: number) => {
     const clampedHeight = clampTaskListRowHeight(nextHeight);
@@ -1392,6 +1406,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           return;
         }
         taskListLayoutStore.setLiveRowHeight(null);
+        clearTaskListRowMetricsTransientHeight();
         return;
       }
 
@@ -1400,8 +1415,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
       taskListLayoutStore.setLiveRowHeight({ taskId, height: clampedHeight });
+      taskListRowMetricsStore.setTransientRowHeight(taskId, clampedHeight);
     },
-    [taskListLayoutStore],
+    [clearTaskListRowMetricsTransientHeight, taskListLayoutStore, taskListRowMetricsStore],
   );
 
   const persistTaskListLayout = useCallback(
@@ -1422,6 +1438,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
       taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
       taskListLayoutStore.setLiveRowHeight(null);
+      taskListRowMetricsStore.replaceRowHeights(sanitizedLayout.rowHeights);
+      clearTaskListRowMetricsTransientHeight();
       writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
       if (!canPersistTaskListLayoutToServer) return;
@@ -1438,7 +1456,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }).catch(() => {});
       }, TASK_LIST_LAYOUT_SAVE_DELAY_MS);
     },
-    [canPersistTaskListLayoutToServer, taskListLayoutStorageKey, taskListLayoutStore],
+    [canPersistTaskListLayoutToServer, clearTaskListRowMetricsTransientHeight, taskListLayoutStorageKey, taskListLayoutStore, taskListRowMetricsStore],
   );
 
   const setTaskListRowHeight = useCallback(
@@ -1454,13 +1472,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const nextRowHeights = { ...taskListRowHeightsRef.current, [taskId]: clampedHeight };
       taskListRowHeightsRef.current = nextRowHeights;
       taskListLayoutStore.replaceRowHeights(nextRowHeights);
+      taskListRowMetricsStore.commitRowHeight(taskId, clampedHeight);
       syncTaskListLiveRowHeight(taskId, null);
 
       if (shouldPersist) {
         persistTaskListLayout(taskListColumnWidthsRef.current, nextRowHeights);
       }
     },
-    [applyTaskListRowHeightToDom, persistTaskListLayout, syncTaskListLiveRowHeight, taskListLayoutStore],
+    [applyTaskListRowHeightToDom, persistTaskListLayout, syncTaskListLiveRowHeight, taskListLayoutStore, taskListRowMetricsStore],
+  );
+  const commitTaskListRowHeightV2 = useCallback(
+    (taskId: string, nextHeight: number) => {
+      const clampedHeight = clampTaskListRowHeight(nextHeight);
+      const nextRowHeights = { ...taskListRowHeightsRef.current, [taskId]: clampedHeight };
+      taskListLayoutInteractionVersionRef.current += 1;
+      taskListRowHeightsRef.current = nextRowHeights;
+      taskListLayoutStore.replaceRowHeights(nextRowHeights);
+      taskListRowMetricsStore.commitRowHeight(taskId, clampedHeight);
+      persistTaskListLayout(taskListColumnWidthsRef.current, nextRowHeights);
+    },
+    [persistTaskListLayout, taskListLayoutStore, taskListRowMetricsStore],
   );
 
   const flushTaskListLayoutSave = useCallback(() => {
@@ -1481,6 +1512,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     detailPanelWidthRef.current = sanitizedLayout.detailPanelWidth;
     taskListLayoutStore.replaceRowHeights(sanitizedLayout.rowHeights);
     taskListLayoutStore.setLiveRowHeight(null);
+    taskListRowMetricsStore.replaceRowHeights(sanitizedLayout.rowHeights);
+    clearTaskListRowMetricsTransientHeight();
     writeTaskListLayoutToStorage(taskListLayoutStorageKey, sanitizedLayout);
 
     if (!canPersistTaskListLayoutToServer) return;
@@ -1491,13 +1524,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       body: JSON.stringify(sanitizedLayout),
       keepalive: true,
     }).catch(() => {});
-  }, [canPersistTaskListLayoutToServer, taskListLayoutStorageKey, taskListLayoutStore]);
-  const autoFitTaskListRow = useCallback(
+  }, [canPersistTaskListLayoutToServer, clearTaskListRowMetricsTransientHeight, taskListLayoutStorageKey, taskListLayoutStore, taskListRowMetricsStore]);
+  const measureTaskListAutoFitHeight = useCallback(
     (taskId: string) => {
       const row = dailyTreeRowsRef.current.find((entry) => entry.task.id === taskId);
       if (!row) {
-        setTaskListRowHeight(taskId, TASK_LIST_ROW_MIN_HEIGHT, true);
-        return;
+        return TASK_LIST_ROW_MIN_HEIGHT;
       }
 
       const taskFiles = filesByTaskIdRef.current[taskId] ?? EMPTY_TASK_FILES;
@@ -1525,9 +1557,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
         taskListRowMeasurementCacheRef.current.set(measurementCacheKey, nextHeight);
       }
-      setTaskListRowHeight(taskId, nextHeight, true);
+      return nextHeight;
     },
-    [categoryDefinitionsByField, setTaskListRowHeight, workTypeDefinitions],
+    [categoryDefinitionsByField, workTypeDefinitions],
+  );
+
+  const autoFitTaskListRow = useCallback(
+    (taskId: string) => {
+      setTaskListRowHeight(taskId, measureTaskListAutoFitHeight(taskId), true);
+    },
+    [measureTaskListAutoFitHeight, setTaskListRowHeight],
   );
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(
@@ -1937,6 +1976,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
   const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView;
   const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState;
+  const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
   const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled;
 
   useEffect(() => {
@@ -1950,6 +1990,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [dailyTaskPage, resolvedDailyTaskPage]);
 
   const taskListTableWidth = useMemo(() => dailyTaskListColumns.reduce((total, column) => total + taskListColumnWidths[column.key], 0), [taskListColumnWidths]);
+  const taskListGridTemplateColumns = useMemo(
+    () => dailyTaskListColumns.map((column) => `${taskListColumnWidths[column.key]}px`).join(" "),
+    [taskListColumnWidths],
+  );
   const syncTaskListViewportState = useCallback(() => {
     const viewport = taskListScrollViewportRef.current;
     if (!viewport) {
@@ -1967,7 +2011,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     });
   }, [taskListLayoutStore]);
   useEffect(() => {
-    if (!shouldVirtualizeDailyTaskTable) {
+    if (!shouldVirtualizeDailyTaskTable || shouldUseDailyGridBodyV2) {
       taskListLayoutStore.setViewportState({ height: 0, scrollTop: 0 });
       taskListLayoutStore.setLiveRowHeight(null);
       return;
@@ -2004,7 +2048,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         taskListViewportFrameRef.current = null;
       }
     };
-  }, [displayedDailyTreeRows.length, shouldVirtualizeDailyTaskTable, syncTaskListViewportState, taskListLayoutStore, taskListTableWidth]);
+  }, [displayedDailyTreeRows.length, shouldUseDailyGridBodyV2, shouldVirtualizeDailyTaskTable, syncTaskListViewportState, taskListLayoutStore, taskListTableWidth]);
   const pinnedDailyTaskTableRowIds = useMemo(() => {
     const next = new Set<string>();
     if (selectedTaskId) {
@@ -2655,10 +2699,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [updateCalendarMonth],
   );
 
-  function updateForm<K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
   const updateDraftForm = useCallback(
     <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => {
       if (draftRef.current) {
@@ -2668,6 +2708,35 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
     },
     [markDraftFieldDirty],
+  );
+  const updateInlineTaskListEditorDraft = useCallback(
+    <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => {
+      const currentDraft = taskEditorDraftStore.getSnapshot().draft ?? draftRef.current;
+      if (!currentDraft) {
+        return;
+      }
+
+      const nextDraft = { ...currentDraft, [key]: value };
+      draftRef.current = nextDraft;
+      markDraftFieldDirty(key);
+      taskEditorDraftStore.updateInlineValue(nextDraft);
+    },
+    [markDraftFieldDirty, taskEditorDraftStore],
+  );
+  const cancelInlineTaskListField = useCallback(
+    (columnKey: TaskListColumnKey) => {
+      const field = getEditableTaskListField(columnKey);
+      if (draft) {
+        draftRef.current = draft;
+      }
+      if (field) {
+        clearDraftDirtyFields([field]);
+      }
+      taskEditorDraftStore.cancelInlineEdit();
+      setTaskListActiveInlineEditCell(null);
+      setPendingTaskListFocusCell(null);
+    },
+    [clearDraftDirtyFields, draft, setTaskListActiveInlineEditCell, taskEditorDraftStore],
   );
 
   const updateParentTaskNumberDraft = useCallback(
@@ -2702,12 +2771,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setParentTaskNumberDraft(selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "");
   }
 
-  async function createTaskFromForm(nextForm: TaskFormState) {
+  async function createTaskFromForm(nextForm: TaskQuickCreateFormValues) {
     setErrorMessage(null);
 
     if (isPreview) {
       setErrorMessage(t("errors.previewMutationNotAllowed"));
-      return;
+      return false;
     }
 
     const payload = {
@@ -2724,16 +2793,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     if (!response.ok) {
       setErrorMessage(await readErrorMessage(response, "createTaskFailed"));
-      return;
+      return false;
     }
 
     const json = (await response.json()) as { data: TaskRecord };
     await refreshScope({ force: true });
     setTaskListSelection(json.data.id);
-    setForm(buildDefaultTaskForm());
     if (canCollapseCreateForm) {
       setIsCreateFormOpen(false);
     }
+    return true;
   }
 
   async function saveSelectedTask() {
@@ -2966,7 +3035,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 
   const handleTaskRowDragOver = useCallback(
-    (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => {
+    (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
       if (!taskDragState || taskDragState.taskId === task.id) {
         return;
       }
@@ -2985,7 +3054,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
 
   const handleTaskRowDrop = useCallback(
-    async (task: TaskRecord, event: ReactDragEvent<HTMLTableRowElement>) => {
+    async (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
       if (!taskDragState) {
         return;
       }
@@ -3621,6 +3690,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       "tr",
       "td",
       "th",
+      '[data-task-grid-interaction="true"]',
+      '[data-task-portal-interaction="true"]',
       ".task-card",
       ".daily-task-card",
       "button",
@@ -3638,6 +3709,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       "strong",
       "small",
       ".detail-actions",
+      ".sheet-table__head-controls",
       ".composer-card__toggle",
       ".detail-panel-splitter",
     ].join(", ");
@@ -3864,47 +3936,38 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
             {mode === "daily" ? (
               <>
-                <section className="composer-card">
-                  <div className="composer-card__header">
-                    <div>
-                      <p className="workspace__eyebrow">{t("workspace.quickCreateEyebrow")}</p>
-                      <h3>{t("workspace.quickCreateTitle")}</h3>
-                      <p className="workspace__meta">{t("workspace.quickCreateBody")}</p>
-                    </div>
-                    <button className="secondary-button composer-card__toggle" onClick={() => setIsCreateFormOpen((prev) => !prev)} type="button">
-                      {isCreateFormOpen ? t("actions.hideForm") : t("actions.showForm")}
-                    </button>
-                  </div>
-
-                  {isCreateFormOpen ? (
-                    <div className="composer-card__body">
-                      <div className={clsx("composer-scroll-view", quickCreateComposerMode !== "strip" && "composer-scroll-view--wrapped")}>
-                        <TaskFormFields
-                          composerMode={quickCreateComposerMode}
-                          form={form}
-                          layout="composer"
-                          onChange={updateForm}
-                          onComposerResizeStart={handleQuickCreateResizeStart}
-                          quickCreateWidths={quickCreateWidths}
-                          readonly={createReadonlyFields}
-                          showUpdatedAt={false}
-                          categoryDefinitionsByField={categoryDefinitionsByField}
-                          workTypeDefinitions={workTypeDefinitions}
-                        />
-                      </div>
-                      <div className="detail-actions detail-actions--inline">
-                        <button className="primary-button" onClick={() => void createTaskFromForm(form)} type="button">
-                          {t("actions.createTask")}
-                        </button>
-                        {canCollapseCreateForm ? (
-                          <button className="secondary-button" onClick={() => setIsCreateFormOpen(false)} type="button">
-                            {t("actions.keepListVisible")}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
-                </section>
+                <TaskQuickCreate
+                  canCollapse={canCollapseCreateForm}
+                  composerMode={quickCreateComposerMode}
+                  copy={{
+                    eyebrow: t("workspace.quickCreateEyebrow"),
+                    title: t("workspace.quickCreateTitle"),
+                    body: t("workspace.quickCreateBody"),
+                    hideLabel: t("actions.hideForm"),
+                    showLabel: t("actions.showForm"),
+                    createLabel: t("actions.createTask"),
+                    keepListVisibleLabel: t("actions.keepListVisible"),
+                  }}
+                  initialValues={quickCreateInitialValues}
+                  isOpen={isCreateFormOpen}
+                  onClose={() => setIsCreateFormOpen(false)}
+                  onSubmit={createTaskFromForm}
+                  onToggleOpen={() => setIsCreateFormOpen((prev) => !prev)}
+                  renderFields={(values, onChange) => (
+                    <TaskFormFields
+                      categoryDefinitionsByField={categoryDefinitionsByField}
+                      composerMode={quickCreateComposerMode}
+                      form={values}
+                      layout="composer"
+                      onChange={onChange as TaskFormChangeHandler}
+                      onComposerResizeStart={handleQuickCreateResizeStart}
+                      quickCreateWidths={quickCreateWidths}
+                      readonly={createReadonlyFields}
+                      showUpdatedAt={false}
+                      workTypeDefinitions={workTypeDefinitions}
+                    />
+                  )}
+                />
 
                 <section className="daily-sheet__focus">
                   <div className="daily-sheet__focus-header">
@@ -4137,32 +4200,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     className={clsx("sheet-wrapper", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}
                     ref={taskListScrollViewportRef}
                   >
-                    <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
-                      <colgroup>
-                        {dailyTaskListColumns.map((column) => (
-                          <col key={column.key} style={{ width: `${taskListColumnWidths[column.key]}px` }} />
-                        ))}
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          {dailyTaskListColumns.map((column) => (
-                            <th className={column.className} key={column.key}>
-                              <div className="sheet-table__head-inner">
-                                <span className="sheet-table__head-label">{labelForField(column.key)}</span>
-                                {renderTaskListHeaderControl(column)}
-                                <button
-                                  aria-label={t("workspace.resizeFieldAria", { field: labelForField(column.key) })}
-                                  className="sheet-table__column-resize-handle"
-                                  onPointerDown={(event) => handleTaskListColumnResizeStart(column.key, event)}
-                                  type="button"
-                                />
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <DailyTaskTableBody
+                    {shouldUseDailyGridBodyV2 ? (
+                      <>
+                        <DailyGridHeaderV2
+                          gridTemplateColumns={taskListGridTemplateColumns}
+                          onColumnResizeStart={handleTaskListColumnResizeStart}
+                          renderHeaderControl={renderTaskListHeaderControl}
+                          totalWidth={taskListTableWidth}
+                        />
+                        <DailyGridBodyV2
                           activeTaskListInlineEditRowId={activeTaskListInlineEditRowId}
                           categoryDefinitionsByField={categoryDefinitionsByField}
                           clearTaskDragInteraction={clearTaskDragInteraction}
@@ -4170,9 +4216,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           draft={draft}
                           filesByTaskId={filesByTaskId}
                           focusTaskListEditableCell={focusTaskListEditableCell}
-                          focusedTaskIds={focusedTaskIds}
-                          handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
-                          handleTaskListRowResizeStart={handleTaskListRowResizeStart}
+                          gridTemplateColumns={taskListGridTemplateColumns}
                           handleTaskRowDragOver={handleTaskRowDragOver}
                           handleTaskRowDragStart={handleTaskRowDragStart}
                           handleTaskRowDrop={handleTaskRowDrop}
@@ -4182,28 +4226,92 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                           isManualReorderDisabled={isDailyManualReorderDisabled}
                           isReorderingTasks={isReorderingTasks}
-                          layoutStore={taskListLayoutStore}
+                          isTaskOverdue={isTaskOverdue}
+                          measureAutoFitRowHeight={measureTaskListAutoFitHeight}
+                          metricsStore={taskListRowMetricsStore}
                           moveTaskByOffset={moveTaskByOffset}
+                          onCommitRowHeight={commitTaskListRowHeightV2}
                           pinnedTaskIds={pinnedDailyTaskTableRowIds}
                           registerTaskListRowCellRef={registerTaskListRowCellRef}
+                          resolveTaskDeadlineBadge={resolveTaskDeadlineBadge}
                           rows={displayedDailyTreeRows}
-                          saveInlineTaskListField={saveInlineTaskListField}
                           selectTask={selectTask}
-                          shouldVirtualize={shouldVirtualizeDailyTaskTable}
-                          updateDraftForm={updateDraftForm}
+                          totalWidth={taskListTableWidth}
                           workTypeDefinitions={workTypeDefinitions}
+                          wrapperRef={taskListScrollViewportRef}
                         />
-                      </tbody>
-                    </table>
+                      </>
+                    ) : (
+                      <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
+                        <colgroup>
+                          {dailyTaskListColumns.map((column) => (
+                            <col key={column.key} style={{ width: `${taskListColumnWidths[column.key]}px` }} />
+                          ))}
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            {dailyTaskListColumns.map((column) => (
+                              <th className={column.className} key={column.key}>
+                                <div className="sheet-table__head-inner">
+                                  <span className="sheet-table__head-label">{labelForField(column.key)}</span>
+                                  {renderTaskListHeaderControl(column)}
+                                  <button
+                                    aria-label={t("workspace.resizeFieldAria", { field: labelForField(column.key) })}
+                                    className="sheet-table__column-resize-handle"
+                                    onPointerDown={(event) => handleTaskListColumnResizeStart(column.key, event)}
+                                    type="button"
+                                  />
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <DailyTaskTableBody
+                            activeTaskListInlineEditRowId={activeTaskListInlineEditRowId}
+                            categoryDefinitionsByField={categoryDefinitionsByField}
+                            clearTaskDragInteraction={clearTaskDragInteraction}
+                            currentDayKey={currentDayKey}
+                            draft={draft}
+                            filesByTaskId={filesByTaskId}
+                            focusTaskListEditableCell={focusTaskListEditableCell}
+                            focusedTaskIds={focusedTaskIds}
+                            handleTaskListRowAutoFitDoubleClick={handleTaskListRowAutoFitDoubleClick}
+                            handleTaskListRowResizeStart={handleTaskListRowResizeStart}
+                            handleTaskRowDragOver={handleTaskRowDragOver}
+                            handleTaskRowDragStart={handleTaskRowDragStart}
+                            handleTaskRowDrop={handleTaskRowDrop}
+                            hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
+                            inlineSavingFields={inlineSavingFields}
+                            interactionStore={taskListRowInteractionStore}
+                            isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
+                            isManualReorderDisabled={isDailyManualReorderDisabled}
+                            isReorderingTasks={isReorderingTasks}
+                            layoutStore={taskListLayoutStore}
+                            moveTaskByOffset={moveTaskByOffset}
+                            pinnedTaskIds={pinnedDailyTaskTableRowIds}
+                            registerTaskListRowCellRef={registerTaskListRowCellRef}
+                            rows={displayedDailyTreeRows}
+                            saveInlineTaskListField={saveInlineTaskListField}
+                            selectTask={selectTask}
+                            shouldVirtualize={shouldVirtualizeDailyTaskTable}
+                            updateDraftForm={updateDraftForm}
+                            workTypeDefinitions={workTypeDefinitions}
+                          />
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 )}
                 <TaskListInlineEditorOverlay
                   activeCell={activeTaskListInlineEditCell}
                   categoryDefinitionsByField={categoryDefinitionsByField}
+                  draftStore={taskEditorDraftStore}
                   draft={draft}
                   getCellNode={getTaskListRowCellNode}
                   inlineSavingFields={inlineSavingFields}
-                  onChange={updateDraftForm}
+                  onCancel={cancelInlineTaskListField}
+                  onChange={updateInlineTaskListEditorDraft}
                   onCommit={saveInlineTaskListField}
                   onFocusHandled={() => setPendingTaskListFocusCell(null)}
                   pendingFocusCell={pendingTaskListFocusCell}
@@ -5354,6 +5462,7 @@ function TaskListInlineEditor({
   form,
   onChange,
   onCommit,
+  onCancel,
   saving = false,
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
@@ -5363,6 +5472,7 @@ function TaskListInlineEditor({
   form: TaskRecord;
   onChange: TaskFormChangeHandler;
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  onCancel?: (columnKey: TaskListColumnKey) => void;
   saving?: boolean;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
@@ -5382,6 +5492,7 @@ function TaskListInlineEditor({
         className="sheet-table__inline-input sheet-table__inline-input--date"
         onBlur={() => void onCommit(columnKey)}
         onChange={(event) => onChange(fieldKey, event.target.value)}
+        onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
         type="date"
         value={form[fieldKey]}
       />
@@ -5432,6 +5543,7 @@ function TaskListInlineEditor({
           applyTaskCategoricalFieldChange(fieldKey, event.target.value, onChange);
           void onCommit(columnKey);
         }}
+        onKeyDown={(event) => handleTaskListInlineEscapeKeyDown(event, () => onCancel?.(columnKey))}
         value={form[fieldKey]}
         categoryDefinitionsByField={categoryDefinitionsByField}
         workTypeDefinitions={workTypeDefinitions}
@@ -5445,7 +5557,7 @@ function TaskListInlineEditor({
       className={clsx("sheet-table__inline-input sheet-table__inline-textarea", fieldKey === "issueTitle" && "sheet-table__inline-input--title")}
       onBlur={() => void onCommit(columnKey)}
       onChange={(event) => onChange(fieldKey, event.target.value)}
-      onKeyDown={handleTaskListInlineTextKeyDown}
+      onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
       rows={1}
       value={String(form[fieldKey] ?? "")}
     />
@@ -5461,8 +5573,10 @@ function TaskListInlineEditorOverlay({
   getCellNode,
   onChange,
   onCommit,
+  onCancel,
   pendingFocusCell,
   onFocusHandled,
+  draftStore,
 }: {
   activeCell: PendingTaskListFocusCell | null;
   draft: TaskRecord | null;
@@ -5472,228 +5586,58 @@ function TaskListInlineEditorOverlay({
   getCellNode: (taskId: string, columnKey: TaskListColumnKey) => HTMLDivElement | null;
   onChange: TaskFormChangeHandler;
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  onCancel: (columnKey: TaskListColumnKey) => void;
   pendingFocusCell: PendingTaskListFocusCell | null;
   onFocusHandled: () => void;
+  draftStore: TaskEditorDraftStore<TaskRecord>;
 }) {
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  const [anchorRect, setAnchorRect] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-    paddingTop: string;
-    paddingRight: string;
-    paddingBottom: string;
-    paddingLeft: string;
-    color: string;
-    fontFamily: string;
-    fontSize: string;
-    fontStyle: string;
-    fontWeight: string;
-    letterSpacing: string;
-    lineHeight: string;
-    textAlign: string;
-    textTransform: string;
-  } | null>(null);
+  const draftSnapshot = useTaskEditorDraftStoreSnapshot(draftStore);
   const activeFieldKey = activeCell ? getEditableTaskListField(activeCell.columnKey) : null;
-
-  const syncAnchorRect = useCallback(() => {
-    if (!activeCell) {
-      setAnchorRect(null);
-      return false;
-    }
-
-    const cell = getCellNode(activeCell.taskId, activeCell.columnKey);
-    if (!cell) {
-      setAnchorRect(null);
-      return false;
-    }
-
-    const bounds = cell.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) {
-      setAnchorRect(null);
-      return false;
-    }
-
-    const cellStyle = window.getComputedStyle(cell);
-    const cellContent = cell.querySelector<HTMLElement>(".sheet-table__cell-content");
-    const cellContentStyle = window.getComputedStyle(cellContent ?? cell);
-    const typographySource = cellContent?.firstElementChild instanceof HTMLElement ? cellContent.firstElementChild : (cellContent ?? cell);
-    const typographyStyle = window.getComputedStyle(typographySource);
-
-    setAnchorRect((previous) => {
-      const next = {
-        top: bounds.top,
-        left: bounds.left,
-        width: bounds.width,
-        height: bounds.height,
-        paddingTop: cellStyle.paddingTop,
-        paddingRight: cellStyle.paddingRight,
-        paddingBottom: cellStyle.paddingBottom,
-        paddingLeft: cellStyle.paddingLeft,
-        color: typographyStyle.color,
-        fontFamily: typographyStyle.fontFamily,
-        fontSize: typographyStyle.fontSize,
-        fontStyle: typographyStyle.fontStyle,
-        fontWeight: typographyStyle.fontWeight,
-        letterSpacing: typographyStyle.letterSpacing,
-        lineHeight: typographyStyle.lineHeight,
-        textAlign: cellContentStyle.textAlign,
-        textTransform: typographyStyle.textTransform,
-      };
-
-      if (
-        previous &&
-        previous.top === next.top &&
-        previous.left === next.left &&
-        previous.width === next.width &&
-        previous.height === next.height &&
-        previous.paddingTop === next.paddingTop &&
-        previous.paddingRight === next.paddingRight &&
-        previous.paddingBottom === next.paddingBottom &&
-        previous.paddingLeft === next.paddingLeft &&
-        previous.color === next.color &&
-        previous.fontFamily === next.fontFamily &&
-        previous.fontSize === next.fontSize &&
-        previous.fontStyle === next.fontStyle &&
-        previous.fontWeight === next.fontWeight &&
-        previous.letterSpacing === next.letterSpacing &&
-        previous.lineHeight === next.lineHeight &&
-        previous.textAlign === next.textAlign &&
-        previous.textTransform === next.textTransform
-      ) {
-        return previous;
-      }
-
-      return next;
-    });
-    return true;
-  }, [activeCell, getCellNode]);
-
-  useLayoutEffect(() => {
-    if (!activeCell || !activeFieldKey || !draft || draft.id !== activeCell.taskId) {
-      setAnchorRect(null);
-      return;
-    }
-
-    let frameId: number | null = null;
-    let cancelled = false;
-    const cell = getCellNode(activeCell.taskId, activeCell.columnKey);
-
-    const scheduleSync = () => {
-      if (frameId !== null) {
-        return;
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        if (cancelled) {
-          return;
-        }
-
-        syncAnchorRect();
-      });
-    };
-
-    const retryUntilAnchored = () => {
-      if (cancelled) {
-        return;
-      }
-
-      if (syncAnchorRect()) {
-        return;
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        retryUntilAnchored();
-      });
-    };
-
-    retryUntilAnchored();
-    window.addEventListener("scroll", scheduleSync, true);
-    window.addEventListener("resize", scheduleSync);
-    const resizeObserver = cell ? new ResizeObserver(() => scheduleSync()) : null;
-    if (cell) {
-      resizeObserver?.observe(cell);
-    }
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener("scroll", scheduleSync, true);
-      window.removeEventListener("resize", scheduleSync);
-      resizeObserver?.disconnect();
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-    };
-  }, [activeCell, activeFieldKey, draft, getCellNode, syncAnchorRect]);
+  const overlayActiveCell = activeCell ? createTaskGridCellKey(activeCell.taskId, activeCell.columnKey) : null;
+  const overlayPendingFocusCell = pendingFocusCell ? createTaskGridCellKey(pendingFocusCell.taskId, pendingFocusCell.columnKey) : null;
 
   useEffect(() => {
-    if (!anchorRect || !activeCell || !pendingFocusCell || !arePendingTaskListFocusCellsEqual(activeCell, pendingFocusCell)) {
+    if (!activeCell || !activeFieldKey || !draft || draft.id !== activeCell.taskId) {
+      draftStore.clear();
       return;
     }
 
-    const overlayNode = overlayRef.current;
-    if (!overlayNode) {
-      return;
-    }
+    draftStore.beginInlineEdit(createTaskGridCellKey(activeCell.taskId, activeCell.columnKey), draft);
+  }, [activeCell, activeFieldKey, draft, draftStore]);
 
-    const editor = overlayNode.querySelector<
-      HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >('textarea, input:not([type="button"]), select, button[data-task-multiselect-trigger="true"]');
-    if (!editor) {
-      return;
-    }
-
-    editor.focus({ preventScroll: true });
-    if (editor instanceof HTMLTextAreaElement || (editor instanceof HTMLInputElement && editor.type === "text")) {
-      editor.select();
-    }
-    onFocusHandled();
-  }, [activeCell, anchorRect, onFocusHandled, pendingFocusCell]);
-
-  if (!activeCell || !activeFieldKey || !draft || draft.id !== activeCell.taskId || !anchorRect || typeof document === "undefined") {
-    return null;
-  }
-
-  return createPortal(
-    <div
+  return (
+    <TaskInlineEditorOverlay
+      activeCell={overlayActiveCell}
       className="sheet-table__editor-overlay"
-      data-task-portal-interaction="true"
-      ref={overlayRef}
-      style={{
-        top: `${anchorRect.top}px`,
-        left: `${anchorRect.left}px`,
-        width: `${anchorRect.width}px`,
-        height: `${anchorRect.height}px`,
-        paddingTop: anchorRect.paddingTop,
-        paddingRight: anchorRect.paddingRight,
-        paddingBottom: anchorRect.paddingBottom,
-        paddingLeft: anchorRect.paddingLeft,
-        color: anchorRect.color,
-        fontFamily: anchorRect.fontFamily,
-        fontSize: anchorRect.fontSize,
-        fontStyle: anchorRect.fontStyle,
-        fontWeight: anchorRect.fontWeight,
-        letterSpacing: anchorRect.letterSpacing,
-        lineHeight: anchorRect.lineHeight,
-        textAlign: anchorRect.textAlign as CSSProperties["textAlign"],
-        textTransform: anchorRect.textTransform as CSSProperties["textTransform"],
+      getCellNode={(taskId, columnKey) => getCellNode(taskId, columnKey as TaskListColumnKey)}
+      onFocusHandled={onFocusHandled}
+      pendingFocusCell={overlayPendingFocusCell}
+      renderEditor={({ activeCell: overlayCell }) => {
+        const fieldKey = getEditableTaskListField(overlayCell.columnKey as TaskListColumnKey);
+        const overlayDraft =
+          draftSnapshot.session?.taskId === overlayCell.taskId && draftSnapshot.session.columnKey === overlayCell.columnKey
+            ? draftSnapshot.draft
+            : null;
+
+        if (!fieldKey || !overlayDraft || overlayDraft.id !== overlayCell.taskId) {
+          return null;
+        }
+
+        return (
+          <TaskListInlineEditor
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            columnKey={overlayCell.columnKey as TaskListColumnKey}
+            fieldKey={fieldKey}
+            form={overlayDraft}
+            onCancel={onCancel}
+            onChange={onChange}
+            onCommit={onCommit}
+            saving={Boolean(inlineSavingFields[overlayCell.columnKey as TaskListColumnKey])}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        );
       }}
-    >
-      <TaskListInlineEditor
-        categoryDefinitionsByField={categoryDefinitionsByField}
-        columnKey={activeCell.columnKey}
-        fieldKey={activeFieldKey}
-        form={draft}
-        onChange={onChange}
-        onCommit={onCommit}
-        saving={Boolean(inlineSavingFields[activeCell.columnKey])}
-        workTypeDefinitions={workTypeDefinitions}
-      />
-    </div>,
-    document.body,
+    />
   );
 }
 function TaskFormFields({
@@ -5899,8 +5843,30 @@ function stopTaskListInlineEvent(event: { stopPropagation(): void }) {
   event.stopPropagation();
 }
 
-function handleTaskListInlineTextKeyDown(event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) {
+function handleTaskListInlineEscapeKeyDown(event: ReactKeyboardEvent<HTMLElement>, onCancel?: () => void) {
   if (event.nativeEvent.isComposing) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    onCancel?.();
+  }
+}
+
+function handleTaskListInlineTextKeyDown(
+  event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  onCancel?: () => void,
+) {
+  if (event.nativeEvent.isComposing) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    onCancel?.();
     return;
   }
 
