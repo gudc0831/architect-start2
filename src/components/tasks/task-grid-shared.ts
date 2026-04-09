@@ -442,7 +442,7 @@ export function getTaskListRowMeasurementDom() {
   }
 
   const host = document.createElement("div");
-  host.className = "sheet-table__measure-host";
+  host.className = "sheet-table__measure-host sheet-table__measure-host--daily";
   const shells: HTMLDivElement[] = [];
   const contents: HTMLDivElement[] = [];
 
@@ -471,6 +471,7 @@ export function measureTaskListRowHeight(cells: readonly TaskListRowMeasurementC
   cells.forEach(({ column, width, presentation }, index) => {
     const shell = measurementDom.shells[index];
     const content = measurementDom.contents[index];
+    shell.dataset.taskColumn = column.key;
     shell.className = clsx("sheet-table__cell-shell", column.className, column.key === "actionId" && "sheet-table__cell-shell--tree");
     shell.style.width = `${width}px`;
     content.className = clsx(

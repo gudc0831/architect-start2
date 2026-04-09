@@ -35,6 +35,7 @@ export function DailyGridHeaderV2({
         <div
           className={clsx("daily-grid-v2__header-cell", column.className)}
           data-grid-column={column.key}
+          data-task-column={column.key}
           key={column.key}
           role="columnheader"
         >

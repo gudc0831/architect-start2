@@ -294,6 +294,7 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
           <div
             className={clsx("daily-grid-v2__cell", column.className)}
             data-grid-column={column.key}
+            data-task-column={column.key}
             key={column.key}
             onDoubleClick={
               editableField

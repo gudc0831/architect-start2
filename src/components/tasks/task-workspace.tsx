@@ -4197,7 +4197,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   </>
                 ) : (
                   <div
-                    className={clsx("sheet-wrapper", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}
+                    className={clsx("sheet-wrapper", "sheet-wrapper--daily", displayedDailyTreeRows.length === 0 && "sheet-wrapper--daily-empty")}
                     ref={taskListScrollViewportRef}
                   >
                     {shouldUseDailyGridBodyV2 ? (
@@ -4242,7 +4242,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         />
                       </>
                     ) : (
-                      <table className="sheet-table sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
+                      <table className="sheet-table sheet-table--daily sheet-table--expanded" style={{ minWidth: `${taskListTableWidth}px`, width: `${taskListTableWidth}px` }}>
                         <colgroup>
                           {dailyTaskListColumns.map((column) => (
                             <col key={column.key} style={{ width: `${taskListColumnWidths[column.key]}px` }} />
@@ -4251,7 +4251,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <thead>
                           <tr>
                             {dailyTaskListColumns.map((column) => (
-                              <th className={column.className} key={column.key}>
+                              <th className={column.className} data-task-column={column.key} key={column.key}>
                                 <div className="sheet-table__head-inner">
                                   <span className="sheet-table__head-label">{labelForField(column.key)}</span>
                                   {renderTaskListHeaderControl(column)}
@@ -5013,6 +5013,7 @@ function DailyTaskTableBody({
           return (
             <td
               className={column.className}
+              data-task-column={column.key}
               key={column.key}
               onDoubleClick={
                 editableField
@@ -5254,6 +5255,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
     return (
       <td
         className={column.className}
+        data-task-column={column.key}
         key={column.key}
         onDoubleClick={
           editableField
