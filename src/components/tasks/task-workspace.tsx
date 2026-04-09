@@ -380,6 +380,7 @@ type DailyTaskTableRowProps = {
   interactionStore: TaskListRowInteractionStore;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
+  isPreviewReadOnly: boolean;
   isReorderingTasks: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
@@ -411,6 +412,7 @@ type DailyTaskTableBodyProps = {
   hideIssueIdOverdueBadge: boolean;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
+  isPreviewReadOnly: boolean;
   isReorderingTasks: boolean;
   activeTaskListInlineEditRowId: string | null;
   draft: TaskRecord | null;
@@ -564,6 +566,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const isPreviewDaily = isPreview && mode === "daily";
+  const isPreviewTrash = isPreview && mode === "trash";
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
@@ -694,7 +698,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isDetailExpanded = detailPanelState === "expanded";
   const isPagedDailyListView = mode === "daily" && dailyListViewMode === "paged";
-  const isDetailPanelResizable = mode === "daily" && isDetailDocked && isDetailExpanded;
+  const shouldRenderDailyDetailPanel = mode === "daily" && (!isPreviewDaily || selectedTaskId !== null);
+  const isDetailPanelResizable = shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
@@ -1902,9 +1907,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         ? focusTaskId
         : previousSelectedTaskId && tasks.some((task) => task.id === previousSelectedTaskId)
           ? previousSelectedTaskId
-          : tasks[0]?.id ?? null;
+          : isPreviewDaily
+            ? null
+            : tasks[0]?.id ?? null;
     setTaskListSelection(nextSelectedTaskId);
-  }, [focusTaskId, setTaskListSelection, taskListRowInteractionStore, tasks]);
+  }, [focusTaskId, isPreviewDaily, setTaskListSelection, taskListRowInteractionStore, tasks]);
 
   const currentDayKey = todayKey();
   const sortedTasks = useMemo(() => buildStoredOrderTaskTree(tasks), [tasks]);
@@ -1974,10 +1981,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       total: dailyTreeRows.length,
     });
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
-  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView;
-  const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState;
+  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isPreviewDaily;
+  const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isPreviewDaily;
   const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
-  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled;
+  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isPreviewDaily;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -2081,11 +2088,20 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const nextSelectedTaskId =
       previousSelectedTaskId && visibleDailyTasks.some((task) => task.id === previousSelectedTaskId)
         ? previousSelectedTaskId
-        : isPagedDailyListView
+        : isPagedDailyListView || isPreviewDaily
           ? null
           : visibleDailyTasks[0]?.id ?? null;
     setTaskListSelection(nextSelectedTaskId);
-  }, [isPagedDailyListView, mode, setTaskListSelection, taskListRowInteractionStore, visibleDailyTasks]);
+  }, [isPagedDailyListView, isPreviewDaily, mode, setTaskListSelection, taskListRowInteractionStore, visibleDailyTasks]);
+
+  useEffect(() => {
+    if (!isPreviewDaily || !focusTaskId || focusTaskId !== selectedTaskId) {
+      return;
+    }
+
+    setIsDetailPanelSticky(true);
+    setDetailPanelState("expanded");
+  }, [focusTaskId, isPreviewDaily, selectedTaskId]);
 
   useEffect(() => {
     if (!isPagedDailyListView) {
@@ -3099,6 +3115,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
     if (column.headerControl?.kind === "sortMenu") {
+      if (isPreviewDaily) {
+        return null;
+      }
+
       return (
         <TaskListOrderHeaderMenu
           actions={[
@@ -3584,7 +3604,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const selectTask = useCallback((taskId: string) => {
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
-  }, [setTaskListActiveInlineEditCell]);
+    if (isPreviewDaily) {
+      pinDetailPanel();
+    }
+  }, [isPreviewDaily, pinDetailPanel, setTaskListActiveInlineEditCell]);
 
   const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
     setTaskListActiveInlineEditCell({ taskId, columnKey }, { selectedTaskId: taskId });
@@ -3845,6 +3868,109 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     updateDraftForm(key, value);
   }
 
+  const previewDetailPanelBody =
+    isPreviewDaily && selectedTask ? (
+      <div className="detail-panel__body">
+        <div className="detail-form-grid">
+          <label className="form-field--compact">
+            <span>{labelForField("actionId")}</span>
+            <input readOnly value={formatReadonlyActionId(selectedTask.actionId, selectedTask.issueId)} />
+          </label>
+          <label className="form-field--compact">
+            <span>{labelForField("parentActionId")}</span>
+            <input readOnly value={selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "-"} />
+          </label>
+          <label className="form-field--compact">
+            <span>{labelForField("dueDate")}</span>
+            <input readOnly value={formatPreviewFieldValue(selectedTask.dueDate)} />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("workType")}</span>
+            <input readOnly value={formatPreviewFieldValue(labelForWorkType(selectedTask.workType, workTypeDefinitions))} />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("coordinationScope")}</span>
+            <input
+              readOnly
+              value={formatPreviewFieldValue(labelForTaskCategoricalFieldValue("coordinationScope", selectedTask.coordinationScope, categoricalFieldContext))}
+            />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("requestedBy")}</span>
+            <input readOnly value={formatPreviewFieldValue(labelForTaskCategoricalFieldValue("requestedBy", selectedTask.requestedBy, categoricalFieldContext))} />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("relatedDisciplines")}</span>
+            <input
+              readOnly
+              value={formatPreviewFieldValue(labelForTaskCategoricalFieldValue("relatedDisciplines", selectedTask.relatedDisciplines, categoricalFieldContext))}
+            />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("assignee")}</span>
+            <input readOnly value={formatPreviewFieldValue(selectedTask.assignee)} />
+          </label>
+          <label className="form-field--wide">
+            <span>{labelForField("issueTitle")}</span>
+            <textarea className="detail-text-field" readOnly rows={2} value={formatPreviewFieldValue(selectedTask.issueTitle)} />
+          </label>
+          <label className="form-field--compact">
+            <span>{labelForField("reviewedAt")}</span>
+            <input readOnly value={formatPreviewFieldValue(selectedTask.reviewedAt)} />
+          </label>
+          <label className="form-field--compact">
+            <span>{labelForField("updatedAt")}</span>
+            <input readOnly value={formatReadonlyValue(selectedTask.updatedAt)} />
+          </label>
+          <label className="form-field--stretch">
+            <span>{labelForField("locationRef")}</span>
+            <input readOnly value={formatPreviewFieldValue(labelForTaskCategoricalFieldValue("locationRef", selectedTask.locationRef, categoricalFieldContext))} />
+          </label>
+          <label className="detail-checkbox-field form-field--compact">
+            <span>{labelForField("calendarLinked")}</span>
+            <input checked={selectedTask.calendarLinked} disabled readOnly tabIndex={-1} type="checkbox" />
+          </label>
+          <label className="form-field--compact">
+            <span>{labelForField("status")}</span>
+            <strong className={clsx("status-pill", `status-pill--${selectedTask.status}`)}>{labelForStatus(selectedTask.status)}</strong>
+          </label>
+          <label className="form-field--wide">
+            <span>{labelForField("issueDetailNote")}</span>
+            <textarea
+              className="detail-text-field"
+              readOnly
+              rows={3}
+              value={selectedTask.issueDetailNote.trim() ? selectedTask.issueDetailNote : t("empty.noDescription")}
+            />
+          </label>
+          <label className="form-field--wide">
+            <span>{labelForField("decision")}</span>
+            <textarea className="detail-text-field" readOnly rows={2} value={formatPreviewFieldValue(selectedTask.decision)} />
+          </label>
+        </div>
+
+        <section className="detail-section">
+          <div className="detail-section__header">
+            <h4>{labelForField("linkedDocuments")}</h4>
+          </div>
+          <div className="file-list">
+            {selectedTaskFilesLoading ? <p>{t("system.loading")}</p> : null}
+            {!selectedTaskFilesLoading && selectedFiles.length === 0 ? <p>{t("empty.noLinkedDocuments")}</p> : null}
+            {selectedFiles.map((file) => (
+              <article className="file-pill" key={file.id}>
+                <div className="file-pill__meta">
+                  <strong>
+                    {file.originalName} <span className="file-pill__version">{file.versionLabel}</span>
+                  </strong>
+                  <small>{formatFileAttachmentMeta(file)}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    ) : null;
+
   return (
     <section className={clsx("workspace", `workspace--${mode}`)}>
       <header className="workspace__header">
@@ -3871,7 +3997,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             </>
           ) : null}
         </div>
-        {isTrashMode ? (
+        {isTrashMode && !isPreviewTrash ? (
           <div className="trash-toolbar">
             <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
               {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
@@ -3901,13 +4027,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         </div>
       ) : (
         <div
-          className={clsx(
-            "workspace__body",
-            mode !== "daily" && "workspace__body--single",
-            mode === "daily" && !isDetailDocked && "workspace__body--stacked",
-            mode === "daily" && isDetailDocked && isDetailExpanded && "workspace__body--detail-expanded",
-            mode === "daily" && isDetailDocked && !isDetailExpanded && "workspace__body--detail-collapsed",
-          )}
+            className={clsx(
+              "workspace__body",
+              (mode !== "daily" || !shouldRenderDailyDetailPanel) && "workspace__body--single",
+              shouldRenderDailyDetailPanel && !isDetailDocked && "workspace__body--stacked",
+              shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded && "workspace__body--detail-expanded",
+              shouldRenderDailyDetailPanel && isDetailDocked && !isDetailExpanded && "workspace__body--detail-collapsed",
+            )}
           onClickCapture={handleWorkspaceBackgroundClick}
           style={workspaceBodyStyle}
         >
@@ -3936,38 +4062,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
             {mode === "daily" ? (
               <>
-                <TaskQuickCreate
-                  canCollapse={canCollapseCreateForm}
-                  composerMode={quickCreateComposerMode}
-                  copy={{
-                    eyebrow: t("workspace.quickCreateEyebrow"),
-                    title: t("workspace.quickCreateTitle"),
-                    body: t("workspace.quickCreateBody"),
-                    hideLabel: t("actions.hideForm"),
-                    showLabel: t("actions.showForm"),
-                    createLabel: t("actions.createTask"),
-                    keepListVisibleLabel: t("actions.keepListVisible"),
-                  }}
-                  initialValues={quickCreateInitialValues}
-                  isOpen={isCreateFormOpen}
-                  onClose={() => setIsCreateFormOpen(false)}
-                  onSubmit={createTaskFromForm}
-                  onToggleOpen={() => setIsCreateFormOpen((prev) => !prev)}
-                  renderFields={(values, onChange) => (
-                    <TaskFormFields
-                      categoryDefinitionsByField={categoryDefinitionsByField}
-                      composerMode={quickCreateComposerMode}
-                      form={values}
-                      layout="composer"
-                      onChange={onChange as TaskFormChangeHandler}
-                      onComposerResizeStart={handleQuickCreateResizeStart}
-                      quickCreateWidths={quickCreateWidths}
-                      readonly={createReadonlyFields}
-                      showUpdatedAt={false}
-                      workTypeDefinitions={workTypeDefinitions}
-                    />
-                  )}
-                />
+                {!isPreviewDaily ? (
+                  <TaskQuickCreate
+                    canCollapse={canCollapseCreateForm}
+                    composerMode={quickCreateComposerMode}
+                    copy={{
+                      eyebrow: t("workspace.quickCreateEyebrow"),
+                      title: t("workspace.quickCreateTitle"),
+                      body: t("workspace.quickCreateBody"),
+                      hideLabel: t("actions.hideForm"),
+                      showLabel: t("actions.showForm"),
+                      createLabel: t("actions.createTask"),
+                      keepListVisibleLabel: t("actions.keepListVisible"),
+                    }}
+                    initialValues={quickCreateInitialValues}
+                    isOpen={isCreateFormOpen}
+                    onClose={() => setIsCreateFormOpen(false)}
+                    onSubmit={createTaskFromForm}
+                    onToggleOpen={() => setIsCreateFormOpen((prev) => !prev)}
+                    renderFields={(values, onChange) => (
+                      <TaskFormFields
+                        categoryDefinitionsByField={categoryDefinitionsByField}
+                        composerMode={quickCreateComposerMode}
+                        form={values}
+                        layout="composer"
+                        onChange={onChange as TaskFormChangeHandler}
+                        onComposerResizeStart={handleQuickCreateResizeStart}
+                        quickCreateWidths={quickCreateWidths}
+                        readonly={createReadonlyFields}
+                        showUpdatedAt={false}
+                        workTypeDefinitions={workTypeDefinitions}
+                      />
+                    )}
+                  />
+                ) : null}
 
                 <section className="daily-sheet__focus">
                   <div className="daily-sheet__focus-header">
@@ -4163,7 +4291,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <span className="daily-task-card__files-label">{labelForField("linkedDocuments")}</span>
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
-                            <div className="daily-task-card__reorder-actions">
+                            {!isPreviewDaily ? <div className="daily-task-card__reorder-actions">
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
@@ -4188,7 +4316,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               >
                                 아래
                               </button>
-                            </div>
+                            </div> : null}
                           </div>
                           </article>
                         );
@@ -4286,6 +4414,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             interactionStore={taskListRowInteractionStore}
                             isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                             isManualReorderDisabled={isDailyManualReorderDisabled}
+                            isPreviewReadOnly={isPreviewDaily}
                             isReorderingTasks={isReorderingTasks}
                             layoutStore={taskListLayoutStore}
                             moveTaskByOffset={moveTaskByOffset}
@@ -4303,20 +4432,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     )}
                   </div>
                 )}
-                <TaskListInlineEditorOverlay
-                  activeCell={activeTaskListInlineEditCell}
-                  categoryDefinitionsByField={categoryDefinitionsByField}
-                  draftStore={taskEditorDraftStore}
-                  draft={draft}
-                  getCellNode={getTaskListRowCellNode}
-                  inlineSavingFields={inlineSavingFields}
-                  onCancel={cancelInlineTaskListField}
-                  onChange={updateInlineTaskListEditorDraft}
-                  onCommit={saveInlineTaskListField}
-                  onFocusHandled={() => setPendingTaskListFocusCell(null)}
-                  pendingFocusCell={pendingTaskListFocusCell}
-                  workTypeDefinitions={workTypeDefinitions}
-                />
+                {!isPreviewDaily ? (
+                  <TaskListInlineEditorOverlay
+                    activeCell={activeTaskListInlineEditCell}
+                    categoryDefinitionsByField={categoryDefinitionsByField}
+                    draftStore={taskEditorDraftStore}
+                    draft={draft}
+                    getCellNode={getTaskListRowCellNode}
+                    inlineSavingFields={inlineSavingFields}
+                    onCancel={cancelInlineTaskListField}
+                    onChange={updateInlineTaskListEditorDraft}
+                    onCommit={saveInlineTaskListField}
+                    onFocusHandled={() => setPendingTaskListFocusCell(null)}
+                    pendingFocusCell={pendingTaskListFocusCell}
+                    workTypeDefinitions={workTypeDefinitions}
+                  />
+                ) : null}
               </>
             ) : null}
 
@@ -4470,25 +4601,27 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 {trashItems.length === 0 ? <div className="board-column__empty">{t("empty.noDeletedTasks")}</div> : null}
                 {trashItems.map((item) => {
                   const isTask = item.kind === "task";
-                  const checked = isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id);
+                  const checked = !isPreviewTrash && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
 
                   return (
                     <article className={clsx("trash-card", checked && "trash-card--selected")} key={`${item.kind}:${item.id}`}>
-                      <label className="trash-card__checkbox">
-                        <input
-                          aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
-                          checked={checked}
-                          onChange={() => {
-                            if (isTask) {
-                              toggleTrashTaskSelection(item.id);
-                              return;
-                            }
+                      {!isPreviewTrash ? (
+                        <label className="trash-card__checkbox">
+                          <input
+                            aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
+                            checked={checked}
+                            onChange={() => {
+                              if (isTask) {
+                                toggleTrashTaskSelection(item.id);
+                                return;
+                              }
 
-                            toggleTrashFileSelection(item.id);
-                          }}
-                          type="checkbox"
-                        />
-                      </label>
+                              toggleTrashFileSelection(item.id);
+                            }}
+                            type="checkbox"
+                          />
+                        </label>
+                      ) : null}
                       <div className="trash-card__content">
                         {isTask ? (
                           <>
@@ -4512,27 +4645,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           </>
                         )}
                       </div>
-                      <div className="trash-card__actions">
-                        {isTask ? (
-                          <>
-                            <button className="primary-button" onClick={() => void restoreTask(item.task.id)} type="button">
-                              {t("actions.restore")}
-                            </button>
-                            <button className="danger-button" onClick={() => void deleteTaskPermanently(item.task)} type="button">
-                              {t("actions.deletePermanently")}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="primary-button" onClick={() => void restoreFile(item.file.id)} type="button">
-                              {t("actions.restore")}
-                            </button>
-                            <button className="danger-button" onClick={() => void deleteFilePermanently(item.file)} type="button">
-                              {t("actions.deletePermanently")}
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {!isPreviewTrash ? (
+                        <div className="trash-card__actions">
+                          {isTask ? (
+                            <>
+                              <button className="primary-button" onClick={() => void restoreTask(item.task.id)} type="button">
+                                {t("actions.restore")}
+                              </button>
+                              <button className="danger-button" onClick={() => void deleteTaskPermanently(item.task)} type="button">
+                                {t("actions.deletePermanently")}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="primary-button" onClick={() => void restoreFile(item.file.id)} type="button">
+                                {t("actions.restore")}
+                              </button>
+                              <button className="danger-button" onClick={() => void deleteFilePermanently(item.file)} type="button">
+                                {t("actions.deletePermanently")}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })}
@@ -4556,7 +4691,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             />
           ) : null}
 
-          {mode === "daily" ? (
+          {shouldRenderDailyDetailPanel ? (
             <aside
               className={clsx(
                 "detail-panel",
@@ -4607,7 +4742,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </button>
                   </div>
                 </div>
-                {selectedTask && !isTrashMode && isDetailExpanded ? (
+                {selectedTask && !isTrashMode && isDetailExpanded && !isPreviewDaily ? (
                   <div className="detail-panel__header-secondary-actions">
                     <button className="danger-button" onClick={() => void moveToTrash(selectedTask.id)} type="button">
                       {t("actions.moveToTrash")}
@@ -4617,7 +4752,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               </header>
 
               {isDetailExpanded ? (
-                draft ? (
+                isPreviewDaily ? (
+                  previewDetailPanelBody
+                ) : draft ? (
                   <div className="detail-panel__body">
                     <TaskFormFields
                       form={draft}
@@ -4794,6 +4931,7 @@ function DailyTaskTableBody({
   hideIssueIdOverdueBadge,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
+  isPreviewReadOnly,
   isReorderingTasks,
   activeTaskListInlineEditRowId,
   draft,
@@ -4853,6 +4991,7 @@ function DailyTaskTableBody({
               isManualReorderDisabled={isManualReorderDisabled}
               hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
               inlineSavingFields={inlineSavingFields}
+              isPreviewReadOnly={isPreviewReadOnly}
               isReorderingTasks={isReorderingTasks}
               interactionStore={interactionStore}
               key={task.id}
@@ -4903,6 +5042,7 @@ function DailyTaskTableBody({
                       <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
                     </span>
                   ) : null}
+                  {!isPreviewReadOnly ? (
                   <button
                     aria-label="재정렬"
                     className="task-tree__drag-handle"
@@ -4915,6 +5055,7 @@ function DailyTaskTableBody({
                   >
                     <span aria-hidden="true" className="task-tree__drag-grip" />
                   </button>
+                  ) : null}
                   <span
                     className={clsx(
                       "task-tree__badge",
@@ -4930,7 +5071,7 @@ function DailyTaskTableBody({
                       {deadlineBadge.label}
                     </span>
                   ) : null}
-                  {interactionSnapshot.isSelectedRow ? (
+                  {interactionSnapshot.isSelectedRow && !isPreviewReadOnly ? (
                     <span className="task-tree__actions">
                       <button
                         aria-label="위로 이동"
@@ -5007,7 +5148,7 @@ function DailyTaskTableBody({
         const renderTaskListCell = (column: TaskListColumnConfig) => {
           const editableField = getEditableTaskListField(column.key);
           const presentation = buildTaskListCellPresentation(column.key, rowPresentationContext);
-          const isEditableCell = Boolean(editableField);
+          const isEditableCell = Boolean(editableField) && !isPreviewReadOnly;
           const isActiveInlineCell = interactionSnapshot.activeInlineColumnKey === column.key;
 
           return (
@@ -5016,7 +5157,7 @@ function DailyTaskTableBody({
               data-task-column={column.key}
               key={column.key}
               onDoubleClick={
-                editableField
+                editableField && !isPreviewReadOnly
                   ? (event) => {
                       const target = event.target;
                       if (rowDraft && target instanceof HTMLElement) {
@@ -5051,14 +5192,14 @@ function DailyTaskTableBody({
                 >
                   {renderTaskListCellContent(column.key, presentation)}
                 </div>
-                <button
+                {!isPreviewReadOnly ? <button
                   aria-label={rowResizeAria}
                   className="sheet-table__row-resize-handle"
                   onDoubleClick={(event) => handleTaskListRowAutoFitDoubleClick(task.id, event)}
                   onPointerDown={(event) => handleTaskListRowResizeStart(task.id, event)}
                   title={rowAutoFitAria}
                   type="button"
-                />
+                /> : null}
               </div>
             </td>
           );
@@ -5077,8 +5218,8 @@ function DailyTaskTableBody({
             data-task-row-id={task.id}
             key={task.id}
             onClick={() => selectTask(task.id)}
-            onDragOver={(event) => handleTaskRowDragOver(task, event)}
-            onDrop={(event) => void handleTaskRowDrop(task, event)}
+            onDragOver={!isPreviewReadOnly ? (event) => handleTaskRowDragOver(task, event) : undefined}
+            onDrop={!isPreviewReadOnly ? (event) => void handleTaskRowDrop(task, event) : undefined}
           >
             {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
           </tr>
@@ -5097,6 +5238,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   interactionStore,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
+  isPreviewReadOnly,
   isReorderingTasks,
   rowDraft,
   inlineSavingFields,
@@ -5145,6 +5287,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
               </span>
             ) : null}
+            {!isPreviewReadOnly ? (
             <button
               aria-label="재정렬"
               className="task-tree__drag-handle"
@@ -5157,6 +5300,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             >
               <span aria-hidden="true" className="task-tree__drag-grip" />
             </button>
+            ) : null}
             <span
               className={clsx(
                 "task-tree__badge",
@@ -5172,7 +5316,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 {deadlineBadge.label}
               </span>
             ) : null}
-            {isSelectedRow ? (
+            {isSelectedRow && !isPreviewReadOnly ? (
               <span className="task-tree__actions">
                 <button
                   aria-label="위로 이동"
@@ -5249,7 +5393,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   const renderTaskListCell = (column: TaskListColumnConfig) => {
     const editableField = getEditableTaskListField(column.key);
     const presentation = buildTaskListCellPresentation(column.key, rowPresentationContext);
-    const isEditableCell = Boolean(editableField);
+    const isEditableCell = Boolean(editableField) && !isPreviewReadOnly;
     const isActiveInlineCell = activeInlineColumnKey === column.key;
 
     return (
@@ -5258,7 +5402,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
         data-task-column={column.key}
         key={column.key}
         onDoubleClick={
-          editableField
+          editableField && !isPreviewReadOnly
             ? (event) => {
                 const target = event.target;
                 if (rowDraft && target instanceof HTMLElement) {
@@ -5293,7 +5437,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             >
             {renderTaskListCellContent(column.key, presentation)}
           </div>
-          <button
+          {!isPreviewReadOnly ? <button
             aria-label={rowResizeAria}
             className="sheet-table__row-resize-handle"
             onDoubleClick={(event) => {
@@ -5304,7 +5448,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             onPointerDown={(event) => handleTaskListRowResizeStart(task.id, event)}
             title={rowAutoFitAria}
             type="button"
-          />
+          /> : null}
         </div>
       </td>
     );
@@ -5322,8 +5466,8 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
       )}
       data-task-row-id={task.id}
       onClick={() => selectTask(task.id)}
-      onDragOver={(event) => handleTaskRowDragOver(task, event)}
-      onDrop={(event) => void handleTaskRowDrop(task, event)}
+      onDragOver={!isPreviewReadOnly ? (event) => handleTaskRowDragOver(task, event) : undefined}
+      onDrop={!isPreviewReadOnly ? (event) => void handleTaskRowDrop(task, event) : undefined}
     >
       {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
     </tr>
@@ -5339,6 +5483,7 @@ function areDailyTaskTableRowPropsEqual(previous: DailyTaskTableRowProps, next: 
   if (previous.interactionStore !== next.interactionStore) return false;
   if (previous.isManualReorderDisabled !== next.isManualReorderDisabled) return false;
   if (previous.isHtmlDragReorderDisabled !== next.isHtmlDragReorderDisabled) return false;
+  if (previous.isPreviewReadOnly !== next.isPreviewReadOnly) return false;
   if (previous.isReorderingTasks !== next.isReorderingTasks) return false;
   if (previous.rowDraft !== next.rowDraft) return false;
   if (previous.workTypeDefinitions !== next.workTypeDefinitions) return false;
@@ -7447,6 +7592,11 @@ function formatReadonlyActionId(actionId: number | string | null | undefined, is
 function formatReadonlyValue(value: string | null | undefined) {
   const formatted = formatDateTimeField(value);
   return formatted === "-" ? t("workspace.autoValue") : formatted;
+}
+
+function formatPreviewFieldValue(value: string | null | undefined) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || "-";
 }
 
 function normalizeParentTaskNumberInput(value: string) {
