@@ -665,6 +665,15 @@ a {
   background: var(--theme-surface-empty);
 }
 
+.empty-state__meta {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty-state__actions {
+  margin-top: 0.7rem;
+}
+
 .composer-card {
   display: grid;
   gap: 0.85rem;

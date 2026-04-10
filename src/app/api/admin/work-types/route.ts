@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireRole } from "@/lib/auth/require-user";
 import { createGlobalWorkType, listGlobalWorkTypes } from "@/use-cases/admin/admin-service";
 
@@ -15,6 +16,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireRole("admin");
     const body = (await request.json()) as {
       code?: string;

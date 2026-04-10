@@ -1,9 +1,10 @@
-﻿import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { badRequest, serviceUnavailable, unauthorized } from "@/lib/api/errors";
 import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig, isAuthStubMode } from "@/lib/auth/auth-config";
+import { disableAuthResponseCache } from "@/lib/auth/auth-response-cache";
 import { prisma } from "@/lib/prisma";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   try {
@@ -39,14 +40,16 @@ export async function POST(request: Request) {
       throw unauthorized("Invalid email or password", "INVALID_CREDENTIALS");
     }
 
-    return NextResponse.json({
-      data: {
-        id: profile.id,
-        email: profile.email,
-        displayName: profile.displayName,
-        role: profile.role,
-      },
-    });
+    return disableAuthResponseCache(
+      NextResponse.json({
+        data: {
+          id: profile.id,
+          email: profile.email,
+          displayName: profile.displayName,
+          role: profile.role,
+        },
+      }),
+    );
   } catch (error) {
     return handleRouteError(error);
   }

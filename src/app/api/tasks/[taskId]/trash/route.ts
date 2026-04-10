@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { moveTaskToTrash } from "@/use-cases/task-service";
 
@@ -8,7 +10,9 @@ export async function POST(
   context: { params: Promise<{ taskId: string }> },
 ) {
   try {
+    assertRequestIntegrity(_request);
     const user = await requireUser();
+    await requireCurrentProjectAccess(user);
     const { taskId } = await context.params;
     const task = await moveTaskToTrash(taskId, user.id);
 

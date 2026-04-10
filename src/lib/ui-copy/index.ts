@@ -35,6 +35,8 @@ const errorCodeMap = {
   AUTH_NOT_CONFIGURED: "authNotConfigured",
   UNAUTHORIZED: "unauthorized",
   FORBIDDEN: "forbidden",
+  PROJECT_ACCESS_REQUIRED: "forbidden",
+  PROJECT_MANAGER_REQUIRED: "forbidden",
   TASK_NOT_FOUND: "taskNotFound",
   FILE_NOT_FOUND: "fileNotFound",
   FILE_NOT_IN_TRASH: "fileNotInTrash",

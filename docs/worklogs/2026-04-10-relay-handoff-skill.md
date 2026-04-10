@@ -1,0 +1,4 @@
+Req: create a repo-local skill that can read the current work state, explain what the next worker should read and resume from, call out blockers and untouched coupled areas, and generate a short copy-ready handoff prompt.
+Diff: add `codex/skills/relay-handoff/SKILL.md` and `codex/skills/relay-handoff/agents/openai.yaml`; validate with the skill-creator validator; sync the repo skill into `$CODEX_HOME/skills`.
+Why: this repo now has repeated multi-step handoff needs across auth/RBAC transition work, and the handoff format needs to be fast, grounded, and reusable instead of rewritten ad hoc.
+Verify/Time: `python .../quick_validate.py D:\architect - start2\codex\skills\relay-handoff` passed; `npm run codex:skills:sync` synced `relay-handoff` into `C:\Users\hcchoi\.codex\skills` | 2026-04-10 KST

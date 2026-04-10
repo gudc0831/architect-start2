@@ -6,10 +6,10 @@ import { listEffectiveTaskCategoriesForSession, listProjectsForSession } from "@
 
 export async function GET() {
   try {
-    await requireUser();
+    const user = await requireUser();
     const [selection, effectiveCategories] = await Promise.all([
-      listProjectsForSession(),
-      listEffectiveTaskCategoriesForSession(),
+      listProjectsForSession(user),
+      listEffectiveTaskCategoriesForSession(user),
     ]);
     const categoryDefinitionsByField = Object.fromEntries(
       Object.entries(effectiveCategories.byField).map(([fieldKey, value]) => [fieldKey, value.displayDefinitions]),

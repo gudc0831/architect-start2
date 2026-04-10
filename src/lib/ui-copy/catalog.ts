@@ -35,9 +35,19 @@ export type UICatalog = {
   login: {
     title: string;
     subtitle: string;
+    googleSubtitle: string;
+    googleNote: string;
     stubNote: string;
     email: string;
     password: string;
+  };
+  noAccess: {
+    title: string;
+    signedInAs: string;
+    body: string;
+    help: string;
+    switchAccount: string;
+    signingOut: string;
   };
   workspace: {
     fallbackEyebrow: string;
@@ -190,6 +200,7 @@ export type UICatalog = {
   };
   actions: {
     login: string;
+    continueWithGoogle: string;
     authNotConnected: string;
     signingIn: string;
     logout: string;
@@ -321,9 +332,19 @@ export const uiCopyCatalog = {
     login: {
       title: "로그인",
       subtitle: "실제 인증 연결이 준비되면 이 화면을 사용합니다. 그전까지는 앱이 로컬 플레이스홀더 모드로 동작합니다.",
+      googleSubtitle: "클라우드 모드에서는 Google OAuth로 로그인합니다. 앱 접근 권한은 사전 프로비저닝된 계정과 프로젝트 멤버십 기준으로 확인됩니다.",
+      googleNote: "로그인 후 바로 작업 공간으로 보내지지 않을 수 있습니다. 프로젝트 접근 권한이 없으면 별도 안내 화면으로 이동합니다.",
       stubNote: "실제 로그인 연결이 아직 설정되지 않았습니다. 지금은 로컬 작업 공간을 그대로 사용할 수 있고, 이후에도 화면 흐름을 바꾸지 않고 Supabase 인증을 연결할 수 있습니다.",
       email: "이메일",
       password: "비밀번호",
+    },
+    noAccess: {
+      title: "접근 권한 대기 중",
+      signedInAs: "{{email}} 계정으로 로그인됨",
+      body: "로그인은 성공했지만, 이 계정에는 아직 프로젝트 접근 권한이 없습니다.",
+      help: "관리자에게 최소 한 개 프로젝트에 이 계정을 추가해 달라고 요청한 뒤 다시 로그인하세요.",
+      switchAccount: "로그아웃 후 다른 계정으로 로그인",
+      signingOut: "로그아웃 중...",
     },
     workspace: {
       fallbackEyebrow: "작업 공간",
@@ -503,6 +524,7 @@ export const uiCopyCatalog = {
     },
     actions: {
       login: "로그인",
+      continueWithGoogle: "Google로 계속",
       authNotConnected: "인증 연결 안 됨",
       signingIn: "로그인 중...",
       logout: "로그아웃",
@@ -632,9 +654,19 @@ export const uiCopyCatalog = {
     login: {
       title: "Login",
       subtitle: "Use this page when real authentication is connected. Until then, the app runs in local placeholder mode.",
+      googleSubtitle: "Cloud mode signs users in with Google OAuth. App access is still gated by pre-provisioned accounts and project memberships.",
+      googleNote: "A successful Google sign-in does not always lead straight to the workspace. Users without project access are sent to a separate access-pending screen.",
       stubNote: "Real sign-in is not connected yet. You can keep using the workspace locally, and wire Supabase auth later without changing the screen flow.",
       email: "Email",
       password: "Password",
+    },
+    noAccess: {
+      title: "Access pending",
+      signedInAs: "Signed in as {{email}}",
+      body: "Your sign-in succeeded, but this account does not have project access yet.",
+      help: "Ask an administrator to add this account to at least one project, then sign in again.",
+      switchAccount: "Sign out and switch account",
+      signingOut: "Signing out...",
     },
     workspace: {
       fallbackEyebrow: "Workspace",
@@ -814,6 +846,7 @@ export const uiCopyCatalog = {
     },
     actions: {
       login: "Sign in",
+      continueWithGoogle: "Continue with Google",
       authNotConnected: "Auth not connected",
       signingIn: "Signing in...",
       logout: "Log out",

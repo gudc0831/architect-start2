@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireRole } from "@/lib/auth/require-user";
+import { requireProjectManager } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { requireUser } from "@/lib/auth/require-user";
 import { listProjectMembers, replaceProjectMembers } from "@/use-cases/admin/admin-service";
 
 export async function GET(
@@ -8,8 +10,9 @@ export async function GET(
   context: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    await requireRole("admin");
+    const user = await requireUser();
     const { projectId } = await context.params;
+    await requireProjectManager(projectId, user);
     const data = await listProjectMembers(projectId);
     return NextResponse.json({ data });
   } catch (error) {
@@ -22,8 +25,10 @@ export async function PUT(
   context: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    const user = await requireRole("admin");
+    assertRequestIntegrity(request);
+    const user = await requireUser();
     const { projectId } = await context.params;
+    await requireProjectManager(projectId, user);
     const body = (await request.json()) as {
       memberships?: Array<{
         profileId?: string;

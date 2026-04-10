@@ -1,10 +1,11 @@
 ﻿import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig, isAuthStubMode } from "@/lib/auth/auth-config";
+import { defaultSafeNextPath, resolveSafeInternalPath } from "@/lib/auth/safe-next-path";
 import { updateSession } from "@/lib/supabase/middleware";
 
-const publicPaths = new Set(["/login", "/preview"]);
-const publicApiPrefixes = ["/api/auth/login", "/api/system/status"];
+const publicPaths = new Set(["/login", "/auth/callback", "/preview"]);
+const publicApiPrefixes = ["/api/auth/login", "/api/auth/google"];
 
 function isStaticAsset(pathname: string) {
   return (
@@ -37,6 +38,17 @@ function buildLoginUrl(request: NextRequest) {
   }
 
   return loginUrl;
+}
+
+function buildPostLoginUrl(request: NextRequest) {
+  const postLoginUrl = new URL("/auth/post-login", request.url);
+  const nextPath = resolveSafeInternalPath(request.nextUrl.searchParams.get("next"));
+
+  if (nextPath !== defaultSafeNextPath) {
+    postLoginUrl.searchParams.set("next", nextPath);
+  }
+
+  return postLoginUrl;
 }
 
 export async function middleware(request: NextRequest) {
@@ -75,7 +87,7 @@ export async function middleware(request: NextRequest) {
   const { response, user } = await updateSession(request);
 
   if (pathname === "/login" && user) {
-    return NextResponse.redirect(new URL("/board", request.url));
+    return NextResponse.redirect(buildPostLoginUrl(request));
   }
 
   if (isPublicRoute(pathname)) {
@@ -104,4 +116,3 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
-
