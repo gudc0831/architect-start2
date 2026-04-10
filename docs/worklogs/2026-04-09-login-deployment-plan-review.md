@@ -1,0 +1,4 @@
+Req: review whether following `docs/2026-04-07-multi-user-transition-plan.md` is sufficient for deployed login integration.
+Diff: review only | `docs/2026-04-07-multi-user-transition-plan.md`, `docs/SUPABASE_MIGRATION.md`, `src/app/api/auth/*`, `src/components/auth/login-form.tsx`, `src/lib/auth/require-user.ts`, `src/domains/auth/types.ts`, `prisma/schema.prisma`, `scripts/bootstrap-admin.ts`, `src/use-cases/admin/admin-service.ts`, `src/repositories/admin/postgres-store.ts`.
+Why: the plan is directionally right for multi-user authorization, but deployed login still lacks an explicit Google OAuth cutover, first-login profile provisioning, `shortName`/profile schema rollout, and preview/production auth callback setup.
+Verify/Time: document/code review only; searched for OAuth callback and profile auto-provisioning paths, confirmed current login remains password-based and profile-dependent; no tests run | 2026-04-09 KST

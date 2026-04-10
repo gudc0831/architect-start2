@@ -35,6 +35,20 @@ Use this skill to run work with explicit coordinator, worker, and reviewer separ
 - `design pass`: for UI-heavy work, check hierarchy, states, responsive intent, and visual direction before implementation starts.
 - Record each pass outcome as `proceed`, `revise`, or `needs user decision`.
 
+## Planning Decision Gate
+
+- Use this gate whenever the task includes plan writing, plan revision, or implementation planning.
+- Compare the proposed plan against existing plans, planning sections, worklogs, handoff notes, and other active planning documents before locking direction.
+- If you find a conflict with an existing plan, an unresolved option set, an expected bottleneck, or a point where user choice materially changes scope, sequencing, or risk, stop before implementation and ask the user to choose.
+- Do not silently reconcile conflicting plans or pick a material option on the user's behalf.
+- Present the decision request in this format:
+  - `issue`: the conflict, option set, bottleneck, or missing decision.
+  - `recommendation`: the recommended option and why it is preferred now.
+  - `alt 1`: a distinct alternative and why someone might choose it.
+  - `alt 2`: a distinct alternative and why someone might choose it.
+  - `alt 3`: a distinct alternative and why someone might choose it.
+- Add more alternatives when the real choice set is larger, but never present fewer than three alternatives beside the recommendation.
+
 ## Design Direction Expansion
 
 - Use this mode for new UI surfaces, major redesigns, or first-impression-heavy pages.
@@ -61,27 +75,31 @@ Use this skill to run work with explicit coordinator, worker, and reviewer separ
 1. Classify the task.
    - Use a simple path for small, low-risk edits.
    - Use role separation when the task spans multiple files, includes user-facing impact, carries regression risk, or benefits from independent review.
-   - Decide whether review passes, design direction expansion, or the debugging gate are needed.
+   - Decide whether review passes, the planning decision gate, design direction expansion, or the debugging gate are needed.
 2. Run review passes when warranted.
    - Use `product pass` when scope or product tradeoffs are unclear.
    - Use `engineering pass` when architecture, dependency, or verification risk is meaningful.
    - Use `design pass` for UI-heavy work before converging on a visual direction.
-3. Assign ownership.
+3. Resolve planning decision gates when present.
+   - For planning or plan-document work, compare the proposed direction with existing plans and active planning notes before proceeding.
+   - If conflicts, unresolved options, bottlenecks, or material user-choice points are found, present one recommendation plus at least three alternatives with reasons.
+   - Wait for the user's decision before assigning implementation or starting decision-dependent work.
+4. Assign ownership.
    - Give each worker a clear file or module boundary.
    - Avoid overlapping edits unless integration clearly requires them.
    - Do not overwrite another worker's changes without coordination.
-4. Implement.
+5. Implement.
    - Preserve existing style and project conventions.
    - Keep diffs minimal and directly tied to the request.
    - For debugging tasks, follow the debugging gate before editing.
    - For new UI, document the selected direction before polishing.
    - Run practical verification for each changed area.
-5. Review.
+6. Review.
    - Use `ch` for design, UX, testing, and user-perspective feedback when applicable.
    - Use `ul` for correctness, rules, security, and repository hygiene review.
    - For design-heavy work, verify the chosen direction still feels materially distinct from generic defaults.
    - Surface concrete risks before closing the task.
-6. Close.
+7. Close.
    - Confirm requested deliverables exist.
    - Integrate or reconcile worker outputs.
    - Create or update the task log when the work is non-trivial.
@@ -109,6 +127,7 @@ Use this skill to run work with explicit coordinator, worker, and reviewer separ
 Report:
 - assigned ownership
 - review passes run, if any
+- planning decision requests raised and user choices made, if any
 - selected design direction, if any
 - changed files or artifacts
 - verification performed
