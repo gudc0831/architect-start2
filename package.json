@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node -e \"let pkg=process.env.npm_package_json||'';if(pkg.charCodeAt(0)===92&&pkg.charCodeAt(1)===92&&pkg.charCodeAt(2)===63&&pkg.charCodeAt(3)===92){pkg=pkg.slice(4)};const path=require('node:path');require(path.join(path.dirname(pkg||process.cwd()),'scripts','run-next.cjs')).runNext(['dev','--webpack'])\"",
+    "prebuild": "npm run db:generate",
     "build": "node -e \"let pkg=process.env.npm_package_json||'';if(pkg.charCodeAt(0)===92&&pkg.charCodeAt(1)===92&&pkg.charCodeAt(2)===63&&pkg.charCodeAt(3)===92){pkg=pkg.slice(4)};const path=require('node:path');require(path.join(path.dirname(pkg||process.cwd()),'scripts','run-next.cjs')).runNext(['build'])\"",
     "start": "node -e \"let pkg=process.env.npm_package_json||'';if(pkg.charCodeAt(0)===92&&pkg.charCodeAt(1)===92&&pkg.charCodeAt(2)===63&&pkg.charCodeAt(3)===92){pkg=pkg.slice(4)};const path=require('node:path');require(path.join(path.dirname(pkg||process.cwd()),'scripts','run-next.cjs')).runNext(['start'])\"",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
