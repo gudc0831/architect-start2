@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { AppError } from "@/lib/api/errors";
 
+function getErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: "code" in error ? (error as { code?: unknown }).code : undefined,
+      clientVersion: "clientVersion" in error ? (error as { clientVersion?: unknown }).clientVersion : undefined,
+      meta: "meta" in error ? (error as { meta?: unknown }).meta : undefined,
+    };
+  }
+
+  return { value: error };
+}
+
 export function handleRouteError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json(
@@ -13,6 +28,8 @@ export function handleRouteError(error: unknown) {
       { status: error.status },
     );
   }
+
+  console.error("[route-error] unexpected error", getErrorDetails(error));
 
   return NextResponse.json(
     {
