@@ -1,0 +1,4 @@
+Req: Preview Supabase login verification unblock; investigate post-login 500 and get cloud DB migration path working on Windows.
+Diff: fixed Windows `.cmd` execution in `scripts/lib/run-command.ts`; added Prisma Postgres adapter wiring in `src/lib/prisma.ts`; added `@prisma/adapter-pg`/`pg`; baselined the empty preview DB and marked existing migrations applied.
+Why: preview login reached `/auth/post-login`, but the preview DB lacked app tables and Prisma 7 runtime reads required a driver adapter.
+Verify: `npm run data:backup`; `npx prisma db execute --file preview-baseline.sql`; `npx prisma migrate status`; `npm run data:doctor`; `npm run typecheck`; `npm run build`.
