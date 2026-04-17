@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import type { AuthRole, AuthUser } from "@/domains/auth/types";
 import { forbidden, serviceUnavailable, unauthorized } from "@/lib/api/errors";
 import {
@@ -9,15 +8,8 @@ import {
   isAuthStubMode,
   isUnsafeNonCloudProductionMode,
 } from "@/lib/auth/auth-config";
-
-const require = createRequire(import.meta.url);
-
-function loadCloudAuthDeps() {
-  return {
-    prisma: require("../prisma").prisma as typeof import("../prisma").prisma,
-    createSupabaseServerClient: require("../supabase/server").createSupabaseServerClient as typeof import("../supabase/server").createSupabaseServerClient,
-  };
-}
+import { prisma } from "@/lib/prisma";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function getOptionalUser(): Promise<AuthUser | null> {
   if (isAuthStubMode()) {
@@ -35,7 +27,6 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
     );
   }
 
-  const { prisma, createSupabaseServerClient } = loadCloudAuthDeps();
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },

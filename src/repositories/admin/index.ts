@@ -1,17 +1,13 @@
-import { createRequire } from "node:module";
 import { backendMode } from "@/lib/backend-mode";
 import type { AdminRepository } from "@/repositories/admin/contracts";
-
-const require = createRequire(import.meta.url);
+import { localAdminRepository } from "@/repositories/admin/local-store";
+import { postgresAdminRepository } from "@/repositories/admin/postgres-store";
 
 let adminRepositoryInstance: AdminRepository | null = null;
 
 function getAdminRepository() {
   if (!adminRepositoryInstance) {
-    adminRepositoryInstance =
-      backendMode === "cloud"
-        ? (require("./postgres-store").postgresAdminRepository as AdminRepository)
-        : (require("./local-store").localAdminRepository as AdminRepository);
+    adminRepositoryInstance = backendMode === "cloud" ? postgresAdminRepository : localAdminRepository;
   }
 
   return adminRepositoryInstance;
