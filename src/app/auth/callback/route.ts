@@ -29,17 +29,20 @@ export async function GET(request: Request) {
   const publicSiteUrl = resolvePublicSiteUrl(requestUrl);
   const code = requestUrl.searchParams.get("code");
   const nextPath = resolveSafeInternalPath(requestUrl.searchParams.get("next"));
+  const loginResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
 
   if (!code) {
-    return disableAuthResponseCache(NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath)));
+    return disableAuthResponseCache(loginResponse);
   }
 
-  const supabase = await createSupabaseServerClient();
+  const redirectResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
+  const supabase = await createSupabaseServerClient({ response: redirectResponse });
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    return disableAuthResponseCache(NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath)));
+    return disableAuthResponseCache(loginResponse);
   }
 
-  return disableAuthResponseCache(NextResponse.redirect(buildPostLoginUrl(publicSiteUrl, nextPath)));
+  redirectResponse.headers.set("Location", buildPostLoginUrl(publicSiteUrl, nextPath).toString());
+  return disableAuthResponseCache(redirectResponse);
 }

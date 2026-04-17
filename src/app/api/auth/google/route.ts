@@ -19,12 +19,14 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const publicSiteUrl = resolvePublicSiteUrl(requestUrl);
   const nextPath = resolveSafeInternalPath(requestUrl.searchParams.get("next"));
+  const fallbackResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
 
   if (isAuthStubMode() || !hasAuthRuntimeConfig()) {
-    return disableAuthResponseCache(NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath)));
+    return disableAuthResponseCache(fallbackResponse);
   }
 
-  const supabase = await createSupabaseServerClient();
+  const redirectResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
+  const supabase = await createSupabaseServerClient({ response: redirectResponse });
   const callbackUrl = new URL("/auth/callback", publicSiteUrl);
 
   if (nextPath !== defaultSafeNextPath) {
@@ -39,8 +41,9 @@ export async function GET(request: Request) {
   });
 
   if (error || !data.url) {
-    return disableAuthResponseCache(NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath)));
+    return disableAuthResponseCache(fallbackResponse);
   }
 
-  return disableAuthResponseCache(NextResponse.redirect(data.url));
+  redirectResponse.headers.set("Location", data.url);
+  return disableAuthResponseCache(redirectResponse);
 }
