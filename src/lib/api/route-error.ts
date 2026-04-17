@@ -16,6 +16,10 @@ function getErrorDetails(error: unknown) {
   return { value: error };
 }
 
+function shouldExposePreviewErrorDetails() {
+  return process.env.VERCEL_ENV === "preview";
+}
+
 export function handleRouteError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json(
@@ -29,7 +33,8 @@ export function handleRouteError(error: unknown) {
     );
   }
 
-  console.error("[route-error] unexpected error", getErrorDetails(error));
+  const details = getErrorDetails(error);
+  console.error("[route-error] unexpected error", details);
 
   return NextResponse.json(
     {
@@ -37,6 +42,7 @@ export function handleRouteError(error: unknown) {
         code: "INTERNAL_SERVER_ERROR",
         message: "Unexpected server error",
       },
+      ...(shouldExposePreviewErrorDetails() ? { debug: details } : {}),
     },
     { status: 500 },
   );
