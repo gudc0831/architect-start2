@@ -6,6 +6,7 @@
 - Locked auth contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Latest preview verification log: [worklogs/2026-04-20-preview-auth-verification-and-password-route-restriction.md](worklogs/2026-04-20-preview-auth-verification-and-password-route-restriction.md)
+- Remaining preview verification matrix: [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
 
 ## Purpose
 
