@@ -1,7 +1,8 @@
 # Multi-User Transition Plan
 
-- Updated: 2026-04-10
+- Updated: 2026-04-20
 - Parent index: [../PLAN.md](../PLAN.md)
+- Latest follow-up execution plan: [2026-04-20-post-preview-execution-plan.md](2026-04-20-post-preview-execution-plan.md)
 - Locked auth and RBAC decisions: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Supporting setup: [SUPABASE_MIGRATION.md](SUPABASE_MIGRATION.md)

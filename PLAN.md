@@ -1,6 +1,6 @@
 # Architect Start Plan Index
 
-- Updated: 2026-04-10
+- Updated: 2026-04-20
 - Purpose: keep this file as the high-level operating plan only.
 - Rule: implementation details belong in linked plan documents, not in this file.
 
@@ -8,11 +8,12 @@
 
 1. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
 2. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
-3. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
-4. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
-5. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
-6. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
-7. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+3. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+4. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
+5. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+6. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
+7. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+8. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
 
 ## Current Direction
 
@@ -102,6 +103,8 @@
   - [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
 - Multi-user implementation plan:
   - [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
+- Post-preview execution plan:
+  - [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
 - Deployment and release protection contract:
   - [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
 - Security deployment review:
@@ -115,6 +118,6 @@
 
 - Do not expand this file back into a long implementation checklist.
 - When auth or RBAC decisions change, update the contract document first.
-- When sequence, ownership, or verification changes, update the multi-user transition plan.
+- When sequence, ownership, or verification changes, update the active execution plan first, then update the multi-user transition plan if the phase contract itself changed.
 - When release rules or environment protection changes, update the deployment protection contract.
 - When new blocking security findings appear, update the security deployment review and then reflect the fix order back into the active plans.
