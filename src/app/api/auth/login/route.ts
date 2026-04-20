@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { badRequest, serviceUnavailable, unauthorized } from "@/lib/api/errors";
-import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig, isAuthStubMode } from "@/lib/auth/auth-config";
+import { badRequest, notFound, serviceUnavailable, unauthorized } from "@/lib/api/errors";
+import {
+  getAuthRuntimeConfigErrorMessage,
+  getDisabledPasswordLoginMessage,
+  hasAuthRuntimeConfig,
+  isAuthStubMode,
+  isTransitionalPasswordLoginEnabled,
+} from "@/lib/auth/auth-config";
 import { disableAuthResponseCache } from "@/lib/auth/auth-response-cache";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const body = (await request.json()) as { email?: string; password?: string };
     const email = String(body.email ?? "").trim();
     const password = String(body.password ?? "");
@@ -25,6 +33,10 @@ export async function POST(request: Request) {
         getAuthRuntimeConfigErrorMessage() ?? "Cloud backend configuration is incomplete.",
         "CLOUD_ENV_MISSING",
       );
+    }
+
+    if (!isTransitionalPasswordLoginEnabled()) {
+      throw notFound(getDisabledPasswordLoginMessage(), "PASSWORD_LOGIN_DISABLED");
     }
 
     const supabase = await createSupabaseServerClient();

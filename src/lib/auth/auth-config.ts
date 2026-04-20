@@ -11,6 +11,7 @@ const authFallbackUser: AuthUser = {
 };
 
 const nonCloudProductionOverrideEnvKey = "ALLOW_INSECURE_NON_CLOUD_PRODUCTION";
+const transitionalPasswordLoginEnvKey = "ALLOW_TRANSITIONAL_PASSWORD_LOGIN";
 
 function isExplicitNonCloudProductionOverrideEnabled() {
   return process.env[nonCloudProductionOverrideEnvKey]?.trim().toLowerCase() === "true";
@@ -18,6 +19,10 @@ function isExplicitNonCloudProductionOverrideEnabled() {
 
 function isProductionRuntime() {
   return process.env.NODE_ENV === "production";
+}
+
+function isExplicitTransitionalPasswordLoginEnabled() {
+  return process.env[transitionalPasswordLoginEnvKey]?.trim().toLowerCase() === "true";
 }
 
 export function isUnsafeNonCloudProductionMode() {
@@ -66,4 +71,24 @@ export function assertSafeAuthRuntime() {
   }
 
   throw serviceUnavailable(getUnsafeNonCloudProductionMessage(), "AUTH_RUNTIME_MODE_UNSAFE");
+}
+
+export function isTransitionalPasswordLoginEnabled() {
+  if (backendMode !== "cloud") {
+    return false;
+  }
+
+  if (!hasCloudBackendConfig()) {
+    return false;
+  }
+
+  if (!isProductionRuntime()) {
+    return true;
+  }
+
+  return isExplicitTransitionalPasswordLoginEnabled();
+}
+
+export function getDisabledPasswordLoginMessage() {
+  return `Password login is disabled for preview/production cloud auth. Use Google OAuth unless ${transitionalPasswordLoginEnvKey}=true is set for an explicit temporary override.`;
 }
