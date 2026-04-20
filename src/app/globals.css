@@ -182,10 +182,70 @@
   --theme-radius: 20px;
 }
 
+[data-theme="posthog"] {
+  --theme-page-bg: #fdfdf8;
+  --theme-page-bg-accent: #f5f6ef;
+  --theme-page-radial: rgba(212, 201, 184, 0.22);
+  --theme-surface-panel: rgba(253, 253, 248, 0.98);
+  --theme-surface-panel-strong: #ffffff;
+  --theme-surface-sidebar: rgba(248, 248, 242, 0.95);
+  --theme-surface-sidebar-mobile: rgba(248, 248, 242, 0.98);
+  --theme-surface-soft: #f6f6ef;
+  --theme-surface-soft-strong: #ffffff;
+  --theme-surface-interactive-subtle: rgba(229, 231, 224, 0.78);
+  --theme-surface-interactive-hover: rgba(255, 255, 255, 0.94);
+  --theme-surface-empty: rgba(238, 239, 233, 0.72);
+  --theme-surface-field: #eeefe9;
+  --theme-surface-secondary-button: #e5e7e0;
+  --theme-surface-secondary-button-hover: #f4f4f4;
+  --theme-surface-note: rgba(238, 239, 233, 0.9);
+  --theme-border-default: #bfc1b7;
+  --theme-border-strong: #909386;
+  --theme-border-subtle: rgba(191, 193, 183, 0.9);
+  --theme-border-subtle-strong: rgba(177, 184, 168, 0.95);
+  --theme-border-field: rgba(182, 183, 175, 0.94);
+  --theme-border-field-soft: rgba(191, 193, 183, 0.92);
+  --theme-border-field-strong: rgba(144, 147, 134, 0.88);
+  --theme-border-field-hover: rgba(77, 79, 70, 0.72);
+  --theme-text-primary: #4d4f46;
+  --theme-text-muted: #65675e;
+  --theme-text-placeholder: #9ea096;
+  --theme-text-subtle: #23251d;
+  --theme-text-accent: #f54e00;
+  --theme-text-accent-strong: #f54e00;
+  --theme-text-contrast: #ffffff;
+  --theme-accent: #1e1f23;
+  --theme-accent-soft: rgba(245, 78, 0, 0.08);
+  --theme-accent-soft-ghost: rgba(245, 78, 0, 0.06);
+  --theme-accent-soft-ghost-hover: rgba(245, 78, 0, 0.12);
+  --theme-accent-border-subtle: rgba(245, 78, 0, 0.2);
+  --theme-accent-border: rgba(245, 78, 0, 0.32);
+  --theme-accent-border-strong: rgba(245, 78, 0, 0.44);
+  --theme-accent-focus-ring: rgba(59, 130, 246, 0.18);
+  --theme-accent-focus-ring-soft: rgba(59, 130, 246, 0.08);
+  --theme-accent-solid-hover: #2a2c30;
+  --theme-warn: #f54e00;
+  --theme-warn-soft: rgba(245, 78, 0, 0.1);
+  --theme-warn-border: rgba(245, 78, 0, 0.2);
+  --theme-warn-border-strong: rgba(245, 78, 0, 0.28);
+  --theme-shadow: 0 25px 50px -22px rgba(0, 0, 0, 0.18);
+  --theme-shadow-soft: none;
+  --theme-surface-form-label: rgba(255, 255, 255, 0.62);
+  --theme-surface-field-highlight: rgba(255, 255, 255, 0.7);
+  --theme-empty-border: rgba(144, 147, 134, 0.68);
+  --theme-board-focus-surface: linear-gradient(180deg, #fdfdf8, #f6f6ef);
+  --theme-panel-gradient: linear-gradient(180deg, #ffffff, #f6f6ef);
+  --theme-preview-surface: linear-gradient(180deg, #ffffff, #f8f8f2);
+  --theme-warning-surface: rgba(255, 238, 228, 0.9);
+  --theme-warning-text: #9b3c12;
+  --theme-radius: 6px;
+}
+
 :root,
 [data-theme="classic"],
 [data-theme="swiss-modern"],
-[data-theme="productivity"] {
+[data-theme="productivity"],
+[data-theme="posthog"] {
   --bg: var(--theme-page-bg);
   --bg-accent: var(--theme-page-bg-accent);
   --panel: var(--theme-surface-panel);
@@ -235,6 +295,48 @@
   --task-focus-overdue-active-bg: #dc2626;
   --task-focus-overdue-active-text: #ffffff;
   --task-focus-overdue-active-border: #dc2626;
+}
+
+[data-theme="posthog"] {
+  --shell-sidebar-width: 250px;
+  --content-max: 1500px;
+  --task-status-new-bg: #fff2df;
+  --task-status-new-text: #8b5a00;
+  --task-status-new-border: #f1d1a2;
+  --task-status-new-accent: #f7a501;
+  --task-status-in-review-bg: #eef1e7;
+  --task-status-in-review-text: #4d4f46;
+  --task-status-in-review-border: #bfc1b7;
+  --task-status-in-review-accent: #23251d;
+  --task-status-in-discussion-bg: #fff0e9;
+  --task-status-in-discussion-text: #9b3c12;
+  --task-status-in-discussion-border: #ffc7ad;
+  --task-status-in-discussion-accent: #f54e00;
+  --task-status-blocked-bg: #f3e8d4;
+  --task-status-blocked-text: #7e5d2a;
+  --task-status-blocked-border: #d4c9b8;
+  --task-status-blocked-accent: #b17816;
+  --task-status-done-bg: #e8f1e3;
+  --task-status-done-text: #31503c;
+  --task-status-done-border: #bfd4c5;
+  --task-status-done-accent: #31503c;
+  --ux-body-size: 16px;
+  --ux-body-size-mobile: 15px;
+  --ux-label-size: 13px;
+  --ux-meta-size: 12px;
+  --ux-control-height: 44px;
+  --ux-focus-primary: rgba(245, 78, 0, 0.96);
+  --ux-focus-secondary: rgba(245, 78, 0, 0.18);
+  --ux-hover-surface: rgba(245, 78, 0, 0.055);
+  --ux-selected-surface: rgba(245, 78, 0, 0.08);
+  --ux-selected-border: rgba(245, 78, 0, 0.3);
+  --ux-soft-line: rgba(191, 193, 183, 0.9);
+  --ux-empty-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 246, 239, 0.98));
+  --ux-header-surface: linear-gradient(180deg, rgba(253, 253, 248, 0.98), rgba(247, 247, 240, 0.98));
+  --ux-chip-surface: #f6f6ef;
+  --ux-chip-text: #4d4f46;
+  --ux-motion-duration: 180ms;
+  --ux-motion-easing: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * {
@@ -4274,5 +4376,636 @@ a {
   .detail-panel {
     position: static;
     height: auto;
+  }
+}
+
+.shell__ambient {
+  display: none;
+}
+
+.shell__content-frame {
+  display: contents;
+}
+
+html[data-theme="posthog"],
+html[data-theme="posthog"] body {
+  background:
+    radial-gradient(circle at top left, rgba(212, 201, 184, 0.26), transparent 24%),
+    linear-gradient(180deg, #fdfdf8 0%, #f7f7f0 100%);
+}
+
+html[data-theme="posthog"] body {
+  font-family: "IBM Plex Sans", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: var(--ux-body-size);
+  line-height: 1.62;
+  letter-spacing: -0.01em;
+  color: #4d4f46;
+}
+
+html[data-theme="posthog"] .shell {
+  position: relative;
+  isolation: isolate;
+}
+
+html[data-theme="posthog"] .shell__ambient {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 14%, rgba(245, 78, 0, 0.09), transparent 18%),
+    radial-gradient(circle at 82% 16%, rgba(212, 201, 184, 0.16), transparent 20%),
+    linear-gradient(0deg, rgba(77, 79, 70, 0.03), rgba(77, 79, 70, 0.03));
+  opacity: 0.85;
+}
+
+html[data-theme="posthog"] .shell__content-frame {
+  display: grid;
+  gap: var(--section-gap);
+}
+
+html[data-theme="posthog"] .sidebar,
+html[data-theme="posthog"] .workspace__header,
+html[data-theme="posthog"] .workspace__main,
+html[data-theme="posthog"] .detail-panel,
+html[data-theme="posthog"] .composer-card,
+html[data-theme="posthog"] .board-column,
+html[data-theme="posthog"] .calendar-month,
+html[data-theme="posthog"] .calendar-agenda__day,
+html[data-theme="posthog"] .trash-card,
+html[data-theme="posthog"] .file-pill,
+html[data-theme="posthog"] .daily-task-card,
+html[data-theme="posthog"] .board-summary__card,
+html[data-theme="posthog"] .board-focus,
+html[data-theme="posthog"] .daily-sheet__focus,
+html[data-theme="posthog"] .calendar-nav,
+html[data-theme="posthog"] .sheet-wrapper {
+  border-radius: 6px;
+  border-color: #bfc1b7;
+  box-shadow: none;
+}
+
+html[data-theme="posthog"] .sidebar,
+html[data-theme="posthog"] .workspace__header,
+html[data-theme="posthog"] .workspace__main,
+html[data-theme="posthog"] .detail-panel,
+html[data-theme="posthog"] .calendar-nav,
+html[data-theme="posthog"] .calendar-month,
+html[data-theme="posthog"] .calendar-agenda__day,
+html[data-theme="posthog"] .sheet-wrapper,
+html[data-theme="posthog"] .board-column,
+html[data-theme="posthog"] .board-summary__card,
+html[data-theme="posthog"] .board-focus,
+html[data-theme="posthog"] .daily-sheet__focus,
+html[data-theme="posthog"] .trash-card {
+  transition:
+    background var(--ux-motion-duration) var(--ux-motion-easing),
+    border-color var(--ux-motion-duration) var(--ux-motion-easing),
+    box-shadow var(--ux-motion-duration) var(--ux-motion-easing),
+    color var(--ux-motion-duration) var(--ux-motion-easing),
+    transform var(--ux-motion-duration) var(--ux-motion-easing);
+}
+
+html[data-theme="posthog"] .sidebar--posthog {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border-right-color: #bfc1b7;
+  background: rgba(248, 248, 242, 0.92);
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__brand,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__note {
+  background: #fdfdf8;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__switcher,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__section-label {
+  margin: 0;
+  font-size: var(--ux-meta-size);
+  line-height: 1.35;
+  font-weight: 700;
+  color: #65675e;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__section-label--compact {
+  font-size: 0.75rem;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__eyebrow,
+html[data-theme="posthog"] .workspace--posthog .workspace__eyebrow,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__project-label,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__project-count,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__theme-label {
+  color: #65675e;
+  letter-spacing: 0.1em;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__project-panel {
+  border-radius: 6px;
+  background: #f6f6ef;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__status-stack,
+html[data-theme="posthog"] .workspace--posthog .workspace__mode-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__status-pill,
+html[data-theme="posthog"] .workspace--posthog .workspace__mode-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0.35rem 0.72rem;
+  border: 1px solid var(--ux-soft-line);
+  border-radius: 999px;
+  background: var(--ux-chip-surface);
+  color: var(--ux-chip-text);
+  font-size: var(--ux-meta-size);
+  line-height: 1.2;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__status-pill--preview,
+html[data-theme="posthog"] .workspace--posthog .workspace__mode-pill--preview {
+  border-color: #f54e00;
+  background: rgba(245, 78, 0, 0.1);
+  color: #f54e00;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__copy,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__note p,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__status,
+html[data-theme="posthog"] .workspace--posthog .workspace__copy,
+html[data-theme="posthog"] .workspace--posthog .workspace__meta,
+html[data-theme="posthog"] .calendar-empty-state p,
+html[data-theme="posthog"] .trash-card small,
+html[data-theme="posthog"] .trash-card p {
+  font-size: 0.9375rem;
+  line-height: 1.62;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__nav {
+  gap: 0.35rem;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link {
+  min-height: var(--ux-control-height);
+  justify-content: flex-start;
+  align-items: center;
+  padding: 0.75rem 0.92rem;
+  border-radius: 6px;
+  background: #eef1e7;
+  border-color: transparent;
+  transform: none;
+  transition:
+    color var(--ux-motion-duration) var(--ux-motion-easing),
+    background var(--ux-motion-duration) var(--ux-motion-easing),
+    border-color var(--ux-motion-duration) var(--ux-motion-easing),
+    opacity var(--ux-motion-duration) var(--ux-motion-easing);
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link:hover,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link--active {
+  transform: none;
+  color: #f54e00;
+  background: #ffffff;
+  border-color: #bfc1b7;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: auto;
+  border-radius: 999px;
+  background: transparent;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link:hover::after,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link--active::after {
+  background: #f54e00;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link-index {
+  width: 2ch;
+  margin-right: 0.85rem;
+  color: #9ea096;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link:hover .sidebar__link-index,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link--active .sidebar__link-index {
+  color: #f54e00;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link-label {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header {
+  position: sticky;
+  top: var(--page-pad);
+  z-index: 4;
+  gap: 1rem;
+  padding: 1.4rem;
+  background: var(--ux-header-surface);
+  box-shadow: 0 18px 34px -18px rgba(30, 31, 35, 0.35);
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-side {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: end;
+  align-content: start;
+  min-width: min(360px, 100%);
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-actions {
+  display: grid;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-export {
+  display: flex;
+  justify-content: flex-end;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header h2 {
+  max-width: 14ch;
+  font-size: clamp(2.35rem, 4vw, 3.15rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__copy {
+  max-width: 60ch;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__fact {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.5rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid #bfc1b7;
+  background: #f6f6ef;
+  color: #65675e;
+  font-size: 0.8125rem;
+  line-height: 1.38;
+}
+
+html[data-theme="posthog"] .workspace--posthog .primary-button,
+html[data-theme="posthog"] .workspace--posthog .secondary-button,
+html[data-theme="posthog"] .workspace--posthog .danger-button,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__button,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__picker input,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body input,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body select,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body textarea,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid input,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid select,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid textarea {
+  min-height: var(--ux-control-height);
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .primary-button {
+  background: #1e1f23;
+  color: #ffffff;
+}
+
+html[data-theme="posthog"] .workspace--posthog .primary-button:hover:not(:disabled) {
+  opacity: 0.86;
+  color: #f7a501;
+}
+
+html[data-theme="posthog"] .workspace--posthog .secondary-button {
+  border: 1px solid #bfc1b7;
+  color: #4d4f46;
+}
+
+html[data-theme="posthog"] .workspace--posthog .secondary-button:hover:not(:disabled),
+html[data-theme="posthog"] .workspace--posthog .danger-button:hover:not(:disabled),
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__item:hover,
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__item:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .task-state__deadline-badge:hover {
+  color: #f54e00;
+}
+
+html[data-theme="posthog"] .workspace--posthog .danger-button {
+  background: #d4c9b8;
+  color: #111827;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .primary-button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .secondary-button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .danger-button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__picker input:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__summary-button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__icon-button:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body input:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body select:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body textarea:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid input:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid select:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid textarea:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .task-card__toggle:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__item:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__filter-trigger:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__order-trigger:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__column-resize-handle:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__row-resize-handle:focus-visible,
+html[data-theme="posthog"] .workspace--posthog .detail-panel-splitter:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ux-focus-primary), 0 0 0 5px var(--ux-focus-secondary);
+}
+
+html[data-theme="posthog"] .workspace--posthog .board-summary__card {
+  background: #f6f6ef;
+}
+
+html[data-theme="posthog"] .workspace--posthog .board-focus,
+html[data-theme="posthog"] .workspace--posthog .daily-sheet__focus {
+  background: linear-gradient(180deg, #ffffff, #f8f8f2);
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__item {
+  min-height: 64px;
+  padding: 0.88rem 1rem;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__label {
+  font-size: 0.9375rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__meta,
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__count,
+html[data-theme="posthog"] .workspace--posthog .task-focus-strip__hint {
+  font-size: var(--ux-meta-size);
+}
+
+html[data-theme="posthog"] .workspace--posthog .board-column__header,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav,
+html[data-theme="posthog"] .workspace--posthog .daily-grid-v2__header {
+  box-shadow: 0 12px 22px -18px rgba(30, 31, 35, 0.32);
+}
+
+html[data-theme="posthog"] .workspace--posthog .board-column__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-card,
+html[data-theme="posthog"] .workspace--posthog .task-preview-card--navigate-only {
+  border-color: var(--ux-soft-line);
+  background: #ffffff;
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-card:hover,
+html[data-theme="posthog"] .workspace--posthog .task-card:focus-within,
+html[data-theme="posthog"] .workspace--posthog .task-preview-card--navigate-only:hover,
+html[data-theme="posthog"] .workspace--posthog .task-preview-card--navigate-only:focus-visible {
+  border-color: var(--ux-selected-border);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-card__title,
+html[data-theme="posthog"] .workspace--posthog .task-preview-card--calendar-month .task-card__title,
+html[data-theme="posthog"] .workspace--posthog .task-preview-card--calendar-agenda .task-card__title {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+html[data-theme="posthog"] .workspace--posthog .daily-grid-v2__header {
+  background: linear-gradient(180deg, #f8f8f2, #fdfdf8);
+}
+
+html[data-theme="posthog"] .workspace--posthog .sheet-table__head-label {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+html[data-theme="posthog"] .workspace--posthog .sheet-table__cell-content,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__title-copy,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__inline-input,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__inline-select,
+html[data-theme="posthog"] .workspace--posthog .sheet-table__inline-textarea {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+html[data-theme="posthog"] .workspace--posthog .task-state-row:hover td .sheet-table__cell-shell,
+html[data-theme="posthog"] .workspace--posthog .task-state-row:hover .daily-grid-v2__cell .sheet-table__cell-shell {
+  background: var(--ux-hover-surface);
+}
+
+html[data-theme="posthog"] .workspace--posthog .sheet-row--active td .sheet-table__cell-shell,
+html[data-theme="posthog"] .workspace--posthog .sheet-row--active .daily-grid-v2__cell .sheet-table__cell-shell {
+  background: var(--ux-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--ux-selected-border);
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel__summary-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel__summary h3 {
+  font-size: clamp(1.18rem, 1.4vw, 1.45rem);
+  line-height: 1.16;
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel__summary-meta {
+  margin: 0;
+  color: #65675e;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel__body label span,
+html[data-theme="posthog"] .workspace--posthog .composer-form-grid label span {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel-splitter {
+  width: 16px;
+}
+
+html[data-theme="posthog"] .workspace--posthog .detail-panel-splitter::before {
+  width: 6px;
+  margin: 0 auto;
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__heading h3 {
+  font-size: clamp(1.45rem, 2vw, 1.9rem);
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-weekdays__label {
+  font-size: 0.8125rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-cell {
+  min-height: 216px;
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-cell__header span {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-cell--today {
+  box-shadow: inset 0 0 0 1px rgba(245, 78, 0, 0.28);
+}
+
+html[data-theme="posthog"] .workspace--posthog .calendar-cell--today .calendar-cell__header span {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+html[data-theme="posthog"] .workspace--posthog .trash-card {
+  align-items: center;
+  gap: 1rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .trash-card__content p {
+  color: #23251d;
+}
+
+html[data-theme="posthog"] .workspace--posthog .trash-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+html[data-theme="posthog"] .workspace--posthog .trash-card__restore-button {
+  background: #1e1f23;
+  color: #ffffff;
+}
+
+html[data-theme="posthog"] .workspace--posthog .trash-card__delete-button {
+  background: #d4c9b8;
+  color: #111827;
+}
+
+html[data-theme="posthog"] .workspace--posthog .empty-state,
+html[data-theme="posthog"] .workspace--posthog .board-column__empty,
+html[data-theme="posthog"] .workspace--posthog .calendar-empty-state {
+  padding: 1.05rem 1.12rem;
+  background: var(--ux-empty-surface);
+}
+
+html[data-theme="posthog"] .workspace--posthog .empty-state h3,
+html[data-theme="posthog"] .workspace--posthog .calendar-empty-state h3 {
+  font-size: 1.22rem;
+  line-height: 1.16;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="posthog"] .sidebar,
+  html[data-theme="posthog"] .workspace__header,
+  html[data-theme="posthog"] .workspace__main,
+  html[data-theme="posthog"] .detail-panel,
+  html[data-theme="posthog"] .board-column,
+  html[data-theme="posthog"] .calendar-nav,
+  html[data-theme="posthog"] .calendar-cell,
+  html[data-theme="posthog"] .trash-card,
+  html[data-theme="posthog"] .sheet-wrapper,
+  html[data-theme="posthog"] .task-focus-strip__item,
+  html[data-theme="posthog"] .task-card,
+  html[data-theme="posthog"] .task-preview-card--navigate-only {
+    transition: none;
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .task-card:hover,
+  html[data-theme="posthog"] .workspace--posthog .task-card:focus-within,
+  html[data-theme="posthog"] .workspace--posthog .task-preview-card--navigate-only:hover,
+  html[data-theme="posthog"] .workspace--posthog .task-preview-card--navigate-only:focus-visible {
+    transform: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  html[data-theme="posthog"] .sidebar--posthog {
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .workspace__header {
+    position: static;
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .workspace__header-side,
+  html[data-theme="posthog"] .workspace--posthog .workspace__header-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+}
+
+@media (max-width: 700px) {
+  html[data-theme="posthog"] body {
+    font-size: var(--ux-body-size-mobile);
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .workspace__header h2 {
+    font-size: clamp(2rem, 10vw, 2.8rem);
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .calendar-weekdays {
+    display: none;
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .calendar-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(148px, auto);
+  }
+
+  html[data-theme="posthog"] .workspace--posthog .calendar-cell {
+    min-height: 152px;
   }
 }

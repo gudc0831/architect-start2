@@ -49,6 +49,7 @@ import type { TaskQuickCreateFormValues } from "@/components/tasks/task-quick-cr
 import { useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
+import { useTheme } from "@/providers/theme-provider";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -566,6 +567,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const { themeId } = useTheme();
+  const isWarmStudio = themeId === "posthog";
   const isPreviewDaily = isPreview && mode === "daily";
   const isPreviewTrash = isPreview && mode === "trash";
   const basePath = isPreview ? "/preview" : "";
@@ -3971,54 +3974,121 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       </div>
     ) : null;
 
+  const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isPreviewTrash) || canExportTasks;
+
   return (
-    <section className={clsx("workspace", `workspace--${mode}`)}>
-      <header className="workspace__header">
-        <div>
-          <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
-          <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
-          <h2>{titleByMode(mode)}</h2>
-          <p className="workspace__copy">{t("workspace.headerCopy")}</p>
-          {systemMode ? (
-            <>
-              <p className="workspace__meta">
-                {t("workspace.dataUploadSummary", {
-                  data: labelForDataMode(systemMode.dataMode),
-                  upload: labelForUploadMode(systemMode.uploadMode),
-                })}
-              </p>
-              <p className="workspace__meta">
-                {t("workspace.metadataSummary", {
-                  source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
-                  status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
-                })}
-              </p>
-              {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta">{t("workspace.localAuthNote")}</p> : null}
-            </>
+    <section
+      className={clsx("workspace", `workspace--${mode}`, isWarmStudio && "workspace--posthog", isPreview && isWarmStudio && "workspace--preview")}
+      data-preview={isWarmStudio && isPreview ? "true" : undefined}
+      data-workspace-mode={isWarmStudio ? mode : undefined}
+    >
+      {isWarmStudio ? (
+        <header className="workspace__header">
+          <div className="workspace__header-main">
+            <div className="workspace__header-topline">
+              <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+              <div className="workspace__mode-pills">
+                <span className="workspace__mode-pill">{labelForMode(mode)}</span>
+                {isPreview ? <span className="workspace__mode-pill workspace__mode-pill--preview">Preview</span> : null}
+              </div>
+            </div>
+            <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
+            <h2>{titleByMode(mode)}</h2>
+            <p className="workspace__copy">{t("workspace.headerCopy")}</p>
+            {systemMode ? (
+              <div className="workspace__facts">
+                <p className="workspace__meta workspace__fact">
+                  {t("workspace.dataUploadSummary", {
+                    data: labelForDataMode(systemMode.dataMode),
+                    upload: labelForUploadMode(systemMode.uploadMode),
+                  })}
+                </p>
+                <p className="workspace__meta workspace__fact">
+                  {t("workspace.metadataSummary", {
+                    source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
+                    status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
+                  })}
+                </p>
+                {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta workspace__fact">{t("workspace.localAuthNote")}</p> : null}
+              </div>
+            ) : null}
+          </div>
+          {showWarmStudioWorkspaceHeaderActions ? (
+            <div className="workspace__header-side">
+              <div className="workspace__header-actions">
+                {isTrashMode && !isPreviewTrash ? (
+                  <div className="trash-toolbar">
+                    <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
+                      {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
+                    </button>
+                    <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
+                    <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
+                      {t("actions.deleteSelected")}
+                    </button>
+                    <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
+                      {t("actions.emptyTrash")}
+                    </button>
+                  </div>
+                ) : null}
+                {canExportTasks ? (
+                  <div className="workspace__header-export">
+                    <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
+                      {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           ) : null}
-        </div>
-        {isTrashMode && !isPreviewTrash ? (
-          <div className="trash-toolbar">
-            <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
-              {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
-            </button>
-            <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
-            <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
-              {t("actions.deleteSelected")}
-            </button>
-            <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
-              {t("actions.emptyTrash")}
-            </button>
+        </header>
+      ) : (
+        <header className="workspace__header">
+          <div>
+            <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+            <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
+            <h2>{titleByMode(mode)}</h2>
+            <p className="workspace__copy">{t("workspace.headerCopy")}</p>
+            {systemMode ? (
+              <>
+                <p className="workspace__meta">
+                  {t("workspace.dataUploadSummary", {
+                    data: labelForDataMode(systemMode.dataMode),
+                    upload: labelForUploadMode(systemMode.uploadMode),
+                  })}
+                </p>
+                <p className="workspace__meta">
+                  {t("workspace.metadataSummary", {
+                    source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
+                    status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
+                  })}
+                </p>
+                {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta">{t("workspace.localAuthNote")}</p> : null}
+              </>
+            ) : null}
           </div>
-        ) : null}
-        {canExportTasks ? (
-          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", justifyContent: "flex-end", marginLeft: "auto" }}>
-            <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
-              {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
-            </button>
-          </div>
-        ) : null}
-      </header>
+          {isTrashMode && !isPreviewTrash ? (
+            <div className="trash-toolbar">
+              <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
+                {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
+              </button>
+              <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
+              <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
+                {t("actions.deleteSelected")}
+              </button>
+              <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
+                {t("actions.emptyTrash")}
+              </button>
+            </div>
+          ) : null}
+          {canExportTasks ? (
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", justifyContent: "flex-end", marginLeft: "auto" }}>
+              <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
+                {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
+              </button>
+            </div>
+          ) : null}
+        </header>
+      )}
 
       {errorMessage ? <p className="detail-panel__warning detail-panel__warning--error">{errorMessage}</p> : null}
       {loading ? (
@@ -4036,6 +4106,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             )}
           onClickCapture={handleWorkspaceBackgroundClick}
           style={workspaceBodyStyle}
+          data-detail-docked={isWarmStudio && shouldRenderDailyDetailPanel && isDetailDocked ? "true" : undefined}
+          data-detail-expanded={isWarmStudio && shouldRenderDailyDetailPanel && isDetailExpanded ? "true" : undefined}
         >
           <div className="workspace__main" onClickCapture={handleWorkspaceBackgroundClick}>
             {!isTrashMode && sortedTasks.length === 0 && files.length === 0 ? (
@@ -4604,7 +4676,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   const checked = !isPreviewTrash && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
 
                   return (
-                    <article className={clsx("trash-card", checked && "trash-card--selected")} key={`${item.kind}:${item.id}`}>
+                    <article
+                      className={clsx("trash-card", checked && "trash-card--selected")}
+                      data-selected={isWarmStudio && checked ? "true" : undefined}
+                      key={`${item.kind}:${item.id}`}
+                    >
                       {!isPreviewTrash ? (
                         <label className="trash-card__checkbox">
                           <input
@@ -4649,19 +4725,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                         <div className="trash-card__actions">
                           {isTask ? (
                             <>
-                              <button className="primary-button" onClick={() => void restoreTask(item.task.id)} type="button">
+                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreTask(item.task.id)} type="button">
                                 {t("actions.restore")}
                               </button>
-                              <button className="danger-button" onClick={() => void deleteTaskPermanently(item.task)} type="button">
+                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteTaskPermanently(item.task)} type="button">
                                 {t("actions.deletePermanently")}
                               </button>
                             </>
                           ) : (
                             <>
-                              <button className="primary-button" onClick={() => void restoreFile(item.file.id)} type="button">
+                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreFile(item.file.id)} type="button">
                                 {t("actions.restore")}
                               </button>
-                              <button className="danger-button" onClick={() => void deleteFilePermanently(item.file)} type="button">
+                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteFilePermanently(item.file)} type="button">
                                 {t("actions.deletePermanently")}
                               </button>
                             </>
@@ -4716,8 +4792,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     type="button"
                   >
                     <div className="detail-panel__summary">
-                      <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                      {isWarmStudio ? (
+                        <div className="detail-panel__summary-topline">
+                          <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                          {selectedTask ? <span className={clsx("status-pill", `status-pill--${selectedTask.status}`)}>{labelForStatus(selectedTask.status)}</span> : null}
+                        </div>
+                      ) : (
+                        <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                      )}
                       <h3>{detailSummary}</h3>
+                      {isWarmStudio && selectedTask ? <p className="detail-panel__summary-meta">{selectedTask.assignee || t("empty.unassigned")}</p> : null}
                     </div>
                   </button>
                   <div className="detail-panel__header-primary-actions">

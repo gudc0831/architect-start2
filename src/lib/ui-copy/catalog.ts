@@ -327,6 +327,10 @@ export const uiCopyCatalog = {
           label: "Productivity",
           description: "따뜻한 샌드 톤과 집중형 강조색을 쓰는 업무형 테마입니다.",
         },
+        posthog: {
+          label: "Warm Studio",
+          description: "따뜻한 파치먼트 캔버스와 진한 워크스페이스 크롬을 쓰는 분석형 테마입니다.",
+        },
       },
     },
     login: {
@@ -648,6 +652,10 @@ export const uiCopyCatalog = {
         productivity: {
           label: "Productivity",
           description: "A warmer sand palette tuned for focused productivity work.",
+        },
+        posthog: {
+          label: "Warm Studio",
+          description: "A warm parchment canvas with darker workspace chrome and diagnostic accents.",
         },
       },
     },

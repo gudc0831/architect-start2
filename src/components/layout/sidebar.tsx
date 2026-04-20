@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { ThemeSelector } from "@/components/layout/theme-selector";
 import { useAuthState, useAuthUser } from "@/providers/auth-provider";
 import { useProjectMeta } from "@/providers/project-provider";
+import { useTheme } from "@/providers/theme-provider";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
 
 const items = [
@@ -20,7 +21,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const authUser = useAuthUser();
+  const { themeId } = useTheme();
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
+  const isWarmStudio = themeId === "posthog";
   const { clearUser } = useAuthState();
   const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = items.map((item) => ({
@@ -31,6 +34,8 @@ export function Sidebar() {
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
+  const navSectionLabel = isPreview ? "Preview routes" : "Workspace routes";
+  const sessionSectionLabel = isPreview ? "Safe preview" : "Session";
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -45,12 +50,15 @@ export function Sidebar() {
     : t("sidebar.projectMetadataLoading");
 
   return (
-    <aside className="sidebar">
+    <aside className={clsx("sidebar", isWarmStudio && "sidebar--posthog")}>
       <div className="sidebar__brand">
         <p className="sidebar__eyebrow">{t("brand.appName")}</p>
         {showProjectSwitcher ? (
-          <label style={{ display: "grid", gap: "0.4rem" }}>
-            <span style={{ fontSize: "0.78rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          <label className={isWarmStudio ? "sidebar__switcher" : undefined} style={isWarmStudio ? undefined : { display: "grid", gap: "0.4rem" }}>
+            <span
+              className={isWarmStudio ? "sidebar__section-label sidebar__section-label--compact" : undefined}
+              style={isWarmStudio ? undefined : { fontSize: "0.78rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}
+            >
               Projects
             </span>
             <select
@@ -82,6 +90,12 @@ export function Sidebar() {
         </div>
         <div className="sidebar__brand-meta">
           <p className="sidebar__copy">{isPreview ? t("sidebar.previewCopy") : t("sidebar.workspaceCopy")}</p>
+          {isWarmStudio ? (
+            <div className="sidebar__status-stack">
+              <span className={clsx("sidebar__status-pill", isPreview && "sidebar__status-pill--preview")}>{isPreview ? "Preview" : "Workspace"}</span>
+              <span className="sidebar__status-pill">{projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading")}</span>
+            </div>
+          ) : null}
           <p className="sidebar__status">{sourceLabel}</p>
           {showProjectSwitcher && selectedProject ? (
             <p className="sidebar__status" style={{ opacity: 0.85 }}>
@@ -91,20 +105,41 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
-        {navItems.map((item) => (
-          <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
-            {item.label}
-          </Link>
-        ))}
-        {!isPreview && authUser?.role === "admin" ? (
-          <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
-            Admin
-          </Link>
-        ) : null}
-      </nav>
+      {isWarmStudio ? (
+        <div className="sidebar__section">
+          <p className="sidebar__section-label">{navSectionLabel}</p>
+          <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
+            {navItems.map((item, index) => (
+              <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
+                <span aria-hidden="true" className="sidebar__link-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className="sidebar__link-label">{item.label}</span>
+              </Link>
+            ))}
+            {!isPreview && authUser?.role === "admin" ? (
+              <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
+                <span aria-hidden="true" className="sidebar__link-index">99</span>
+                <span className="sidebar__link-label">Admin</span>
+              </Link>
+            ) : null}
+          </nav>
+        </div>
+      ) : (
+        <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
+          {navItems.map((item) => (
+            <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
+              {item.label}
+            </Link>
+          ))}
+          {!isPreview && authUser?.role === "admin" ? (
+            <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
+              Admin
+            </Link>
+          ) : null}
+        </nav>
+      )}
 
       <div className={clsx("sidebar__note", isPreview && "sidebar__note--preview")}>
+        {isWarmStudio ? <p className="sidebar__section-label sidebar__section-label--compact">{sessionSectionLabel}</p> : null}
         {isPreview ? (
           <p>{t("sidebar.previewNote")}</p>
         ) : (
