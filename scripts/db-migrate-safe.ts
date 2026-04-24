@@ -26,7 +26,7 @@ async function main() {
   }
 
   const backup = await createCloudBackup("db:migrate:safe");
-  runCheckedNpmExec(["prisma", "migrate", "dev", "--schema", "prisma/schema.prisma", ...args]);
+  runCheckedNpmExec(["prisma", "migrate", "deploy", "--schema", "prisma/schema.prisma", ...args]);
   await finalizeCloudMutation(lock, backup?.backupId ?? null);
 }
 

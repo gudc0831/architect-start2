@@ -41,9 +41,8 @@ These items are done and should not be reworked:
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
-| RLS and Storage policies are not yet the formal security boundary | app guards are implemented, but long-term plan requires database and storage policy enforcement | design and apply preview policies |
-| assignee profile linkage needs preview DB rollout | local foundation is implemented, but preview data still needs the migration applied before live verification | apply migration to preview after approval and run the unresolved mapping report |
-| concurrency hardening needs preview rollout verification | local transaction/conflict handling is implemented, but the file version uniqueness migration still needs preview rollout | apply migration during approved preview DB rollout and verify 409 recovery paths |
+| RLS and Storage policies need browser file-flow sign-off | preview database/storage policies are applied and DB-level probes passed, but the full browser upload/commit/download flow still needs a real task fixture | run Project B browser file-flow verification when a session/fixture is available |
+| concurrency hardening needs conflict UX polish | core 409 conflict handling is implemented and preview migration is applied | add user-facing recovery behavior for reorder/file-version conflicts |
 | production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
 
 ## Work Order
@@ -116,12 +115,14 @@ Exit:
 
 Status:
 
-- draft SQL and rollout plan prepared; preview application still gated on user approval
+- preview DB/Storage policy rollout applied on 2026-04-24
+- DB-level RLS, manager, no-access, anonymous, and rollback-only Storage insert probes passed
+- browser direct upload/commit/download sign-off still pending
 
 Owner:
 
 - Codex first
-- user approval before preview policy rollout if policies are applied through Supabase dashboard or live preview database
+- user only if browser/session access or persistent fixture creation is required
 
 Work:
 
@@ -138,6 +139,7 @@ Work:
 - design Supabase Storage policies for read, upload, update, and delete
 - use the draft in [2026-04-24-rls-storage-policy-boundary-design.md](2026-04-24-rls-storage-policy-boundary-design.md)
 - apply policies to preview first
+- ensure the private `task-files` preview bucket exists
 - run negative and positive probes:
   - anonymous
   - unrelated authenticated user
@@ -149,12 +151,14 @@ Exit:
 
 - unrelated authenticated access is denied at the database or storage layer
 - normal member and manager flows still work in preview
+- remaining browser file-flow sign-off is tracked separately if no task fixture exists
 
 ### 5. Assignee Profile Link Foundation
 
 Status:
 
-- implemented locally; preview DB migration rollout pending user-approved DB change
+- implemented locally and applied to preview DB on 2026-04-24
+- unresolved assignee mapping report returned `0`
 
 Owner:
 
@@ -180,7 +184,8 @@ Exit:
 
 Status:
 
-- implemented locally; preview DB migration/deploy verification pending
+- implemented locally and applied to preview DB on 2026-04-24
+- conflict UX polish remains in the release-readiness slice
 
 Owner:
 
@@ -225,7 +230,6 @@ Exit:
 
 The user should only be asked for these external actions:
 
-- approve preview RLS and Storage policy rollout timing
 - provide or verify production URL and OAuth callback values
 - perform browser-only preview or production checks when account/session access is required
 - approve any production DB migration, seed, bootstrap, or backup action

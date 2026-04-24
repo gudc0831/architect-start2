@@ -1,13 +1,13 @@
 # RLS And Storage Policy Boundary Design
 
 - Updated: 2026-04-24
-- Status: preview rollout draft, not applied
+- Status: applied to preview on 2026-04-24; browser file-flow sign-off still pending
 - Active plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 - Policy SQL: [sql/2026-04-24-preview-rls-storage-policies.sql](sql/2026-04-24-preview-rls-storage-policies.sql)
 
 ## Summary
 
-This draft adds the database and Supabase Storage policy boundary required after the preview app-guard verification. It does not change the locked auth/RBAC contract:
+This policy set adds the database and Supabase Storage policy boundary required after the preview app-guard verification. It does not change the locked auth/RBAC contract:
 
 - global `admin` keeps a bypass
 - project `manager` can manage project-scoped settings and membership
@@ -41,19 +41,26 @@ The SQL is intended for the preview Supabase project first. Do not apply it to p
 
 ## Preview Rollout
 
-1. Confirm the preview bucket name is `task-files`; otherwise edit the SQL bucket literal before applying.
-2. Run `npm run data:backup` against the preview environment before DB policy changes.
-3. Apply [sql/2026-04-24-preview-rls-storage-policies.sql](sql/2026-04-24-preview-rls-storage-policies.sql) to the preview Supabase project only.
-4. Run positive and negative probes:
+Applied on 2026-04-24 after user approval:
+
+1. Confirmed `SUPABASE_STORAGE_BUCKET=task-files`.
+2. Ran guarded backups before Prisma migration, SQL policy application, and bucket setup.
+3. Applied pending Prisma migrations to preview with `npm run db:migrate:safe`.
+4. Applied [sql/2026-04-24-preview-rls-storage-policies.sql](sql/2026-04-24-preview-rls-storage-policies.sql) with `npm run db:apply-sql:safe`.
+5. Created the private `task-files` preview bucket with `npm run storage:ensure-bucket:safe`.
+6. Ran positive and negative probes:
    - anonymous requests see no table or storage data
    - `gudc0831111@gmail.com` sees no project data
    - `gudc08311@gmail.com` can access Project B and cannot access Project A manager paths
-   - Project B direct upload intent, Storage upload, commit, signed download, and cleanup behavior work
    - admin can access all projects
-5. If any probe fails, roll back the policy SQL before continuing release readiness.
+   - rollback-only Storage insert probe allows Project B member and denies unrelated authenticated user
+
+Remaining preview sign-off:
+
+- Project B browser direct upload intent, Storage upload, commit, signed download, and cleanup behavior with a real task fixture.
 
 ## Notes
 
 - The service-role key continues to bypass RLS for trusted server maintenance, bootstrap, and backup flows.
-- The Prisma migration added in this slice only adds an index for `files(project_id, deleted_at, purged_at)` so file metadata policies and queries stay index-aware.
+- The Prisma migration in the RLS slice adds an index for `files(project_id, deleted_at, purged_at)` so file metadata policies and queries stay index-aware.
 - The policy SQL is not a Prisma migration because it depends on Supabase-specific `auth` and `storage` schemas.
