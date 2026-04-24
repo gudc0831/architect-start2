@@ -1,6 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { assertCloudMutationAllowed, createCloudBackup, finalizeCloudMutation, getCloudGuardSummary } from "./lib/cloud-guard";
-import { npxCommand, runCheckedCommand } from "./lib/run-command";
+import { runCheckedNpmExec } from "./lib/run-command";
 
 loadEnvConfig(process.cwd());
 
@@ -15,7 +15,7 @@ async function main() {
 
   if (!apply) {
     const dryRunArgs = args.includes("--dry-run") ? args : ["--dry-run", ...args.filter((arg) => arg !== "--apply")];
-    runCheckedCommand(npxCommand, ["tsx", "scripts/import-legacy-data.ts", ...dryRunArgs]);
+    runCheckedNpmExec(["tsx", "scripts/import-legacy-data.ts", ...dryRunArgs]);
     return;
   }
 
@@ -40,7 +40,7 @@ async function main() {
   }
 
   const backup = await createCloudBackup("import:legacy:safe");
-  runCheckedCommand(npxCommand, ["tsx", "scripts/import-legacy-data.ts", ...applyArgs]);
+  runCheckedNpmExec(["tsx", "scripts/import-legacy-data.ts", ...applyArgs]);
   await finalizeCloudMutation(lock, backup?.backupId ?? null);
 }
 

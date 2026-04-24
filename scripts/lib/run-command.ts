@@ -1,18 +1,34 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-export const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+function resolveNpmCliPath() {
+  const npmExecPath = process.env.npm_execpath;
+  const candidates = [
+    npmExecPath,
+    npmExecPath ? join(dirname(npmExecPath), "npm-cli.js") : null,
+    join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
 
-function shouldUseShell(command: string) {
-  return process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+  for (const candidate of candidates) {
+    if (candidate && /npm-cli\.js$/i.test(candidate) && existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Unable to locate npm-cli.js. Run this command through an npm script.");
 }
 
-export function captureCommand(command: string, args: string[]) {
-  const result = spawnSync(command, args, {
+function npmExecArgs(args: string[]) {
+  return [resolveNpmCliPath(), "exec", "--", ...args];
+}
+
+export function captureNpmExec(args: string[]) {
+  const result = spawnSync(process.execPath, npmExecArgs(args), {
     cwd: process.cwd(),
     env: process.env,
     encoding: "utf8",
     stdio: "pipe",
-    shell: shouldUseShell(command),
   });
 
   return {
@@ -23,12 +39,11 @@ export function captureCommand(command: string, args: string[]) {
   };
 }
 
-export function runCheckedCommand(command: string, args: string[]) {
-  const result = spawnSync(command, args, {
+export function runCheckedNpmExec(args: string[]) {
+  const result = spawnSync(process.execPath, npmExecArgs(args), {
     cwd: process.cwd(),
     env: process.env,
     stdio: "inherit",
-    shell: shouldUseShell(command),
   });
 
   if (result.error) {
@@ -36,6 +51,6 @@ export function runCheckedCommand(command: string, args: string[]) {
   }
 
   if ((result.status ?? 1) !== 0) {
-    throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+    throw new Error(`Command failed: npm exec -- ${args.join(" ")}`);
   }
 }

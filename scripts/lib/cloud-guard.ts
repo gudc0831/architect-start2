@@ -14,7 +14,7 @@ import {
   safeSnapshotId,
   writeJsonFile,
 } from "../../src/lib/data-guard/shared";
-import { captureCommand, npxCommand } from "./run-command";
+import { captureNpmExec } from "./run-command";
 
 loadEnvConfig(process.cwd());
 
@@ -164,7 +164,7 @@ export async function getCloudGuardSummary(options?: { includeMigrationStatus?: 
   const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : false;
   const migrationStatus = options?.includeMigrationStatus
     ? (() => {
-        const result = captureCommand(npxCommand, ["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
+        const result = captureNpmExec(["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
         return {
           ok: result.status === 0,
           status: result.status,
