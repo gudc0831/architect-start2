@@ -41,8 +41,8 @@ This section prevents old findings from being reworked after they have already b
 | Missing Request Integrity Checks | closed for verified mutation probes | extend confidence through policy/release smoke tests if needed |
 | Vulnerable Direct Dependencies Before Release | closed for the direct low-risk patch pass | resolve any current PR check or audit failures before merge |
 | Missing Security Automation In GitHub | closed in repo and branch ruleset | current PR checks must pass before merge |
-| Missing Security Header Baseline | closed in preview runtime baseline | recheck on final preview and production deployments |
-| Public Diagnostics Endpoint | closed for `/api/system/status` auth/no-store baseline | recheck on final preview and production deployments |
+| Missing Security Header Baseline | closed in preview runtime baseline and rechecked on final preview `/login` | recheck on production deployment |
+| Public Diagnostics Endpoint | closed for `/api/system/status` auth/no-store baseline; final protected preview API access is blocked by Vercel Authentication without an app session | recheck app-layer `/api/system/status` on production deployment |
 
 Remaining deployment blockers are now tracked in [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md).
 

@@ -9,6 +9,7 @@
 - Security review: [2026-04-10-security-deployment-review.md](2026-04-10-security-deployment-review.md)
 - Base multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
 - RLS and Storage policy draft: [2026-04-24-rls-storage-policy-boundary-design.md](2026-04-24-rls-storage-policy-boundary-design.md)
+- Release sign-off checklist: [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
 
 ## Purpose
 
@@ -38,14 +39,16 @@ These items are done and should not be reworked:
 | PR required checks | clean after CodeQL alert remediation |
 | Preview RLS and Storage policy rollout | applied and probed in Preview |
 | Preview file upload/download flow | verified through the local app server against Preview DB/Storage |
+| Final preview deployment and required checks | `024128a` passed GitHub checks and Vercel status |
+| Final preview runtime header smoke | `/login` returned `200` with the expected header baseline |
 
 ## Current Known Risks
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
 | Remote protected preview file-flow session is not automated | the upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final data cleanup passed through the local app server against Preview DB/Storage; Vercel Preview Authentication still blocks custom-cookie API automation on the remote URL | perform a manual protected-preview browser session only if exact deployed-browser sign-off is required |
-| release readiness external checks remain | conflict UX recovery is implemented, but production URL/OAuth/runtime sign-off still needs environment-specific confirmation | complete production-adjacent checks before merge/promotion |
-| production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
+| production dashboard checks remain | production URL, Vercel Production env vars, Supabase Auth URLs, and Google OAuth redirect URI require dashboard access or exact user-provided values | complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md) before production promotion |
+| production runtime smoke is not verified | production has not been promoted and exact production URL is not confirmed | verify `/login`, `/api/system/status`, OAuth callback, and runtime headers after production deploy |
 
 ## Work Order
 
@@ -215,7 +218,8 @@ Exit:
 Status:
 
 - 409 recovery behavior implemented for task update, task reorder, and file-version upload conflicts
-- production URL, OAuth callback, runtime header, and final preview checks still remain
+- final preview deployment, required checks, and runtime header smoke passed on `024128a`
+- production URL, Vercel Production env vars, Supabase Auth URLs, Google OAuth callback, and production runtime smoke still require external sign-off
 
 Owner:
 
@@ -234,8 +238,8 @@ Work:
 
 Exit:
 
-- PR is merge-ready
-- production deploy path is configured
+- PR checks and final preview smoke are clean
+- production deploy path is configured after the production dashboard checklist is confirmed
 - any required cloud DB action has an explicit backup and manual execution plan
 
 ## User Gates Remaining
@@ -243,6 +247,7 @@ Exit:
 The user should only be asked for these external actions:
 
 - provide or verify production URL and OAuth callback values
+- verify Vercel Production env vars point only to the production Supabase project
 - perform browser-only preview or production checks when account/session access is required
 - approve any production DB migration, seed, bootstrap, or backup action
 

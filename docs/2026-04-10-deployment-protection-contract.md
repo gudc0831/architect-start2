@@ -31,14 +31,15 @@ Configured:
 - Vercel Preview Authentication restored
 - Preview Supabase/Postgres env bundle narrowed to Preview where present
 - `APP_BACKEND_MODE=cloud` confirmed for Vercel
+- latest PR head `024128a` passed required checks and Vercel deployment status
+- final Preview `/login` runtime header smoke passed on deployment `dpl_BYgzqxq6bNbxJqjvnVVZujT14e6X`
 
 Still required before merge or production deployment:
 
-- current PR checks must pass
-- final preview deployment must pass release-readiness checks
 - production env vars must point to production Supabase only
 - production OAuth callback and Google redirect URLs must be verified exactly
-- runtime headers and `/api/system/status` behavior must be rechecked on final preview and production
+- runtime headers and `/api/system/status` behavior must be rechecked on production
+- complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
 
 Current active work order:
 
