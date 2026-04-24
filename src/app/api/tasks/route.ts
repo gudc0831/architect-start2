@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         requestedBy: body.requestedBy ?? body.requested_by ?? "",
         relatedDisciplines: body.relatedDisciplines ?? body["Related Disciplines"] ?? "",
         assignee: body.assignee ?? "",
+        assigneeProfileId: body.assigneeProfileId ?? body.assignee_profile_id ?? null,
         issueTitle: body.issueTitle ?? body.issue_title ?? "",
         reviewedAt: body.reviewedAt ?? body.reviewed_at ?? "",
         isDaily: Boolean(body.isDaily ?? true),

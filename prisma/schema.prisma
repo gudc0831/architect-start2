@@ -36,6 +36,7 @@ model Profile {
   updatedProjects Project[]          @relation("ProjectUpdatedBy")
   createdTasks    Task[]             @relation("TaskCreatedBy")
   updatedTasks    Task[]             @relation("TaskUpdatedBy")
+  assignedTasks   Task[]             @relation("TaskAssignedTo")
   uploadedFiles   File[]             @relation("FileUploadedBy")
   projectMemberships ProjectMembership[]
   preference      ProfilePreference?
@@ -77,6 +78,7 @@ model Task {
   requester          String      @default("")
   relatedDisciplines String      @default("") @map("related_disciplines")
   assignee           String      @default("")
+  assigneeProfileId  String?     @map("assignee_profile_id") @db.Uuid
   title              String
   reviewedAt         String      @default("") @map("reviewed_at")
   isDaily            Boolean     @default(false) @map("is_daily")
@@ -101,10 +103,12 @@ model Task {
   rootRefs           Task[]      @relation("TaskRoot")
   creator            Profile?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  assigneeProfile    Profile?    @relation("TaskAssignedTo", fields: [assigneeProfileId], references: [id], onDelete: SetNull)
   files              File[]
 
   @@unique([projectId, taskNumber])
   @@index([projectId, deletedAt, purgedAt])
+  @@index([projectId, assigneeProfileId])
   @@index([parentTaskId])
   @@map("tasks")
 }

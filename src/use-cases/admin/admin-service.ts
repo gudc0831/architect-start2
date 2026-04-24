@@ -10,7 +10,7 @@ import {
 import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
 import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
 import { requireUser } from "@/lib/auth/require-user";
-import { requireProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
 import { getProjectSessionProjectId } from "@/lib/project-session";
 import { taskRepository } from "@/repositories";
 import { adminRepository } from "@/repositories/admin";
@@ -223,6 +223,17 @@ export async function listProjectMembers(projectId: string) {
     projectId: normalizedProjectId,
     members,
     availableProfiles,
+  };
+}
+
+export async function listCurrentProjectMembersForSession(user?: AuthUser) {
+  const resolvedUser = await resolveSessionUser(user);
+  const context = await requireCurrentProjectAccess(resolvedUser);
+  const members = await adminRepository.listProjectMemberships(context.project.id);
+
+  return {
+    currentProjectId: context.project.id,
+    members,
   };
 }
 

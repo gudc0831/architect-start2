@@ -42,7 +42,7 @@ These items are done and should not be reworked:
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
 | RLS and Storage policies are not yet the formal security boundary | app guards are implemented, but long-term plan requires database and storage policy enforcement | design and apply preview policies |
-| assignees are still not linked to profiles | Phase 1 completion requires project-member-scoped assignment | add `assigneeProfileId` foundation |
+| assignee profile linkage needs preview DB rollout | local foundation is implemented, but preview data still needs the migration applied before live verification | apply migration to preview after approval and run the unresolved mapping report |
 | concurrent writes are not fully hardened | task numbering, reorder, and file version paths can still race | add transaction/conflict handling |
 | production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
 
@@ -152,6 +152,10 @@ Exit:
 
 ### 5. Assignee Profile Link Foundation
 
+Status:
+
+- implemented locally; preview DB migration rollout pending user-approved DB change
+
 Owner:
 
 - Codex
@@ -166,6 +170,7 @@ Work:
   - exact display-name match
   - normalized display-name match
   - ambiguous or missing matches stay `null`
+- use unresolved mapping report [sql/2026-04-24-assignee-profile-backfill-unresolved.sql](sql/2026-04-24-assignee-profile-backfill-unresolved.sql) after migration rollout
 
 Exit:
 

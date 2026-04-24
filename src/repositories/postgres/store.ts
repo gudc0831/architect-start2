@@ -64,6 +64,7 @@ function toTaskRecord(task: {
   requester: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId: string | null;
   title: string;
   reviewedAt: string;
   createdAt: Date;
@@ -100,6 +101,7 @@ function toTaskRecord(task: {
     requestedBy: task.requester,
     relatedDisciplines: task.relatedDisciplines,
     assignee: task.assignee,
+    assigneeProfileId: task.assigneeProfileId,
     issueTitle: task.title,
     reviewedAt: task.reviewedAt,
     createdAt: task.createdAt.toISOString().slice(0, 10),
@@ -208,6 +210,9 @@ function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
     requester: input.requestedBy ?? undefined,
     relatedDisciplines: input.relatedDisciplines ?? undefined,
     assignee: input.assignee ?? undefined,
+    assigneeProfileId: Object.prototype.hasOwnProperty.call(input, "assigneeProfileId")
+      ? input.assigneeProfileId ?? null
+      : undefined,
     title: input.issueTitle ?? "",
     reviewedAt: input.reviewedAt ?? undefined,
     locationRef: input.locationRef ?? undefined,

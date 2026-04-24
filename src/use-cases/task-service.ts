@@ -12,6 +12,7 @@ import {
   normalizeTaskStatus,
 } from "@/domains/task/status";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { backendMode } from "@/lib/backend-mode";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import {
   buildSiblingOrderUpdates,
@@ -87,6 +88,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
+  const assignee = await resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee);
 
   const task = await taskRepository.createTask({
     projectId: project.id,
@@ -112,7 +114,8 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
       effectiveCategories.relatedDisciplines,
       { allowLegacyTextWhenDefinitionsMissing: true },
     ),
-    assignee: normalizeText(input.assignee),
+    assignee: assignee.assignee,
+    assigneeProfileId: assignee.assigneeProfileId ?? null,
     issueTitle: normalizeRequiredText(input.issueTitle, "issueTitle"),
     reviewedAt: normalizeDate(input.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(input.createdAt),
@@ -219,6 +222,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     shouldReparent ? taskRepository.listActiveTasks(project.id) : Promise.resolve(undefined),
   ]);
   const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
+  await applyAssigneeUpdate(currentTask.projectId, input, sanitized, currentTask);
   sanitized.ownerDiscipline = foundationSettings.ownerDiscipline;
   applyStatusSideEffects(currentTask, sanitized);
 
@@ -465,6 +469,85 @@ function sanitizeTaskUpdate(
   }
 
   return next;
+}
+
+async function applyAssigneeUpdate(
+  projectId: string,
+  input: UpdateTaskInput,
+  next: UpdateTaskInput,
+  currentTask: TaskRecord,
+) {
+  const hasAssigneeText = Object.prototype.hasOwnProperty.call(input, "assignee");
+  const hasAssigneeProfile = Object.prototype.hasOwnProperty.call(input, "assigneeProfileId");
+
+  if (hasAssigneeProfile) {
+    const resolved = await resolveTaskAssignee(
+      projectId,
+      input.assigneeProfileId,
+      typeof next.assignee === "string" ? next.assignee : currentTask.assignee,
+    );
+    next.assignee = resolved.assignee;
+    next.assigneeProfileId = resolved.assigneeProfileId ?? null;
+    return;
+  }
+
+  if (hasAssigneeText) {
+    next.assigneeProfileId = null;
+  }
+}
+
+async function resolveTaskAssignee(projectId: string, rawProfileId: unknown, rawAssignee: string) {
+  const assigneeProfileId = normalizeAssigneeProfileId(rawProfileId);
+  const assignee = normalizeText(rawAssignee);
+
+  if (assigneeProfileId === undefined) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  if (assigneeProfileId === null) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  const membership = await adminRepository.getProjectMembership(projectId, assigneeProfileId);
+  if (!membership) {
+    throw badRequest("assigneeProfileId must be a project member", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return {
+    assignee: assignee || membership.displayName.trim() || membership.email.trim(),
+    assigneeProfileId,
+  };
+}
+
+function normalizeAssigneeProfileId(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  const normalized = value.trim();
+  if (normalized && backendMode === "cloud" && !isUuid(normalized)) {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return normalized || null;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function hasTaskCategoryPatch(input: UpdateTaskInput) {

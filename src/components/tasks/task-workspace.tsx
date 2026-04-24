@@ -20,6 +20,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
+  SelectHTMLAttributes,
 } from "react";
 import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
@@ -137,6 +138,7 @@ type TaskFormState = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId: string | null;
   issueTitle: string;
   reviewedAt: string;
   updatedAt: string;
@@ -177,6 +179,7 @@ type TaskFormDisplayState = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId?: string | null;
   issueTitle: string;
   reviewedAt: string;
   updatedAt?: string | null;
@@ -194,6 +197,7 @@ type EditableTaskFormKey =
   | "requestedBy"
   | "relatedDisciplines"
   | "assignee"
+  | "assigneeProfileId"
   | "issueTitle"
   | "reviewedAt"
   | "locationRef"
@@ -203,6 +207,13 @@ type EditableTaskFormKey =
   | "decision";
 
 type TaskFormChangeHandler = <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => void;
+
+type AssigneeOption = {
+  profileId: string;
+  displayName: string;
+  email: string;
+  role: "manager" | "member";
+};
 
 type QuickCreateResizeState = {
   fieldKey: QuickCreateFieldKey;
@@ -238,7 +249,10 @@ const EMPTY_TASK_FILES: readonly FileRecord[] = [];
 
 type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
-type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt">;
+type TaskListEditableTextFieldKey = Exclude<
+  EditableTaskFormKey,
+  "calendarLinked" | "assigneeProfileId" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt"
+>;
 type DailyCategoricalFilterFieldKey = Extract<
   TaskCategoricalFieldKey,
   "workType" | "coordinationScope" | "requestedBy" | "relatedDisciplines" | "locationRef" | "status"
@@ -512,6 +526,7 @@ const editableTaskFormKeys = [
   "requestedBy",
   "relatedDisciplines",
   "assignee",
+  "assigneeProfileId",
   "issueTitle",
   "reviewedAt",
   "locationRef",
@@ -546,6 +561,7 @@ const defaultForm = (): TaskFormState => ({
   requestedBy: "",
   relatedDisciplines: "",
   assignee: "",
+  assigneeProfileId: null,
   issueTitle: "",
   reviewedAt: "",
   updatedAt: "",
@@ -612,6 +628,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [dailyTaskPage, setDailyTaskPage] = useState(1);
   const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
+  const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -959,6 +976,38 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId) {
+      setAssigneeOptions([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    void fetch("/api/project/members", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load project members");
+        }
+
+        const json = (await response.json()) as { data?: { members?: AssigneeOption[] } };
+        if (!isMounted) {
+          return;
+        }
+
+        setAssigneeOptions(Array.isArray(json.data?.members) ? json.data.members : []);
+      })
+      .catch(() => {
+        if (isMounted) {
+          setAssigneeOptions([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentProjectId, isPreview]);
 
   useEffect(() => {
     activeTaskListInlineEditCellRef.current = activeTaskListInlineEditCell;
@@ -2749,7 +2798,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         draftRef.current = draft;
       }
       if (field) {
-        clearDraftDirtyFields([field]);
+        clearDraftDirtyFields(field === "assignee" ? ["assignee", "assigneeProfileId"] : [field]);
       }
       taskEditorDraftStore.cancelInlineEdit();
       setTaskListActiveInlineEditCell(null);
@@ -3279,7 +3328,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
 
       try {
-        await patchTask(currentDraft, { [field]: currentDraft[field] } as Partial<TaskRecord>, { clearedDirtyFields: [field] });
+        const payload =
+          field === "assignee"
+            ? { assignee: currentDraft.assignee, assigneeProfileId: currentDraft.assigneeProfileId }
+            : ({ [field]: currentDraft[field] } as Partial<TaskRecord>);
+        const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
+        await patchTask(currentDraft, payload, { clearedDirtyFields });
       } finally {
         setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
       }
@@ -4154,6 +4208,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     onToggleOpen={() => setIsCreateFormOpen((prev) => !prev)}
                     renderFields={(values, onChange) => (
                       <TaskFormFields
+                        assigneeOptions={assigneeOptions}
                         categoryDefinitionsByField={categoryDefinitionsByField}
                         composerMode={quickCreateComposerMode}
                         form={values}
@@ -4507,6 +4562,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 {!isPreviewDaily ? (
                   <TaskListInlineEditorOverlay
                     activeCell={activeTaskListInlineEditCell}
+                    assigneeOptions={assigneeOptions}
                     categoryDefinitionsByField={categoryDefinitionsByField}
                     draftStore={taskEditorDraftStore}
                     draft={draft}
@@ -4841,6 +4897,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 ) : draft ? (
                   <div className="detail-panel__body">
                     <TaskFormFields
+                      assigneeOptions={assigneeOptions}
                       form={draft}
                       onChange={updateSelectedTaskForm}
                       readonly={{ ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) }}
@@ -5687,6 +5744,88 @@ function DetailPanelDateField({
   );
 }
 
+const LEGACY_ASSIGNEE_SELECT_VALUE = "__legacy_assignee__";
+
+type AssigneeSelection = {
+  profileId: string | null;
+  label: string;
+};
+
+type TaskAssigneeSelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange" | "children"> & {
+  assignee: string;
+  assigneeProfileId?: string | null;
+  assigneeOptions: readonly AssigneeOption[];
+  onChange: (selection: AssigneeSelection) => void;
+};
+
+function formatAssigneeOptionLabel(option: AssigneeOption) {
+  const name = option.displayName.trim();
+  const email = option.email.trim();
+
+  if (name && email && name.toLowerCase() !== email.toLowerCase()) {
+    return `${name} (${email})`;
+  }
+
+  return name || email || option.profileId;
+}
+
+function formatAssigneeSnapshot(option: AssigneeOption) {
+  return option.displayName.trim() || option.email.trim() || "";
+}
+
+function TaskAssigneeSelect({
+  assignee,
+  assigneeProfileId,
+  assigneeOptions,
+  onChange,
+  ...selectProps
+}: TaskAssigneeSelectProps) {
+  const normalizedProfileId = assigneeProfileId?.trim() || null;
+  const selectedOption = normalizedProfileId
+    ? assigneeOptions.find((option) => option.profileId === normalizedProfileId) ?? null
+    : null;
+  const hasLegacyAssignee = !normalizedProfileId && Boolean(assignee.trim());
+  const hasUnknownLinkedAssignee = Boolean(normalizedProfileId && !selectedOption);
+  const value = normalizedProfileId ?? (hasLegacyAssignee ? LEGACY_ASSIGNEE_SELECT_VALUE : "");
+
+  return (
+    <select
+      {...selectProps}
+      onChange={(event) => {
+        const nextProfileId = event.target.value;
+        if (!nextProfileId || nextProfileId === LEGACY_ASSIGNEE_SELECT_VALUE) {
+          onChange({ profileId: null, label: "" });
+          return;
+        }
+
+        const option = assigneeOptions.find((candidate) => candidate.profileId === nextProfileId);
+        onChange({
+          profileId: nextProfileId,
+          label: option ? formatAssigneeSnapshot(option) : assignee.trim(),
+        });
+      }}
+      value={value}
+    >
+      <option value="">{t("empty.unassigned")}</option>
+      {hasLegacyAssignee ? (
+        <option disabled value={LEGACY_ASSIGNEE_SELECT_VALUE}>
+          {assignee.trim()}
+        </option>
+      ) : null}
+      {hasUnknownLinkedAssignee ? (
+        <option disabled value={normalizedProfileId ?? ""}>
+          {assignee.trim() || normalizedProfileId}
+        </option>
+      ) : null}
+      {assigneeOptions.map((option) => (
+        <option key={option.profileId} value={option.profileId}>
+          {formatAssigneeOptionLabel(option)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function TaskListInlineEditor({
   columnKey,
   fieldKey,
@@ -5695,6 +5834,7 @@ function TaskListInlineEditor({
   onCommit,
   onCancel,
   saving = false,
+  assigneeOptions = [],
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
 }: {
@@ -5705,11 +5845,13 @@ function TaskListInlineEditor({
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
   onCancel?: (columnKey: TaskListColumnKey) => void;
   saving?: boolean;
+  assigneeOptions?: readonly AssigneeOption[];
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
+  const fieldLabel = fieldKey === "assigneeProfileId" ? labelForField("assignee") : labelForField(fieldKey);
   const sharedProps = {
-    "aria-label": labelForField(fieldKey),
+    "aria-label": fieldLabel,
     disabled: saving,
     onClick: stopTaskListInlineEvent,
     onDoubleClick: stopTaskListInlineEvent,
@@ -5782,6 +5924,24 @@ function TaskListInlineEditor({
     );
   }
 
+  if (fieldKey === "assignee") {
+    return (
+      <TaskAssigneeSelect
+        {...sharedProps}
+        assignee={form.assignee}
+        assigneeOptions={assigneeOptions}
+        assigneeProfileId={form.assigneeProfileId}
+        className="sheet-table__inline-input sheet-table__inline-select"
+        onChange={(selection) => {
+          onChange("assigneeProfileId", selection.profileId);
+          onChange("assignee", selection.label);
+          void onCommit(columnKey);
+        }}
+        onKeyDown={(event) => handleTaskListInlineEscapeKeyDown(event, () => onCancel?.(columnKey))}
+      />
+    );
+  }
+
   return (
     <textarea
       {...sharedProps}
@@ -5797,6 +5957,7 @@ function TaskListInlineEditor({
 
 function TaskListInlineEditorOverlay({
   activeCell,
+  assigneeOptions,
   draft,
   inlineSavingFields,
   workTypeDefinitions,
@@ -5810,6 +5971,7 @@ function TaskListInlineEditorOverlay({
   draftStore,
 }: {
   activeCell: PendingTaskListFocusCell | null;
+  assigneeOptions: readonly AssigneeOption[];
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
@@ -5860,6 +6022,7 @@ function TaskListInlineEditorOverlay({
             columnKey={overlayCell.columnKey as TaskListColumnKey}
             fieldKey={fieldKey}
             form={overlayDraft}
+            assigneeOptions={assigneeOptions}
             onCancel={onCancel}
             onChange={onChange}
             onCommit={onCommit}
@@ -5872,6 +6035,7 @@ function TaskListInlineEditorOverlay({
   );
 }
 function TaskFormFields({
+  assigneeOptions = [],
   composerMode = "strip",
   form,
   onChange,
@@ -5883,6 +6047,7 @@ function TaskFormFields({
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
 }: {
+  assigneeOptions?: readonly AssigneeOption[];
   composerMode?: ComposerLayoutMode;
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
@@ -6004,7 +6169,16 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("assignee", "form-field--stretch")}>
         <span>{labelForField("assignee")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("assignee", event.target.value)} rows={1} value={form.assignee} />
+        <TaskAssigneeSelect
+          assignee={form.assignee}
+          assigneeOptions={assigneeOptions}
+          assigneeProfileId={form.assigneeProfileId}
+          className="detail-select-field"
+          onChange={(selection) => {
+            onChange("assigneeProfileId", selection.profileId);
+            onChange("assignee", selection.label);
+          }}
+        />
         {renderResizeHandle("assignee")}
       </label>
       <label {...getLabelProps("issueTitle", "form-field--wide")}>
@@ -7362,6 +7536,7 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     requestedBy: draft.requestedBy ?? "",
     relatedDisciplines: draft.relatedDisciplines ?? "",
     assignee: draft.assignee ?? "",
+    assigneeProfileId: draft.assigneeProfileId ?? null,
     issueTitle: draft.issueTitle ?? "",
     reviewedAt: draft.reviewedAt ?? "",
     isDaily: Boolean(draft.isDaily),
