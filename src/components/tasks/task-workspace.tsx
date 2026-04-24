@@ -3431,12 +3431,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
           return;
         }
-      }
-      await refreshTaskFiles(taskId, { force: true });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
     }
+    await refreshTaskFiles(taskId, { force: true });
+  } catch (error) {
+    if (isApiConflictError(error)) {
+      await refreshTaskFiles(taskId, { force: true });
+    }
+    setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
   }
+}
 
   async function uploadSelectedFile() {
     if (!selectedTask || !pendingUpload) return;
@@ -3481,6 +3484,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setPendingVersionUpload(null);
       await refreshTaskFiles(targetFile.taskId, { force: true });
     } catch (error) {
+      if (isApiConflictError(error, "FILE_VERSION_CONFLICT")) {
+        await refreshTaskFiles(targetFile.taskId, { force: true });
+      }
       setErrorMessage(error instanceof Error ? error.message : t("errors.uploadNextVersionFailed"));
     }
   }
@@ -7598,12 +7604,33 @@ function buildTaskPatchPayloadFromDraft(draft: Partial<TaskRecord>, dirtyFields:
 }
 
 async function readErrorMessage(response: Response, fallbackKey: ErrorCopyKey) {
+  const error = await readApiError(response, fallbackKey);
+  return error.message;
+}
+
+async function readApiError(response: Response, fallbackKey: ErrorCopyKey) {
   try {
     const json = (await response.json()) as { error?: { code?: string | null } };
-    return localizeError({ code: json.error?.code, fallbackKey });
+    const code = json.error?.code ?? null;
+    return new ApiResponseError(response.status, code, localizeError({ code, fallbackKey }));
   } catch {
-    return localizeError({ fallbackKey });
+    return new ApiResponseError(response.status, null, localizeError({ fallbackKey }));
   }
+}
+
+class ApiResponseError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
+
+function isApiConflictError(error: unknown, code?: string) {
+  return error instanceof ApiResponseError && error.status === 409 && (!code || error.code === code);
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -7656,7 +7683,7 @@ async function requestUploadIntent(payload: {
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, payload.fallbackKey));
+    throw await readApiError(response, payload.fallbackKey);
   }
 
   return readUploadIntentResponse(response);
@@ -7723,7 +7750,7 @@ async function uploadFileWithIntent(input: {
     });
 
     if (!commitResponse.ok) {
-      throw new Error(await readErrorMessage(commitResponse, input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed"));
+      throw await readApiError(commitResponse, input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed");
     }
   } catch (error) {
     await supabase.storage.from(bucket).remove([objectPath]).catch(() => {});

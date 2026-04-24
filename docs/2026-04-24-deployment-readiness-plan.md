@@ -42,7 +42,7 @@ These items are done and should not be reworked:
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
 | RLS and Storage policies need browser file-flow sign-off | preview database/storage policies are applied and DB-level probes passed, but the full browser upload/commit/download flow still needs a real task fixture | run Project B browser file-flow verification when a session/fixture is available |
-| concurrency hardening needs conflict UX polish | core 409 conflict handling is implemented and preview migration is applied | add user-facing recovery behavior for reorder/file-version conflicts |
+| release readiness external checks remain | conflict UX recovery is implemented, but production URL/OAuth/runtime sign-off still needs environment-specific confirmation | complete production-adjacent checks before merge/promotion |
 | production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
 
 ## Work Order
@@ -204,6 +204,11 @@ Exit:
 - the main concurrent write paths fail safely instead of corrupting ordering, numbering, or file versions
 
 ### 7. Conflict UX And Release Readiness
+
+Status:
+
+- 409 recovery behavior implemented for task update, task reorder, and file-version upload conflicts
+- production URL, OAuth callback, runtime header, and final preview checks still remain
 
 Owner:
 
