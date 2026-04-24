@@ -1,6 +1,6 @@
 # Security Deployment Review
 
-- Updated: 2026-04-10
+- Updated: 2026-04-24
 - Parent index: [../PLAN.md](../PLAN.md)
 - Auth and RBAC contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment protection contract: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
@@ -29,6 +29,22 @@ Use this file for:
 ## Release Blockers
 
 These findings should be treated as blockers for internet-facing rollout.
+
+## Status As Of 2026-04-24
+
+This section prevents old findings from being reworked after they have already been addressed.
+
+| Finding | Current status | Next action |
+| --- | --- | --- |
+| Project Authorization Bypass | closed for app-guard preview baseline | continue to Phase 4 RLS/Storage policy boundary |
+| Open Redirect In Login Flow | closed in preview | production OAuth callback and exact production URL still need release-readiness verification |
+| Missing Request Integrity Checks | closed for verified mutation probes | extend confidence through policy/release smoke tests if needed |
+| Vulnerable Direct Dependencies Before Release | closed for the direct low-risk patch pass | resolve any current PR check or audit failures before merge |
+| Missing Security Automation In GitHub | closed in repo and branch ruleset | current PR checks must pass before merge |
+| Missing Security Header Baseline | closed in preview runtime baseline | recheck on final preview and production deployments |
+| Public Diagnostics Endpoint | closed for `/api/system/status` auth/no-store baseline | recheck on final preview and production deployments |
+
+Remaining deployment blockers are now tracked in [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md).
 
 ### 1. Project Authorization Bypass
 

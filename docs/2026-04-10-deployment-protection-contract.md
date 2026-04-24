@@ -1,6 +1,6 @@
 # Deployment And Release Protection Contract
 
-- Updated: 2026-04-10
+- Updated: 2026-04-24
 - Parent index: [../PLAN.md](../PLAN.md)
 - Auth and RBAC contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Execution plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
@@ -19,6 +19,30 @@ Use this file for:
 - merge and release flow expectations
 
 ## Locked Direction
+
+## Status As Of 2026-04-24
+
+Configured:
+
+- GitHub `main` branch ruleset:
+  - pull request required
+  - force pushes blocked
+  - required checks configured for CI, CodeQL, Semgrep, and dependency audit
+- Vercel Preview Authentication restored
+- Preview Supabase/Postgres env bundle narrowed to Preview where present
+- `APP_BACKEND_MODE=cloud` confirmed for Vercel
+
+Still required before merge or production deployment:
+
+- current PR checks must pass
+- final preview deployment must pass release-readiness checks
+- production env vars must point to production Supabase only
+- production OAuth callback and Google redirect URLs must be verified exactly
+- runtime headers and `/api/system/status` behavior must be rechecked on final preview and production
+
+Current active work order:
+
+- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 
 ### 1. Private Repo Baseline
 

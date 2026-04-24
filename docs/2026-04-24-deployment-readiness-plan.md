@@ -1,0 +1,219 @@
+# Deployment Readiness Plan
+
+- Updated: 2026-04-24
+- Status: active forward plan
+- Parent index: [../PLAN.md](../PLAN.md)
+- Previous execution record: [2026-04-20-post-preview-execution-plan.md](2026-04-20-post-preview-execution-plan.md)
+- Preview verification record: [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
+- Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
+- Security review: [2026-04-10-security-deployment-review.md](2026-04-10-security-deployment-review.md)
+- Base multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
+
+## Purpose
+
+This is the active work order from 2026-04-24 forward. It replaces the older post-preview checklist as the source of truth for the next deployment preparation pass.
+
+Do not repeat completed preview setup, branch protection setup, or manager/origin verification unless a regression appears.
+
+## Current Completed Baseline
+
+These items are done and should not be reworked:
+
+| Area | Status |
+| --- | --- |
+| Google OAuth cloud login | complete in preview |
+| Safe same-site post-login redirect handling | complete in preview |
+| Dedicated no-access auth screen | complete in preview |
+| Project-scoped membership and manager guard baseline | complete in preview |
+| Request-integrity checks for invalid and missing origin probes | complete in preview |
+| `/api/system/status` authentication and no-store behavior | complete in preview |
+| Runtime security header baseline | complete in preview |
+| GitHub workflow baseline | added in repo |
+| Dependabot baseline | added in repo |
+| GitHub `main` branch ruleset | configured externally |
+| Vercel Preview Authentication | restored externally |
+| Preview Supabase data shape | created and verified |
+| Preview Vercel Supabase env bundle | narrowed to Preview where present |
+
+## Current Known Risks
+
+| Risk | Why it matters | Next action |
+| --- | --- | --- |
+| PR checks were observed failing | protected `main` now requires them before merge | inspect and fix `typecheck`, CodeQL, and Semgrep failures |
+| RLS and Storage policies are not yet the formal security boundary | app guards are implemented, but long-term plan requires database and storage policy enforcement | design and apply preview policies |
+| assignees are still not linked to profiles | Phase 1 completion requires project-member-scoped assignment | add `assigneeProfileId` foundation |
+| concurrent writes are not fully hardened | task numbering, reorder, and file version paths can still race | add transaction/conflict handling |
+| production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
+
+## Work Order
+
+### 1. Commit Current Documentation Cleanup
+
+Owner:
+
+- Codex
+
+Work:
+
+- stage and commit the 2026-04-23 and 2026-04-24 documentation cleanup
+- keep unrelated untracked files out of the commit:
+  - `awesome-design-md/`
+  - `preview-baseline.sql`
+
+Exit:
+
+- docs accurately describe the completed preview work and active next plan
+
+### 2. Resolve PR Required Check Failures
+
+Owner:
+
+- Codex
+
+Work:
+
+- inspect GitHub PR check logs
+- fix `typecheck`
+- triage CodeQL alerts:
+  - fix real issues
+  - document or suppress only if proven false positive
+- triage Semgrep failures:
+  - fix real issues
+  - adjust workflow/config only if the rule or scan setup is invalid for this repo
+- rerun local verification:
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npm run build`
+  - `npm run deps:audit`
+
+Exit:
+
+- required checks pass or each remaining failure has a documented blocker and owner
+
+### 3. Minimal Remaining Preview Verification
+
+Owner:
+
+- Codex for instructions and interpretation
+- user only if browser or dashboard access is required
+
+Work:
+
+- verify `Project B` selection and `/api/project` result if needed for sign-off
+- skip destructive `PATCH /api/project` manager-negative probe unless sign-off explicitly requires it
+- keep no-access direct API probes deferred unless there is a reliable way to separate app login from Vercel Authentication session reuse
+
+Exit:
+
+- preview verification is sufficient to move into the policy boundary slice without reopening login/RBAC basics
+
+### 4. RLS And Storage Policy Boundary
+
+Owner:
+
+- Codex first
+- user approval before preview policy rollout if policies are applied through Supabase dashboard or live preview database
+
+Work:
+
+- inventory browser-facing or future browser-facing tables:
+  - `profiles`
+  - `projects`
+  - `project_memberships`
+  - `tasks`
+  - `files`
+  - `profile_preferences`
+  - `work_type_definitions`
+- inventory storage access paths and object key conventions
+- design RLS policy helpers around project membership and global admin bypass
+- design Supabase Storage policies for read, upload, update, and delete
+- apply policies to preview first
+- run negative and positive probes:
+  - anonymous
+  - unrelated authenticated user
+  - project member
+  - project manager
+  - global admin
+
+Exit:
+
+- unrelated authenticated access is denied at the database or storage layer
+- normal member and manager flows still work in preview
+
+### 5. Assignee Profile Link Foundation
+
+Owner:
+
+- Codex
+
+Work:
+
+- add `assigneeProfileId` while preserving legacy assignee display text
+- constrain assignee options to current project members
+- add server-side validation for project-member assignee ids
+- define safe backfill behavior:
+  - exact email match
+  - exact display-name match
+  - normalized display-name match
+  - ambiguous or missing matches stay `null`
+
+Exit:
+
+- assignment can reference a real project member without breaking legacy data
+
+### 6. Concurrency Hardening
+
+Owner:
+
+- Codex
+
+Work:
+
+- make task number issuance transaction-safe
+- detect reorder conflicts instead of silently overwriting sibling order
+- prevent duplicate file next-version creation
+- return clear `409` responses for recoverable write conflicts
+
+Exit:
+
+- the main concurrent write paths fail safely instead of corrupting ordering, numbering, or file versions
+
+### 7. Conflict UX And Release Readiness
+
+Owner:
+
+- Codex first
+- user for final preview and production-adjacent checks
+
+Work:
+
+- add user-facing recovery behavior for new `409` paths
+- confirm production environment variables are production-specific before production deployment
+- confirm production Supabase URL configuration
+- confirm Google OAuth authorized redirect URIs for production
+- confirm runtime headers on the final preview deployment
+- confirm required checks block merge when failing and pass when fixed
+- keep DB migration, seed, bootstrap, and backup as manual operational steps
+
+Exit:
+
+- PR is merge-ready
+- production deploy path is configured
+- any required cloud DB action has an explicit backup and manual execution plan
+
+## User Gates Remaining
+
+The user should only be asked for these external actions:
+
+- approve preview RLS and Storage policy rollout timing
+- provide or verify production URL and OAuth callback values
+- perform browser-only preview or production checks when account/session access is required
+- approve any production DB migration, seed, bootstrap, or backup action
+
+## Out Of Scope Until After This Plan
+
+- new role model such as `viewer` or `editor`
+- open self-signup
+- full realtime collaboration
+- broad UI redesign
+- production data migration beyond the explicit release checklist

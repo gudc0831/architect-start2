@@ -1,8 +1,8 @@
 # Multi-User Transition Plan
 
-- Updated: 2026-04-20
+- Updated: 2026-04-24
 - Parent index: [../PLAN.md](../PLAN.md)
-- Latest follow-up execution plan: [2026-04-20-post-preview-execution-plan.md](2026-04-20-post-preview-execution-plan.md)
+- Latest follow-up execution plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 - Locked auth and RBAC decisions: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Supporting setup: [SUPABASE_MIGRATION.md](SUPABASE_MIGRATION.md)
@@ -56,6 +56,29 @@ Phase 1 does not include:
 - local-mode parity as proof of correctness
 - full real-time collaboration
 
+## Status As Of 2026-04-24
+
+Completed and should not be reworked unless a regression appears:
+
+- Phase 0 preview/test environment readiness for the current preview path
+- Phase 1 identity and provisioning path for Google OAuth preview login
+- Phase 2 membership-filtered project access baseline
+- Phase 3 shared route guard and request-integrity baseline for the verified routes
+- preview manager/member/no-access auth verification baseline
+- GitHub branch protection and required-check baseline
+- Vercel Preview Authentication restore and preview env separation
+
+Still active before Phase 1 can be called complete:
+
+- Phase 4 database and storage policy boundary
+- Phase 5 assignee-to-profile linkage foundation
+- Phase 6 concurrency hardening
+- Phase 7 conflict recovery UX and final release readiness pass
+
+Current active work order:
+
+- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
+
 ## Read Order For Implementers
 
 1. [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
@@ -76,6 +99,11 @@ Phase 1 does not include:
 ## Phase Breakdown
 
 ### Phase 0. Preview And Test Environment Readiness
+
+Status:
+
+- complete for the current preview path as of 2026-04-23
+- do not recreate preview accounts, `preview-rbac-b`, branch protection, or preview env separation unless a regression appears
 
 Goal:
 
@@ -120,6 +148,11 @@ Exit criteria:
 
 ### Phase 1. Identity And Provisioning Path
 
+Status:
+
+- complete for the verified preview path
+- keep the password route as a controlled utility only, as documented in the worklogs
+
 Goal:
 
 - Replace the current cloud password-oriented login path with the locked Google OAuth path.
@@ -161,6 +194,11 @@ Exit criteria:
 
 ### Phase 2. Membership-Filtered Project Access
 
+Status:
+
+- complete for the verified preview baseline
+- `Project A`/`Project B` manager and member behavior is recorded in [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
+
 Goal:
 
 - Make the selected project and project list membership-aware.
@@ -191,6 +229,11 @@ Exit criteria:
 - admin can still see all projects
 
 ### Phase 3. Route Guard And Role Split
+
+Status:
+
+- complete for the verified manager/admin/member guard and origin-integrity baseline
+- optional destructive manager-negative probe remains deferred unless final sign-off requires it
 
 Goal:
 
@@ -228,6 +271,10 @@ Exit criteria:
 
 ### Phase 4. Database And Storage Policy Boundary
 
+Status:
+
+- next active implementation phase
+
 Goal:
 
 - Promote Postgres RLS and Storage policies to the formal long-term security boundary for browser-facing access paths.
@@ -264,6 +311,10 @@ Exit criteria:
 
 ### Phase 5. Assignee To Profile Link Foundation
 
+Status:
+
+- pending after the policy boundary slice
+
 Goal:
 
 - Move task assignment toward actual project members rather than free text only.
@@ -297,6 +348,10 @@ Exit criteria:
 
 ### Phase 6. Concurrency Hardening
 
+Status:
+
+- pending after assignee linkage unless release risk requires pulling it earlier
+
 Goal:
 
 - Close the main write races already visible in the current codebase.
@@ -325,6 +380,11 @@ Exit criteria:
 - concurrent next-version upload does not create duplicate versions
 
 ### Phase 7. Login Outcome UX And Recovery UX
+
+Status:
+
+- partially complete for no-access login outcome
+- pending for conflict recovery UX after `409` paths are introduced
 
 Goal:
 

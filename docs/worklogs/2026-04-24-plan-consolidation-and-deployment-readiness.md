@@ -1,0 +1,4 @@
+Req: Mark completed planning and verification work as complete, remove outdated forward-looking duplicate instructions, and create a current deployment-readiness work order.
+Diff: updated `PLAN.md`; converted the 2026-04-20 post-preview plan into an archived execution record; converted the preview verification matrix into a completed record with optional follow-ups; added the active `2026-04-24-deployment-readiness-plan.md`; added status summaries to the multi-user plan, deployment protection contract, and security deployment review.
+Why: future workers should not repeat completed preview auth/RBAC setup, Vercel/GitHub protection setup, or manager/origin verification, and should start from PR check fixes followed by RLS/Storage policy work.
+Verify/Time: reviewed the plan index, post-preview record, preview matrix, deployment contract, security review, multi-user plan, `git diff --check`, and worktree state on 2026-04-24.
