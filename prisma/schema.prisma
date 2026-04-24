@@ -131,6 +131,7 @@ model File {
   uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
 
   @@index([taskId, deletedAt, purgedAt])
+  @@index([projectId, deletedAt, purgedAt])
   @@index([fileGroupId, version])
   @@map("files")
 }

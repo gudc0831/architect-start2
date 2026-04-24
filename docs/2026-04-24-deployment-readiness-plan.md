@@ -8,6 +8,7 @@
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Security review: [2026-04-10-security-deployment-review.md](2026-04-10-security-deployment-review.md)
 - Base multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
+- RLS and Storage policy draft: [2026-04-24-rls-storage-policy-boundary-design.md](2026-04-24-rls-storage-policy-boundary-design.md)
 
 ## Purpose
 
@@ -34,12 +35,12 @@ These items are done and should not be reworked:
 | Vercel Preview Authentication | restored externally |
 | Preview Supabase data shape | created and verified |
 | Preview Vercel Supabase env bundle | narrowed to Preview where present |
+| PR required checks | clean on `ae76109` |
 
 ## Current Known Risks
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
-| PR checks were observed failing | protected `main` now requires them before merge | inspect and fix `typecheck`, CodeQL, and Semgrep failures |
 | RLS and Storage policies are not yet the formal security boundary | app guards are implemented, but long-term plan requires database and storage policy enforcement | design and apply preview policies |
 | assignees are still not linked to profiles | Phase 1 completion requires project-member-scoped assignment | add `assigneeProfileId` foundation |
 | concurrent writes are not fully hardened | task numbering, reorder, and file version paths can still race | add transaction/conflict handling |
@@ -65,6 +66,10 @@ Exit:
 - docs accurately describe the completed preview work and active next plan
 
 ### 2. Resolve PR Required Check Failures
+
+Status:
+
+- complete on PR head `ae76109`
 
 Owner:
 
@@ -109,6 +114,10 @@ Exit:
 
 ### 4. RLS And Storage Policy Boundary
 
+Status:
+
+- draft SQL and rollout plan prepared; preview application still gated on user approval
+
 Owner:
 
 - Codex first
@@ -127,6 +136,7 @@ Work:
 - inventory storage access paths and object key conventions
 - design RLS policy helpers around project membership and global admin bypass
 - design Supabase Storage policies for read, upload, update, and delete
+- use the draft in [2026-04-24-rls-storage-policy-boundary-design.md](2026-04-24-rls-storage-policy-boundary-design.md)
 - apply policies to preview first
 - run negative and positive probes:
   - anonymous
