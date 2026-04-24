@@ -5,6 +5,7 @@ import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/doma
 export type TaskOrderUpdateInput = {
   id: string;
   siblingOrder: number;
+  expectedVersion?: number;
   updatedBy?: string | null;
 };
 

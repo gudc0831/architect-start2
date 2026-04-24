@@ -136,7 +136,7 @@ model File {
 
   @@index([taskId, deletedAt, purgedAt])
   @@index([projectId, deletedAt, purgedAt])
-  @@index([fileGroupId, version])
+  @@unique([fileGroupId, version])
   @@map("files")
 }
 

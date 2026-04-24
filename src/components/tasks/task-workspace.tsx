@@ -164,6 +164,18 @@ type TaskDropState = {
   position: TaskDropPosition;
 };
 
+type TaskReorderClientCommand =
+  | {
+      action: "manual_move";
+      movedTaskId: string;
+      targetParentTaskId: string | null;
+      targetIndex: number;
+    }
+  | {
+      action: "auto_sort";
+      strategy: "priority" | "action_id";
+    };
+
 type TaskDetailPanelInteractionState = {
   selectedTaskId: string | null;
   isDetailExpanded: boolean;
@@ -2985,17 +2997,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const reorderDailyTasks = useCallback(
     async (
-      command:
-        | {
-            action: "manual_move";
-            movedTaskId: string;
-            targetParentTaskId: string | null;
-            targetIndex: number;
-          }
-        | {
-            action: "auto_sort";
-            strategy: "priority" | "action_id";
-          },
+      command: TaskReorderClientCommand,
       nextMode: DailyTaskSortMode,
     ) => {
       if (isPreview) {
@@ -3018,14 +3020,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(null);
 
       try {
+        const expectedVersions = buildTaskReorderExpectedVersions(command, sortedTasks);
         const response = await fetch("/api/tasks/reorder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(command),
+          body: JSON.stringify({ ...command, expectedVersions }),
         });
 
         if (!response.ok) {
           setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+          if (response.status === 409) {
+            await refreshScope({ force: true });
+          }
           return false;
         }
 
@@ -3048,7 +3054,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         setTaskDropState(null);
       }
     },
-    [hasSelectedTaskDraftChanges, isPreview, isReorderingTasks, setErrorMessage, setTasks],
+    [
+      hasSelectedTaskDraftChanges,
+      isPreview,
+      isReorderingTasks,
+      refreshScope,
+      setErrorMessage,
+      setTaskDropState,
+      setTaskListSelection,
+      setTasks,
+      sortedTasks,
+    ],
   );
 
   const moveTaskByOffset = useCallback(
@@ -7525,6 +7541,19 @@ function titleByMode(mode: DashboardMode) {
 
 function boardColumnCopy(status: TaskStatus) {
   return describeStatus(status);
+}
+
+function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tasks: readonly TaskRecord[]) {
+  const impactedTasks =
+    command.action === "auto_sort"
+      ? tasks
+      : tasks.filter(
+          (task) =>
+            task.id === command.movedTaskId ||
+            (task.parentTaskId ?? null) === command.targetParentTaskId,
+        );
+
+  return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
 }
 
 function taskPayloadFromDraft(draft: Partial<TaskRecord>) {

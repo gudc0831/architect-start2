@@ -43,7 +43,7 @@ These items are done and should not be reworked:
 | --- | --- | --- |
 | RLS and Storage policies are not yet the formal security boundary | app guards are implemented, but long-term plan requires database and storage policy enforcement | design and apply preview policies |
 | assignee profile linkage needs preview DB rollout | local foundation is implemented, but preview data still needs the migration applied before live verification | apply migration to preview after approval and run the unresolved mapping report |
-| concurrent writes are not fully hardened | task numbering, reorder, and file version paths can still race | add transaction/conflict handling |
+| concurrency hardening needs preview rollout verification | local transaction/conflict handling is implemented, but the file version uniqueness migration still needs preview rollout | apply migration during approved preview DB rollout and verify 409 recovery paths |
 | production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
 
 ## Work Order
@@ -178,6 +178,10 @@ Exit:
 
 ### 6. Concurrency Hardening
 
+Status:
+
+- implemented locally; preview DB migration/deploy verification pending
+
 Owner:
 
 - Codex
@@ -188,6 +192,7 @@ Work:
 - detect reorder conflicts instead of silently overwriting sibling order
 - prevent duplicate file next-version creation
 - return clear `409` responses for recoverable write conflicts
+- includes migration `202604240003_add_file_version_uniqueness`
 
 Exit:
 

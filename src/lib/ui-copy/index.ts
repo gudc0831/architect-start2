@@ -43,6 +43,8 @@ const errorCodeMap = {
   TASK_NOT_IN_TRASH: "taskNotInTrash",
   TASK_VERSION_REQUIRED: "taskVersionRequired",
   TASK_VERSION_CONFLICT: "taskVersionConflict",
+  TASK_REORDER_CONFLICT: "taskReorderConflict",
+  FILE_VERSION_CONFLICT: "fileVersionConflict",
   INVALID_PARENT_TASK: "invalidParentTask",
   PARENT_TASK_NOT_FOUND: "parentTaskNotFound",
   PARENT_TASK_NUMBER_INVALID: "parentTaskNumberInvalid",

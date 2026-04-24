@@ -61,10 +61,17 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
 
   switch (command.action) {
     case "manual_move":
-      await reorderTaskWithinParent(activeTasks, command.movedTaskId, command.targetParentTaskId, command.targetIndex, userId ?? null);
+      await reorderTaskWithinParent(
+        activeTasks,
+        command.movedTaskId,
+        command.targetParentTaskId,
+        command.targetIndex,
+        command.expectedVersions,
+        userId ?? null,
+      );
       break;
     case "auto_sort":
-      await reorderTaskTree(activeTasks, command.strategy, userId ?? null);
+      await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
       break;
     default:
       throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
@@ -148,6 +155,7 @@ async function reorderTaskWithinParent(
   movedTaskId: string,
   targetParentTaskId: string | null,
   targetIndex: number,
+  expectedVersions: Record<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   const movedTask = activeTasks.find((task) => task.id === movedTaskId);
@@ -168,6 +176,7 @@ async function reorderTaskWithinParent(
   const siblings = activeTasks
     .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
     .sort(compareTasksBySiblingOrder);
+  assertExpectedTaskVersions(siblings, expectedVersions);
   const currentIndex = siblings.findIndex((task) => task.id === movedTaskId);
 
   if (currentIndex === -1) {
@@ -183,18 +192,38 @@ async function reorderTaskWithinParent(
     nextSiblings.map((task, siblingOrder) => ({
       id: task.id,
       siblingOrder,
+      expectedVersion: task.version,
       updatedBy: userId,
     })),
   );
 }
 
-async function reorderTaskTree(activeTasks: TaskRecord[], strategy: TaskOrderingStrategy, userId: string | null): Promise<TaskRecord[]> {
+async function reorderTaskTree(
+  activeTasks: TaskRecord[],
+  strategy: TaskOrderingStrategy,
+  expectedVersions: Record<string, number>,
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  assertExpectedTaskVersions(activeTasks, expectedVersions);
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
   const updates = buildSiblingOrderUpdates(activeTasks, strategy).map((input) => ({
     ...input,
+    expectedVersion: taskById.get(input.id)?.version,
     updatedBy: userId,
   }));
 
   return taskRepository.updateTaskOrders(updates);
+}
+
+function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: Record<string, number>) {
+  for (const task of tasks) {
+    if (expectedVersions[task.id] !== task.version) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+  }
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {

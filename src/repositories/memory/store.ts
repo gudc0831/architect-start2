@@ -17,7 +17,7 @@ import type {
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
-import { serviceUnavailable } from "@/lib/api/errors";
+import { conflict, serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
@@ -272,6 +272,13 @@ class MemoryTaskRepository implements TaskRepository {
       }
 
       const current = tasks[index];
+      if (Number.isInteger(input.expectedVersion) && current.version !== input.expectedVersion) {
+        throw conflict(
+          "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+          "TASK_REORDER_CONFLICT",
+        );
+      }
+
       const next = {
         ...current,
         siblingOrder: input.siblingOrder,
@@ -440,17 +447,27 @@ class MemoryFileRepository implements FileRepository {
   async attachFile(input: CreateFileInput) {
     const files = await readFiles();
     const versionNumber = input.versionNumber ?? input.version ?? 1;
+    const version = input.version ?? versionNumber;
+    const fileGroupId = input.fileGroupId ?? nextId("file_group");
+    const duplicate = files.find((file) => file.fileGroupId === fileGroupId && file.version === version);
+    if (duplicate) {
+      throw conflict(
+        "Another upload created this file version first. Reload the latest files and try again.",
+        "FILE_VERSION_CONFLICT",
+      );
+    }
+
     const record: FileRecord = {
       id: nextId("file"),
       taskId: input.taskId,
       projectId: input.projectId,
-      fileGroupId: input.fileGroupId ?? nextId("file_group"),
+      fileGroupId,
       originalName: input.originalName,
       mimeType: input.mimeType ?? null,
       sizeBytes: input.sizeBytes,
       storageBucket: input.storageBucket,
       objectPath: input.objectPath,
-      version: input.version ?? versionNumber,
+      version,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: now(),

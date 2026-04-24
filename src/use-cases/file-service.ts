@@ -158,25 +158,37 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
 
   const nextVersion = normalizePositiveInteger(input.nextVersion, "nextVersion");
   const existing = (await fileRepository.listFilesByTask(task.id)).find(
-    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion && file.objectPath === objectPath,
+    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion,
   );
 
   if (existing) {
-    return existing;
+    if (existing.objectPath === objectPath) {
+      return existing;
+    }
+
+    throw fileVersionConflict();
   }
 
-  return fileRepository.attachFile({
-    taskId: task.id,
-    projectId: task.projectId,
-    fileGroupId,
-    version: nextVersion,
-    originalName,
-    mimeType: metadata.mimeType ?? normalizeMimeType(input.mimeType),
-    sizeBytes: metadata.sizeBytes,
-    storageBucket,
-    objectPath,
-    uploadedBy: input.uploadedBy ?? null,
-  });
+  try {
+    return await fileRepository.attachFile({
+      taskId: task.id,
+      projectId: task.projectId,
+      fileGroupId,
+      version: nextVersion,
+      originalName,
+      mimeType: metadata.mimeType ?? normalizeMimeType(input.mimeType),
+      sizeBytes: metadata.sizeBytes,
+      storageBucket,
+      objectPath,
+      uploadedBy: input.uploadedBy ?? null,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw fileVersionConflict();
+    }
+
+    throw error;
+  }
 }
 
 export async function createFileDownloadUrl(fileId: string) {
@@ -242,18 +254,26 @@ export async function attachNextFileVersion(input: { fileId: string; file: File;
     contentType: input.file.type || null,
   });
 
-  return fileRepository.attachFile({
-    taskId: source.taskId,
-    projectId: source.projectId,
-    fileGroupId: source.fileGroupId,
-    version: nextVersion,
-    originalName: input.file.name,
-    mimeType: input.file.type || null,
-    sizeBytes: input.file.size,
-    storageBucket: stored.storageBucket,
-    objectPath: stored.objectPath,
-    uploadedBy: input.userId ?? null,
-  });
+  try {
+    return await fileRepository.attachFile({
+      taskId: source.taskId,
+      projectId: source.projectId,
+      fileGroupId: source.fileGroupId,
+      version: nextVersion,
+      originalName: input.file.name,
+      mimeType: input.file.type || null,
+      sizeBytes: input.file.size,
+      storageBucket: stored.storageBucket,
+      objectPath: stored.objectPath,
+      uploadedBy: input.userId ?? null,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw fileVersionConflict();
+    }
+
+    throw error;
+  }
 }
 
 export async function moveFileToTrash(fileId: string) {
@@ -385,6 +405,17 @@ async function resolveNextFileVersion(sourceFile: FileRecord) {
   const siblings = await fileRepository.listActiveFiles(sourceFile.taskId);
   const sameGroup = siblings.filter((file) => file.fileGroupId === sourceFile.fileGroupId);
   return sameGroup.reduce((max, file) => Math.max(max, file.version), sourceFile.version) + 1;
+}
+
+function fileVersionConflict() {
+  return conflict(
+    "Another upload created this file version first. Reload the latest files and try again.",
+    "FILE_VERSION_CONFLICT",
+  );
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "P2002");
 }
 
 function buildObjectPath(projectId: string, taskId: string, originalName: string) {

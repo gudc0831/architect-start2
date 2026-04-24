@@ -262,6 +262,8 @@ export type UICatalog = {
     taskNotInTrash: string;
     taskVersionRequired: string;
     taskVersionConflict: string;
+    taskReorderConflict: string;
+    fileVersionConflict: string;
     invalidParentTask: string;
     parentTaskNotFound: string;
     parentTaskNumberInvalid: string;
@@ -590,6 +592,8 @@ export const uiCopyCatalog = {
       taskNotInTrash: "휴지통에 있는 작업만 완전 삭제할 수 있습니다.",
       taskVersionRequired: "버전 정보가 필요합니다.",
       taskVersionConflict: "다른 사용자가 먼저 수정했습니다. 최신 데이터를 불러온 뒤 다시 시도하세요.",
+      taskReorderConflict: "작업 순서가 먼저 변경되었습니다. 최신 데이터를 불러온 뒤 다시 시도하세요.",
+      fileVersionConflict: "다른 사용자가 먼저 같은 파일 버전을 만들었습니다. 파일 목록을 새로 불러온 뒤 다시 업로드하세요.",
       invalidParentTask: "올바르지 않은 상위 작업입니다.",
       parentTaskNotFound: "상위 작업을 찾을 수 없습니다.",
       parentTaskNumberInvalid: "상위 이슈 ID 또는 번호 형식이 올바르지 않습니다.",
@@ -916,6 +920,8 @@ export const uiCopyCatalog = {
       taskNotInTrash: "Only trashed tasks can be deleted permanently.",
       taskVersionRequired: "Version is required.",
       taskVersionConflict: "Another user updated this task first. Reload the latest data and try again.",
+      taskReorderConflict: "Task order changed first. Reload the latest data and try again.",
+      fileVersionConflict: "Another user created the same file version first. Reload the latest files and upload again.",
       invalidParentTask: "Invalid parent task.",
       parentTaskNotFound: "Parent task not found.",
       parentTaskNumberInvalid: "Parent issue ID or numeric reference format is invalid.",

@@ -48,6 +48,7 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
       movedTaskId,
       targetParentTaskId: normalizeNullableId(body.targetParentTaskId),
       targetIndex,
+      expectedVersions: readExpectedVersions(body.expectedVersions),
     };
   }
 
@@ -58,7 +59,26 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
   return {
     action: "auto_sort",
     strategy: normalizeStrategy(body.strategy),
+    expectedVersions: readExpectedVersions(body.expectedVersions),
   };
+}
+
+function readExpectedVersions(value: unknown) {
+  if (!isRecord(value)) {
+    throw badRequest("expectedVersions is required", "TASK_REORDER_VERSION_REQUIRED");
+  }
+
+  const expectedVersions: Record<string, number> = {};
+  for (const [taskId, version] of Object.entries(value)) {
+    const normalizedTaskId = taskId.trim();
+    const normalizedVersion = Number(version);
+    if (!normalizedTaskId || !Number.isInteger(normalizedVersion) || normalizedVersion < 1) {
+      throw badRequest("expectedVersions is invalid", "TASK_REORDER_VERSION_INVALID");
+    }
+    expectedVersions[normalizedTaskId] = normalizedVersion;
+  }
+
+  return expectedVersions;
 }
 
 function normalizeStrategy(value: unknown): TaskOrderingStrategy {

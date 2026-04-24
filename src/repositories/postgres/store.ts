@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { conflict } from "@/lib/api/errors";
 import { buildProjectIssueId, buildProjectIssuePrefix } from "@/domains/task/identifiers";
 import {
   canonicalizeTaskStatusHistory,
@@ -340,25 +341,34 @@ class PostgresTaskRepository implements TaskRepository {
   async createTask(input: CreateTaskInput) {
     const id = randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
-    const taskNumber = await this.getNextTaskNumber(input.projectId);
-    const record = await prisma.task.create({
-      data: {
-        id,
-        projectId: input.projectId,
-        taskNumber,
-        actionId: taskNumber,
-        parentTaskId: input.parentTaskId ?? null,
-        rootTaskId: input.rootTaskId?.trim() || id,
-        depth: input.depth ?? 0,
-        siblingOrder: input.siblingOrder ?? 0,
-        ...taskWriteData(input),
-        issueId: buildProjectIssueId(input.projectName, taskNumber),
-        createdAt,
-        isDaily: input.isDaily,
-        createdBy: input.createdBy ?? null,
-        updatedBy: input.updatedBy ?? input.createdBy ?? null,
-        purgedAt: null,
-      },
+    const record = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
+      const last = await tx.task.findFirst({
+        where: { projectId: input.projectId },
+        orderBy: { taskNumber: "desc" },
+        select: { taskNumber: true },
+      });
+      const taskNumber = (last?.taskNumber ?? 0) + 1;
+
+      return tx.task.create({
+        data: {
+          id,
+          projectId: input.projectId,
+          taskNumber,
+          actionId: taskNumber,
+          parentTaskId: input.parentTaskId ?? null,
+          rootTaskId: input.rootTaskId?.trim() || id,
+          depth: input.depth ?? 0,
+          siblingOrder: input.siblingOrder ?? 0,
+          ...taskWriteData(input),
+          issueId: buildProjectIssueId(input.projectName, taskNumber),
+          createdAt,
+          isDaily: input.isDaily,
+          createdBy: input.createdBy ?? null,
+          updatedBy: input.updatedBy ?? input.createdBy ?? null,
+          purgedAt: null,
+        },
+      });
     });
 
     return toTaskRecord(record);
@@ -427,14 +437,32 @@ class PostgresTaskRepository implements TaskRepository {
       const updated: Array<Parameters<typeof toTaskRecord>[0]> = [];
 
       for (const input of inputs) {
-        const record = await tx.task.update({
-          where: { id: input.id },
-          data: {
-            siblingOrder: input.siblingOrder,
-            updatedBy: input.updatedBy ?? undefined,
-            version: { increment: 1 },
-          },
-        });
+        const data = {
+          siblingOrder: input.siblingOrder,
+          updatedBy: input.updatedBy ?? undefined,
+          version: { increment: 1 },
+        };
+
+        if (Number.isInteger(input.expectedVersion)) {
+          const result = await tx.task.updateMany({
+            where: { id: input.id, version: input.expectedVersion },
+            data,
+          });
+
+          if (result.count === 0) {
+            throw conflict(
+              "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+              "TASK_REORDER_CONFLICT",
+            );
+          }
+        } else {
+          await tx.task.update({
+            where: { id: input.id },
+            data,
+          });
+        }
+
+        const record = await tx.task.findUniqueOrThrow({ where: { id: input.id } });
 
         updated.push(record);
       }
