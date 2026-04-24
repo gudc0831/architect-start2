@@ -34,7 +34,7 @@ jobs:
           python -m pip install semgrep
 
       - name: Run Semgrep
-        run: semgrep scan --config auto --error --metrics=off --sarif --output semgrep.sarif
+        run: semgrep scan --config p/default --error --metrics=off --sarif --output semgrep.sarif
 
       - name: Upload SARIF file
         if: always() && hashFiles('semgrep.sarif') != ''
