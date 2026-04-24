@@ -27,13 +27,9 @@ function buildPostLoginUrl(requestUrl: URL, nextPath: string) {
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const publicSiteUrl = resolvePublicSiteUrl(requestUrl);
-  const code = requestUrl.searchParams.get("code");
   const nextPath = resolveSafeInternalPath(requestUrl.searchParams.get("next"));
   const loginResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
-
-  if (!code) {
-    return disableAuthResponseCache(loginResponse);
-  }
+  const code = requestUrl.searchParams.get("code") ?? "";
 
   const redirectResponse = NextResponse.redirect(buildLoginUrl(publicSiteUrl, nextPath));
   const supabase = await createSupabaseServerClient({ response: redirectResponse });

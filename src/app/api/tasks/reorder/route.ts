@@ -68,14 +68,14 @@ function readExpectedVersions(value: unknown) {
     throw badRequest("expectedVersions is required", "TASK_REORDER_VERSION_REQUIRED");
   }
 
-  const expectedVersions: Record<string, number> = {};
+  const expectedVersions = new Map<string, number>();
   for (const [taskId, version] of Object.entries(value)) {
     const normalizedTaskId = taskId.trim();
     const normalizedVersion = Number(version);
     if (!normalizedTaskId || !Number.isInteger(normalizedVersion) || normalizedVersion < 1) {
       throw badRequest("expectedVersions is invalid", "TASK_REORDER_VERSION_INVALID");
     }
-    expectedVersions[normalizedTaskId] = normalizedVersion;
+    expectedVersions.set(normalizedTaskId, normalizedVersion);
   }
 
   return expectedVersions;

@@ -16,13 +16,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
-    const body = (await request.json()) as { email?: string; password?: string };
-    const email = String(body.email ?? "").trim();
-    const password = String(body.password ?? "");
-
-    if (!email || !password) {
-      throw badRequest("Invalid email or password", "INVALID_CREDENTIALS");
-    }
+    const credentials = readPasswordCredentials(await request.json());
 
     if (isAuthStubMode()) {
       throw serviceUnavailable("Authentication uses stub mode outside the cloud backend.", "AUTH_NOT_CONFIGURED");
@@ -40,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword(credentials);
 
     if (error || !data.user) {
       throw unauthorized("Invalid email or password", "INVALID_CREDENTIALS");
@@ -65,4 +59,23 @@ export async function POST(request: Request) {
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function readPasswordCredentials(body: unknown) {
+  if (!isRecord(body)) {
+    throw badRequest("Invalid email or password", "INVALID_CREDENTIALS");
+  }
+
+  const email = typeof body.email === "string" ? body.email.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+
+  if (!email || !password) {
+    throw badRequest("Invalid email or password", "INVALID_CREDENTIALS");
+  }
+
+  return { email, password };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

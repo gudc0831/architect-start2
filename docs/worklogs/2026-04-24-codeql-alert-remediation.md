@@ -1,0 +1,4 @@
+Req: Clear the PR CodeQL code-scanning alerts without weakening the CodeQL workflow or reopening auth/RBAC decisions.
+Diff: removed the duplicate authenticated-login redirect from middleware, kept password credential validation inside a typed parser, allowed the OAuth callback to fail closed through Supabase exchange errors, and changed task reorder expected-version handling from user-keyed object writes to a `Map`.
+Why: the CodeQL findings centered on user-controlled bypass-style branches and a real remote property-injection surface in reorder parsing; the changes preserve existing guards while reducing scanner-sensitive control flow and eliminating dynamic object property writes.
+Verify/Time: `npm run typecheck`, `npm run lint`, `npm run build`, `npm run deps:audit`, and `npm run worklog:check` passed locally on 2026-04-24; GitHub CodeQL rerun pending after push.

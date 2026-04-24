@@ -155,7 +155,7 @@ async function reorderTaskWithinParent(
   movedTaskId: string,
   targetParentTaskId: string | null,
   targetIndex: number,
-  expectedVersions: Record<string, number>,
+  expectedVersions: ReadonlyMap<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   const movedTask = activeTasks.find((task) => task.id === movedTaskId);
@@ -201,7 +201,7 @@ async function reorderTaskWithinParent(
 async function reorderTaskTree(
   activeTasks: TaskRecord[],
   strategy: TaskOrderingStrategy,
-  expectedVersions: Record<string, number>,
+  expectedVersions: ReadonlyMap<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   assertExpectedTaskVersions(activeTasks, expectedVersions);
@@ -215,9 +215,9 @@ async function reorderTaskTree(
   return taskRepository.updateTaskOrders(updates);
 }
 
-function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: Record<string, number>) {
+function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: ReadonlyMap<string, number>) {
   for (const task of tasks) {
-    if (expectedVersions[task.id] !== task.version) {
+    if (expectedVersions.get(task.id) !== task.version) {
       throw conflict(
         "Task order changed before this reorder could be saved. Reload the latest data and try again.",
         "TASK_REORDER_CONFLICT",
