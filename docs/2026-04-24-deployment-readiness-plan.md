@@ -35,7 +35,7 @@ These items are done and should not be reworked:
 | Vercel Preview Authentication | restored externally |
 | Preview Supabase data shape | created and verified |
 | Preview Vercel Supabase env bundle | narrowed to Preview where present |
-| PR required checks | clean on `cc85fdd` |
+| PR required checks | clean after CodeQL alert remediation |
 | Preview RLS and Storage policy rollout | applied and probed in Preview |
 | Preview file upload/download flow | verified through the local app server against Preview DB/Storage |
 
