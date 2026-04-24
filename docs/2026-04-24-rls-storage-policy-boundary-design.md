@@ -1,7 +1,7 @@
 # RLS And Storage Policy Boundary Design
 
 - Updated: 2026-04-24
-- Status: applied to preview on 2026-04-24; browser file-flow sign-off still pending
+- Status: applied to preview on 2026-04-24; local-app Preview file-flow verified, remote protected browser sign-off optional
 - Active plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 - Policy SQL: [sql/2026-04-24-preview-rls-storage-policies.sql](sql/2026-04-24-preview-rls-storage-policies.sql)
 
@@ -54,10 +54,16 @@ Applied on 2026-04-24 after user approval:
    - `gudc08311@gmail.com` can access Project B and cannot access Project A manager paths
    - admin can access all projects
    - rollback-only Storage insert probe allows Project B member and denies unrelated authenticated user
+7. Verified Project B file flow through `http://localhost:3000` using the Preview DB/Storage configuration:
+   - generated a Supabase session for `gudc08311@gmail.com`
+   - selected Project B and created a temporary task fixture
+   - created an upload intent, uploaded directly to the private `task-files` bucket, committed the file row, generated a signed download URL, and verified downloaded content
+   - forced a bad commit with a size mismatch, received `FILE_UPLOAD_SIZE_MISMATCH`, removed the orphan object as the member owner, and verified the object was gone
+   - removed the committed object and task fixture, then verified `tasks=0`, `files=0`, and `storage_objects=0` for the temporary identifiers
 
-Remaining preview sign-off:
+Remaining optional sign-off:
 
-- Project B browser direct upload intent, Storage upload, commit, signed download, and cleanup behavior with a real task fixture.
+- Exact remote deployed-browser session verification on the Vercel protected Preview URL, only if required. Vercel Preview Authentication blocked automated custom-cookie app API calls against the remote deployment, so the completed file-flow check used the local app server connected to the same Preview DB/Storage.
 
 ## Notes
 

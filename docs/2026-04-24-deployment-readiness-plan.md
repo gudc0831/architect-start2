@@ -35,13 +35,15 @@ These items are done and should not be reworked:
 | Vercel Preview Authentication | restored externally |
 | Preview Supabase data shape | created and verified |
 | Preview Vercel Supabase env bundle | narrowed to Preview where present |
-| PR required checks | clean on `ae76109` |
+| PR required checks | clean on `cc85fdd` |
+| Preview RLS and Storage policy rollout | applied and probed in Preview |
+| Preview file upload/download flow | verified through the local app server against Preview DB/Storage |
 
 ## Current Known Risks
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
-| RLS and Storage policies need browser file-flow sign-off | preview database/storage policies are applied and DB-level probes passed, but the full browser upload/commit/download flow still needs a real task fixture | run Project B browser file-flow verification when a session/fixture is available |
+| Remote protected preview file-flow session is not automated | the upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final data cleanup passed through the local app server against Preview DB/Storage; Vercel Preview Authentication still blocks custom-cookie API automation on the remote URL | perform a manual protected-preview browser session only if exact deployed-browser sign-off is required |
 | release readiness external checks remain | conflict UX recovery is implemented, but production URL/OAuth/runtime sign-off still needs environment-specific confirmation | complete production-adjacent checks before merge/promotion |
 | production OAuth callback is not verified | production deploy needs exact URL and callback configuration | verify production Supabase and Google OAuth callback configuration before production promotion |
 
@@ -96,6 +98,11 @@ Exit:
 
 ### 3. Minimal Remaining Preview Verification
 
+Status:
+
+- sufficient for the policy boundary slice; Project B manager access, request-integrity probes, DB/Storage policy probes, and local-app Preview file flow have passed
+- exact remote deployed-browser session verification remains manual because Vercel Preview Authentication prevents automated custom-cookie app API calls
+
 Owner:
 
 - Codex for instructions and interpretation
@@ -117,7 +124,7 @@ Status:
 
 - preview DB/Storage policy rollout applied on 2026-04-24
 - DB-level RLS, manager, no-access, anonymous, and rollback-only Storage insert probes passed
-- browser direct upload/commit/download sign-off still pending
+- Project B upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final DB/Storage cleanup verified through `http://localhost:3000` against Preview DB/Storage on 2026-04-24
 
 Owner:
 
@@ -151,7 +158,7 @@ Exit:
 
 - unrelated authenticated access is denied at the database or storage layer
 - normal member and manager flows still work in preview
-- remaining browser file-flow sign-off is tracked separately if no task fixture exists
+- exact remote deployed-browser session sign-off is tracked separately only if required
 
 ### 5. Assignee Profile Link Foundation
 
