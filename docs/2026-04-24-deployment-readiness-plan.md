@@ -1,7 +1,7 @@
 # Deployment Readiness Plan
 
 - Updated: 2026-04-24
-- Status: active forward plan
+- Status: non-production readiness complete; production promotion deferred
 - Parent index: [../PLAN.md](../PLAN.md)
 - Previous execution record: [2026-04-20-post-preview-execution-plan.md](2026-04-20-post-preview-execution-plan.md)
 - Preview verification record: [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
@@ -16,6 +16,8 @@
 This is the active work order from 2026-04-24 forward. It replaces the older post-preview checklist as the source of truth for the next deployment preparation pass.
 
 Do not repeat completed preview setup, branch protection setup, or manager/origin verification unless a regression appears.
+
+As of 2026-04-24, all non-production readiness work in this plan is complete or intentionally deferred as optional manual sign-off. Production promotion is out of scope until a production root URL and production-only cloud environment values are provided.
 
 ## Current Completed Baseline
 
@@ -39,20 +41,45 @@ These items are done and should not be reworked:
 | PR required checks | clean after CodeQL alert remediation |
 | Preview RLS and Storage policy rollout | applied and probed in Preview |
 | Preview file upload/download flow | verified through the local app server against Preview DB/Storage |
-| Final preview deployment and required checks | `3199f00` passed GitHub checks and Vercel status |
-| Final preview runtime header smoke | `/login` returned `200` with the expected header baseline |
+| Latest PR required checks | `dabb052` passed GitHub checks and Vercel status |
+| Final app-visible preview runtime header smoke | `3199f00` / `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY` `/login` returned `200` with the expected header baseline |
+| Production promotion | deferred by user; no production root URL yet |
+| Vercel Production env readiness | not ready for production deploy; `APP_BACKEND_MODE=cloud` exists, Supabase/Postgres production variables are not configured |
 
 ## Current Known Risks
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
-| Remote protected preview file-flow session is not automated | the upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final data cleanup passed through the local app server against Preview DB/Storage; Vercel Preview Authentication still blocks custom-cookie API automation on the remote URL | perform a manual protected-preview browser session only if exact deployed-browser sign-off is required |
+| Remote protected preview file-flow session is not automated | the upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final data cleanup passed through the local app server against Preview DB/Storage; Vercel Preview Authentication still blocks custom-cookie API automation on the remote URL | optional only; perform a manual protected-preview browser session if exact deployed-browser UI sign-off is later required |
 | production dashboard checks remain | production URL, Vercel Production env vars, Supabase Auth URLs, and Google OAuth redirect URI require dashboard access or exact user-provided values | complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md) before production promotion |
 | production runtime smoke is not verified | production has not been promoted and exact production URL is not confirmed | verify `/login`, `/api/system/status`, OAuth callback, and runtime headers after production deploy |
+
+## Non-Production Completion Snapshot
+
+These items are complete and can be treated as the handoff baseline for later work:
+
+- Preview Google OAuth, no-access, and project-scoped RBAC flows are verified.
+- Cookie-authenticated mutation integrity is implemented and verified for invalid and missing origin probes.
+- Project/task/file/admin app guards are implemented.
+- `/api/system/status` is authenticated and no-store.
+- CI, CodeQL, Semgrep, dependency audit, Dependabot, and required-check remediation are complete.
+- Preview Supabase/Postgres data gate is complete.
+- Preview RLS and Storage policies are designed, applied, and probed.
+- Assignee `assigneeProfileId` foundation is implemented and preview migration/backfill checks passed.
+- Concurrency hardening for task numbers, reorder conflicts, and file version uniqueness is implemented.
+- Conflict UX recovery for task update, reorder, and file-version conflicts is implemented.
+- Project B direct file flow was verified against Preview DB/Storage with final cleanup.
+- Latest PR checks and Vercel status passed; app-visible preview header smoke passed on the latest deployment that Vercel MCP could access through Preview Authentication.
+
+Do not restart these slices unless a regression appears.
 
 ## Work Order
 
 ### 1. Commit Current Documentation Cleanup
+
+Status:
+
+- complete
 
 Owner:
 
@@ -73,7 +100,7 @@ Exit:
 
 Status:
 
-- complete on PR head `ae76109`
+- complete after typecheck, Semgrep, and CodeQL remediation; latest required checks passed after subsequent documentation updates
 
 Owner:
 
@@ -103,8 +130,9 @@ Exit:
 
 Status:
 
-- sufficient for the policy boundary slice; Project B manager access, request-integrity probes, DB/Storage policy probes, and local-app Preview file flow have passed
-- exact remote deployed-browser session verification remains manual because Vercel Preview Authentication prevents automated custom-cookie app API calls
+- complete for non-production readiness
+- Project B manager access, request-integrity probes, DB/Storage policy probes, and local-app Preview file flow have passed
+- exact remote deployed-browser session verification remains optional manual sign-off because Vercel Preview Authentication prevents automated custom-cookie app API calls
 
 Owner:
 
@@ -125,6 +153,7 @@ Exit:
 
 Status:
 
+- complete for Preview
 - preview DB/Storage policy rollout applied on 2026-04-24
 - DB-level RLS, manager, no-access, anonymous, and rollback-only Storage insert probes passed
 - Project B upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final DB/Storage cleanup verified through `http://localhost:3000` against Preview DB/Storage on 2026-04-24
@@ -167,6 +196,7 @@ Exit:
 
 Status:
 
+- complete for the current slice
 - implemented locally and applied to preview DB on 2026-04-24
 - unresolved assignee mapping report returned `0`
 
@@ -194,8 +224,9 @@ Exit:
 
 Status:
 
+- complete for the current slice
 - implemented locally and applied to preview DB on 2026-04-24
-- conflict UX polish remains in the release-readiness slice
+- conflict UX recovery has been implemented for the new recoverable paths
 
 Owner:
 
@@ -217,9 +248,13 @@ Exit:
 
 Status:
 
+- non-production release readiness is complete
 - 409 recovery behavior implemented for task update, task reorder, and file-version upload conflicts
-- final preview deployment, required checks, and runtime header smoke passed on `3199f00`
-- production URL, Vercel Production env vars, Supabase Auth URLs, Google OAuth callback, and production runtime smoke still require external sign-off
+- latest required checks and Vercel status passed on `dabb052`
+- final app-visible preview runtime header smoke passed on `3199f00` / `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`
+- production promotion is deferred because the production root URL is not set
+- Vercel Production env is not ready for production deploy: user confirmed `APP_BACKEND_MODE=cloud` exists, but Production Project/Shared env vars do not include the required Supabase/Postgres values
+- production Supabase Auth URLs, Google OAuth callback, and production runtime smoke still require external sign-off when production resumes
 
 Owner:
 
@@ -239,7 +274,7 @@ Work:
 Exit:
 
 - PR checks and final preview smoke are clean
-- production deploy path is configured after the production dashboard checklist is confirmed
+- production deploy path remains blocked until a production root URL and production-only env values are configured
 - any required cloud DB action has an explicit backup and manual execution plan
 
 ## User Gates Remaining
