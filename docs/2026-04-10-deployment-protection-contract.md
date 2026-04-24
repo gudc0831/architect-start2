@@ -31,8 +31,8 @@ Configured:
 - Vercel Preview Authentication restored
 - Preview Supabase/Postgres env bundle narrowed to Preview where present
 - `APP_BACKEND_MODE=cloud` confirmed for Vercel
-- latest PR head `024128a` passed required checks and Vercel deployment status
-- final Preview `/login` runtime header smoke passed on deployment `dpl_BYgzqxq6bNbxJqjvnVVZujT14e6X`
+- latest PR head `3199f00` passed required checks and Vercel deployment status
+- final Preview `/login` runtime header smoke passed on deployment `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`
 
 Still required before merge or production deployment:
 

@@ -39,7 +39,7 @@ These items are done and should not be reworked:
 | PR required checks | clean after CodeQL alert remediation |
 | Preview RLS and Storage policy rollout | applied and probed in Preview |
 | Preview file upload/download flow | verified through the local app server against Preview DB/Storage |
-| Final preview deployment and required checks | `024128a` passed GitHub checks and Vercel status |
+| Final preview deployment and required checks | `3199f00` passed GitHub checks and Vercel status |
 | Final preview runtime header smoke | `/login` returned `200` with the expected header baseline |
 
 ## Current Known Risks
@@ -218,7 +218,7 @@ Exit:
 Status:
 
 - 409 recovery behavior implemented for task update, task reorder, and file-version upload conflicts
-- final preview deployment, required checks, and runtime header smoke passed on `024128a`
+- final preview deployment, required checks, and runtime header smoke passed on `3199f00`
 - production URL, Vercel Production env vars, Supabase Auth URLs, Google OAuth callback, and production runtime smoke still require external sign-off
 
 Owner:
