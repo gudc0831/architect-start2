@@ -23,6 +23,8 @@ Latest app-visible Preview header smoke checked:
 - deployment state: `READY`
 - GitHub/Vercel status: `success`
 
+Do not collapse these two evidence points into one "latest deployment" statement. The PR/check evidence is from `dabb052`; the app-visible runtime header smoke is from `3199f00`.
+
 GitHub checks passed on the latest PR head:
 
 - `typecheck`
@@ -62,6 +64,7 @@ Current production status confirmed by user on 2026-04-24:
 - Vercel Production Project env contains `APP_BACKEND_MODE=cloud`.
 - Vercel Production Project env does not show the required Supabase/Postgres variables.
 - Vercel Production Shared env has no linked variables.
+- The exact Vercel Production Branch setting has not been dashboard-confirmed; expected direction is the protected production branch, currently `main` unless a dedicated release branch is explicitly documented later.
 - Therefore production deploy/promotion is intentionally not ready.
 
 1. Production app URL

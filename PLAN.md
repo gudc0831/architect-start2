@@ -35,6 +35,7 @@
   - [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
 - `SUPABASE_SERVICE_ROLE_KEY` is reserved for bootstrap, admin provisioning, maintenance, and other trusted server-only flows.
 - Private-repo release safety is enforced with branch protection, required checks, and environment separation.
+- Branch flow: code changes happen locally first, then reach Preview only after push and Vercel deployment from the working/PR branch; Production should deploy from the protected production branch, currently expected to be `main` unless a documented release branch replaces it.
 - Deployment and DB changes remain separate operational steps.
 - Completed preview setup and verification should not be repeated unless a regression appears.
 

@@ -35,10 +35,12 @@ Configured:
 - final Preview `/login` runtime header smoke passed on deployment `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`
 - production promotion is deferred; user confirmed no production root URL yet
 - Vercel Production env is not ready for production deploy because only `APP_BACKEND_MODE=cloud` is present and the required Supabase/Postgres values are not configured
+- exact Vercel Production Branch setting is not dashboard-confirmed yet; the expected release flow is Preview from the PR branch, then Production from the protected production branch
 
 Still required before merge or production deployment:
 
 - production env vars must point to production Supabase only
+- Vercel Production Branch must match the protected production branch strategy
 - production OAuth callback and Google redirect URLs must be verified exactly
 - runtime headers and `/api/system/status` behavior must be rechecked on production
 - complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
@@ -138,7 +140,7 @@ Conditional tool:
 
 Current repo note:
 
-- the repo currently has no `.github` workflow inventory, so these checks must be introduced before relying on them as required protections
+- the repo now has GitHub workflow coverage for CI, CodeQL, Semgrep, dependency audit, and Dependabot; required checks should continue to use the real job names listed above
 
 ### 5. Require Deployments Before Merge
 

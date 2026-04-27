@@ -19,6 +19,17 @@ Do not repeat completed preview setup, branch protection setup, or manager/origi
 
 As of 2026-04-24, all non-production readiness work in this plan is complete or intentionally deferred as optional manual sign-off. Production promotion is out of scope until a production root URL and production-only cloud environment values are provided.
 
+## Conversation Corrections Locked
+
+Use these corrected statements in future handoffs and planning:
+
+- "Preview deployment is ready for testing" means the Vercel Preview deployment exists and can be tested with the intended Preview auth/session path. It does not mean the Preview URL is public or accessible without Vercel Preview Authentication.
+- "Latest PR status is clean" and "app-visible Preview header smoke passed" are separate facts. GitHub required checks and Vercel status passed on `dabb052`; the latest app-visible `/login` header smoke recorded here passed on `3199f00` / `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`.
+- Vercel Production env is not production-ready. User-provided screenshots show `APP_BACKEND_MODE=cloud` under Production, but they do not show the required production Supabase/Postgres variables in Project or Shared env.
+- The intended production branch flow is working branch or PR Preview to protected `main`, then Production from the protected production branch. The exact Vercel Production Branch setting still requires dashboard confirmation before production promotion.
+- "RBAC and multi-user are reflected" means the Phase 1 scope in the auth/RBAC contract: Google OAuth, pre-provisioned access, project-scoped member/manager checks, and global admin bypass. It does not include future `viewer` or `editor` roles, open self-signup, realtime collaboration, or broad collaboration UX.
+- Dashboard-only checks that require the user must be given one step at a time, including why the step is needed and what value or screen proves completion.
+
 ## Current Completed Baseline
 
 These items are done and should not be reworked:
@@ -69,7 +80,7 @@ These items are complete and can be treated as the handoff baseline for later wo
 - Concurrency hardening for task numbers, reorder conflicts, and file version uniqueness is implemented.
 - Conflict UX recovery for task update, reorder, and file-version conflicts is implemented.
 - Project B direct file flow was verified against Preview DB/Storage with final cleanup.
-- Latest PR checks and Vercel status passed; app-visible preview header smoke passed on the latest deployment that Vercel MCP could access through Preview Authentication.
+- Latest PR checks and Vercel status passed on `dabb052`; app-visible preview header smoke passed on `3199f00`, which was the latest deployment that Vercel MCP could access through Preview Authentication for the app-visible runtime check.
 
 Do not restart these slices unless a regression appears.
 
