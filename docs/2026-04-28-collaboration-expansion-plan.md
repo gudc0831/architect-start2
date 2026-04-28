@@ -39,14 +39,17 @@ Recommended implementation order:
 5. Add access request and optional self-signup pending profile flow.
 6. Add project member/invite/request management UX.
 7. Add realtime project refresh/invalidation.
-8. Expand to presence and active-editor signals only after refresh semantics are stable.
+8. Expand to presence and active-editor signals after refresh semantics are stable.
+9. Add edit leases for actual field/cell editing only.
+10. Defer automatic merge until the simpler realtime layers are proven.
 
 Reason:
 
 - role semantics affect every later workflow
 - invitation and approval need stable target roles
 - self-signup should not be opened before pending access and approval states exist
-- realtime should refresh correct data before it attempts collaborative editing semantics
+- realtime should separate visibility signals from write-blocking behavior
+- selection is too broad to use as a lock; only actual edit mode should create a temporary edit lease
 
 ## Current Baseline
 
@@ -81,7 +84,7 @@ Current important files:
 
 ## User Decision Gates
 
-These decisions must be approved before implementation starts.
+Unresolved decisions must be approved before implementation starts. Gate 5 is already locked by the user decision on 2026-04-28.
 
 ### Gate 1. Project Role Model
 
@@ -183,27 +186,30 @@ Question:
 
 ### Gate 5. Realtime Scope
 
-Recommendation:
+Decision:
 
-- Phase 1 of realtime should be project-scoped refresh/invalidation only.
-- Do not implement live concurrent editing, multi-cursor editing, or automatic merge yet.
-- Add presence and active-editor signals only after refresh/invalidation is stable.
+- Approved on 2026-04-28.
+- Start with project-scoped refresh/invalidation.
+- Then add presence and active-editor signals.
+- Then add edit leases that block editing only when another user is actually editing the same field/cell.
+- Do not block editing just because another user selected or is viewing the same task.
+- Defer automatic merge until the simpler realtime layers are stable.
 
 Why:
 
 - existing conflict handling already protects writes
 - refresh/invalidation gives visible collaboration value with low merge risk
 - presence can be layered without changing write semantics
+- active-editor signals help users avoid collisions without overblocking normal viewing
+- field/cell edit leases are less disruptive than task-selection locks
+- leases must expire safely when a browser tab closes or the network drops
 
 Alternatives:
 
 - Polling-only refresh. This is simplest but less responsive and less collaborative.
-- Supabase Realtime project event channel from the start. This is the recommended middle path.
-- Full collaborative editing. This is much larger and should wait until after the simpler signals are stable.
-
-Question:
-
-- Is project-scoped refresh/invalidation an acceptable first realtime milestone?
+- Supabase Realtime project event channel from the start. This is the recommended event transport if it fits the existing Supabase setup.
+- Task selection lock. This is rejected for the current plan because selection often means viewing, not editing.
+- Full collaborative editing or automatic merge. This is much larger and should wait until the simpler layers are stable.
 
 ## Target Permission Matrix
 
@@ -336,6 +342,101 @@ If self-signup is not approved:
 - keep current pre-provisioned profile requirement
 - unaffiliated Google users continue to land on no-access
 - invitation acceptance can still create/activate a profile if approved by the plan
+
+## Realtime Collaboration Model
+
+Realtime collaboration is split into four layers. Each layer must be useful by itself and must not weaken server-side conflict protection.
+
+### Layer 1. Project Refresh And Invalidation
+
+Goal:
+
+- Let another session know that project data changed.
+
+Behavior:
+
+- after task, file, project settings, membership, invitation, or access-request mutations, publish a project-scoped event
+- subscribed clients show a lightweight "changes available" state or refresh the affected data
+- no automatic merge is attempted
+- existing `409` conflict handling remains the write correctness boundary
+
+Exit:
+
+- one user's successful mutation causes another user's active project session to refresh or show a refresh prompt
+
+### Layer 2. Presence And Viewing Signals
+
+Goal:
+
+- Show who is currently in the project without blocking work.
+
+Behavior:
+
+- show project-level presence such as "currently viewing"
+- optional task-level viewing signal is allowed
+- selecting or viewing a task never locks the task
+- viewing signals are advisory and may disappear when heartbeat expires
+
+Exit:
+
+- users can see collaboration context without losing edit ability
+
+### Layer 3. Active Editor Signals
+
+Goal:
+
+- Show who is actively editing a specific field or cell.
+
+Behavior:
+
+- active editor state starts only when a user enters actual edit mode
+- active editor state includes:
+  - `projectId`
+  - `taskId` or target object id
+  - field/cell key
+  - profile id and display label
+  - heartbeat timestamp
+- active editor state ends on save, cancel, blur, navigation away, or heartbeat expiry
+- the UI may show "editing by ..." on the field/cell
+
+Exit:
+
+- users can see that another person is editing the same field/cell before attempting to edit it
+
+### Layer 4. Edit Lease
+
+Goal:
+
+- Prevent two users from actively editing the exact same field/cell at the same time.
+
+Behavior:
+
+- an edit lease is requested only when entering actual edit mode
+- the lease is scoped as narrowly as practical:
+  - preferred: field/cell level
+  - fallback: task-level only for UI areas that cannot identify a stable field key
+- task selection alone never creates a lease
+- lease ownership must be checked before allowing the local edit UI to become writable
+- lease must have a short TTL and heartbeat renewal
+- lease must release on save, cancel, route change, tab close where possible, and TTL expiry
+- losing a lease while editing should show a recoverable message and keep the user's local draft if possible
+
+Exit:
+
+- the same field/cell cannot be edited by two users at the same time under normal connected conditions
+- stale leases clear without manual admin intervention
+
+### Deferred. Automatic Merge
+
+Automatic merge is out of scope for the first realtime implementation.
+
+It can be reconsidered only after:
+
+- refresh/invalidation is stable
+- presence is stable
+- active editor signals are stable
+- edit lease expiration behavior has been tested
+- existing conflict UX remains understandable
 
 ## Work Orders
 
@@ -512,17 +613,41 @@ Owner:
 
 Work:
 
-- add optional project presence channel
+- add project presence channel
 - show who is currently viewing the project
-- show active task/editor hints without locking the record
-- do not block saves only because another user is present
+- show active task/field/cell editor hints without locking the record
+- do not block saves only because another user is present or viewing the same task
+- expire presence and active-editor signals through heartbeat/TTL behavior
 
 Exit:
 
 - users can see collaboration context
 - write correctness still depends on server conflict checks
 
-### 9. Preview Verification
+### 9. Edit Lease
+
+Owner:
+
+- Codex
+
+Work:
+
+- add a lease model for active editing targets
+- scope leases to field/cell where possible
+- use task-level leases only where a stable field/cell target is not available
+- request a lease when entering edit mode
+- deny or make read-only a field/cell already leased by another user
+- renew leases while the editor is active
+- release leases on save, cancel, navigation away, and TTL expiry
+- preserve local drafts when a lease is lost or denied
+
+Exit:
+
+- same field/cell active editing is blocked for the second user
+- same task selection or viewing does not block editing
+- stale leases expire automatically
+
+### 10. Preview Verification
 
 Owner:
 
@@ -550,6 +675,9 @@ Required checks:
 - role matrix API probes
 - RLS and Storage policy probes
 - browser UX checks for viewer read-only and manager invitation flows
+- realtime refresh/invalidation two-session check
+- presence and active-editor two-session check
+- edit lease denial and TTL expiry check
 
 Exit:
 
@@ -562,7 +690,8 @@ Exit:
 - Keep Production promotion separate from this plan unless the user explicitly resumes production deployment.
 - Do not add email sending until invitation token acceptance works with copyable links.
 - Do not expose project names to pending users unless Gate 4 approves a public directory.
-- Do not implement full live document editing before refresh/invalidation and presence are stable.
+- Do not use task selection or task viewing as an edit lock.
+- Do not implement full live document editing or automatic merge before refresh/invalidation, presence, active-editor signals, and edit leases are stable.
 
 ## Documentation Updates After Approval
 
@@ -578,4 +707,7 @@ After the user approves direction:
 2. Should unaffiliated Google users be allowed to create a pending profile, or should access remain invite-only?
 3. Can project managers invite editors, and can they promote another user to manager?
 4. Should pending users request access generally, or request access to a specific project through an invite/access link?
-5. Is project-scoped refresh/invalidation an acceptable first realtime milestone?
+
+Resolved on 2026-04-28:
+
+- Realtime starts with project refresh/invalidation, then presence and active-editor signals, then field/cell edit leases. Task selection alone must not block editing. Automatic merge remains deferred.
