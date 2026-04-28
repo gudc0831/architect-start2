@@ -3,6 +3,7 @@
 - Updated: 2026-04-10
 - Parent index: [../PLAN.md](../PLAN.md)
 - Execution plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
+- Post-Phase 1 expansion plan: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 
 ## Purpose
@@ -362,3 +363,5 @@ If the product later chooses any of the following, this document must be revised
 - `viewer/editor` phase 1 role expansion
 - abandoning the RLS and storage-policy boundary for browser-facing paths
 - a distinct approval workflow state model
+
+Post-Phase 1 `viewer/editor`, self-signup, invitation/approval, realtime, and collaboration UX decisions are drafted in [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md). Update this contract only after that plan's user decision gates are approved.

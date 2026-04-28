@@ -3,6 +3,7 @@
 - Updated: 2026-04-28
 - Parent index: [../PLAN.md](../PLAN.md)
 - Latest follow-up execution plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
+- Post-Phase 1 collaboration expansion: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Locked auth and RBAC decisions: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Supporting setup: [SUPABASE_MIGRATION.md](SUPABASE_MIGRATION.md)
@@ -51,10 +52,10 @@ Phase 1 includes:
 
 Phase 1 does not include:
 
-- `viewer/editor` roles
-- open self-signup
 - local-mode parity as proof of correctness
-- full real-time collaboration
+- post-Phase 1 collaboration expansion such as `viewer/editor`, open self-signup, invitation and approval workflow, realtime collaboration, and broader collaboration UX
+
+Those post-Phase 1 items are tracked in [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md).
 
 ## Status As Of 2026-04-28
 
@@ -424,28 +425,11 @@ Exit criteria:
 - admin with no project gets a usable setup path
 - conflict states guide the user to recover
 
-### Phase 8. Realtime Follow-Up
+## Post-Phase 1 Collaboration Expansion
 
-Goal:
+The follow-up work for `viewer/editor`, self-signup, invitation and approval workflow, realtime collaboration, and broader collaboration UX is no longer planned in this baseline Phase 1 document.
 
-- Add collaborative freshness after correctness is already stable.
-
-Primary work:
-
-1. Add a project-scoped invalidation event model.
-2. Start with refresh/revalidate, not fine-grained patch merge.
-3. Keep real-time as a follow-up phase after auth, RBAC, and concurrency are stable.
-
-Main files:
-
-- `src/providers/dashboard-provider.tsx`
-- `src/providers/project-provider.tsx`
-- new real-time helper files if needed
-
-Exit criteria:
-
-- project changes propagate without breaking local draft recovery
-- refresh semantics stay consistent with the guard model
+Use [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md) as the working plan after the user approves its decision gates.
 
 ## File Ownership Map
 

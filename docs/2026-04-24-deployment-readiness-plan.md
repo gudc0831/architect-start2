@@ -8,6 +8,7 @@
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Security review: [2026-04-10-security-deployment-review.md](2026-04-10-security-deployment-review.md)
 - Base multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
+- Post-Phase 1 collaboration expansion: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - RLS and Storage policy draft: [2026-04-24-rls-storage-policy-boundary-design.md](2026-04-24-rls-storage-policy-boundary-design.md)
 - Release sign-off checklist: [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
 
@@ -299,8 +300,5 @@ The user should only be asked for these external actions:
 
 ## Out Of Scope Until After This Plan
 
-- new role model such as `viewer` or `editor`
-- open self-signup
-- full realtime collaboration
-- broad UI redesign
+- post-Phase 1 collaboration expansion is tracked in [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - production data migration beyond the explicit release checklist
