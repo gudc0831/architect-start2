@@ -143,11 +143,13 @@ Recommendation:
 - Project `manager` can invite to projects they manage.
 - Managers can invite `viewer` and `editor`.
 - Only global `admin` can grant or revoke project `manager`, unless the product explicitly wants manager-to-manager delegation.
+- When approving access requests, project `manager` can approve only `viewer` or `editor`.
+- Only global `admin` can approve or assign `manager`.
 
 Why:
 
 - project managers can run day-to-day collaboration
-- manager promotion remains a higher-risk action
+- manager promotion remains a higher-risk action and stays admin-only
 - admin remains the recovery authority
 
 Alternatives:
@@ -156,9 +158,12 @@ Alternatives:
 - Managers can invite and grant all project roles including manager. This is faster but weakens privilege control.
 - Managers can invite only viewers; admins handle editors/managers. This is conservative but may be too restrictive.
 
-Question:
+Decision:
 
-- Can project managers invite editors, and can they promote another user to manager?
+- Resolved on 2026-04-28.
+- Managers can invite and approve `viewer` and `editor`.
+- Managers cannot promote another user to `manager`.
+- Only global `admin` can approve, assign, grant, or revoke `manager`.
 
 ### Gate 4. Access Request Target
 
@@ -230,7 +235,7 @@ Recommended target if Gate 1 is approved:
 | Upload file | no | yes | yes | yes |
 | Create next file version | no | yes | yes | yes |
 | Delete file/version | no | yes | yes | yes |
-| View project members | yes | yes | yes | yes |
+| View project member names and emails | yes | yes | yes | yes |
 | Invite viewer/editor | no | no | yes | yes |
 | Approve access request | no | no | yes | yes |
 | Change viewer/editor membership | no | no | yes | yes |
@@ -245,6 +250,8 @@ Implementation note:
 - UI controls must hide or disable actions that the current role cannot perform.
 - API routes and policies remain authoritative even when UI controls are hidden.
 - `viewer` is read-only for task/file workspace data, but can still download files unless product direction says otherwise.
+- `viewer` can see the project member list, including member names and email addresses.
+- project `manager` access-request approvals are limited to `viewer` and `editor`; only global `admin` can approve or assign `manager`.
 
 ## Data Model Plan
 
@@ -322,6 +329,8 @@ Rules:
 - pending users cannot list projects
 - project-specific request requires a deliberate share path
 - approving a request creates membership for the approved project and role
+- project `manager` can approve requests only as `viewer` or `editor`
+- global `admin` can approve requests as `viewer`, `editor`, or `manager`
 - rejecting keeps the profile pending but does not delete audit history
 
 ### Pending Profile
@@ -554,6 +563,9 @@ Work:
 - implement pending profile behavior if approved
 - add access request APIs
 - add approval/rejection APIs
+- enforce approval-role limits:
+  - project `manager`: `viewer` or `editor` only
+  - global `admin`: `viewer`, `editor`, or `manager`
 - update no-access or pending-access UX
 - ensure pending users cannot reach normal workspace APIs
 
@@ -675,6 +687,9 @@ Required checks:
 - role matrix API probes
 - RLS and Storage policy probes
 - browser UX checks for viewer read-only and manager invitation flows
+- viewer project-member list check including names and emails
+- manager access-request approval check for `viewer` and `editor`
+- manager access-request approval denial for `manager`
 - realtime refresh/invalidation two-session check
 - presence and active-editor two-session check
 - edit lease denial and TTL expiry check
@@ -705,9 +720,10 @@ After the user approves direction:
 
 1. Should existing project `member` users become project `editor` users?
 2. Should unaffiliated Google users be allowed to create a pending profile, or should access remain invite-only?
-3. Can project managers invite editors, and can they promote another user to manager?
-4. Should pending users request access generally, or request access to a specific project through an invite/access link?
+3. Should pending users request access generally, or request access to a specific project through an invite/access link?
 
 Resolved on 2026-04-28:
 
 - Realtime starts with project refresh/invalidation, then presence and active-editor signals, then field/cell edit leases. Task selection alone must not block editing. Automatic merge remains deferred.
+- `viewer` can see the project member list, including member names and email addresses.
+- project `manager` can approve access requests only as `viewer` or `editor`; only global `admin` can approve or assign `manager`.
