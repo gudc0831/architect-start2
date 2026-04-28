@@ -1,6 +1,6 @@
 # Multi-User Transition Plan
 
-- Updated: 2026-04-24
+- Updated: 2026-04-28
 - Parent index: [../PLAN.md](../PLAN.md)
 - Latest follow-up execution plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 - Locked auth and RBAC decisions: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
@@ -56,7 +56,7 @@ Phase 1 does not include:
 - local-mode parity as proof of correctness
 - full real-time collaboration
 
-## Status As Of 2026-04-24
+## Status As Of 2026-04-28
 
 Completed and should not be reworked unless a regression appears:
 
@@ -64,20 +64,25 @@ Completed and should not be reworked unless a regression appears:
 - Phase 1 identity and provisioning path for Google OAuth preview login
 - Phase 2 membership-filtered project access baseline
 - Phase 3 shared route guard and request-integrity baseline for the verified routes
+- Phase 4 database and storage policy boundary in Preview
+- Phase 5 assignee-to-profile linkage foundation
+- Phase 6 concurrency hardening
+- Phase 7 no-access UX, conflict recovery UX, and non-production release readiness
 - preview manager/member/no-access auth verification baseline
 - GitHub branch protection and required-check baseline
 - Vercel Preview Authentication restore and preview env separation
 
-Still active before Phase 1 can be called complete:
+Still deferred before production promotion, not before non-production Phase 1 completion:
 
-- Phase 4 database and storage policy boundary
-- Phase 5 assignee-to-profile linkage foundation
-- Phase 6 concurrency hardening
-- Phase 7 conflict recovery UX and final release readiness pass
+- exact production root URL
+- Vercel Production env vars pointing only to production Supabase/Postgres
+- production Supabase Auth Site URL and redirect URL confirmation
+- Google OAuth authorized redirect URI for the production Supabase project
+- production runtime smoke after deployment
 
 Current active work order:
 
-- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
+- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md), which records non-production readiness as complete and production promotion as deferred
 
 ## Read Order For Implementers
 
@@ -273,7 +278,10 @@ Exit criteria:
 
 Status:
 
-- next active implementation phase
+- complete for Preview
+- preview DB/Storage policy rollout was applied on 2026-04-24
+- DB-level RLS, manager, no-access, anonymous, and rollback-only Storage insert probes passed
+- Project B upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final DB/Storage cleanup were verified through the local app server against Preview DB/Storage
 
 Goal:
 
@@ -313,7 +321,9 @@ Exit criteria:
 
 Status:
 
-- pending after the policy boundary slice
+- complete for the current Phase 1 non-production slice
+- implemented locally and applied to Preview DB on 2026-04-24
+- unresolved assignee mapping report returned `0`
 
 Goal:
 
@@ -350,7 +360,9 @@ Exit criteria:
 
 Status:
 
-- pending after assignee linkage unless release risk requires pulling it earlier
+- complete for the current Phase 1 non-production slice
+- implemented locally and applied to Preview DB on 2026-04-24
+- conflict UX recovery has been implemented for the recoverable paths introduced by this phase
 
 Goal:
 
@@ -383,8 +395,9 @@ Exit criteria:
 
 Status:
 
-- partially complete for no-access login outcome
-- pending for conflict recovery UX after `409` paths are introduced
+- complete for no-access login outcome in Preview
+- complete for conflict recovery UX for task update, task reorder, and file-version upload `409` paths
+- production promotion remains deferred until production URL, env vars, OAuth callback, and production runtime smoke are confirmed
 
 Goal:
 
@@ -496,7 +509,7 @@ Minimum preview verification for sign-off:
 
 ## Completion Criteria
 
-Phase 1 is complete only when all of the following are true:
+Phase 1 non-production readiness is complete when all of the following are true:
 
 1. Google OAuth is the active cloud login path.
 2. Successful login without access does not grant project visibility.
@@ -508,3 +521,5 @@ Phase 1 is complete only when all of the following are true:
 8. Assignee linkage groundwork exists and fails safely for unresolved legacy data.
 9. The main concurrent write paths return correct, recoverable outcomes.
 10. Preview verification has been run against real cloud accounts, memberships, and policy boundaries.
+
+As of 2026-04-28, these non-production criteria are recorded as complete in [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md). Production promotion remains a separate sign-off path and is blocked until the production dashboard values and production runtime smoke are confirmed.
