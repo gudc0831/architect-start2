@@ -8,6 +8,7 @@ export const previewAuthUser: AuthUser = {
   displayName: "Preview User",
   name: "Preview User",
   role: "admin",
+  accessStatus: "active",
 };
 
 export const previewProjectName = "Preview Project";

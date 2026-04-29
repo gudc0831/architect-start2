@@ -41,16 +41,28 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
     where: { id: user.id },
   });
 
-  if (!profile) {
-    return null;
-  }
+  const resolvedProfile =
+    profile ??
+    (await prisma.profile.create({
+      data: {
+        id: user.id,
+        email: user.email?.trim().toLowerCase() ?? "",
+        displayName: displayNameFromSupabaseUser({
+          email: user.email,
+          userMetadata: user.user_metadata,
+        }),
+        role: "member",
+        accessStatus: "pending",
+      },
+    }));
 
   return {
-    id: profile.id,
-    email: profile.email,
-    displayName: profile.displayName,
-    name: profile.displayName,
-    role: profile.role as AuthRole,
+    id: resolvedProfile.id,
+    email: resolvedProfile.email,
+    displayName: resolvedProfile.displayName,
+    name: resolvedProfile.displayName,
+    role: resolvedProfile.role as AuthRole,
+    accessStatus: resolvedProfile.accessStatus,
   } satisfies AuthUser;
 }
 
@@ -68,9 +80,22 @@ export async function requireUser() {
 export async function requireRole(role: AuthRole) {
   const user = await requireUser();
 
+  if (user.accessStatus !== "active") {
+    throw forbidden("Active profile access is required", "PROFILE_ACCESS_NOT_ACTIVE");
+  }
+
   if (user.role !== role) {
     throw forbidden();
   }
 
   return user;
+}
+
+function displayNameFromSupabaseUser(input: { email?: string | null; userMetadata?: Record<string, unknown> | null }) {
+  const metadataName = input.userMetadata?.full_name ?? input.userMetadata?.name;
+  if (typeof metadataName === "string" && metadataName.trim()) {
+    return metadataName.trim();
+  }
+
+  return input.email?.trim().split("@")[0] || "User";
 }

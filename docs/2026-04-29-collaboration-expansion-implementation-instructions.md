@@ -1,7 +1,7 @@
 # Collaboration Expansion Implementation Instructions
 
 - Updated: 2026-04-29
-- Status: execution instructions; Steps 0-3 completed on 2026-04-29
+- Status: execution instructions; Steps 0-6 completed on 2026-04-29
 - Source plan: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Phase 1 baseline: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
 - Auth/RBAC baseline: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
@@ -17,6 +17,7 @@ Current progress:
 - Step 2 capability helpers are implemented.
 - Step 3 staged role migration files were added and applied to Preview DB after backup and user approval.
 - Step 4 app-level guards and expanded policy SQL were applied to Preview after backup and user approval.
+- Steps 5-6 invitation bootstrap and pending access foundation are implemented and applied to Preview after backup and user approval.
 - Production DB migration remains not started.
 
 Rules:

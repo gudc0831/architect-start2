@@ -8,6 +8,7 @@ const authFallbackUser: AuthUser = {
   displayName: "Local Admin",
   name: "Local Admin",
   role: "admin",
+  accessStatus: "active",
 };
 
 const nonCloudProductionOverrideEnvKey = "ALLOW_INSECURE_NON_CLOUD_PRODUCTION";

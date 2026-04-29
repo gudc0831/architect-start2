@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { Route } from "next";
 import { NoAccessActions } from "@/components/auth/no-access-actions";
 import { requirePageUser } from "@/lib/auth/require-page-user";
 import { t } from "@/lib/ui-copy";
@@ -10,6 +11,10 @@ export default async function NoAccessPage() {
 
   if (user.role === "admin") {
     redirect("/admin");
+  }
+
+  if (user.accessStatus === "pending") {
+    redirect("/auth/pending-access" as Route);
   }
 
   return (
