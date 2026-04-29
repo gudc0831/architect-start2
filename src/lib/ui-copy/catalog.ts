@@ -235,6 +235,7 @@ export type UICatalog = {
   errors: {
     loginFailed: string;
     previewMutationNotAllowed: string;
+    workspaceReadOnly: string;
     loadTasksFailed: string;
     loadFilesFailed: string;
     loadDashboardFailed: string;
@@ -565,6 +566,7 @@ export const uiCopyCatalog = {
     errors: {
       loginFailed: "로그인에 실패했습니다.",
       previewMutationNotAllowed: "미리보기 모드에서는 수정할 수 없습니다.",
+      workspaceReadOnly: "현재 권한에서는 이 작업 공간을 수정할 수 없습니다.",
       loadTasksFailed: "작업을 불러오지 못했습니다.",
       loadFilesFailed: "파일을 불러오지 못했습니다.",
       loadDashboardFailed: "대시보드 데이터를 불러오지 못했습니다.",
@@ -893,6 +895,7 @@ export const uiCopyCatalog = {
     errors: {
       loginFailed: "Login failed.",
       previewMutationNotAllowed: "Preview mode does not allow mutations.",
+      workspaceReadOnly: "Your current role can view this workspace but cannot change it.",
       loadTasksFailed: "Failed to load tasks.",
       loadFilesFailed: "Failed to load files.",
       loadDashboardFailed: "Failed to load dashboard data.",

@@ -51,7 +51,9 @@ import { useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
+import type { ProjectMembershipRole } from "@/domains/admin/types";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
+import { canEditProjectWorkspace } from "@/lib/auth/project-capabilities";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
@@ -224,7 +226,7 @@ type AssigneeOption = {
   profileId: string;
   displayName: string;
   email: string;
-  role: "manager" | "member";
+  role: ProjectMembershipRole;
 };
 
 type QuickCreateResizeState = {
@@ -589,6 +591,11 @@ const createReadonlyFields: TaskFormReadonly = {
   actionId: true,
   updatedAt: true,
 };
+const readonlyWorkspaceFields = {
+  ...Object.fromEntries(editableTaskFormKeys.map((field) => [field, true])),
+  actionId: true,
+  updatedAt: true,
+} as TaskFormReadonly;
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
@@ -598,13 +605,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const { themeId } = useTheme();
   const isWarmStudio = themeId === "posthog";
   const isPreviewDaily = isPreview && mode === "daily";
-  const isPreviewTrash = isPreview && mode === "trash";
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
   const calendarMonthQuery = searchParams.get("month");
   const {
     currentProjectId,
+    currentProjectRole,
     projectName,
     projectLoaded,
     projectSource,
@@ -734,6 +741,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isDetailPanelResizable = shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
+  const canEditWorkspace =
+    !isPreview &&
+    Boolean(authUser) &&
+    canEditProjectWorkspace({
+      globalRole: authUser?.role ?? "member",
+      projectRole: currentProjectRole,
+    });
+  const isWorkspaceReadOnly = !canEditWorkspace;
+  const taskFormReadonly = isWorkspaceReadOnly
+    ? readonlyWorkspaceFields
+    : { ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) };
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
     mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
@@ -2045,10 +2063,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       total: dailyTreeRows.length,
     });
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
-  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isPreviewDaily;
-  const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isPreviewDaily;
+  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isWorkspaceReadOnly;
+  const shouldVirtualizeDailyTaskTable =
+    mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isWorkspaceReadOnly;
   const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
-  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isPreviewDaily;
+  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isWorkspaceReadOnly;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -2643,7 +2662,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         onToggleExpand: toggleBoardTaskMemo,
         toggleLabel: detailToggleLabel,
         toggleAriaLabel: `${task.issueTitle} ${detailToggleAriaLabel}`,
-        actions: (
+        actions: isWorkspaceReadOnly ? null : (
           <>
             <button className="secondary-button task-card__action-button" disabled={task.status === statusOrder[0]} onClick={() => void shiftTaskStatus(task, -1)} type="button">
               {t("actions.back")}
@@ -2854,8 +2873,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   async function createTaskFromForm(nextForm: TaskQuickCreateFormValues) {
     setErrorMessage(null);
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return false;
     }
 
@@ -2895,8 +2914,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setSaving(true);
     setErrorMessage(null);
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       setSaving(false);
       return false;
     }
@@ -3000,8 +3019,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       command: TaskReorderClientCommand,
       nextMode: DailyTaskSortMode,
     ) => {
-      if (isPreview) {
-        setErrorMessage(t("errors.previewMutationNotAllowed"));
+      if (isWorkspaceReadOnly) {
+        setErrorMessage(t("errors.workspaceReadOnly"));
         return false;
       }
 
@@ -3056,7 +3075,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [
       hasSelectedTaskDraftChanges,
-      isPreview,
+      isWorkspaceReadOnly,
       isReorderingTasks,
       refreshScope,
       setErrorMessage,
@@ -3263,8 +3282,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         fallbackKey?: ErrorCopyKey;
       } = {},
     ) => {
-      if (isPreview) {
-        setErrorMessage(t("errors.previewMutationNotAllowed"));
+      if (isWorkspaceReadOnly) {
+        setErrorMessage(t("errors.workspaceReadOnly"));
         return null;
       }
 
@@ -3287,7 +3306,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setTaskListSelection(task.id);
       return json.data;
     },
-    [applyTaskServerUpdate, isPreview, refreshScope, setErrorMessage, setTaskListSelection],
+    [applyTaskServerUpdate, isWorkspaceReadOnly, refreshScope, setErrorMessage, setTaskListSelection],
   );
 
   async function saveDetailCalendarLinked(nextValue: boolean) {
@@ -3385,8 +3404,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function moveToTrash(taskId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3400,8 +3419,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreTask(taskId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3415,8 +3434,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3449,8 +3468,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   async function uploadNextVersion() {
     if (!versionTargetId || !pendingVersionUpload) return;
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3492,8 +3511,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function moveFileToTrash(fileId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3508,8 +3527,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreFile(fileId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3524,8 +3543,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function deleteTaskPermanently(task: TaskRecord) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3548,8 +3567,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function deleteFilePermanently(file: FileRecord) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3575,8 +3594,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3619,8 +3638,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -4050,7 +4069,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       </div>
     ) : null;
 
-  const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isPreviewTrash) || canExportTasks;
+  const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isWorkspaceReadOnly) || canExportTasks;
 
   return (
     <section
@@ -4092,7 +4111,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           {showWarmStudioWorkspaceHeaderActions ? (
             <div className="workspace__header-side">
               <div className="workspace__header-actions">
-                {isTrashMode && !isPreviewTrash ? (
+                {isTrashMode && !isWorkspaceReadOnly ? (
                   <div className="trash-toolbar">
                     <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
                       {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
@@ -4142,7 +4161,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               </>
             ) : null}
           </div>
-          {isTrashMode && !isPreviewTrash ? (
+          {isTrashMode && !isWorkspaceReadOnly ? (
             <div className="trash-toolbar">
               <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
                 {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
@@ -4210,7 +4229,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
             {mode === "daily" ? (
               <>
-                {!isPreviewDaily ? (
+                {!isWorkspaceReadOnly ? (
                   <TaskQuickCreate
                     canCollapse={canCollapseCreateForm}
                     composerMode={quickCreateComposerMode}
@@ -4440,7 +4459,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <span className="daily-task-card__files-label">{labelForField("linkedDocuments")}</span>
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
-                            {!isPreviewDaily ? <div className="daily-task-card__reorder-actions">
+                            {!isWorkspaceReadOnly ? <div className="daily-task-card__reorder-actions">
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
@@ -4563,7 +4582,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             interactionStore={taskListRowInteractionStore}
                             isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                             isManualReorderDisabled={isDailyManualReorderDisabled}
-                            isPreviewReadOnly={isPreviewDaily}
+                            isPreviewReadOnly={isWorkspaceReadOnly}
                             isReorderingTasks={isReorderingTasks}
                             layoutStore={taskListLayoutStore}
                             moveTaskByOffset={moveTaskByOffset}
@@ -4581,7 +4600,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     )}
                   </div>
                 )}
-                {!isPreviewDaily ? (
+                {!isWorkspaceReadOnly ? (
                   <TaskListInlineEditorOverlay
                     activeCell={activeTaskListInlineEditCell}
                     assigneeOptions={assigneeOptions}
@@ -4751,7 +4770,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 {trashItems.length === 0 ? <div className="board-column__empty">{t("empty.noDeletedTasks")}</div> : null}
                 {trashItems.map((item) => {
                   const isTask = item.kind === "task";
-                  const checked = !isPreviewTrash && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
+                  const checked = !isWorkspaceReadOnly && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
 
                   return (
                     <article
@@ -4759,7 +4778,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       data-selected={isWarmStudio && checked ? "true" : undefined}
                       key={`${item.kind}:${item.id}`}
                     >
-                      {!isPreviewTrash ? (
+                      {!isWorkspaceReadOnly ? (
                         <label className="trash-card__checkbox">
                           <input
                             aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
@@ -4799,7 +4818,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           </>
                         )}
                       </div>
-                      {!isPreviewTrash ? (
+                      {!isWorkspaceReadOnly ? (
                         <div className="trash-card__actions">
                           {isTask ? (
                             <>
@@ -4904,7 +4923,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </button>
                   </div>
                 </div>
-                {selectedTask && !isTrashMode && isDetailExpanded && !isPreviewDaily ? (
+                {selectedTask && !isTrashMode && isDetailExpanded && !isWorkspaceReadOnly ? (
                   <div className="detail-panel__header-secondary-actions">
                     <button className="danger-button" onClick={() => void moveToTrash(selectedTask.id)} type="button">
                       {t("actions.moveToTrash")}
@@ -4922,36 +4941,41 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                       assigneeOptions={assigneeOptions}
                       form={draft}
                       onChange={updateSelectedTaskForm}
-                      readonly={{ ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) }}
+                      readonly={taskFormReadonly}
                       categoryDefinitionsByField={categoryDefinitionsByField}
                       workTypeDefinitions={workTypeDefinitions}
                     />
 
                     <label>
                       <span>{labelForField("parentActionId")}</span>
-                      <input onChange={(event) => updateParentTaskNumberDraft(event.target.value)} placeholder={t("workspace.parentTaskNumberPlaceholder")} value={parentTaskNumberDraft} />
+                      <input
+                        onChange={(event) => updateParentTaskNumberDraft(event.target.value)}
+                        placeholder={t("workspace.parentTaskNumberPlaceholder")}
+                        readOnly={isWorkspaceReadOnly}
+                        value={parentTaskNumberDraft}
+                      />
                     </label>
 
-                    <div className="detail-actions">
+                    {!isWorkspaceReadOnly ? <div className="detail-actions">
                       <button className="primary-button" disabled={saving} onClick={() => void saveSelectedTask()} type="button">
                         {saving ? t("actions.saving") : t("actions.save")}
                       </button>
                       <button className="secondary-button" onClick={resetSelectedTaskDraft} type="button">
                         {t("actions.resetChanges")}
                       </button>
-                    </div>
+                    </div> : null}
 
                     <section className="detail-section">
                       <div className="detail-section__header">
                         <h4>{labelForField("linkedDocuments")}</h4>
                       </div>
-                      <div className="upload-box">
+                      {!isWorkspaceReadOnly ? <div className="upload-box">
                         <input onChange={(event) => setPendingUpload(event.target.files?.[0] ?? null)} type="file" />
                         <button className="primary-button" onClick={() => void uploadSelectedFile()} type="button">
                           {t("actions.uploadFile")}
                         </button>
-                      </div>
-                      {selectedFiles.length > 0 ? (
+                      </div> : null}
+                      {!isWorkspaceReadOnly && selectedFiles.length > 0 ? (
                         <div className="upload-box upload-box--version">
                           <select onChange={(event) => setVersionTargetId(event.target.value)} value={versionTargetId}>
                             {selectedFiles.map((file) => (
@@ -4997,9 +5021,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   </button>
                                 </>
                               ) : null}
-                              <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
-                                {t("actions.remove")}
-                              </button>
+                              {!isWorkspaceReadOnly ? (
+                                <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
+                                  {t("actions.remove")}
+                                </button>
+                              ) : null}
                             </div>
                           </article>
                         ))}

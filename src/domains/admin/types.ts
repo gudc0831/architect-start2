@@ -33,6 +33,7 @@ export type ProjectMembershipRecord = {
 
 export type ProjectSelectionRecord = {
   currentProjectId: string | null;
+  currentProjectRole?: ProjectMembershipRole | null;
   availableProjects: ProjectSummary[];
   source: "postgres" | "local-file" | "firestore" | "cookie";
 };

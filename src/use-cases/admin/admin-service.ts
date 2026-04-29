@@ -88,9 +88,14 @@ export async function listProjectsForSession(user?: AuthUser) {
       : null) ??
     availableProjects[0]?.id ??
     null;
+  const currentProjectRole =
+    currentProjectId && resolvedUser.role !== "admin"
+      ? (await adminRepository.getProjectMembership(currentProjectId, resolvedUser.id))?.role ?? null
+      : null;
 
   return {
     currentProjectId,
+    currentProjectRole,
     availableProjects,
     source: selection.source,
   };
@@ -111,6 +116,7 @@ export async function selectProjectForSession(projectId: string, user?: AuthUser
 
   return {
     currentProjectId: access.project.id,
+    currentProjectRole: access.membership?.role ?? null,
     availableProjects: selection.availableProjects,
     source: selection.source,
   };
