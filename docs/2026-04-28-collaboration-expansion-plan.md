@@ -3,6 +3,7 @@
 - Updated: 2026-04-28
 - Status: review draft; implementation must wait for user direction on the decision gates
 - Parent index: [../PLAN.md](../PLAN.md)
+- Implementation instructions: [2026-04-29-collaboration-expansion-implementation-instructions.md](2026-04-29-collaboration-expansion-implementation-instructions.md)
 - Baseline multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
 - Locked Phase 1 auth/RBAC contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment readiness baseline: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
@@ -458,7 +459,7 @@ Owner:
 
 Work:
 
-- answer the five user decision gates
+- answer the remaining unresolved user decision gates
 - update this plan from `review draft` to `approved plan`
 - update [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md) only after direction is approved
 

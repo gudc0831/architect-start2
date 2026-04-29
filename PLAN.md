@@ -9,13 +9,14 @@
 1. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
 2. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
 3. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
-4. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
-5. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
-6. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
-7. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
-8. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
-9. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
-10. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+4. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
+5. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+6. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+7. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
+8. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+9. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
+10. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+11. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
 
 ## Current Direction
 
@@ -113,6 +114,8 @@
   - [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
 - Collaboration expansion plan:
   - [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
+- Collaboration expansion implementation instructions:
+  - [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
 - Post-preview execution plan:
   - [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
 - Current deployment readiness plan:
