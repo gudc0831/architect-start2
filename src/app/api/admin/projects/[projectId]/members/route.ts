@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { isAssignableProjectRole, type RequestedProjectRole } from "@/lib/auth/project-capabilities";
 import { requireProjectManager } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
@@ -34,7 +35,7 @@ export async function PUT(
         profileId?: string;
         displayName?: string;
         email?: string;
-        role?: "manager" | "member";
+        role?: RequestedProjectRole;
       }>;
     };
     const data = await replaceProjectMembers(
@@ -44,7 +45,7 @@ export async function PUT(
             profileId: String(membership.profileId ?? ""),
             displayName: String(membership.displayName ?? ""),
             email: String(membership.email ?? ""),
-            role: membership.role === "manager" ? "manager" : "member",
+            role: isAssignableProjectRole(membership.role) ? membership.role : "editor",
           }))
         : [],
       user.id,

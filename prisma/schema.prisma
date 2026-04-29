@@ -13,6 +13,8 @@ enum ProfileRole {
 }
 
 enum ProjectMembershipRole {
+  viewer
+  editor
   manager
   member
 }
@@ -168,7 +170,7 @@ model ProjectMembership {
   id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String                @map("project_id") @db.Uuid
   profileId   String                @map("profile_id") @db.Uuid
-  role        ProjectMembershipRole @default(member)
+  role        ProjectMembershipRole @default(editor)
   displayName String                @default("") @map("display_name")
   email       String                @default("")
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -1,7 +1,7 @@
 # Collaboration Expansion Implementation Instructions
 
 - Updated: 2026-04-29
-- Status: execution instructions; do not start implementation until Step 0 is complete
+- Status: execution instructions; Steps 0-3 completed on 2026-04-29
 - Source plan: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Phase 1 baseline: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
 - Auth/RBAC baseline: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
@@ -10,6 +10,13 @@
 ## How To Use This File
 
 Follow the steps in order.
+
+Current progress:
+
+- Step 0 decisions are approved and recorded.
+- Step 2 capability helpers are implemented.
+- Step 3 staged role migration files were added and applied to Preview DB after backup and user approval.
+- Production DB migration remains not started.
 
 Rules:
 
@@ -24,13 +31,13 @@ Rules:
 
 ## Step 0. Required User Decisions
 
-STOP until these decisions are answered and recorded in the source plan.
+Completed on 2026-04-29.
 
-Ask the user in simple Korean:
+Approved:
 
-1. Existing project `member` users currently behave like editors. Should we migrate existing project `member` rows to project `editor`?
-2. Should unaffiliated Google users be allowed to create a pending profile, or should the app remain invite-only?
-3. Should pending users request access generally, or only request a specific project through an invite/access link?
+1. Existing project `member` rows migrate to project `editor`.
+2. Unaffiliated Google users may create a pending profile.
+3. Pending users can submit a general access request, and can request a specific project only through an invitation or access link.
 
 Already resolved:
 
@@ -44,8 +51,8 @@ Already resolved:
 
 Exit:
 
-- update [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md) from `review draft` to an approved direction or record any declined option
-- update [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md) only after the direction is approved
+- [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md) records the approved direction
+- [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md) must be updated before code implementation continues
 
 ## Step 1. Preflight
 

@@ -9,6 +9,7 @@ import {
 } from "@/domains/admin/task-category-definitions";
 import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
 import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
+import type { RequestedProjectRole } from "@/lib/auth/project-capabilities";
 import { requireUser } from "@/lib/auth/require-user";
 import { requireCurrentProjectAccess, requireProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
 import { getProjectSessionProjectId } from "@/lib/project-session";
@@ -243,7 +244,7 @@ export async function replaceProjectMembers(
     profileId: string;
     displayName: string;
     email: string;
-    role: "manager" | "member";
+    role: RequestedProjectRole;
   }[],
   userId: string | null,
 ) {

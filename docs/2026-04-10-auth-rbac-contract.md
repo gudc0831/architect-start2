@@ -365,3 +365,39 @@ If the product later chooses any of the following, this document must be revised
 - a distinct approval workflow state model
 
 Post-Phase 1 `viewer/editor`, self-signup, invitation/approval, realtime, and collaboration UX decisions are drafted in [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md). Update this contract only after that plan's user decision gates are approved.
+
+## Post-Phase 1 Approved Expansion
+
+Approved on 2026-04-29 for the collaboration expansion:
+
+- Project roles become:
+  - `viewer`
+  - `editor`
+  - `manager`
+- Global roles remain:
+  - `admin`
+  - `member`
+- Existing project `member` rows migrate to project `editor`.
+- New project membership default becomes `editor`.
+- Legacy project `member` is a temporary compatibility value only during the staged migration.
+- `viewer` can:
+  - list/select accessible projects
+  - read board/task data
+  - read file metadata
+  - download signed files
+  - view project member names and email addresses
+- `viewer` cannot create, update, reorder, delete, upload, invite, approve, or manage settings.
+- `editor` can perform normal task/file workspace writes.
+- `editor` cannot manage membership, invitations, access requests, or project settings.
+- `manager` can manage project settings, invitations, access requests, and viewer/editor membership for projects they manage.
+- `manager` can invite and approve only `viewer` and `editor`.
+- Only global `admin` can approve, assign, grant, or revoke project `manager`.
+- Unaffiliated Google users may create a pending profile.
+- Pending profiles do not get project access automatically.
+- Pending profiles can access only pending-access, invitation acceptance, access request, and logout paths.
+- Pending users can submit a general access request.
+- Pending users can request a specific project only through an invitation or access link.
+- Pending users must not see a public project directory.
+- Realtime starts with project refresh/invalidation, then presence and active-editor signals, then field/cell edit leases.
+- Task selection or task viewing must not create an edit lock.
+- Automatic merge is deferred.

@@ -4,7 +4,7 @@ import type { TaskCategoryDefinition } from "@/domains/admin/task-category-defin
 import type { ProjectRecord } from "@/domains/project/types";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 
-export type ProjectMembershipRole = "manager" | "member";
+export type ProjectMembershipRole = "viewer" | "editor" | "manager" | "member";
 
 export type ProjectSummary = ProjectRecord & {
   createdBy: string | null;

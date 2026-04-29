@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AdminProfileSummary, ProjectMembershipRecord } from "@/domains/admin/types";
+import { isAssignableProjectRole } from "@/lib/auth/project-capabilities";
 import {
   taskCategoryFieldKeys,
   type TaskCategoryDefinition,
@@ -270,7 +271,7 @@ export function AdminFoundationShell() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [members, setMembers] = useState<MembershipPayload[]>([]);
   const [availableProfiles, setAvailableProfiles] = useState<AdminProfileSummary[]>([]);
-  const [newMember, setNewMember] = useState<MembershipPayload>({ profileId: "", displayName: "", email: "", role: "member" });
+  const [newMember, setNewMember] = useState<MembershipPayload>({ profileId: "", displayName: "", email: "", role: "editor" });
   const [globalByField, setGlobalByField] = useState<CategoryDefinitionsMap>(emptyCategoryDefinitions);
   const [projectByField, setProjectByField] = useState<CategoryDefinitionsMap>(emptyCategoryDefinitions);
   const [newGlobalDrafts, setNewGlobalDrafts] = useState<CategoryDraftMap>(emptyCategoryDrafts);
@@ -487,7 +488,7 @@ export function AdminFoundationShell() {
     }
 
     setMembers((previous) => [...previous.filter((entry) => entry.profileId !== newMember.profileId), newMember]);
-    setNewMember({ profileId: "", displayName: "", email: "", role: "member" });
+    setNewMember({ profileId: "", displayName: "", email: "", role: "editor" });
   }
 
   return (
@@ -703,14 +704,18 @@ export function AdminFoundationShell() {
                       setMembers((previous) =>
                         previous.map((entry) =>
                           entry.profileId === member.profileId
-                            ? { ...entry, role: event.target.value === "manager" ? "manager" : "member" }
+                            ? {
+                                ...entry,
+                                role: isAssignableProjectRole(event.target.value) ? event.target.value : "editor",
+                              }
                             : entry,
                         ),
                       )
                     }
                     value={member.role}
                   >
-                    <option value="member">멤버</option>
+                    <option value="viewer">뷰어</option>
+                    <option value="editor">에디터</option>
                     <option value="manager">관리자</option>
                   </select>
                 </label>
@@ -741,7 +746,7 @@ export function AdminFoundationShell() {
                   onChange={(event) => {
                     const profile = availableProfiles.find((entry) => entry.id === event.target.value);
                     if (profile) {
-                      setNewMember({ profileId: profile.id, displayName: profile.displayName, email: profile.email, role: "member" });
+                      setNewMember({ profileId: profile.id, displayName: profile.displayName, email: profile.email, role: "editor" });
                     }
                   }}
                   value={newMember.profileId}

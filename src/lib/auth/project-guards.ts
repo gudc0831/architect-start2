@@ -1,6 +1,7 @@
 import type { AuthUser } from "@/domains/auth/types";
 import type { ProjectMembershipRecord, ProjectSummary } from "@/domains/admin/types";
 import { forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
+import { canManageProjectMembers, canReadProject } from "@/lib/auth/project-capabilities";
 import { requireUser } from "@/lib/auth/require-user";
 import { getProjectSessionProjectId } from "@/lib/project-session";
 import { adminRepository } from "@/repositories/admin";
@@ -53,7 +54,12 @@ export async function requireProjectAccess(projectId: string, user?: AuthUser): 
   }
 
   const membership = await adminRepository.getProjectMembership(project.id, resolvedUser.id);
-  if (!membership) {
+  if (
+    !canReadProject({
+      globalRole: resolvedUser.role,
+      projectRole: membership?.role ?? null,
+    })
+  ) {
     throw notFound("Project not found", "PROJECT_NOT_FOUND");
   }
 
@@ -94,11 +100,12 @@ export async function requireCurrentProjectAccess(user?: AuthUser): Promise<Proj
 export async function requireProjectManager(projectId: string, user?: AuthUser): Promise<ProjectGuardContext> {
   const context = await requireProjectAccess(projectId, user);
 
-  if (context.user.role === "admin") {
-    return context;
-  }
-
-  if (context.membership?.role !== "manager") {
+  if (
+    !canManageProjectMembers({
+      globalRole: context.user.role,
+      projectRole: context.membership?.role ?? null,
+    })
+  ) {
     throw forbidden("Project manager access is required", "PROJECT_MANAGER_REQUIRED");
   }
 

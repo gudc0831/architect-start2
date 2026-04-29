@@ -1,7 +1,7 @@
 # Collaboration Expansion Plan
 
-- Updated: 2026-04-28
-- Status: review draft; implementation must wait for user direction on the decision gates
+- Updated: 2026-04-29
+- Status: approved direction; implementation follows [2026-04-29-collaboration-expansion-implementation-instructions.md](2026-04-29-collaboration-expansion-implementation-instructions.md)
 - Parent index: [../PLAN.md](../PLAN.md)
 - Implementation instructions: [2026-04-29-collaboration-expansion-implementation-instructions.md](2026-04-29-collaboration-expansion-implementation-instructions.md)
 - Baseline multi-user plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
@@ -85,7 +85,7 @@ Current important files:
 
 ## User Decision Gates
 
-Unresolved decisions must be approved before implementation starts. Gate 5 is already locked by the user decision on 2026-04-28.
+All direction gates are approved as of 2026-04-29.
 
 ### Gate 1. Project Role Model
 
@@ -108,9 +108,12 @@ Alternatives:
 - Add only `viewer` and keep `member` as the editor-equivalent role. This is simpler but does not satisfy the product language of having a real `editor` role.
 - Add organization-level roles now. This is more flexible but too broad for the current project-scoped model.
 
-Question:
+Decision:
 
-- Should existing project `member` users become project `editor` users?
+- Resolved on 2026-04-29.
+- Existing project `member` users will migrate to project `editor`.
+- New project membership default should become `editor`.
+- Legacy project `member` remains only as a temporary compatibility value during the staged migration.
 
 ### Gate 2. Self-Signup Mode
 
@@ -132,9 +135,12 @@ Alternatives:
 - Allow self-signup to create a pending profile. This is flexible while still blocking project access.
 - Allow same-domain self-signup into a default project. This is convenient but risky without a tenant/domain policy.
 
-Question:
+Decision:
 
-- Should unaffiliated Google users be allowed to create a pending profile, or should access remain invite-only?
+- Resolved on 2026-04-29.
+- Unaffiliated Google users may create a pending profile.
+- Pending profiles do not get project access automatically.
+- Pending profiles can use pending-access, invitation acceptance, access request, and logout paths only.
 
 ### Gate 3. Invitation Authority
 
@@ -186,9 +192,12 @@ Alternatives:
 - Global access request only; admins assign projects manually.
 - Public project request directory. This is convenient but leaks project names.
 
-Question:
+Decision:
 
-- Should pending users request access generally, or request access to a specific project through an invite/access link?
+- Resolved on 2026-04-29.
+- Pending users can submit a general access request.
+- Pending users can request a specific project only through an invitation or access link.
+- Pending users must not see a public project directory.
 
 ### Gate 5. Realtime Scope
 
@@ -459,7 +468,6 @@ Owner:
 
 Work:
 
-- answer the remaining unresolved user decision gates
 - update this plan from `review draft` to `approved plan`
 - update [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md) only after direction is approved
 
@@ -717,14 +725,18 @@ After the user approves direction:
 - update [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md) to mark this plan as the active post-Phase 1 work order
 - add implementation worklogs per slice under `docs/worklogs/`
 
-## Open Questions For User Review
-
-1. Should existing project `member` users become project `editor` users?
-2. Should unaffiliated Google users be allowed to create a pending profile, or should access remain invite-only?
-3. Should pending users request access generally, or request access to a specific project through an invite/access link?
+## Resolved Decisions
 
 Resolved on 2026-04-28:
 
 - Realtime starts with project refresh/invalidation, then presence and active-editor signals, then field/cell edit leases. Task selection alone must not block editing. Automatic merge remains deferred.
 - `viewer` can see the project member list, including member names and email addresses.
 - project `manager` can approve access requests only as `viewer` or `editor`; only global `admin` can approve or assign `manager`.
+
+Resolved on 2026-04-29:
+
+- Existing project `member` users migrate to project `editor`.
+- New project membership default becomes `editor`.
+- Unaffiliated Google users may create a pending profile with no project access.
+- Pending users can submit general access requests.
+- Pending users can request a specific project only through an invitation or access link.
