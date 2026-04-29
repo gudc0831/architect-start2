@@ -53,9 +53,17 @@ export async function listAccessRequests(input: { actor: AuthUser; projectId?: s
     throw forbidden("Project manager access is required", "PROJECT_MANAGER_REQUIRED");
   }
 
-  await requireProjectManager(projectId, input.actor);
+  if (input.actor.role !== "admin") {
+    await requireProjectManager(projectId, input.actor);
+  }
+
   return prisma.accessRequest.findMany({
-    where: { projectId },
+    where: {
+      OR: [
+        { projectId },
+        { projectId: null, status: "pending" },
+      ],
+    },
     orderBy: [{ createdAt: "desc" }],
   });
 }
