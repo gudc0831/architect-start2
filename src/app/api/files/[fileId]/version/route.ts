@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { attachNextFileVersion } from "@/use-cases/file-service";
@@ -13,7 +13,7 @@ export async function POST(
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    await requireCurrentProjectAccess(user);
+    await requireCurrentProjectEditor(user);
     const { fileId } = await context.params;
     const formData = await request.formData();
     const file = formData.get("file");

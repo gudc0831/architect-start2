@@ -1,7 +1,7 @@
 import type { AuthUser } from "@/domains/auth/types";
 import type { ProjectMembershipRecord, ProjectSummary } from "@/domains/admin/types";
 import { forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
-import { canManageProjectMembers, canReadProject } from "@/lib/auth/project-capabilities";
+import { canEditProjectWorkspace, canManageProjectMembers, canReadProject } from "@/lib/auth/project-capabilities";
 import { requireUser } from "@/lib/auth/require-user";
 import { getProjectSessionProjectId } from "@/lib/project-session";
 import { adminRepository } from "@/repositories/admin";
@@ -107,6 +107,36 @@ export async function requireProjectManager(projectId: string, user?: AuthUser):
     })
   ) {
     throw forbidden("Project manager access is required", "PROJECT_MANAGER_REQUIRED");
+  }
+
+  return context;
+}
+
+export async function requireProjectEditor(projectId: string, user?: AuthUser): Promise<ProjectGuardContext> {
+  const context = await requireProjectAccess(projectId, user);
+
+  if (
+    !canEditProjectWorkspace({
+      globalRole: context.user.role,
+      projectRole: context.membership?.role ?? null,
+    })
+  ) {
+    throw forbidden("Project editor access is required", "PROJECT_EDITOR_REQUIRED");
+  }
+
+  return context;
+}
+
+export async function requireCurrentProjectEditor(user?: AuthUser): Promise<ProjectGuardContext> {
+  const context = await requireCurrentProjectAccess(user);
+
+  if (
+    !canEditProjectWorkspace({
+      globalRole: context.user.role,
+      projectRole: context.membership?.role ?? null,
+    })
+  ) {
+    throw forbidden("Project editor access is required", "PROJECT_EDITOR_REQUIRED");
   }
 
   return context;

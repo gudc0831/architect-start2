@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_TASK_STATUS } from "@/domains/task/status";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { createTask, listTasks } from "@/use-cases/task-service";
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    await requireCurrentProjectAccess(user);
+    await requireCurrentProjectEditor(user);
     const body = await request.json();
     const task = await createTask(
       {

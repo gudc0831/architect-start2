@@ -16,6 +16,7 @@ Current progress:
 - Step 0 decisions are approved and recorded.
 - Step 2 capability helpers are implemented.
 - Step 3 staged role migration files were added and applied to Preview DB after backup and user approval.
+- Step 4 app-level guards and expanded policy SQL were applied to Preview after backup and user approval.
 - Production DB migration remains not started.
 
 Rules:
