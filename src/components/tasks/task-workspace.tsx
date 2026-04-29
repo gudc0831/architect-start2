@@ -661,6 +661,14 @@ function getPresenceDisplayName(user: { displayName?: string | null; email?: str
   return user.displayName?.trim() || user.email?.trim() || "User";
 }
 
+function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
+  return {
+    targetType: "taskField",
+    targetId: cell.taskId,
+    fieldKey: cell.columnKey,
+  };
+}
+
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
   const router = useRouter();
@@ -762,6 +770,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const activeTaskListInlineEditCellRef = useRef<PendingTaskListFocusCell | null>(null);
+  const activeTaskListEditLeaseCellRef = useRef<PendingTaskListFocusCell | null>(null);
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
@@ -2971,6 +2980,66 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [markDraftFieldDirty, taskEditorDraftStore],
   );
+  const acquireTaskListEditLease = useCallback(
+    async (cell: PendingTaskListFocusCell) => {
+      if (isPreview || !canEditWorkspace) {
+        return true;
+      }
+
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/edit-leases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildEditLeasePayload(cell)),
+        });
+
+        if (response.ok) {
+          return true;
+        }
+
+        setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+        return false;
+      } catch {
+        setErrorMessage(localizeError({ fallbackKey: "updateTaskFailed" }));
+        return false;
+      }
+    },
+    [canEditWorkspace, isPreview, setErrorMessage],
+  );
+  const releaseTaskListEditLease = useCallback(
+    async (cell: PendingTaskListFocusCell) => {
+      if (isPreview || !canEditWorkspace) {
+        return;
+      }
+
+      try {
+        await fetch("/api/edit-leases", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildEditLeasePayload(cell)),
+        });
+      } catch {
+        // Lease expiry is the authoritative fallback if best-effort release fails.
+      }
+    },
+    [canEditWorkspace, isPreview],
+  );
+  const releaseActiveTaskListEditLease = useCallback(() => {
+    const cell = activeTaskListEditLeaseCellRef.current;
+    if (!cell) {
+      return;
+    }
+
+    activeTaskListEditLeaseCellRef.current = null;
+    void releaseTaskListEditLease(cell);
+  }, [releaseTaskListEditLease]);
+  useEffect(() => {
+    return () => {
+      releaseActiveTaskListEditLease();
+    };
+  }, [releaseActiveTaskListEditLease]);
   const cancelInlineTaskListField = useCallback(
     (columnKey: TaskListColumnKey) => {
       const field = getEditableTaskListField(columnKey);
@@ -2981,10 +3050,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         clearDraftDirtyFields(field === "assignee" ? ["assignee", "assigneeProfileId"] : [field]);
       }
       taskEditorDraftStore.cancelInlineEdit();
+      releaseActiveTaskListEditLease();
       setTaskListActiveInlineEditCell(null);
       setPendingTaskListFocusCell(null);
     },
-    [clearDraftDirtyFields, draft, setTaskListActiveInlineEditCell, taskEditorDraftStore],
+    [clearDraftDirtyFields, draft, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell, taskEditorDraftStore],
   );
 
   const updateParentTaskNumberDraft = useCallback(
@@ -3506,6 +3576,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       if (Object.is(currentDraft[field], currentTask[field])) {
         clearDraftDirtyFields([field]);
+        releaseActiveTaskListEditLease();
+        setTaskListActiveInlineEditCell(null);
+        setPendingTaskListFocusCell(null);
         return;
       }
 
@@ -3519,10 +3592,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
         await patchTask(currentDraft, payload, { clearedDirtyFields });
       } finally {
+        releaseActiveTaskListEditLease();
+        setTaskListActiveInlineEditCell(null);
+        setPendingTaskListFocusCell(null);
         setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
       }
     },
-    [clearDraftDirtyFields, patchTask],
+    [clearDraftDirtyFields, patchTask, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell],
   );
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
     const currentIndex = statusOrder.indexOf(task.status);
@@ -3849,17 +3925,33 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, []);
 
   const selectTask = useCallback((taskId: string) => {
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     if (isPreviewDaily) {
       pinDetailPanel();
     }
-  }, [isPreviewDaily, pinDetailPanel, setTaskListActiveInlineEditCell]);
+  }, [isPreviewDaily, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
-  const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
-    setTaskListActiveInlineEditCell({ taskId, columnKey }, { selectedTaskId: taskId });
-    setPendingTaskListFocusCell({ taskId, columnKey });
-  }, [setTaskListActiveInlineEditCell]);
+  const focusTaskListEditableCell = useCallback(async (taskId: string, columnKey: TaskListColumnKey) => {
+    const nextCell = { taskId, columnKey };
+    const previousLeaseCell = activeTaskListEditLeaseCellRef.current;
+    if (previousLeaseCell && !arePendingTaskListFocusCellsEqual(previousLeaseCell, nextCell)) {
+      activeTaskListEditLeaseCellRef.current = null;
+      void releaseTaskListEditLease(previousLeaseCell);
+    }
+
+    const acquired = await acquireTaskListEditLease(nextCell);
+    if (!acquired) {
+      setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
+      setPendingTaskListFocusCell(null);
+      return;
+    }
+
+    activeTaskListEditLeaseCellRef.current = nextCell;
+    setTaskListActiveInlineEditCell(nextCell, { selectedTaskId: taskId });
+    setPendingTaskListFocusCell(nextCell);
+  }, [acquireTaskListEditLease, releaseTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const toggleTaskDetails = useCallback((taskId: string) => {
     const currentState = detailPanelInteractionRef.current;
@@ -3868,17 +3960,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     pinDetailPanel();
-  }, [closeDetailPanel, pinDetailPanel, setTaskListActiveInlineEditCell]);
+  }, [closeDetailPanel, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const clearTaskSelection = useCallback(() => {
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: null });
     setPendingTaskListFocusCell(null);
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
-  }, [setTaskListActiveInlineEditCell]);
+  }, [releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
   const clearTaskSelectionFromOutsideInteraction = useCallback(async () => {
     if (!selectedTaskId || saving || isClearingSelectionRef.current) {
       return;
@@ -5510,7 +5604,7 @@ function DailyTaskTableBody({
                       }
 
                       event.stopPropagation();
-                      focusTaskListEditableCell(task.id, column.key);
+                      void focusTaskListEditableCell(task.id, column.key);
                     }
                   : undefined
               }
@@ -5755,7 +5849,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 }
 
                 event.stopPropagation();
-                focusTaskListEditableCell(task.id, column.key);
+                void focusTaskListEditableCell(task.id, column.key);
               }
             : undefined
         }

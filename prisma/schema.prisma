@@ -65,6 +65,7 @@ model Profile {
   acceptedInvitations ProjectInvitation[] @relation("InvitationAcceptedBy")
   accessRequests AccessRequest[] @relation("AccessRequestProfile")
   reviewedAccessRequests AccessRequest[] @relation("AccessRequestReviewedBy")
+  heldEditLeases EditLease[] @relation("EditLeaseHolder")
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -82,6 +83,7 @@ model Project {
   memberships ProjectMembership[]
   invitations ProjectInvitation[]
   accessRequests AccessRequest[]
+  editLeases EditLease[]
   tasks     Task[]
   files     File[]
   workTypeDefinitions WorkTypeDefinition[]
@@ -254,6 +256,26 @@ model AccessRequest {
   @@index([projectId, status])
   @@index([email])
   @@map("access_requests")
+}
+
+model EditLease {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  targetType        String   @map("target_type")
+  targetId          String   @map("target_id") @db.Uuid
+  fieldKey          String   @map("field_key")
+  holderProfileId   String   @map("holder_profile_id") @db.Uuid
+  holderDisplayName String   @default("") @map("holder_display_name")
+  expiresAt         DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  holder            Profile  @relation("EditLeaseHolder", fields: [holderProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, targetType, targetId, fieldKey])
+  @@index([expiresAt])
+  @@index([holderProfileId])
+  @@map("edit_leases")
 }
 
 model WorkTypeDefinition {
