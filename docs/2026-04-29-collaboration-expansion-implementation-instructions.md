@@ -19,6 +19,7 @@ Current progress:
 - Step 4 app-level guards and expanded policy SQL were applied to Preview after backup and user approval.
 - Steps 5-6 invitation bootstrap and pending access foundation are implemented and applied to Preview after backup and user approval.
 - Step 7 collaboration management UX is in progress: current project role is exposed to the client, viewer/non-editor workspace mutation controls are hidden or read-only, `/admin` is open to active project users with role-gated controls, and invitation/access-request UI foundations are implemented.
+- Step 8 refresh/invalidation foundation is in progress: project-scoped short polling detects server-side changes and refreshes loaded dashboard scopes; Supabase Realtime transport remains deferred to the presence/edit-lease slices.
 - Production DB migration remains not started.
 
 Rules:

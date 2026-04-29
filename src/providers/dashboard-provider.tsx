@@ -52,6 +52,11 @@ type DashboardTaskFilesRefreshOptions = {
   force?: boolean;
 };
 
+type ProjectChangesPayload = {
+  projectId: string;
+  version: string;
+};
+
 type DashboardDataContextValue = {
   stateByScope: DashboardStateByScope;
   ensureDashboardScopeLoaded: (scope: DashboardScope) => Promise<void>;
@@ -110,6 +115,7 @@ function flattenFilesByTaskId(filesByTaskId: Record<string, FileRecord[]>) {
 }
 
 const DashboardDataContext = createContext<DashboardDataContextValue | null>(null);
+const PROJECT_CHANGES_POLL_INTERVAL_MS = 12_000;
 
 function buildPreviewScopeState(scope: DashboardScope): DashboardScopeState {
   const tasks =
@@ -173,6 +179,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   });
   const taskFilesInFlightRef = useRef<Record<string, { ownerKey: string; requestId: number; promise: Promise<void> }>>({});
   const taskFilesRequestIdRef = useRef<Record<string, number>>({});
+  const projectChangeVersionRef = useRef<{ ownerKey: string; version: string | null }>({ ownerKey, version: null });
 
   stateRef.current = providerState;
 
@@ -188,6 +195,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
     taskFilesInFlightRef.current = {};
     taskFilesRequestIdRef.current = {};
+    projectChangeVersionRef.current = { ownerKey, version: null };
     setProviderState({
       ownerKey,
       stateByScope: createEmptyStateByScope(),
@@ -339,6 +347,63 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     },
     [fetchDashboardScope, isPreview],
   );
+
+  useEffect(() => {
+    if (isPreview || !projectLoaded || !currentProjectId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollProjectChanges() {
+      try {
+        const response = await fetch("/api/project/changes", { cache: "no-store" });
+        if (!response.ok) {
+          return;
+        }
+
+        const json = (await response.json()) as { data?: ProjectChangesPayload };
+        const version = json.data?.version;
+        if (cancelled || !version || stateRef.current.ownerKey !== ownerKey) {
+          return;
+        }
+
+        const previous = projectChangeVersionRef.current;
+        if (previous.ownerKey !== ownerKey) {
+          projectChangeVersionRef.current = { ownerKey, version };
+          return;
+        }
+
+        if (!previous.version) {
+          projectChangeVersionRef.current = { ownerKey, version };
+          return;
+        }
+
+        if (previous.version === version) {
+          return;
+        }
+
+        projectChangeVersionRef.current = { ownerKey, version };
+        const currentState = stateRef.current.stateByScope;
+        await Promise.all([
+          currentState.active.loaded ? refreshDashboardScope("active", { force: true }) : Promise.resolve(),
+          currentState.trash.loaded ? refreshDashboardScope("trash", { force: true }) : Promise.resolve(),
+        ]);
+      } catch {
+        // Polling is a best-effort invalidation fallback; normal user actions still refresh explicitly.
+      }
+    }
+
+    void pollProjectChanges();
+    const intervalId = window.setInterval(() => {
+      void pollProjectChanges();
+    }, PROJECT_CHANGES_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [currentProjectId, isPreview, ownerKey, projectLoaded, refreshDashboardScope]);
 
   const fetchDashboardTaskFiles = useCallback(
     async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
