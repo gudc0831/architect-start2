@@ -55,6 +55,7 @@ import type { ProjectMembershipRole } from "@/domains/admin/types";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
 import { canEditProjectWorkspace } from "@/lib/auth/project-capabilities";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
+import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
@@ -227,6 +228,19 @@ type AssigneeOption = {
   displayName: string;
   email: string;
   role: ProjectMembershipRole;
+};
+type ProjectPresenceActiveEditor = {
+  targetType: "taskField";
+  taskId: string;
+  fieldKey: string;
+  fieldLabel: string;
+  heartbeatAt: string;
+};
+type ProjectPresenceUser = {
+  profileId: string;
+  displayName: string;
+  email: string;
+  activeEditor: ProjectPresenceActiveEditor | null;
 };
 
 type QuickCreateResizeState = {
@@ -597,6 +611,56 @@ const readonlyWorkspaceFields = {
   updatedAt: true,
 } as TaskFormReadonly;
 
+function readProjectPresenceUsers(state: Record<string, unknown[]>): ProjectPresenceUser[] {
+  const users = new Map<string, ProjectPresenceUser>();
+
+  for (const entries of Object.values(state)) {
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+
+      const payload = entry as Partial<ProjectPresenceUser>;
+      const profileId = typeof payload.profileId === "string" ? payload.profileId : "";
+      if (!profileId || users.has(profileId)) {
+        continue;
+      }
+
+      users.set(profileId, {
+        profileId,
+        displayName: typeof payload.displayName === "string" && payload.displayName.trim() ? payload.displayName : "User",
+        email: typeof payload.email === "string" ? payload.email : "",
+        activeEditor: readProjectPresenceActiveEditor(payload.activeEditor),
+      });
+    }
+  }
+
+  return [...users.values()].sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+function readProjectPresenceActiveEditor(value: unknown): ProjectPresenceActiveEditor | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Partial<ProjectPresenceActiveEditor>;
+  if (payload.targetType !== "taskField" || typeof payload.taskId !== "string" || typeof payload.fieldKey !== "string") {
+    return null;
+  }
+
+  return {
+    targetType: "taskField",
+    taskId: payload.taskId,
+    fieldKey: payload.fieldKey,
+    fieldLabel: typeof payload.fieldLabel === "string" && payload.fieldLabel.trim() ? payload.fieldLabel : payload.fieldKey,
+    heartbeatAt: typeof payload.heartbeatAt === "string" ? payload.heartbeatAt : "",
+  };
+}
+
+function getPresenceDisplayName(user: { displayName?: string | null; email?: string | null }) {
+  return user.displayName?.trim() || user.email?.trim() || "User";
+}
+
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
   const router = useRouter();
@@ -648,6 +712,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
+  const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -752,6 +817,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskFormReadonly = isWorkspaceReadOnly
     ? readonlyWorkspaceFields
     : { ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) };
+  const currentActiveEditorSignal = useMemo<ProjectPresenceActiveEditor | null>(() => {
+    if (!activeTaskListInlineEditCell) {
+      return null;
+    }
+
+    return {
+      targetType: "taskField",
+      taskId: activeTaskListInlineEditCell.taskId,
+      fieldKey: activeTaskListInlineEditCell.columnKey,
+      fieldLabel: labelForField(activeTaskListInlineEditCell.columnKey),
+      heartbeatAt: new Date().toISOString(),
+    };
+  }, [activeTaskListInlineEditCell]);
+  const projectPresenceLabel = useMemo(() => {
+    if (projectPresenceUsers.length === 0) {
+      return null;
+    }
+
+    const names = projectPresenceUsers.map((user) => user.displayName).slice(0, 3).join(", ");
+    const overflow = projectPresenceUsers.length > 3 ? ` +${projectPresenceUsers.length - 3}` : "";
+    return `${projectPresenceUsers.length} online: ${names}${overflow}`;
+  }, [projectPresenceUsers]);
+  const activeEditorPresenceLabel = useMemo(() => {
+    const activeEditors = projectPresenceUsers.filter(
+      (user) => user.profileId !== authUser?.id && user.activeEditor?.targetType === "taskField",
+    );
+    if (activeEditors.length === 0) {
+      return null;
+    }
+
+    const editor = activeEditors[0];
+    const suffix = activeEditors.length > 1 ? ` +${activeEditors.length - 1}` : "";
+    return `${editor.displayName} editing ${editor.activeEditor?.fieldLabel ?? "field"}${suffix}`;
+  }, [authUser?.id, projectPresenceUsers]);
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
     mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
@@ -1038,6 +1137,56 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       isMounted = false;
     };
   }, [currentProjectId, isPreview]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId || !authUser || !hasSupabaseClientConfig()) {
+      setProjectPresenceUsers([]);
+      return;
+    }
+
+    let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase.channel(`project:${currentProjectId}:presence`, {
+      config: {
+        presence: {
+          key: authUser.id,
+        },
+      },
+    });
+
+    const syncPresence = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const state = channel.presenceState() as Record<string, unknown[]>;
+      setProjectPresenceUsers(readProjectPresenceUsers(state));
+    };
+
+    const trackPresence = () =>
+      channel.track({
+        profileId: authUser.id,
+        displayName: getPresenceDisplayName(authUser),
+        email: authUser.email,
+        projectId: currentProjectId,
+        activeEditor: currentActiveEditorSignal,
+        heartbeatAt: new Date().toISOString(),
+      });
+
+    channel.on("presence", { event: "sync" }, syncPresence);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED" && !cancelled) {
+        void trackPresence();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      setProjectPresenceUsers([]);
+      void channel.untrack();
+      void supabase.removeChannel(channel);
+    };
+  }, [authUser, currentActiveEditorSignal, currentProjectId, isPreview]);
 
   useEffect(() => {
     activeTaskListInlineEditCellRef.current = activeTaskListInlineEditCell;
@@ -4104,6 +4253,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
                   })}
                 </p>
+                {projectPresenceLabel ? <p className="workspace__meta workspace__fact">{projectPresenceLabel}</p> : null}
+                {activeEditorPresenceLabel ? <p className="workspace__meta workspace__fact">{activeEditorPresenceLabel}</p> : null}
                 {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta workspace__fact">{t("workspace.localAuthNote")}</p> : null}
               </div>
             ) : null}
@@ -4157,6 +4308,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
                   })}
                 </p>
+                {projectPresenceLabel ? <p className="workspace__meta">{projectPresenceLabel}</p> : null}
+                {activeEditorPresenceLabel ? <p className="workspace__meta">{activeEditorPresenceLabel}</p> : null}
                 {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta">{t("workspace.localAuthNote")}</p> : null}
               </>
             ) : null}
