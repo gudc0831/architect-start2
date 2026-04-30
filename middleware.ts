@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { getAuthRuntimeConfigErrorMessage, hasAuthRuntimeConfig, isAuthStubMode } from "@/lib/auth/auth-config";
 import { updateSession } from "@/lib/supabase/middleware";
 
-const publicPaths = new Set(["/login", "/preview"]);
-const publicApiPrefixes = ["/api/auth/login", "/api/system/status"];
+const publicPaths = new Set(["/login", "/auth/callback", "/preview"]);
+const publicApiPrefixes = ["/api/auth/login", "/api/auth/google"];
 
 function isStaticAsset(pathname: string) {
   return (
@@ -74,10 +74,6 @@ export async function middleware(request: NextRequest) {
 
   const { response, user } = await updateSession(request);
 
-  if (pathname === "/login" && user) {
-    return NextResponse.redirect(new URL("/board", request.url));
-  }
-
   if (isPublicRoute(pathname)) {
     return response;
   }
@@ -104,4 +100,3 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
-

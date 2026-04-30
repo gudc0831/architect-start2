@@ -5,6 +5,7 @@ import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/doma
 export type TaskOrderUpdateInput = {
   id: string;
   siblingOrder: number;
+  expectedVersion?: number;
   updatedBy?: string | null;
 };
 
@@ -18,6 +19,7 @@ export type CreateTaskInput = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId?: string | null;
   issueTitle: string;
   reviewedAt?: string;
   isDaily: boolean;
@@ -53,6 +55,7 @@ export type UpdateTaskInput = Partial<
     | "requestedBy"
     | "relatedDisciplines"
     | "assignee"
+    | "assigneeProfileId"
     | "issueTitle"
     | "reviewedAt"
     | "isDaily"

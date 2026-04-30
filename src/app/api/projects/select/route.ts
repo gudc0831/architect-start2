@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { applyProjectSessionProjectId } from "@/lib/project-session";
 import { listEffectiveTaskCategoriesForProject, selectProjectForSession } from "@/use-cases/admin/admin-service";
 
 export async function POST(request: Request) {
   try {
-    await requireUser();
+    assertRequestIntegrity(request);
+    const user = await requireUser();
     const body = (await request.json()) as { projectId?: string };
-    const data = await selectProjectForSession(String(body.projectId ?? ""));
+    const data = await selectProjectForSession(String(body.projectId ?? ""), user);
     const effectiveCategories = await listEffectiveTaskCategoriesForProject(data.currentProjectId ?? null);
     const categoryDefinitionsByField = Object.fromEntries(
       Object.entries(effectiveCategories.byField).map(([fieldKey, value]) => [fieldKey, value.displayDefinitions]),

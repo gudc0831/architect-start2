@@ -1,0 +1,4 @@
+Req: Start the approved collaboration expansion plan using the recommended decisions for role migration, pending profiles, and pending access request scope.
+Diff: recorded the approved Step 0 decisions; updated the auth/RBAC contract; added project capability helpers; added staged `viewer`/`editor` enum migrations, `editor` default/backfill, admin role UI updates, and a legacy role report SQL.
+Why: later invitation, access-request, RLS, Storage, and UI work need one authoritative permission contract and a safe role schema foundation.
+Verify/Time: `npx prisma validate`, `npm run db:generate`, `npm run typecheck`, `npm run lint`, `npm run build`, `npm run deps:audit`, `npm run data:backup`, `npm run db:migrate:safe`, `npm run data:doctor`; Preview legacy project `member` rows = 0 on 2026-04-29.

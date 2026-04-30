@@ -1,0 +1,5 @@
+Req: continue the `codex/multi-user-transition` auth cleanup by making the auth-sensitive routes and auth-state pages explicit about no-store behavior instead of relying on implicit runtime behavior.
+Diff: add `src/lib/auth/auth-response-cache.ts`; apply `Cache-Control: no-store` to the auth route handlers in `src/app/api/auth/google/route.ts`, `src/app/api/auth/login/route.ts`, `src/app/api/auth/logout/route.ts`, `src/app/api/auth/me/route.ts`, `src/app/auth/callback/route.ts`, and `src/app/auth/post-login/route.ts`; mark `src/app/login/page.tsx` and `src/app/auth/no-access/page.tsx` as `force-dynamic`.
+Why: the locked auth contract says auth-sensitive pages and APIs must not rely on public caching. Earlier slices fixed redirect safety, project access, request-integrity, and auth-state UX, but they still depended on default runtime behavior for cache safety.
+Verify: `npm run typecheck` passed; direct `.\node_modules\.bin\eslint.cmd` on the changed auth files passed.
+Risks: this is still repository-side verification only; preview/cloud runtime header verification and real OAuth browser flow verification are still pending follow-up checks.

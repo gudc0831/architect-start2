@@ -14,7 +14,7 @@ import {
   safeSnapshotId,
   writeJsonFile,
 } from "../../src/lib/data-guard/shared";
-import { captureCommand, npxCommand } from "./run-command";
+import { captureNpmExec } from "./run-command";
 
 loadEnvConfig(process.cwd());
 
@@ -24,6 +24,16 @@ type CloudCounts = {
   tasks: number;
   files: number;
   preferences: number;
+};
+
+type CloudBackupTables = {
+  profiles: unknown[];
+  projects: unknown[];
+  tasks: unknown[];
+  files: unknown[];
+  preferences: unknown[];
+  storageBuckets: unknown[];
+  storageObjects: unknown[];
 };
 
 type CloudGuardLock = {
@@ -117,6 +127,78 @@ async function getPrisma() {
   return prismaModule.prisma;
 }
 
+function normalizeJsonRows(value: unknown) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  return [];
+}
+
+async function readBackupTableRows(schemaName: string, tableName: string, orderBy: string) {
+  const { Pool } = await import("pg");
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for cloud backup");
+  }
+
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+  });
+
+  try {
+    const result = await pool.query(
+      `select coalesce(jsonb_agg(to_jsonb(row_data) order by ${orderBy}), '[]'::jsonb) as rows from (select * from "${schemaName}"."${tableName}") row_data`,
+    );
+    return normalizeJsonRows(result.rows[0]?.rows);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function readCloudBackupTables() {
+  const tableSpecs = [
+    ["public", "profiles", "profiles", "row_data.created_at asc"],
+    ["public", "projects", "projects", "row_data.created_at asc"],
+    ["public", "tasks", "tasks", "row_data.created_at asc, row_data.task_number asc"],
+    ["public", "files", "files", "row_data.created_at asc, row_data.version asc"],
+    ["public", "profile_preferences", "preferences", "row_data.profile_id asc"],
+    ["storage", "buckets", "storageBuckets", "row_data.created_at asc, row_data.id asc"],
+    ["storage", "objects", "storageObjects", "row_data.created_at asc, row_data.name asc"],
+  ] as const;
+
+  const tables: CloudBackupTables = {
+    profiles: [],
+    projects: [],
+    tasks: [],
+    files: [],
+    preferences: [],
+    storageBuckets: [],
+    storageObjects: [],
+  };
+  const errors: Record<string, string> = {};
+
+  for (const [schemaName, tableName, backupKey, orderBy] of tableSpecs) {
+    try {
+      tables[backupKey] = await readBackupTableRows(schemaName, tableName, orderBy);
+    } catch (error) {
+      errors[backupKey] = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  return {
+    tables,
+    errors,
+  };
+}
+
 async function getRowCounts(): Promise<CloudCounts> {
   const prisma = await getPrisma();
   const [profiles, projects, tasks, files, preferences] = await Promise.all([
@@ -164,7 +246,7 @@ export async function getCloudGuardSummary(options?: { includeMigrationStatus?: 
   const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : false;
   const migrationStatus = options?.includeMigrationStatus
     ? (() => {
-        const result = captureCommand(npxCommand, ["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
+        const result = captureNpmExec(["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
         return {
           ok: result.status === 0,
           status: result.status,
@@ -288,18 +370,15 @@ export async function createCloudBackup(reason: string) {
   const backupDir = join(cloudBackupsRoot, backupId);
   await ensureDir(backupDir);
 
-  let tables: Record<string, unknown> | null = null;
+  let tables: CloudBackupTables | null = null;
   let backupError: string | null = null;
 
   try {
-    const prisma = await getPrisma();
-    tables = {
-      profiles: await prisma.profile.findMany({ orderBy: { createdAt: "asc" } }),
-      projects: await prisma.project.findMany({ orderBy: { createdAt: "asc" } }),
-      tasks: await prisma.task.findMany({ orderBy: [{ createdAt: "asc" }, { taskNumber: "asc" }] }),
-      files: await prisma.file.findMany({ orderBy: [{ createdAt: "asc" }, { version: "asc" }] }),
-      preferences: await prisma.profilePreference.findMany({ orderBy: { profileId: "asc" } }),
-    };
+    const backup = await readCloudBackupTables();
+    tables = backup.tables;
+    if (Object.keys(backup.errors).length > 0) {
+      backupError = JSON.stringify(backup.errors);
+    }
   } catch (error) {
     backupError = error instanceof Error ? error.message : String(error);
   }

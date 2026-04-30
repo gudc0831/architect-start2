@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
 import { requireUser } from "@/lib/auth/require-user";
 import { readFileContent } from "@/use-cases/file-service";
 
@@ -11,7 +12,8 @@ export async function GET(
   context: { params: Promise<{ fileId: string }> },
 ) {
   try {
-    await requireUser();
+    const user = await requireUser();
+    await requireCurrentProjectAccess(user);
     const { fileId } = await context.params;
     const { searchParams } = new URL(request.url);
     const disposition = resolveDisposition(searchParams.get("disposition"));

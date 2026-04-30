@@ -7,11 +7,13 @@ export type TaskReorderManualMoveCommand = {
   movedTaskId: string;
   targetParentTaskId: string | null;
   targetIndex: number;
+  expectedVersions: ReadonlyMap<string, number>;
 };
 
 export type TaskReorderAutoSortCommand = {
   action: "auto_sort";
   strategy: TaskOrderingStrategy;
+  expectedVersions: ReadonlyMap<string, number>;
 };
 
 export type TaskReorderCommand = TaskReorderManualMoveCommand | TaskReorderAutoSortCommand;

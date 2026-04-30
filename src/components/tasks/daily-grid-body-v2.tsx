@@ -121,6 +121,7 @@ export function DailyGridBodyV2({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<RowResizeState | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
+  const rowResizeEndListenerRef = useRef<(() => void) | null>(null);
   const viewportFrameRef = useRef<number | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const metricsSnapshot = useTaskListRowMetricsSnapshot(metricsStore);
@@ -256,12 +257,22 @@ export function DailyGridBodyV2({
 
     resizeStateRef.current = null;
     window.removeEventListener("pointermove", handleRowResizeMove);
-    window.removeEventListener("pointerup", handleRowResizeEnd);
-    window.removeEventListener("pointercancel", handleRowResizeEnd);
+    if (rowResizeEndListenerRef.current) {
+      window.removeEventListener("pointerup", rowResizeEndListenerRef.current);
+      window.removeEventListener("pointercancel", rowResizeEndListenerRef.current);
+    }
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
     onCommitRowHeight(resizeState.taskId, resizeState.currentHeight);
   }, [flushResizeFrame, handleRowResizeMove, onCommitRowHeight]);
+
+  const handleRowResizeEndListener = useCallback(() => {
+    handleRowResizeEnd();
+  }, [handleRowResizeEnd]);
+
+  useEffect(() => {
+    rowResizeEndListenerRef.current = handleRowResizeEndListener;
+  }, [handleRowResizeEndListener]);
 
   const handleTaskListRowResizeStart = useCallback(
     (taskId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -279,12 +290,12 @@ export function DailyGridBodyV2({
       };
 
       window.addEventListener("pointermove", handleRowResizeMove);
-      window.addEventListener("pointerup", handleRowResizeEnd);
-      window.addEventListener("pointercancel", handleRowResizeEnd);
+      window.addEventListener("pointerup", handleRowResizeEndListener);
+      window.addEventListener("pointercancel", handleRowResizeEndListener);
       document.body.style.cursor = "ns-resize";
       document.body.style.userSelect = "none";
     },
-    [handleRowResizeEnd, handleRowResizeMove, metricsStore],
+    [handleRowResizeEnd, handleRowResizeEndListener, handleRowResizeMove, metricsStore],
   );
 
   const handleTaskListRowAutoFitDoubleClick = useCallback(

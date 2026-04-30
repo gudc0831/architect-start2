@@ -20,6 +20,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
+  SelectHTMLAttributes,
 } from "react";
 import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
@@ -49,8 +50,12 @@ import type { TaskQuickCreateFormValues } from "@/components/tasks/task-quick-cr
 import { useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
+import { useTheme } from "@/providers/theme-provider";
+import type { ProjectMembershipRole } from "@/domains/admin/types";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
+import { canEditProjectWorkspace } from "@/lib/auth/project-capabilities";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
+import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import {
@@ -136,6 +141,7 @@ type TaskFormState = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId: string | null;
   issueTitle: string;
   reviewedAt: string;
   updatedAt: string;
@@ -161,6 +167,18 @@ type TaskDropState = {
   position: TaskDropPosition;
 };
 
+type TaskReorderClientCommand =
+  | {
+      action: "manual_move";
+      movedTaskId: string;
+      targetParentTaskId: string | null;
+      targetIndex: number;
+    }
+  | {
+      action: "auto_sort";
+      strategy: "priority" | "action_id";
+    };
+
 type TaskDetailPanelInteractionState = {
   selectedTaskId: string | null;
   isDetailExpanded: boolean;
@@ -176,6 +194,7 @@ type TaskFormDisplayState = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId?: string | null;
   issueTitle: string;
   reviewedAt: string;
   updatedAt?: string | null;
@@ -193,6 +212,7 @@ type EditableTaskFormKey =
   | "requestedBy"
   | "relatedDisciplines"
   | "assignee"
+  | "assigneeProfileId"
   | "issueTitle"
   | "reviewedAt"
   | "locationRef"
@@ -202,6 +222,26 @@ type EditableTaskFormKey =
   | "decision";
 
 type TaskFormChangeHandler = <K extends EditableTaskFormKey>(key: K, value: TaskFormState[K]) => void;
+
+type AssigneeOption = {
+  profileId: string;
+  displayName: string;
+  email: string;
+  role: ProjectMembershipRole;
+};
+type ProjectPresenceActiveEditor = {
+  targetType: "taskField";
+  taskId: string;
+  fieldKey: string;
+  fieldLabel: string;
+  heartbeatAt: string;
+};
+type ProjectPresenceUser = {
+  profileId: string;
+  displayName: string;
+  email: string;
+  activeEditor: ProjectPresenceActiveEditor | null;
+};
 
 type QuickCreateResizeState = {
   fieldKey: QuickCreateFieldKey;
@@ -237,7 +277,10 @@ const EMPTY_TASK_FILES: readonly FileRecord[] = [];
 
 type TaskCategoricalFormFieldKey = Extract<EditableTaskFormKey, TaskCategoricalFieldKey>;
 type TaskListEditableDateFieldKey = Extract<EditableTaskFormKey, "dueDate" | "reviewedAt">;
-type TaskListEditableTextFieldKey = Exclude<EditableTaskFormKey, "calendarLinked" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt">;
+type TaskListEditableTextFieldKey = Exclude<
+  EditableTaskFormKey,
+  "calendarLinked" | "assigneeProfileId" | TaskCategoricalFieldKey | "dueDate" | "reviewedAt"
+>;
 type DailyCategoricalFilterFieldKey = Extract<
   TaskCategoricalFieldKey,
   "workType" | "coordinationScope" | "requestedBy" | "relatedDisciplines" | "locationRef" | "status"
@@ -511,6 +554,7 @@ const editableTaskFormKeys = [
   "requestedBy",
   "relatedDisciplines",
   "assignee",
+  "assigneeProfileId",
   "issueTitle",
   "reviewedAt",
   "locationRef",
@@ -545,6 +589,7 @@ const defaultForm = (): TaskFormState => ({
   requestedBy: "",
   relatedDisciplines: "",
   assignee: "",
+  assigneeProfileId: null,
   issueTitle: "",
   reviewedAt: "",
   updatedAt: "",
@@ -560,20 +605,85 @@ const createReadonlyFields: TaskFormReadonly = {
   actionId: true,
   updatedAt: true,
 };
+const readonlyWorkspaceFields = {
+  ...Object.fromEntries(editableTaskFormKeys.map((field) => [field, true])),
+  actionId: true,
+  updatedAt: true,
+} as TaskFormReadonly;
+
+function readProjectPresenceUsers(state: Record<string, unknown[]>): ProjectPresenceUser[] {
+  const users = new Map<string, ProjectPresenceUser>();
+
+  for (const entries of Object.values(state)) {
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+
+      const payload = entry as Partial<ProjectPresenceUser>;
+      const profileId = typeof payload.profileId === "string" ? payload.profileId : "";
+      if (!profileId || users.has(profileId)) {
+        continue;
+      }
+
+      users.set(profileId, {
+        profileId,
+        displayName: typeof payload.displayName === "string" && payload.displayName.trim() ? payload.displayName : "User",
+        email: typeof payload.email === "string" ? payload.email : "",
+        activeEditor: readProjectPresenceActiveEditor(payload.activeEditor),
+      });
+    }
+  }
+
+  return [...users.values()].sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+function readProjectPresenceActiveEditor(value: unknown): ProjectPresenceActiveEditor | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Partial<ProjectPresenceActiveEditor>;
+  if (payload.targetType !== "taskField" || typeof payload.taskId !== "string" || typeof payload.fieldKey !== "string") {
+    return null;
+  }
+
+  return {
+    targetType: "taskField",
+    taskId: payload.taskId,
+    fieldKey: payload.fieldKey,
+    fieldLabel: typeof payload.fieldLabel === "string" && payload.fieldLabel.trim() ? payload.fieldLabel : payload.fieldKey,
+    heartbeatAt: typeof payload.heartbeatAt === "string" ? payload.heartbeatAt : "",
+  };
+}
+
+function getPresenceDisplayName(user: { displayName?: string | null; email?: string | null }) {
+  return user.displayName?.trim() || user.email?.trim() || "User";
+}
+
+function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
+  return {
+    targetType: "taskField",
+    targetId: cell.taskId,
+    fieldKey: cell.columnKey,
+  };
+}
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
   const router = useRouter();
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const { themeId } = useTheme();
+  const isWarmStudio = themeId === "posthog";
   const isPreviewDaily = isPreview && mode === "daily";
-  const isPreviewTrash = isPreview && mode === "trash";
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
   const calendarMonthQuery = searchParams.get("month");
   const {
     currentProjectId,
+    currentProjectRole,
     projectName,
     projectLoaded,
     projectSource,
@@ -609,6 +719,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [dailyTaskPage, setDailyTaskPage] = useState(1);
   const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
+  const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
+  const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
@@ -658,6 +770,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
   const activeTaskListInlineEditCellRef = useRef<PendingTaskListFocusCell | null>(null);
+  const activeTaskListEditLeaseCellRef = useRef<PendingTaskListFocusCell | null>(null);
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
@@ -702,6 +815,51 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isDetailPanelResizable = shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
+  const canEditWorkspace =
+    !isPreview &&
+    Boolean(authUser) &&
+    canEditProjectWorkspace({
+      globalRole: authUser?.role ?? "member",
+      projectRole: currentProjectRole,
+    });
+  const isWorkspaceReadOnly = !canEditWorkspace;
+  const taskFormReadonly = isWorkspaceReadOnly
+    ? readonlyWorkspaceFields
+    : { ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) };
+  const currentActiveEditorSignal = useMemo<ProjectPresenceActiveEditor | null>(() => {
+    if (!activeTaskListInlineEditCell) {
+      return null;
+    }
+
+    return {
+      targetType: "taskField",
+      taskId: activeTaskListInlineEditCell.taskId,
+      fieldKey: activeTaskListInlineEditCell.columnKey,
+      fieldLabel: labelForField(activeTaskListInlineEditCell.columnKey),
+      heartbeatAt: new Date().toISOString(),
+    };
+  }, [activeTaskListInlineEditCell]);
+  const projectPresenceLabel = useMemo(() => {
+    if (projectPresenceUsers.length === 0) {
+      return null;
+    }
+
+    const names = projectPresenceUsers.map((user) => user.displayName).slice(0, 3).join(", ");
+    const overflow = projectPresenceUsers.length > 3 ? ` +${projectPresenceUsers.length - 3}` : "";
+    return `${projectPresenceUsers.length} online: ${names}${overflow}`;
+  }, [projectPresenceUsers]);
+  const activeEditorPresenceLabel = useMemo(() => {
+    const activeEditors = projectPresenceUsers.filter(
+      (user) => user.profileId !== authUser?.id && user.activeEditor?.targetType === "taskField",
+    );
+    if (activeEditors.length === 0) {
+      return null;
+    }
+
+    const editor = activeEditors[0];
+    const suffix = activeEditors.length > 1 ? ` +${activeEditors.length - 1}` : "";
+    return `${editor.displayName} editing ${editor.activeEditor?.fieldLabel ?? "field"}${suffix}`;
+  }, [authUser?.id, projectPresenceUsers]);
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
     mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
@@ -956,6 +1114,88 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId) {
+      setAssigneeOptions([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    void fetch("/api/project/members", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load project members");
+        }
+
+        const json = (await response.json()) as { data?: { members?: AssigneeOption[] } };
+        if (!isMounted) {
+          return;
+        }
+
+        setAssigneeOptions(Array.isArray(json.data?.members) ? json.data.members : []);
+      })
+      .catch(() => {
+        if (isMounted) {
+          setAssigneeOptions([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentProjectId, isPreview]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId || !authUser || !hasSupabaseClientConfig()) {
+      setProjectPresenceUsers([]);
+      return;
+    }
+
+    let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase.channel(`project:${currentProjectId}:presence`, {
+      config: {
+        presence: {
+          key: authUser.id,
+        },
+      },
+    });
+
+    const syncPresence = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const state = channel.presenceState() as Record<string, unknown[]>;
+      setProjectPresenceUsers(readProjectPresenceUsers(state));
+    };
+
+    const trackPresence = () =>
+      channel.track({
+        profileId: authUser.id,
+        displayName: getPresenceDisplayName(authUser),
+        email: authUser.email,
+        projectId: currentProjectId,
+        activeEditor: currentActiveEditorSignal,
+        heartbeatAt: new Date().toISOString(),
+      });
+
+    channel.on("presence", { event: "sync" }, syncPresence);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED" && !cancelled) {
+        void trackPresence();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      setProjectPresenceUsers([]);
+      void channel.untrack();
+      void supabase.removeChannel(channel);
+    };
+  }, [authUser, currentActiveEditorSignal, currentProjectId, isPreview]);
 
   useEffect(() => {
     activeTaskListInlineEditCellRef.current = activeTaskListInlineEditCell;
@@ -1981,10 +2221,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       total: dailyTreeRows.length,
     });
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
-  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isPreviewDaily;
-  const shouldVirtualizeDailyTaskTable = mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isPreviewDaily;
+  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isWorkspaceReadOnly;
+  const shouldVirtualizeDailyTaskTable =
+    mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isWorkspaceReadOnly;
   const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
-  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isPreviewDaily;
+  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isWorkspaceReadOnly;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -2579,7 +2820,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         onToggleExpand: toggleBoardTaskMemo,
         toggleLabel: detailToggleLabel,
         toggleAriaLabel: `${task.issueTitle} ${detailToggleAriaLabel}`,
-        actions: (
+        actions: isWorkspaceReadOnly ? null : (
           <>
             <button className="secondary-button task-card__action-button" disabled={task.status === statusOrder[0]} onClick={() => void shiftTaskStatus(task, -1)} type="button">
               {t("actions.back")}
@@ -2739,6 +2980,66 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [markDraftFieldDirty, taskEditorDraftStore],
   );
+  const acquireTaskListEditLease = useCallback(
+    async (cell: PendingTaskListFocusCell) => {
+      if (isPreview || !canEditWorkspace) {
+        return true;
+      }
+
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/edit-leases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildEditLeasePayload(cell)),
+        });
+
+        if (response.ok) {
+          return true;
+        }
+
+        setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+        return false;
+      } catch {
+        setErrorMessage(localizeError({ fallbackKey: "updateTaskFailed" }));
+        return false;
+      }
+    },
+    [canEditWorkspace, isPreview, setErrorMessage],
+  );
+  const releaseTaskListEditLease = useCallback(
+    async (cell: PendingTaskListFocusCell) => {
+      if (isPreview || !canEditWorkspace) {
+        return;
+      }
+
+      try {
+        await fetch("/api/edit-leases", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildEditLeasePayload(cell)),
+        });
+      } catch {
+        // Lease expiry is the authoritative fallback if best-effort release fails.
+      }
+    },
+    [canEditWorkspace, isPreview],
+  );
+  const releaseActiveTaskListEditLease = useCallback(() => {
+    const cell = activeTaskListEditLeaseCellRef.current;
+    if (!cell) {
+      return;
+    }
+
+    activeTaskListEditLeaseCellRef.current = null;
+    void releaseTaskListEditLease(cell);
+  }, [releaseTaskListEditLease]);
+  useEffect(() => {
+    return () => {
+      releaseActiveTaskListEditLease();
+    };
+  }, [releaseActiveTaskListEditLease]);
   const cancelInlineTaskListField = useCallback(
     (columnKey: TaskListColumnKey) => {
       const field = getEditableTaskListField(columnKey);
@@ -2746,13 +3047,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         draftRef.current = draft;
       }
       if (field) {
-        clearDraftDirtyFields([field]);
+        clearDraftDirtyFields(field === "assignee" ? ["assignee", "assigneeProfileId"] : [field]);
       }
       taskEditorDraftStore.cancelInlineEdit();
+      releaseActiveTaskListEditLease();
       setTaskListActiveInlineEditCell(null);
       setPendingTaskListFocusCell(null);
     },
-    [clearDraftDirtyFields, draft, setTaskListActiveInlineEditCell, taskEditorDraftStore],
+    [clearDraftDirtyFields, draft, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell, taskEditorDraftStore],
   );
 
   const updateParentTaskNumberDraft = useCallback(
@@ -2790,8 +3092,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   async function createTaskFromForm(nextForm: TaskQuickCreateFormValues) {
     setErrorMessage(null);
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return false;
     }
 
@@ -2831,8 +3133,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setSaving(true);
     setErrorMessage(null);
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       setSaving(false);
       return false;
     }
@@ -2933,21 +3235,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const reorderDailyTasks = useCallback(
     async (
-      command:
-        | {
-            action: "manual_move";
-            movedTaskId: string;
-            targetParentTaskId: string | null;
-            targetIndex: number;
-          }
-        | {
-            action: "auto_sort";
-            strategy: "priority" | "action_id";
-          },
+      command: TaskReorderClientCommand,
       nextMode: DailyTaskSortMode,
     ) => {
-      if (isPreview) {
-        setErrorMessage(t("errors.previewMutationNotAllowed"));
+      if (isWorkspaceReadOnly) {
+        setErrorMessage(t("errors.workspaceReadOnly"));
         return false;
       }
 
@@ -2966,14 +3258,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage(null);
 
       try {
+        const expectedVersions = buildTaskReorderExpectedVersions(command, sortedTasks);
         const response = await fetch("/api/tasks/reorder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(command),
+          body: JSON.stringify({ ...command, expectedVersions }),
         });
 
         if (!response.ok) {
           setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+          if (response.status === 409) {
+            await refreshScope({ force: true });
+          }
           return false;
         }
 
@@ -2996,7 +3292,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         setTaskDropState(null);
       }
     },
-    [hasSelectedTaskDraftChanges, isPreview, isReorderingTasks, setErrorMessage, setTasks],
+    [
+      hasSelectedTaskDraftChanges,
+      isWorkspaceReadOnly,
+      isReorderingTasks,
+      refreshScope,
+      setErrorMessage,
+      setTaskDropState,
+      setTaskListSelection,
+      setTasks,
+      sortedTasks,
+    ],
   );
 
   const moveTaskByOffset = useCallback(
@@ -3195,8 +3501,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         fallbackKey?: ErrorCopyKey;
       } = {},
     ) => {
-      if (isPreview) {
-        setErrorMessage(t("errors.previewMutationNotAllowed"));
+      if (isWorkspaceReadOnly) {
+        setErrorMessage(t("errors.workspaceReadOnly"));
         return null;
       }
 
@@ -3219,7 +3525,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setTaskListSelection(task.id);
       return json.data;
     },
-    [applyTaskServerUpdate, isPreview, refreshScope, setErrorMessage, setTaskListSelection],
+    [applyTaskServerUpdate, isWorkspaceReadOnly, refreshScope, setErrorMessage, setTaskListSelection],
   );
 
   async function saveDetailCalendarLinked(nextValue: boolean) {
@@ -3270,18 +3576,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       if (Object.is(currentDraft[field], currentTask[field])) {
         clearDraftDirtyFields([field]);
+        releaseActiveTaskListEditLease();
+        setTaskListActiveInlineEditCell(null);
+        setPendingTaskListFocusCell(null);
         return;
       }
 
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
 
       try {
-        await patchTask(currentDraft, { [field]: currentDraft[field] } as Partial<TaskRecord>, { clearedDirtyFields: [field] });
+        const payload =
+          field === "assignee"
+            ? { assignee: currentDraft.assignee, assigneeProfileId: currentDraft.assigneeProfileId }
+            : ({ [field]: currentDraft[field] } as Partial<TaskRecord>);
+        const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
+        await patchTask(currentDraft, payload, { clearedDirtyFields });
       } finally {
+        releaseActiveTaskListEditLease();
+        setTaskListActiveInlineEditCell(null);
+        setPendingTaskListFocusCell(null);
         setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
       }
     },
-    [clearDraftDirtyFields, patchTask],
+    [clearDraftDirtyFields, patchTask, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell],
   );
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
     const currentIndex = statusOrder.indexOf(task.status);
@@ -3312,8 +3629,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function moveToTrash(taskId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3327,8 +3644,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreTask(taskId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3342,8 +3659,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3358,12 +3675,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
           return;
         }
-      }
-      await refreshTaskFiles(taskId, { force: true });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
     }
+    await refreshTaskFiles(taskId, { force: true });
+  } catch (error) {
+    if (isApiConflictError(error)) {
+      await refreshTaskFiles(taskId, { force: true });
+    }
+    setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
   }
+}
 
   async function uploadSelectedFile() {
     if (!selectedTask || !pendingUpload) return;
@@ -3373,8 +3693,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   async function uploadNextVersion() {
     if (!versionTargetId || !pendingVersionUpload) return;
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3408,13 +3728,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setPendingVersionUpload(null);
       await refreshTaskFiles(targetFile.taskId, { force: true });
     } catch (error) {
+      if (isApiConflictError(error, "FILE_VERSION_CONFLICT")) {
+        await refreshTaskFiles(targetFile.taskId, { force: true });
+      }
       setErrorMessage(error instanceof Error ? error.message : t("errors.uploadNextVersionFailed"));
     }
   }
 
   async function moveFileToTrash(fileId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3429,8 +3752,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function restoreFile(fileId: string) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3445,8 +3768,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function deleteTaskPermanently(task: TaskRecord) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3469,8 +3792,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   async function deleteFilePermanently(file: FileRecord) {
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3496,8 +3819,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3540,8 +3863,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (isPreview) {
-      setErrorMessage(t("errors.previewMutationNotAllowed"));
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
       return;
     }
 
@@ -3602,17 +3925,33 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, []);
 
   const selectTask = useCallback((taskId: string) => {
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     if (isPreviewDaily) {
       pinDetailPanel();
     }
-  }, [isPreviewDaily, pinDetailPanel, setTaskListActiveInlineEditCell]);
+  }, [isPreviewDaily, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
-  const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
-    setTaskListActiveInlineEditCell({ taskId, columnKey }, { selectedTaskId: taskId });
-    setPendingTaskListFocusCell({ taskId, columnKey });
-  }, [setTaskListActiveInlineEditCell]);
+  const focusTaskListEditableCell = useCallback(async (taskId: string, columnKey: TaskListColumnKey) => {
+    const nextCell = { taskId, columnKey };
+    const previousLeaseCell = activeTaskListEditLeaseCellRef.current;
+    if (previousLeaseCell && !arePendingTaskListFocusCellsEqual(previousLeaseCell, nextCell)) {
+      activeTaskListEditLeaseCellRef.current = null;
+      void releaseTaskListEditLease(previousLeaseCell);
+    }
+
+    const acquired = await acquireTaskListEditLease(nextCell);
+    if (!acquired) {
+      setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
+      setPendingTaskListFocusCell(null);
+      return;
+    }
+
+    activeTaskListEditLeaseCellRef.current = nextCell;
+    setTaskListActiveInlineEditCell(nextCell, { selectedTaskId: taskId });
+    setPendingTaskListFocusCell(nextCell);
+  }, [acquireTaskListEditLease, releaseTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const toggleTaskDetails = useCallback((taskId: string) => {
     const currentState = detailPanelInteractionRef.current;
@@ -3621,17 +3960,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     pinDetailPanel();
-  }, [closeDetailPanel, pinDetailPanel, setTaskListActiveInlineEditCell]);
+  }, [closeDetailPanel, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const clearTaskSelection = useCallback(() => {
+    releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: null });
     setPendingTaskListFocusCell(null);
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
-  }, [setTaskListActiveInlineEditCell]);
+  }, [releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
   const clearTaskSelectionFromOutsideInteraction = useCallback(async () => {
     if (!selectedTaskId || saving || isClearingSelectionRef.current) {
       return;
@@ -3971,54 +4312,125 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       </div>
     ) : null;
 
+  const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isWorkspaceReadOnly) || canExportTasks;
+
   return (
-    <section className={clsx("workspace", `workspace--${mode}`)}>
-      <header className="workspace__header">
-        <div>
-          <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
-          <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
-          <h2>{titleByMode(mode)}</h2>
-          <p className="workspace__copy">{t("workspace.headerCopy")}</p>
-          {systemMode ? (
-            <>
-              <p className="workspace__meta">
-                {t("workspace.dataUploadSummary", {
-                  data: labelForDataMode(systemMode.dataMode),
-                  upload: labelForUploadMode(systemMode.uploadMode),
-                })}
-              </p>
-              <p className="workspace__meta">
-                {t("workspace.metadataSummary", {
-                  source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
-                  status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
-                })}
-              </p>
-              {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta">{t("workspace.localAuthNote")}</p> : null}
-            </>
+    <section
+      className={clsx("workspace", `workspace--${mode}`, isWarmStudio && "workspace--posthog", isPreview && isWarmStudio && "workspace--preview")}
+      data-preview={isWarmStudio && isPreview ? "true" : undefined}
+      data-workspace-mode={isWarmStudio ? mode : undefined}
+    >
+      {isWarmStudio ? (
+        <header className="workspace__header">
+          <div className="workspace__header-main">
+            <div className="workspace__header-topline">
+              <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+              <div className="workspace__mode-pills">
+                <span className="workspace__mode-pill">{labelForMode(mode)}</span>
+                {isPreview ? <span className="workspace__mode-pill workspace__mode-pill--preview">Preview</span> : null}
+              </div>
+            </div>
+            <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
+            <h2>{titleByMode(mode)}</h2>
+            <p className="workspace__copy">{t("workspace.headerCopy")}</p>
+            {systemMode ? (
+              <div className="workspace__facts">
+                <p className="workspace__meta workspace__fact">
+                  {t("workspace.dataUploadSummary", {
+                    data: labelForDataMode(systemMode.dataMode),
+                    upload: labelForUploadMode(systemMode.uploadMode),
+                  })}
+                </p>
+                <p className="workspace__meta workspace__fact">
+                  {t("workspace.metadataSummary", {
+                    source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
+                    status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
+                  })}
+                </p>
+                {projectPresenceLabel ? <p className="workspace__meta workspace__fact">{projectPresenceLabel}</p> : null}
+                {activeEditorPresenceLabel ? <p className="workspace__meta workspace__fact">{activeEditorPresenceLabel}</p> : null}
+                {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta workspace__fact">{t("workspace.localAuthNote")}</p> : null}
+              </div>
+            ) : null}
+          </div>
+          {showWarmStudioWorkspaceHeaderActions ? (
+            <div className="workspace__header-side">
+              <div className="workspace__header-actions">
+                {isTrashMode && !isWorkspaceReadOnly ? (
+                  <div className="trash-toolbar">
+                    <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
+                      {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
+                    </button>
+                    <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
+                    <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
+                      {t("actions.deleteSelected")}
+                    </button>
+                    <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
+                      {t("actions.emptyTrash")}
+                    </button>
+                  </div>
+                ) : null}
+                {canExportTasks ? (
+                  <div className="workspace__header-export">
+                    <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
+                      {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           ) : null}
-        </div>
-        {isTrashMode && !isPreviewTrash ? (
-          <div className="trash-toolbar">
-            <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
-              {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
-            </button>
-            <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
-            <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
-              {t("actions.deleteSelected")}
-            </button>
-            <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
-              {t("actions.emptyTrash")}
-            </button>
+        </header>
+      ) : (
+        <header className="workspace__header">
+          <div>
+            <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+            <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
+            <h2>{titleByMode(mode)}</h2>
+            <p className="workspace__copy">{t("workspace.headerCopy")}</p>
+            {systemMode ? (
+              <>
+                <p className="workspace__meta">
+                  {t("workspace.dataUploadSummary", {
+                    data: labelForDataMode(systemMode.dataMode),
+                    upload: labelForUploadMode(systemMode.uploadMode),
+                  })}
+                </p>
+                <p className="workspace__meta">
+                  {t("workspace.metadataSummary", {
+                    source: projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading"),
+                    status: systemMode.hasSupabase ? t("system.configured") : t("system.missing"),
+                  })}
+                </p>
+                {projectPresenceLabel ? <p className="workspace__meta">{projectPresenceLabel}</p> : null}
+                {activeEditorPresenceLabel ? <p className="workspace__meta">{activeEditorPresenceLabel}</p> : null}
+                {isLocalAuthPlaceholder && !isPreview ? <p className="workspace__meta">{t("workspace.localAuthNote")}</p> : null}
+              </>
+            ) : null}
           </div>
-        ) : null}
-        {canExportTasks ? (
-          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", justifyContent: "flex-end", marginLeft: "auto" }}>
-            <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
-              {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
-            </button>
-          </div>
-        ) : null}
-      </header>
+          {isTrashMode && !isWorkspaceReadOnly ? (
+            <div className="trash-toolbar">
+              <button className="secondary-button" disabled={trashItems.length === 0} onClick={toggleAllTrashSelection} type="button">
+                {allTrashSelected ? t("actions.clearSelection") : t("actions.selectAll")}
+              </button>
+              <span className="workspace__meta trash-toolbar__count">{t("workspace.selectedCount", { count: selectedTrashCount })}</span>
+              <button className="danger-button" disabled={selectedTrashCount === 0} onClick={() => void deleteSelectedTrashItems()} type="button">
+                {t("actions.deleteSelected")}
+              </button>
+              <button className="danger-button" disabled={trashItems.length === 0} onClick={() => void emptyTrashItems()} type="button">
+                {t("actions.emptyTrash")}
+              </button>
+            </div>
+          ) : null}
+          {canExportTasks ? (
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", justifyContent: "flex-end", marginLeft: "auto" }}>
+              <button className="secondary-button" disabled={isExportDisabled} onClick={() => void exportDailyTasks()} type="button">
+                {isExporting ? t("workspace.exporting") : t("workspace.exportTasks")}
+              </button>
+            </div>
+          ) : null}
+        </header>
+      )}
 
       {errorMessage ? <p className="detail-panel__warning detail-panel__warning--error">{errorMessage}</p> : null}
       {loading ? (
@@ -4036,6 +4448,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             )}
           onClickCapture={handleWorkspaceBackgroundClick}
           style={workspaceBodyStyle}
+          data-detail-docked={isWarmStudio && shouldRenderDailyDetailPanel && isDetailDocked ? "true" : undefined}
+          data-detail-expanded={isWarmStudio && shouldRenderDailyDetailPanel && isDetailExpanded ? "true" : undefined}
         >
           <div className="workspace__main" onClickCapture={handleWorkspaceBackgroundClick}>
             {!isTrashMode && sortedTasks.length === 0 && files.length === 0 ? (
@@ -4062,7 +4476,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
             {mode === "daily" ? (
               <>
-                {!isPreviewDaily ? (
+                {!isWorkspaceReadOnly ? (
                   <TaskQuickCreate
                     canCollapse={canCollapseCreateForm}
                     composerMode={quickCreateComposerMode}
@@ -4082,6 +4496,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     onToggleOpen={() => setIsCreateFormOpen((prev) => !prev)}
                     renderFields={(values, onChange) => (
                       <TaskFormFields
+                        assigneeOptions={assigneeOptions}
                         categoryDefinitionsByField={categoryDefinitionsByField}
                         composerMode={quickCreateComposerMode}
                         form={values}
@@ -4291,7 +4706,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <span className="daily-task-card__files-label">{labelForField("linkedDocuments")}</span>
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
-                            {!isPreviewDaily ? <div className="daily-task-card__reorder-actions">
+                            {!isWorkspaceReadOnly ? <div className="daily-task-card__reorder-actions">
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
@@ -4414,7 +4829,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             interactionStore={taskListRowInteractionStore}
                             isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                             isManualReorderDisabled={isDailyManualReorderDisabled}
-                            isPreviewReadOnly={isPreviewDaily}
+                            isPreviewReadOnly={isWorkspaceReadOnly}
                             isReorderingTasks={isReorderingTasks}
                             layoutStore={taskListLayoutStore}
                             moveTaskByOffset={moveTaskByOffset}
@@ -4432,9 +4847,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     )}
                   </div>
                 )}
-                {!isPreviewDaily ? (
+                {!isWorkspaceReadOnly ? (
                   <TaskListInlineEditorOverlay
                     activeCell={activeTaskListInlineEditCell}
+                    assigneeOptions={assigneeOptions}
                     categoryDefinitionsByField={categoryDefinitionsByField}
                     draftStore={taskEditorDraftStore}
                     draft={draft}
@@ -4601,11 +5017,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 {trashItems.length === 0 ? <div className="board-column__empty">{t("empty.noDeletedTasks")}</div> : null}
                 {trashItems.map((item) => {
                   const isTask = item.kind === "task";
-                  const checked = !isPreviewTrash && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
+                  const checked = !isWorkspaceReadOnly && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
 
                   return (
-                    <article className={clsx("trash-card", checked && "trash-card--selected")} key={`${item.kind}:${item.id}`}>
-                      {!isPreviewTrash ? (
+                    <article
+                      className={clsx("trash-card", checked && "trash-card--selected")}
+                      data-selected={isWarmStudio && checked ? "true" : undefined}
+                      key={`${item.kind}:${item.id}`}
+                    >
+                      {!isWorkspaceReadOnly ? (
                         <label className="trash-card__checkbox">
                           <input
                             aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
@@ -4645,23 +5065,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           </>
                         )}
                       </div>
-                      {!isPreviewTrash ? (
+                      {!isWorkspaceReadOnly ? (
                         <div className="trash-card__actions">
                           {isTask ? (
                             <>
-                              <button className="primary-button" onClick={() => void restoreTask(item.task.id)} type="button">
+                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreTask(item.task.id)} type="button">
                                 {t("actions.restore")}
                               </button>
-                              <button className="danger-button" onClick={() => void deleteTaskPermanently(item.task)} type="button">
+                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteTaskPermanently(item.task)} type="button">
                                 {t("actions.deletePermanently")}
                               </button>
                             </>
                           ) : (
                             <>
-                              <button className="primary-button" onClick={() => void restoreFile(item.file.id)} type="button">
+                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreFile(item.file.id)} type="button">
                                 {t("actions.restore")}
                               </button>
-                              <button className="danger-button" onClick={() => void deleteFilePermanently(item.file)} type="button">
+                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteFilePermanently(item.file)} type="button">
                                 {t("actions.deletePermanently")}
                               </button>
                             </>
@@ -4716,8 +5136,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     type="button"
                   >
                     <div className="detail-panel__summary">
-                      <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                      {isWarmStudio ? (
+                        <div className="detail-panel__summary-topline">
+                          <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                          {selectedTask ? <span className={clsx("status-pill", `status-pill--${selectedTask.status}`)}>{labelForStatus(selectedTask.status)}</span> : null}
+                        </div>
+                      ) : (
+                        <p className="workspace__eyebrow">{t("workspace.taskDetailsTitle")}</p>
+                      )}
                       <h3>{detailSummary}</h3>
+                      {isWarmStudio && selectedTask ? <p className="detail-panel__summary-meta">{selectedTask.assignee || t("empty.unassigned")}</p> : null}
                     </div>
                   </button>
                   <div className="detail-panel__header-primary-actions">
@@ -4742,7 +5170,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     </button>
                   </div>
                 </div>
-                {selectedTask && !isTrashMode && isDetailExpanded && !isPreviewDaily ? (
+                {selectedTask && !isTrashMode && isDetailExpanded && !isWorkspaceReadOnly ? (
                   <div className="detail-panel__header-secondary-actions">
                     <button className="danger-button" onClick={() => void moveToTrash(selectedTask.id)} type="button">
                       {t("actions.moveToTrash")}
@@ -4757,38 +5185,44 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 ) : draft ? (
                   <div className="detail-panel__body">
                     <TaskFormFields
+                      assigneeOptions={assigneeOptions}
                       form={draft}
                       onChange={updateSelectedTaskForm}
-                      readonly={{ ...createReadonlyFields, calendarLinked: Boolean(inlineSavingFields.calendarLinked) }}
+                      readonly={taskFormReadonly}
                       categoryDefinitionsByField={categoryDefinitionsByField}
                       workTypeDefinitions={workTypeDefinitions}
                     />
 
                     <label>
                       <span>{labelForField("parentActionId")}</span>
-                      <input onChange={(event) => updateParentTaskNumberDraft(event.target.value)} placeholder={t("workspace.parentTaskNumberPlaceholder")} value={parentTaskNumberDraft} />
+                      <input
+                        onChange={(event) => updateParentTaskNumberDraft(event.target.value)}
+                        placeholder={t("workspace.parentTaskNumberPlaceholder")}
+                        readOnly={isWorkspaceReadOnly}
+                        value={parentTaskNumberDraft}
+                      />
                     </label>
 
-                    <div className="detail-actions">
+                    {!isWorkspaceReadOnly ? <div className="detail-actions">
                       <button className="primary-button" disabled={saving} onClick={() => void saveSelectedTask()} type="button">
                         {saving ? t("actions.saving") : t("actions.save")}
                       </button>
                       <button className="secondary-button" onClick={resetSelectedTaskDraft} type="button">
                         {t("actions.resetChanges")}
                       </button>
-                    </div>
+                    </div> : null}
 
                     <section className="detail-section">
                       <div className="detail-section__header">
                         <h4>{labelForField("linkedDocuments")}</h4>
                       </div>
-                      <div className="upload-box">
+                      {!isWorkspaceReadOnly ? <div className="upload-box">
                         <input onChange={(event) => setPendingUpload(event.target.files?.[0] ?? null)} type="file" />
                         <button className="primary-button" onClick={() => void uploadSelectedFile()} type="button">
                           {t("actions.uploadFile")}
                         </button>
-                      </div>
-                      {selectedFiles.length > 0 ? (
+                      </div> : null}
+                      {!isWorkspaceReadOnly && selectedFiles.length > 0 ? (
                         <div className="upload-box upload-box--version">
                           <select onChange={(event) => setVersionTargetId(event.target.value)} value={versionTargetId}>
                             {selectedFiles.map((file) => (
@@ -4834,9 +5268,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   </button>
                                 </>
                               ) : null}
-                              <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
-                                {t("actions.remove")}
-                              </button>
+                              {!isWorkspaceReadOnly ? (
+                                <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
+                                  {t("actions.remove")}
+                                </button>
+                              ) : null}
                             </div>
                           </article>
                         ))}
@@ -5168,7 +5604,7 @@ function DailyTaskTableBody({
                       }
 
                       event.stopPropagation();
-                      focusTaskListEditableCell(task.id, column.key);
+                      void focusTaskListEditableCell(task.id, column.key);
                     }
                   : undefined
               }
@@ -5413,7 +5849,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 }
 
                 event.stopPropagation();
-                focusTaskListEditableCell(task.id, column.key);
+                void focusTaskListEditableCell(task.id, column.key);
               }
             : undefined
         }
@@ -5603,6 +6039,88 @@ function DetailPanelDateField({
   );
 }
 
+const LEGACY_ASSIGNEE_SELECT_VALUE = "__legacy_assignee__";
+
+type AssigneeSelection = {
+  profileId: string | null;
+  label: string;
+};
+
+type TaskAssigneeSelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange" | "children"> & {
+  assignee: string;
+  assigneeProfileId?: string | null;
+  assigneeOptions: readonly AssigneeOption[];
+  onChange: (selection: AssigneeSelection) => void;
+};
+
+function formatAssigneeOptionLabel(option: AssigneeOption) {
+  const name = option.displayName.trim();
+  const email = option.email.trim();
+
+  if (name && email && name.toLowerCase() !== email.toLowerCase()) {
+    return `${name} (${email})`;
+  }
+
+  return name || email || option.profileId;
+}
+
+function formatAssigneeSnapshot(option: AssigneeOption) {
+  return option.displayName.trim() || option.email.trim() || "";
+}
+
+function TaskAssigneeSelect({
+  assignee,
+  assigneeProfileId,
+  assigneeOptions,
+  onChange,
+  ...selectProps
+}: TaskAssigneeSelectProps) {
+  const normalizedProfileId = assigneeProfileId?.trim() || null;
+  const selectedOption = normalizedProfileId
+    ? assigneeOptions.find((option) => option.profileId === normalizedProfileId) ?? null
+    : null;
+  const hasLegacyAssignee = !normalizedProfileId && Boolean(assignee.trim());
+  const hasUnknownLinkedAssignee = Boolean(normalizedProfileId && !selectedOption);
+  const value = normalizedProfileId ?? (hasLegacyAssignee ? LEGACY_ASSIGNEE_SELECT_VALUE : "");
+
+  return (
+    <select
+      {...selectProps}
+      onChange={(event) => {
+        const nextProfileId = event.target.value;
+        if (!nextProfileId || nextProfileId === LEGACY_ASSIGNEE_SELECT_VALUE) {
+          onChange({ profileId: null, label: "" });
+          return;
+        }
+
+        const option = assigneeOptions.find((candidate) => candidate.profileId === nextProfileId);
+        onChange({
+          profileId: nextProfileId,
+          label: option ? formatAssigneeSnapshot(option) : assignee.trim(),
+        });
+      }}
+      value={value}
+    >
+      <option value="">{t("empty.unassigned")}</option>
+      {hasLegacyAssignee ? (
+        <option disabled value={LEGACY_ASSIGNEE_SELECT_VALUE}>
+          {assignee.trim()}
+        </option>
+      ) : null}
+      {hasUnknownLinkedAssignee ? (
+        <option disabled value={normalizedProfileId ?? ""}>
+          {assignee.trim() || normalizedProfileId}
+        </option>
+      ) : null}
+      {assigneeOptions.map((option) => (
+        <option key={option.profileId} value={option.profileId}>
+          {formatAssigneeOptionLabel(option)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function TaskListInlineEditor({
   columnKey,
   fieldKey,
@@ -5611,6 +6129,7 @@ function TaskListInlineEditor({
   onCommit,
   onCancel,
   saving = false,
+  assigneeOptions = [],
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
 }: {
@@ -5621,11 +6140,13 @@ function TaskListInlineEditor({
   onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
   onCancel?: (columnKey: TaskListColumnKey) => void;
   saving?: boolean;
+  assigneeOptions?: readonly AssigneeOption[];
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
+  const fieldLabel = fieldKey === "assigneeProfileId" ? labelForField("assignee") : labelForField(fieldKey);
   const sharedProps = {
-    "aria-label": labelForField(fieldKey),
+    "aria-label": fieldLabel,
     disabled: saving,
     onClick: stopTaskListInlineEvent,
     onDoubleClick: stopTaskListInlineEvent,
@@ -5698,6 +6219,24 @@ function TaskListInlineEditor({
     );
   }
 
+  if (fieldKey === "assignee") {
+    return (
+      <TaskAssigneeSelect
+        {...sharedProps}
+        assignee={form.assignee}
+        assigneeOptions={assigneeOptions}
+        assigneeProfileId={form.assigneeProfileId}
+        className="sheet-table__inline-input sheet-table__inline-select"
+        onChange={(selection) => {
+          onChange("assigneeProfileId", selection.profileId);
+          onChange("assignee", selection.label);
+          void onCommit(columnKey);
+        }}
+        onKeyDown={(event) => handleTaskListInlineEscapeKeyDown(event, () => onCancel?.(columnKey))}
+      />
+    );
+  }
+
   return (
     <textarea
       {...sharedProps}
@@ -5713,6 +6252,7 @@ function TaskListInlineEditor({
 
 function TaskListInlineEditorOverlay({
   activeCell,
+  assigneeOptions,
   draft,
   inlineSavingFields,
   workTypeDefinitions,
@@ -5726,6 +6266,7 @@ function TaskListInlineEditorOverlay({
   draftStore,
 }: {
   activeCell: PendingTaskListFocusCell | null;
+  assigneeOptions: readonly AssigneeOption[];
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
@@ -5776,6 +6317,7 @@ function TaskListInlineEditorOverlay({
             columnKey={overlayCell.columnKey as TaskListColumnKey}
             fieldKey={fieldKey}
             form={overlayDraft}
+            assigneeOptions={assigneeOptions}
             onCancel={onCancel}
             onChange={onChange}
             onCommit={onCommit}
@@ -5788,6 +6330,7 @@ function TaskListInlineEditorOverlay({
   );
 }
 function TaskFormFields({
+  assigneeOptions = [],
   composerMode = "strip",
   form,
   onChange,
@@ -5799,6 +6342,7 @@ function TaskFormFields({
   workTypeDefinitions = [],
   categoryDefinitionsByField = {},
 }: {
+  assigneeOptions?: readonly AssigneeOption[];
   composerMode?: ComposerLayoutMode;
   form: TaskFormDisplayState;
   onChange: TaskFormChangeHandler;
@@ -5920,7 +6464,16 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("assignee", "form-field--stretch")}>
         <span>{labelForField("assignee")}</span>
-        <textarea className="detail-text-field" onChange={(event) => onChange("assignee", event.target.value)} rows={1} value={form.assignee} />
+        <TaskAssigneeSelect
+          assignee={form.assignee}
+          assigneeOptions={assigneeOptions}
+          assigneeProfileId={form.assigneeProfileId}
+          className="detail-select-field"
+          onChange={(selection) => {
+            onChange("assigneeProfileId", selection.profileId);
+            onChange("assignee", selection.label);
+          }}
+        />
         {renderResizeHandle("assignee")}
       </label>
       <label {...getLabelProps("issueTitle", "form-field--wide")}>
@@ -7269,6 +7822,19 @@ function boardColumnCopy(status: TaskStatus) {
   return describeStatus(status);
 }
 
+function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tasks: readonly TaskRecord[]) {
+  const impactedTasks =
+    command.action === "auto_sort"
+      ? tasks
+      : tasks.filter(
+          (task) =>
+            task.id === command.movedTaskId ||
+            (task.parentTaskId ?? null) === command.targetParentTaskId,
+        );
+
+  return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
+}
+
 function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
   return {
     version: draft.version ?? 1,
@@ -7278,6 +7844,7 @@ function taskPayloadFromDraft(draft: Partial<TaskRecord>) {
     requestedBy: draft.requestedBy ?? "",
     relatedDisciplines: draft.relatedDisciplines ?? "",
     assignee: draft.assignee ?? "",
+    assigneeProfileId: draft.assigneeProfileId ?? null,
     issueTitle: draft.issueTitle ?? "",
     reviewedAt: draft.reviewedAt ?? "",
     isDaily: Boolean(draft.isDaily),
@@ -7310,12 +7877,33 @@ function buildTaskPatchPayloadFromDraft(draft: Partial<TaskRecord>, dirtyFields:
 }
 
 async function readErrorMessage(response: Response, fallbackKey: ErrorCopyKey) {
+  const error = await readApiError(response, fallbackKey);
+  return error.message;
+}
+
+async function readApiError(response: Response, fallbackKey: ErrorCopyKey) {
   try {
     const json = (await response.json()) as { error?: { code?: string | null } };
-    return localizeError({ code: json.error?.code, fallbackKey });
+    const code = json.error?.code ?? null;
+    return new ApiResponseError(response.status, code, localizeError({ code, fallbackKey }));
   } catch {
-    return localizeError({ fallbackKey });
+    return new ApiResponseError(response.status, null, localizeError({ fallbackKey }));
   }
+}
+
+class ApiResponseError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
+
+function isApiConflictError(error: unknown, code?: string) {
+  return error instanceof ApiResponseError && error.status === 409 && (!code || error.code === code);
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -7368,7 +7956,7 @@ async function requestUploadIntent(payload: {
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, payload.fallbackKey));
+    throw await readApiError(response, payload.fallbackKey);
   }
 
   return readUploadIntentResponse(response);
@@ -7435,7 +8023,7 @@ async function uploadFileWithIntent(input: {
     });
 
     if (!commitResponse.ok) {
-      throw new Error(await readErrorMessage(commitResponse, input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed"));
+      throw await readApiError(commitResponse, input.replaceFileId ? "uploadNextVersionFailed" : "uploadFileFailed");
     }
   } catch (error) {
     await supabase.storage.from(bucket).remove([objectPath]).catch(() => {});

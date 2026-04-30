@@ -1,0 +1,4 @@
+Req: Start the post-preview execution plan by landing the repo-only deployment baseline and the first safe dependency patch pass before asking for external dashboard actions.
+Diff: upgraded `next`, `prisma`, `@prisma/client`, `@prisma/adapter-pg`, `firebase`, and `eslint-config-next`; added `deps:audit`; added GitHub Actions workflows for `typecheck`, `lint`, `build`, `deps-audit`, `codeql`, and `semgrep`; added Dependabot config.
+Why: the deployment contract requires stable required-check names and security automation before branch protection can be finalized, and `deps-audit` needed direct dependency fixes first to become a useful required check.
+Verify: `npm run deps:audit`, `npm run lint`, `npm run typecheck`, and `npm run build` passed locally after the dependency updates; `npm audit --json --omit=dev` now reports no high or critical production vulnerabilities.

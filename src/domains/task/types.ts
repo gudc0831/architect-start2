@@ -19,6 +19,7 @@ export type TaskRecord = {
   requestedBy: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId: string | null;
   issueTitle: string;
   reviewedAt: string;
   createdAt: string;

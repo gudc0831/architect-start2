@@ -9,7 +9,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const contentWidth = pathname === "/daily" || pathname === "/preview/daily" ? "wide" : "default";
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname.startsWith("/auth/")) {
     return <>{children}</>;
   }
 

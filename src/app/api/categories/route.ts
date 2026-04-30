@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
 import { requireUser } from "@/lib/auth/require-user";
 import { applyProjectSessionProjectId } from "@/lib/project-session";
 import { listEffectiveTaskCategoriesForSession } from "@/use-cases/admin/admin-service";
 
 export async function GET() {
   try {
-    await requireUser();
-    const data = await listEffectiveTaskCategoriesForSession();
+    const user = await requireUser();
+    await requireCurrentProjectAccess(user);
+    const data = await listEffectiveTaskCategoriesForSession(user);
     const response = NextResponse.json({
       data: {
         currentProjectId: data.currentProjectId,

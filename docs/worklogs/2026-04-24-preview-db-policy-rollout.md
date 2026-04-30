@@ -1,0 +1,4 @@
+Req: Apply the approved Preview DB migrations plus RLS/Storage policy rollout without disturbing unrelated preview data.
+Diff: switched guarded cloud migration to `migrate deploy`; added guarded SQL apply and Storage bucket setup scripts; made cloud backups schema-drift tolerant and added Storage metadata; applied three pending Preview migrations, RLS/Storage policies, and the private `task-files` bucket.
+Why: release readiness needs the Preview database/storage boundary active before remaining UX and production checks.
+Verify/Time: `npm run data:backup`, `npm run db:migrate:safe`, `npm run db:apply-sql:safe -- docs/sql/2026-04-24-preview-rls-storage-policies.sql`, `npm run storage:ensure-bucket:safe`, `npm run data:doctor`, RLS/manager/no-access/anon probes, rollback-only Storage insert probes, and assignee unresolved report `0` on 2026-04-24; browser file-flow sign-off still needs a real Project B task/session fixture.

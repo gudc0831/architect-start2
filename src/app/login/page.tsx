@@ -1,7 +1,11 @@
-﻿import { redirect } from "next/navigation";
+import type { Route } from "next";
+import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
 import { getAuthRuntimeConfigErrorMessage, isAuthStubMode } from "@/lib/auth/auth-config";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { buildPostLoginUrl, resolveSafeInternalPath } from "@/lib/auth/safe-next-path";
+
+export const dynamic = "force-dynamic";
 
 type LoginPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -14,14 +18,14 @@ function readNextPath(searchParams: Record<string, string | string[] | undefined
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const resolvedSearchParams = await searchParams;
-  const nextPath = readNextPath(resolvedSearchParams);
+  const nextPath = resolveSafeInternalPath(readNextPath(resolvedSearchParams));
   const stubMode = isAuthStubMode();
   const configError = getAuthRuntimeConfigErrorMessage();
 
   if (stubMode || configError) {
     return (
       <main className="login-page">
-        <LoginForm disabled nextPath={nextPath} note={configError} />
+        <LoginForm mode="disabled" nextPath={nextPath} note={configError} />
       </main>
     );
   }
@@ -29,12 +33,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const user = await getOptionalUser();
 
   if (user) {
-    redirect("/board");
+    redirect(buildPostLoginUrl(nextPath) as Route);
   }
 
   return (
     <main className="login-page">
-      <LoginForm nextPath={nextPath} />
+      <LoginForm mode="google" nextPath={nextPath} />
     </main>
   );
 }

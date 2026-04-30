@@ -12,10 +12,11 @@ export async function getProjectSessionProjectId() {
 export function applyProjectSessionProjectId(response: NextResponse, projectId: string | null) {
   if (projectId) {
     response.cookies.set(projectSessionCookieName, projectId, {
-      httpOnly: false,
+      httpOnly: true,
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 30,
+      secure: process.env.NODE_ENV === "production",
     });
     return response;
   }

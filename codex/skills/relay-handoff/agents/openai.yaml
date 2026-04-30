@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relay Handoff"
+  short_description: "Create a precise continue-work handoff from repo state"
+  default_prompt: "Use $relay-handoff to summarize the current repo state, list the next files to read, call out blockers and untouched coupled areas, and produce a short copy-ready handoff prompt for the next worker."

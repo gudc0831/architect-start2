@@ -245,8 +245,24 @@ export class LocalAdminRepository implements AdminRepository {
     return (await readStore()).projects;
   }
 
+  async listProjectsForProfile(profileId: string) {
+    const store = await readStore();
+    const projectIds = new Set(
+      store.memberships.filter((membership) => membership.profileId === profileId).map((membership) => membership.projectId),
+    );
+    return store.projects.filter((project) => projectIds.has(project.id));
+  }
+
   async getProjectById(projectId: string) {
     return (await readStore()).projects.find((project) => project.id === projectId) ?? null;
+  }
+
+  async getProjectMembership(projectId: string, profileId: string) {
+    return (
+      (await readStore()).memberships.find(
+        (membership) => membership.projectId === projectId && membership.profileId === profileId,
+      ) ?? null
+    );
   }
 
   async createProject(input: CreateAdminProjectInput) {

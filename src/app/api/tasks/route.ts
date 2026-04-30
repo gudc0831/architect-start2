@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_TASK_STATUS } from "@/domains/task/status";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { createTask, listTasks } from "@/use-cases/task-service";
 
 export async function GET(request: Request) {
   try {
-    await requireUser();
+    const user = await requireUser();
+    await requireCurrentProjectAccess(user);
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
     const data = await listTasks(scope);
@@ -19,7 +22,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
+    await requireCurrentProjectEditor(user);
     const body = await request.json();
     const task = await createTask(
       {
@@ -30,6 +35,7 @@ export async function POST(request: Request) {
         requestedBy: body.requestedBy ?? body.requested_by ?? "",
         relatedDisciplines: body.relatedDisciplines ?? body["Related Disciplines"] ?? "",
         assignee: body.assignee ?? "",
+        assigneeProfileId: body.assigneeProfileId ?? body.assignee_profile_id ?? null,
         issueTitle: body.issueTitle ?? body.issue_title ?? "",
         reviewedAt: body.reviewedAt ?? body.reviewed_at ?? "",
         isDaily: Boolean(body.isDaily ?? true),

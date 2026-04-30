@@ -13,8 +13,30 @@ enum ProfileRole {
 }
 
 enum ProjectMembershipRole {
+  viewer
+  editor
   manager
   member
+}
+
+enum ProfileAccessStatus {
+  active
+  pending
+  disabled
+}
+
+enum ProjectInvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+enum AccessRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
 }
 
 enum TaskStatus {
@@ -30,14 +52,20 @@ model Profile {
   email           String             @unique
   displayName     String             @map("display_name")
   role            ProfileRole
+  accessStatus    ProfileAccessStatus @default(active) @map("access_status")
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
   createdProjects Project[]          @relation("ProjectCreatedBy")
   updatedProjects Project[]          @relation("ProjectUpdatedBy")
   createdTasks    Task[]             @relation("TaskCreatedBy")
   updatedTasks    Task[]             @relation("TaskUpdatedBy")
+  assignedTasks   Task[]             @relation("TaskAssignedTo")
   uploadedFiles   File[]             @relation("FileUploadedBy")
   projectMemberships ProjectMembership[]
+  acceptedInvitations ProjectInvitation[] @relation("InvitationAcceptedBy")
+  accessRequests AccessRequest[] @relation("AccessRequestProfile")
+  reviewedAccessRequests AccessRequest[] @relation("AccessRequestReviewedBy")
+  heldEditLeases EditLease[] @relation("EditLeaseHolder")
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -53,6 +81,9 @@ model Project {
   creator   Profile?  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   updater   Profile?  @relation("ProjectUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
   memberships ProjectMembership[]
+  invitations ProjectInvitation[]
+  accessRequests AccessRequest[]
+  editLeases EditLease[]
   tasks     Task[]
   files     File[]
   workTypeDefinitions WorkTypeDefinition[]
@@ -77,6 +108,7 @@ model Task {
   requester          String      @default("")
   relatedDisciplines String      @default("") @map("related_disciplines")
   assignee           String      @default("")
+  assigneeProfileId  String?     @map("assignee_profile_id") @db.Uuid
   title              String
   reviewedAt         String      @default("") @map("reviewed_at")
   isDaily            Boolean     @default(false) @map("is_daily")
@@ -101,10 +133,12 @@ model Task {
   rootRefs           Task[]      @relation("TaskRoot")
   creator            Profile?    @relation("TaskCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
   updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  assigneeProfile    Profile?    @relation("TaskAssignedTo", fields: [assigneeProfileId], references: [id], onDelete: SetNull)
   files              File[]
 
   @@unique([projectId, taskNumber])
   @@index([projectId, deletedAt, purgedAt])
+  @@index([projectId, assigneeProfileId])
   @@index([parentTaskId])
   @@map("tasks")
 }
@@ -131,7 +165,8 @@ model File {
   uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
 
   @@index([taskId, deletedAt, purgedAt])
-  @@index([fileGroupId, version])
+  @@index([projectId, deletedAt, purgedAt])
+  @@unique([fileGroupId, version])
   @@map("files")
 }
 
@@ -163,7 +198,7 @@ model ProjectMembership {
   id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String                @map("project_id") @db.Uuid
   profileId   String                @map("profile_id") @db.Uuid
-  role        ProjectMembershipRole @default(member)
+  role        ProjectMembershipRole @default(editor)
   displayName String                @default("") @map("display_name")
   email       String                @default("")
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -176,6 +211,71 @@ model ProjectMembership {
   @@unique([projectId, profileId])
   @@index([profileId])
   @@map("project_memberships")
+}
+
+model ProjectInvitation {
+  id                  String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId           String                  @map("project_id") @db.Uuid
+  email               String
+  role                ProjectMembershipRole
+  status              ProjectInvitationStatus @default(pending)
+  tokenHash           String                  @unique @map("token_hash")
+  expiresAt           DateTime                @map("expires_at") @db.Timestamptz(6)
+  acceptedByProfileId String?                 @map("accepted_by_profile_id") @db.Uuid
+  acceptedAt          DateTime?               @map("accepted_at") @db.Timestamptz(6)
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy           String?                 @map("created_by") @db.Uuid
+  updatedBy           String?                 @map("updated_by") @db.Uuid
+  project             Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  acceptedBy          Profile?                @relation("InvitationAcceptedBy", fields: [acceptedByProfileId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("project_invitations")
+}
+
+model AccessRequest {
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String                @map("profile_id") @db.Uuid
+  email         String
+  projectId     String?               @map("project_id") @db.Uuid
+  message       String?
+  status        AccessRequestStatus   @default(pending)
+  requestedRole ProjectMembershipRole @default(viewer) @map("requested_role")
+  reviewedBy    String?               @map("reviewed_by") @db.Uuid
+  reviewedAt    DateTime?             @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  profile       Profile               @relation("AccessRequestProfile", fields: [profileId], references: [id], onDelete: Cascade)
+  project       Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewer      Profile?              @relation("AccessRequestReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([profileId, status])
+  @@index([projectId, status])
+  @@index([email])
+  @@map("access_requests")
+}
+
+model EditLease {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  targetType        String   @map("target_type")
+  targetId          String   @map("target_id") @db.Uuid
+  fieldKey          String   @map("field_key")
+  holderProfileId   String   @map("holder_profile_id") @db.Uuid
+  holderDisplayName String   @default("") @map("holder_display_name")
+  expiresAt         DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  holder            Profile  @relation("EditLeaseHolder", fields: [holderProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, targetType, targetId, fieldKey])
+  @@index([expiresAt])
+  @@index([holderProfileId])
+  @@map("edit_leases")
 }
 
 model WorkTypeDefinition {
