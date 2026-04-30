@@ -1,7 +1,7 @@
 # Collaboration Expansion Implementation Instructions
 
 - Updated: 2026-04-29
-- Status: execution instructions; Steps 0-9 completed on 2026-04-29; Step 10 in progress
+- Status: execution instructions; Steps 0-10 completed on 2026-04-30; Step 11 prepared
 - Source plan: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Phase 1 baseline: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
 - Auth/RBAC baseline: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
@@ -21,7 +21,8 @@ Current progress:
 - Step 7 collaboration management UX is completed for the planned foundation: current project role is exposed to the client, viewer/non-editor workspace mutation controls are hidden or read-only, `/admin` is open to active project users with role-gated controls, and invitation/access-request UI foundations are implemented.
 - Step 8 refresh/invalidation foundation is completed for the fallback slice: project-scoped short polling detects server-side changes and refreshes loaded dashboard scopes; Supabase Realtime transport remains deferred to the presence/edit-lease slices.
 - Step 9 presence foundation is completed for the planned foundation: project-scoped Supabase Presence is wired for non-authoritative online-user and active-field editor display.
-- Step 10 edit lease foundation is in progress: local schema/API/client code is being added; Preview DB migration remains behind the required STOP/approval gate.
+- Step 10 edit lease foundation is completed for the planned foundation: local schema/API/client code is pushed, required checks passed, and Preview DB migration `202604290004_add_edit_leases` was applied after user approval and backup.
+- Step 11 Preview verification is the next active work item. Use [2026-04-30-collaboration-preview-verification-checklist.md](2026-04-30-collaboration-preview-verification-checklist.md) for the runnable checklist.
 - Production DB migration remains not started.
 
 Rules:
