@@ -22,7 +22,7 @@ Current progress:
 - Step 8 refresh/invalidation foundation is completed for the fallback slice: project-scoped short polling detects server-side changes and refreshes loaded dashboard scopes; Supabase Realtime transport remains deferred to the presence/edit-lease slices.
 - Step 9 presence foundation is completed for the planned foundation: project-scoped Supabase Presence is wired for non-authoritative online-user and active-field editor display.
 - Step 10 edit lease foundation is completed for the planned foundation: local schema/API/client code is pushed, required checks passed, and Preview DB migration `202604290004_add_edit_leases` was applied after user approval and backup.
-- Step 11 Preview verification is the next active work item. Use [2026-04-30-collaboration-preview-verification-checklist.md](2026-04-30-collaboration-preview-verification-checklist.md) for the runnable checklist.
+- Step 11 Preview verification is in progress. The in-memory API probe passed on 2026-04-30; real Google OAuth provider UI and remaining browser-rendered checks stay on [2026-04-30-collaboration-preview-verification-checklist.md](2026-04-30-collaboration-preview-verification-checklist.md).
 - Production DB migration remains not started.
 
 Rules:

@@ -57,6 +57,49 @@ Use distinct browser sessions or profiles where possible:
 
 If a role/account is missing, stop the affected test and record the missing account instead of changing production or unrelated baselines.
 
+## Automation Boundary
+
+Codex may verify logged-in Preview behavior with Supabase Admin-generated magic links when the user has approved Preview test data. This is allowed for role, route, API, UI, invitation, access-request, presence, and edit-lease checks because it still exercises the app's Supabase callback, SSR session cookies, post-login funnel, and app guards.
+
+Magic-link verification does not replace final real Google OAuth provider verification. Real Google OAuth requires the browser to complete Google's account picker/consent path with a real Google identity. Leave that final provider check to the user unless they explicitly provide an interactive browser identity path.
+
+Directly opening a Supabase Admin magic link in this app is not a valid substitute for the SSR OAuth callback because the generated magic link returns tokens in the URL fragment instead of the `code` expected by `/auth/callback`. For automated Preview checks, use the API probe below, which keeps temporary Supabase sessions in memory and does not write browser storage state to disk.
+
+## Automated Preview API Probe
+
+Script:
+
+```powershell
+$env:PREVIEW_BASE_URL = "<active-preview-root>"
+$env:VERCEL_SHARE_URL = "<temporary-vercel-share-url-if-preview-auth-is-enabled>"
+npx tsx scripts/preview-collaboration-api-probe.ts
+```
+
+Latest result:
+
+- 2026-04-30: passed against Project B `2150d595-0570-4309-9198-031e90668af4`.
+- Covered: viewer session identity, viewer member names/emails, viewer read-only task and lease denial, editor task create, editor manager-route denial, manager member route, manager same-field lease conflict, manager different-field lease success, manager manager-invite denial, manager manager-request approval denial, pending/no-access no project inventory, pending manager self-request denial, admin global access-request listing.
+- Cleanup: probe task was moved to trash and permanently deleted through app APIs.
+- Not covered: real Google OAuth provider UI, actual browser-rendered collaboration UX, file upload/download browser flow, invitation acceptance with real provider account, positive manager approval of viewer/editor access request, positive admin approval of manager request.
+
+## Final Google OAuth Checklist For User
+
+Run this only after the magic-link/browser Preview matrix is otherwise complete.
+
+- Open the active Preview URL in a clean browser profile or incognito window.
+- Pass Vercel Preview Authentication if the deployment is protected.
+- Go to `/login`.
+- Click `Google로 계속`.
+- Choose the intended real Google account.
+- Confirm Google redirects back to `<preview-root>/auth/callback`.
+- Confirm the app then routes through `/auth/post-login`.
+- Confirm the final app outcome for each real account:
+  - global admin reaches admin/project workspace as expected
+  - project manager reaches the managed project and management UI
+  - no-access or pending user reaches `/auth/no-access` or `/auth/pending-access`
+- Confirm no external `next` or unsafe redirect is accepted during login.
+- Record the Preview URL, account email, final route, and pass/fail result in the verification worklog.
+
 ## Role And Access Checks
 
 Verify in Preview:
