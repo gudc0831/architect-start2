@@ -1,4 +1,4 @@
-export const themeIds = ["classic", "swiss-modern", "productivity"] as const;
+export const themeIds = ["classic", "swiss-modern", "productivity", "posthog"] as const;
 
 export type ThemeId = (typeof themeIds)[number];
 export type ThemePreference = {
@@ -32,6 +32,12 @@ export const themeDefinitions = {
     dataTheme: "productivity",
     labelKey: "themes.options.productivity.label",
     descriptionKey: "themes.options.productivity.description",
+  },
+  posthog: {
+    id: "posthog",
+    dataTheme: "posthog",
+    labelKey: "themes.options.posthog.label",
+    descriptionKey: "themes.options.posthog.description",
   },
 } satisfies Record<ThemeId, ThemeDefinition>;
 

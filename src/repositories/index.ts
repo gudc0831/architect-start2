@@ -1,8 +1,15 @@
-import { createRequire } from "node:module";
 import type { FileRepository, PreferenceRepository, ProjectRepository, TaskRepository } from "@/repositories/contracts";
 import { backendMode } from "@/lib/backend-mode";
-
-const require = createRequire(import.meta.url);
+import { firestoreFileRepository, firestoreTaskRepository } from "@/repositories/firestore/store";
+import { localPreferenceRepository } from "@/repositories/local/preference-store";
+import { localProjectRepository } from "@/repositories/local/project-store";
+import { memoryFileRepository, memoryTaskRepository } from "@/repositories/memory/store";
+import {
+  postgresFileRepository,
+  postgresPreferenceRepository,
+  postgresProjectRepository,
+  postgresTaskRepository,
+} from "@/repositories/postgres/store";
 
 let taskRepositoryInstance: TaskRepository | null = null;
 let fileRepositoryInstance: FileRepository | null = null;
@@ -12,49 +19,45 @@ let preferenceRepositoryInstance: PreferenceRepository | null = null;
 function getTaskRepository(): TaskRepository {
   if (!taskRepositoryInstance) {
     if (backendMode === "cloud") {
-      taskRepositoryInstance = require("./postgres/store").postgresTaskRepository as TaskRepository;
+      taskRepositoryInstance = postgresTaskRepository;
     } else if (backendMode === "firestore") {
-      taskRepositoryInstance = require("./firestore/store").firestoreTaskRepository as TaskRepository;
+      taskRepositoryInstance = firestoreTaskRepository as TaskRepository;
     } else {
-      taskRepositoryInstance = require("./memory/store").memoryTaskRepository as TaskRepository;
+      taskRepositoryInstance = memoryTaskRepository as TaskRepository;
     }
   }
 
-  return taskRepositoryInstance;
+  return taskRepositoryInstance!;
 }
 
 function getFileRepository(): FileRepository {
   if (!fileRepositoryInstance) {
     if (backendMode === "cloud") {
-      fileRepositoryInstance = require("./postgres/store").postgresFileRepository as FileRepository;
+      fileRepositoryInstance = postgresFileRepository;
     } else if (backendMode === "firestore") {
-      fileRepositoryInstance = require("./firestore/store").firestoreFileRepository as FileRepository;
+      fileRepositoryInstance = firestoreFileRepository;
     } else {
-      fileRepositoryInstance = require("./memory/store").memoryFileRepository as FileRepository;
+      fileRepositoryInstance = memoryFileRepository;
     }
   }
 
-  return fileRepositoryInstance;
+  return fileRepositoryInstance!;
 }
 
 function getProjectRepository(): ProjectRepository {
   if (!projectRepositoryInstance) {
-    projectRepositoryInstance = backendMode === "cloud"
-      ? require("./postgres/store").postgresProjectRepository as ProjectRepository
-      : require("./local/project-store").localProjectRepository as ProjectRepository;
+    projectRepositoryInstance = backendMode === "cloud" ? postgresProjectRepository : localProjectRepository;
   }
 
-  return projectRepositoryInstance;
+  return projectRepositoryInstance!;
 }
 
 function getPreferenceRepository(): PreferenceRepository {
   if (!preferenceRepositoryInstance) {
-    preferenceRepositoryInstance = backendMode === "cloud"
-      ? require("./postgres/store").postgresPreferenceRepository as PreferenceRepository
-      : require("./local/preference-store").localPreferenceRepository as PreferenceRepository;
+    preferenceRepositoryInstance = backendMode === "cloud" ? postgresPreferenceRepository : localPreferenceRepository;
   }
 
-  return preferenceRepositoryInstance;
+  return preferenceRepositoryInstance!;
 }
 
 export const taskRepository: TaskRepository = {

@@ -1,6 +1,6 @@
 # Architect Start Plan Index
 
-- Updated: 2026-04-10
+- Updated: 2026-04-24
 - Purpose: keep this file as the high-level operating plan only.
 - Rule: implementation details belong in linked plan documents, not in this file.
 
@@ -8,11 +8,15 @@
 
 1. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
 2. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
-3. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
-4. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
-5. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
-6. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
-7. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+3. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
+4. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
+5. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+6. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+7. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
+8. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+9. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
+10. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+11. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
 
 ## Current Direction
 
@@ -29,9 +33,15 @@
   - Supabase Storage policies
 - Current release blockers are tracked in:
   - [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+- Current active deployment-readiness work is tracked in:
+  - [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+- Post-Phase 1 collaboration expansion planning is tracked in:
+  - [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
 - `SUPABASE_SERVICE_ROLE_KEY` is reserved for bootstrap, admin provisioning, maintenance, and other trusted server-only flows.
 - Private-repo release safety is enforced with branch protection, required checks, and environment separation.
+- Branch flow: code changes happen locally first, then reach Preview only after push and Vercel deployment from the working/PR branch; Production should deploy from the protected production branch, currently expected to be `main` unless a documented release branch replaces it.
 - Deployment and DB changes remain separate operational steps.
+- Completed preview setup and verification should not be repeated unless a regression appears.
 
 ## Big Flow
 
@@ -102,6 +112,14 @@
   - [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
 - Multi-user implementation plan:
   - [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
+- Collaboration expansion plan:
+  - [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
+- Collaboration expansion implementation instructions:
+  - [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
+- Post-preview execution plan:
+  - [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+- Current deployment readiness plan:
+  - [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
 - Deployment and release protection contract:
   - [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
 - Security deployment review:
@@ -115,6 +133,6 @@
 
 - Do not expand this file back into a long implementation checklist.
 - When auth or RBAC decisions change, update the contract document first.
-- When sequence, ownership, or verification changes, update the multi-user transition plan.
+- When sequence, ownership, or verification changes, update the active execution plan first, then update the multi-user transition plan if the phase contract itself changed.
 - When release rules or environment protection changes, update the deployment protection contract.
 - When new blocking security findings appear, update the security deployment review and then reflect the fix order back into the active plans.

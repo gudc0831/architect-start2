@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { previewProjectName } from "@/lib/preview/demo-data";
@@ -14,6 +15,7 @@ type ProjectOption = {
 
 type ProjectSelectionPayload = {
   currentProjectId: string | null;
+  currentProjectRole?: ProjectMembershipRole | null;
   availableProjects: Array<{ id: string; name: string; source?: string }>;
   source?: string | null;
   workTypeDefinitions: WorkTypeDefinition[];
@@ -22,6 +24,7 @@ type ProjectSelectionPayload = {
 
 type ProjectContextValue = {
   currentProjectId: string | null;
+  currentProjectRole: ProjectMembershipRole | null;
   availableProjects: ProjectOption[];
   workTypeDefinitions: WorkTypeDefinition[];
   categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
@@ -44,6 +47,7 @@ const previewProjectId = "preview-project";
 
 const ProjectContext = createContext<ProjectContextValue>({
   currentProjectId: null,
+  currentProjectRole: null,
   availableProjects: [],
   workTypeDefinitions: [],
   categoryDefinitionsByField: {},
@@ -82,6 +86,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentProjectRole, setCurrentProjectRole] = useState<ProjectMembershipRole | null>(null);
   const [availableProjects, setAvailableProjects] = useState<ProjectOption[]>([]);
   const [workTypeDefinitions, setWorkTypeDefinitions] = useState<WorkTypeDefinition[]>([]);
   const [categoryDefinitionsByField, setCategoryDefinitionsByField] = useState<
@@ -129,6 +134,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     setAvailableProjects(projects);
     setCurrentProjectId(selectedProject.id);
+    setCurrentProjectRole(payload.currentProjectRole ?? null);
     setProjectNameState(selectedProject.name);
     setProjectSource(selectedProject.source);
     if (
@@ -193,6 +199,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
         setAvailableProjects([]);
         setCurrentProjectId(null);
+        setCurrentProjectRole(null);
         setProjectNameState(defaultProjectName);
         setProjectSource(null);
         setProjectLoaded(true);
@@ -252,6 +259,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const value = isPreview
     ? {
         currentProjectId: previewProjectId,
+        currentProjectRole: null,
         availableProjects: [{ id: previewProjectId, name: previewName, source: "preview" }],
         workTypeDefinitions,
         categoryDefinitionsByField,
@@ -268,6 +276,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       }
     : {
         currentProjectId,
+        currentProjectRole,
         availableProjects,
         workTypeDefinitions,
         categoryDefinitionsByField,

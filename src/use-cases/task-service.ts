@@ -12,6 +12,7 @@ import {
   normalizeTaskStatus,
 } from "@/domains/task/status";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { backendMode } from "@/lib/backend-mode";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import {
   buildSiblingOrderUpdates,
@@ -60,10 +61,17 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
 
   switch (command.action) {
     case "manual_move":
-      await reorderTaskWithinParent(activeTasks, command.movedTaskId, command.targetParentTaskId, command.targetIndex, userId ?? null);
+      await reorderTaskWithinParent(
+        activeTasks,
+        command.movedTaskId,
+        command.targetParentTaskId,
+        command.targetIndex,
+        command.expectedVersions,
+        userId ?? null,
+      );
       break;
     case "auto_sort":
-      await reorderTaskTree(activeTasks, command.strategy, userId ?? null);
+      await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
       break;
     default:
       throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
@@ -87,6 +95,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
   const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
+  const assignee = await resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee);
 
   const task = await taskRepository.createTask({
     projectId: project.id,
@@ -112,7 +121,8 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
       effectiveCategories.relatedDisciplines,
       { allowLegacyTextWhenDefinitionsMissing: true },
     ),
-    assignee: normalizeText(input.assignee),
+    assignee: assignee.assignee,
+    assigneeProfileId: assignee.assigneeProfileId ?? null,
     issueTitle: normalizeRequiredText(input.issueTitle, "issueTitle"),
     reviewedAt: normalizeDate(input.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(input.createdAt),
@@ -145,6 +155,7 @@ async function reorderTaskWithinParent(
   movedTaskId: string,
   targetParentTaskId: string | null,
   targetIndex: number,
+  expectedVersions: ReadonlyMap<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   const movedTask = activeTasks.find((task) => task.id === movedTaskId);
@@ -165,6 +176,7 @@ async function reorderTaskWithinParent(
   const siblings = activeTasks
     .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
     .sort(compareTasksBySiblingOrder);
+  assertExpectedTaskVersions(siblings, expectedVersions);
   const currentIndex = siblings.findIndex((task) => task.id === movedTaskId);
 
   if (currentIndex === -1) {
@@ -180,18 +192,38 @@ async function reorderTaskWithinParent(
     nextSiblings.map((task, siblingOrder) => ({
       id: task.id,
       siblingOrder,
+      expectedVersion: task.version,
       updatedBy: userId,
     })),
   );
 }
 
-async function reorderTaskTree(activeTasks: TaskRecord[], strategy: TaskOrderingStrategy, userId: string | null): Promise<TaskRecord[]> {
+async function reorderTaskTree(
+  activeTasks: TaskRecord[],
+  strategy: TaskOrderingStrategy,
+  expectedVersions: ReadonlyMap<string, number>,
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  assertExpectedTaskVersions(activeTasks, expectedVersions);
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
   const updates = buildSiblingOrderUpdates(activeTasks, strategy).map((input) => ({
     ...input,
+    expectedVersion: taskById.get(input.id)?.version,
     updatedBy: userId,
   }));
 
   return taskRepository.updateTaskOrders(updates);
+}
+
+function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: ReadonlyMap<string, number>) {
+  for (const task of tasks) {
+    if (expectedVersions.get(task.id) !== task.version) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+  }
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
@@ -219,6 +251,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     shouldReparent ? taskRepository.listActiveTasks(project.id) : Promise.resolve(undefined),
   ]);
   const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
+  await applyAssigneeUpdate(currentTask.projectId, input, sanitized, currentTask);
   sanitized.ownerDiscipline = foundationSettings.ownerDiscipline;
   applyStatusSideEffects(currentTask, sanitized);
 
@@ -465,6 +498,85 @@ function sanitizeTaskUpdate(
   }
 
   return next;
+}
+
+async function applyAssigneeUpdate(
+  projectId: string,
+  input: UpdateTaskInput,
+  next: UpdateTaskInput,
+  currentTask: TaskRecord,
+) {
+  const hasAssigneeText = Object.prototype.hasOwnProperty.call(input, "assignee");
+  const hasAssigneeProfile = Object.prototype.hasOwnProperty.call(input, "assigneeProfileId");
+
+  if (hasAssigneeProfile) {
+    const resolved = await resolveTaskAssignee(
+      projectId,
+      input.assigneeProfileId,
+      typeof next.assignee === "string" ? next.assignee : currentTask.assignee,
+    );
+    next.assignee = resolved.assignee;
+    next.assigneeProfileId = resolved.assigneeProfileId ?? null;
+    return;
+  }
+
+  if (hasAssigneeText) {
+    next.assigneeProfileId = null;
+  }
+}
+
+async function resolveTaskAssignee(projectId: string, rawProfileId: unknown, rawAssignee: string) {
+  const assigneeProfileId = normalizeAssigneeProfileId(rawProfileId);
+  const assignee = normalizeText(rawAssignee);
+
+  if (assigneeProfileId === undefined) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  if (assigneeProfileId === null) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  const membership = await adminRepository.getProjectMembership(projectId, assigneeProfileId);
+  if (!membership) {
+    throw badRequest("assigneeProfileId must be a project member", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return {
+    assignee: assignee || membership.displayName.trim() || membership.email.trim(),
+    assigneeProfileId,
+  };
+}
+
+function normalizeAssigneeProfileId(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  const normalized = value.trim();
+  if (normalized && backendMode === "cloud" && !isUuid(normalized)) {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return normalized || null;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function hasTaskCategoryPatch(input: UpdateTaskInput) {

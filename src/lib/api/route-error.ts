@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 import { AppError } from "@/lib/api/errors";
 
+function getErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: "code" in error ? (error as { code?: unknown }).code : undefined,
+      clientVersion: "clientVersion" in error ? (error as { clientVersion?: unknown }).clientVersion : undefined,
+      meta: "meta" in error ? (error as { meta?: unknown }).meta : undefined,
+    };
+  }
+
+  return { value: error };
+}
+
+function shouldExposePreviewErrorDetails() {
+  return process.env.VERCEL_ENV === "preview";
+}
+
 export function handleRouteError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json(
@@ -14,12 +33,16 @@ export function handleRouteError(error: unknown) {
     );
   }
 
+  const details = getErrorDetails(error);
+  console.error("[route-error] unexpected error", details);
+
   return NextResponse.json(
     {
       error: {
         code: "INTERNAL_SERVER_ERROR",
         message: "Unexpected server error",
       },
+      ...(shouldExposePreviewErrorDetails() ? { debug: details } : {}),
     },
     { status: 500 },
   );

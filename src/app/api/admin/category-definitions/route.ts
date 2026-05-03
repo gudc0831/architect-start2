@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireTaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { handleRouteError } from "@/lib/api/route-error";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireRole } from "@/lib/auth/require-user";
 import { createGlobalTaskCategory, listGlobalTaskCategories } from "@/use-cases/admin/admin-service";
 
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireRole("admin");
     const body = (await request.json()) as {
       fieldKey?: string;

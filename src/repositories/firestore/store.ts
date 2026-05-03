@@ -19,6 +19,7 @@ import type {
 } from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
+import { conflict } from "@/lib/api/errors";
 
 function getDb() {
   const app = getFirebaseClientApp();
@@ -99,6 +100,7 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
     requestedBy: String(data.requestedBy ?? data.requester ?? ""),
     relatedDisciplines: String(data.relatedDisciplines ?? ""),
     assignee: String(data.assignee ?? ""),
+    assigneeProfileId: typeof data.assigneeProfileId === "string" && data.assigneeProfileId ? String(data.assigneeProfileId) : null,
     issueTitle: String(data.issueTitle ?? data.title ?? ""),
     reviewedAt: String(data.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(toIsoString(data.createdAt as FirestoreValue)),
@@ -232,6 +234,7 @@ class FirestoreTaskRepository implements TaskRepository {
       requestedBy: input.requestedBy,
       relatedDisciplines: input.relatedDisciplines,
       assignee: input.assignee,
+      assigneeProfileId: input.assigneeProfileId ?? null,
       issueTitle: input.issueTitle,
       reviewedAt: input.reviewedAt ?? "",
       createdAt: normalizeStoredDate(input.createdAt),
@@ -336,6 +339,13 @@ class FirestoreTaskRepository implements TaskRepository {
     const updatedAt = new Date().toISOString();
 
     for (const { input, targetRef, currentSnapshot } of snapshots) {
+      if (Number.isInteger(input.expectedVersion) && Number(currentSnapshot.data().version ?? 1) !== input.expectedVersion) {
+        throw conflict(
+          "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+          "TASK_REORDER_CONFLICT",
+        );
+      }
+
       batch.update(targetRef, {
         siblingOrder: input.siblingOrder,
         updatedAt,
@@ -475,16 +485,30 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const versionNumber = input.versionNumber ?? input.version ?? 1;
+    const version = input.version ?? versionNumber;
+    const fileGroupId = input.fileGroupId ?? randomUUID();
+    const existingSnapshot = await getDocs(collection(db, fileCollectionName));
+    const duplicate = existingSnapshot.docs.some((entry) => {
+      const data = entry.data();
+      return String(data.fileGroupId ?? "") === fileGroupId && Number(data.version ?? data.versionNumber ?? 1) === version;
+    });
+    if (duplicate) {
+      throw conflict(
+        "Another upload created this file version first. Reload the latest files and try again.",
+        "FILE_VERSION_CONFLICT",
+      );
+    }
+
     const record = {
       taskId: input.taskId,
       projectId: input.projectId,
-      fileGroupId: input.fileGroupId ?? randomUUID(),
+      fileGroupId,
       originalName: input.originalName,
       mimeType: input.mimeType ?? null,
       sizeBytes: input.sizeBytes,
       storageBucket: input.storageBucket,
       objectPath: input.objectPath,
-      version: input.version ?? versionNumber,
+      version,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: new Date().toISOString(),

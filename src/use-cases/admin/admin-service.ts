@@ -1,4 +1,5 @@
 import { requireOwnerDiscipline } from "@/domains/admin/foundation-settings";
+import type { AuthUser } from "@/domains/auth/types";
 import {
   assertCreatableTaskCategoryCode,
   isTaskCategoryFieldKey,
@@ -7,7 +8,10 @@ import {
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
 import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
-import { badRequest, conflict, serviceUnavailable } from "@/lib/api/errors";
+import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
+import type { RequestedProjectRole } from "@/lib/auth/project-capabilities";
+import { requireUser } from "@/lib/auth/require-user";
+import { requireCurrentProjectAccess, requireProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
 import { getProjectSessionProjectId } from "@/lib/project-session";
 import { taskRepository } from "@/repositories";
 import { adminRepository } from "@/repositories/admin";
@@ -27,6 +31,18 @@ function uniqueById<T extends { id: string }>(items: T[]) {
     seen.add(item.id);
     return true;
   });
+}
+
+async function resolveSessionUser(user?: AuthUser) {
+  return user ?? (await requireUser());
+}
+
+async function listAvailableProjectsForUser(user: AuthUser) {
+  if (user.role === "admin") {
+    return adminRepository.listProjects();
+  }
+
+  return adminRepository.listProjectsForProfile(user.id);
 }
 
 async function buildEffectiveTaskCategoriesByField(currentProjectId: string | null) {
@@ -58,46 +74,65 @@ async function buildEffectiveTaskCategoriesByField(currentProjectId: string | nu
   >;
 }
 
-export async function listProjectsForSession() {
+export async function listProjectsForSession(user?: AuthUser) {
+  const resolvedUser = await resolveSessionUser(user);
   const selection = await adminRepository.getProjectSelection();
+  const availableProjects = uniqueById(await listAvailableProjectsForUser(resolvedUser));
   const sessionProjectId = await getProjectSessionProjectId();
   const currentProjectId =
-    (sessionProjectId && selection.availableProjects.some((project) => project.id === sessionProjectId)
+    (sessionProjectId && availableProjects.some((project) => project.id === sessionProjectId)
       ? sessionProjectId
       : null) ??
-    selection.currentProjectId ??
-    selection.availableProjects[0]?.id ??
+    (selection.currentProjectId && availableProjects.some((project) => project.id === selection.currentProjectId)
+      ? selection.currentProjectId
+      : null) ??
+    availableProjects[0]?.id ??
     null;
+  const currentProjectRole =
+    currentProjectId && resolvedUser.role !== "admin"
+      ? (await adminRepository.getProjectMembership(currentProjectId, resolvedUser.id))?.role ?? null
+      : null;
 
   return {
     currentProjectId,
-    availableProjects: uniqueById(selection.availableProjects),
+    currentProjectRole,
+    availableProjects,
     source: selection.source,
   };
 }
 
-export async function selectProjectForSession(projectId: string) {
+export async function selectProjectForSession(projectId: string, user?: AuthUser) {
   const normalizedProjectId = projectId.trim();
 
   if (!normalizedProjectId) {
     throw badRequest("projectId is required", "PROJECT_ID_REQUIRED");
   }
 
-  const selection = await adminRepository.setCurrentProject(normalizedProjectId);
+  const resolvedUser = await resolveSessionUser(user);
+  const access = await requireProjectAccess(normalizedProjectId, resolvedUser);
+  const selection = await listProjectsForSession(resolvedUser);
+
+  await adminRepository.setCurrentProject(normalizedProjectId);
 
   return {
-    currentProjectId: selection.currentProjectId,
-    availableProjects: uniqueById(selection.availableProjects),
+    currentProjectId: access.project.id,
+    currentProjectRole: access.membership?.role ?? null,
+    availableProjects: selection.availableProjects,
     source: selection.source,
   };
 }
 
-export async function getCurrentProjectForSession() {
-  const selection = await listProjectsForSession();
+export async function getCurrentProjectForSession(user?: AuthUser) {
+  const resolvedUser = await resolveSessionUser(user);
+  const selection = await listProjectsForSession(resolvedUser);
   const currentProject =
     selection.availableProjects.find((project) => project.id === selection.currentProjectId) ?? selection.availableProjects[0] ?? null;
 
   if (!currentProject) {
+    if (resolvedUser.role !== "admin") {
+      throw forbidden("Project access has not been provisioned.", "PROJECT_ACCESS_DENIED");
+    }
+
     throw serviceUnavailable("No project is configured", "PROJECT_MISSING");
   }
 
@@ -110,7 +145,7 @@ export async function getCurrentProjectForSession() {
   };
 }
 
-export async function renameCurrentProjectForSession(projectId: string, name: string, userId: string | null) {
+export async function renameCurrentProjectForSession(projectId: string, name: string, user: AuthUser) {
   const normalizedProjectId = projectId.trim();
   const normalizedName = sanitizeName(name);
 
@@ -122,26 +157,23 @@ export async function renameCurrentProjectForSession(projectId: string, name: st
     throw badRequest("project name is required", "PROJECT_NAME_REQUIRED");
   }
 
-  const selectedProject = await adminRepository.getProjectById(normalizedProjectId);
-
-  if (!selectedProject) {
-    throw conflict("Selected project no longer exists", "PROJECT_SELECTION_STALE");
-  }
+  const managerContext = await requireProjectManager(normalizedProjectId, user);
+  const selectedProject = managerContext.project;
 
   const updatedProject = await adminRepository.updateProject(normalizedProjectId, {
     name: normalizedName,
-    updatedBy: userId,
+    updatedBy: user.id,
   });
 
   try {
-    await taskRepository.syncProjectTaskIssueIds(updatedProject.id, updatedProject.name, userId);
+    await taskRepository.syncProjectTaskIssueIds(updatedProject.id, updatedProject.name, user.id);
   } catch (error) {
     if (selectedProject.name !== updatedProject.name) {
       await adminRepository.updateProject(normalizedProjectId, {
         name: selectedProject.name,
-        updatedBy: userId,
+        updatedBy: user.id,
       });
-      await taskRepository.syncProjectTaskIssueIds(selectedProject.id, selectedProject.name, userId);
+      await taskRepository.syncProjectTaskIssueIds(selectedProject.id, selectedProject.name, user.id);
     }
 
     throw error;
@@ -155,8 +187,8 @@ export async function renameCurrentProjectForSession(projectId: string, name: st
   };
 }
 
-export async function listAdminProjects() {
-  return listProjectsForSession();
+export async function listAdminProjects(user?: AuthUser) {
+  return listProjectsForSession(user);
 }
 
 export async function createAdminProject(name: string, userId: string | null) {
@@ -201,13 +233,24 @@ export async function listProjectMembers(projectId: string) {
   };
 }
 
+export async function listCurrentProjectMembersForSession(user?: AuthUser) {
+  const resolvedUser = await resolveSessionUser(user);
+  const context = await requireCurrentProjectAccess(resolvedUser);
+  const members = await adminRepository.listProjectMemberships(context.project.id);
+
+  return {
+    currentProjectId: context.project.id,
+    members,
+  };
+}
+
 export async function replaceProjectMembers(
   projectId: string,
   memberships: {
     profileId: string;
     displayName: string;
     email: string;
-    role: "manager" | "member";
+    role: RequestedProjectRole;
   }[],
   userId: string | null,
 ) {
@@ -233,8 +276,8 @@ export async function listGlobalTaskCategories(fieldKey: TaskCategoryFieldKey) {
   return adminRepository.listGlobalTaskCategoryDefinitions(fieldKey);
 }
 
-export async function listEffectiveWorkTypesForSession() {
-  const selection = await listProjectsForSession();
+export async function listEffectiveWorkTypesForSession(user?: AuthUser) {
+  const selection = await listProjectsForSession(user);
   const currentProjectId = selection.currentProjectId ?? null;
   const byField = await buildEffectiveTaskCategoriesByField(currentProjectId);
 
@@ -245,8 +288,8 @@ export async function listEffectiveWorkTypesForSession() {
   };
 }
 
-export async function listEffectiveTaskCategoriesForSession() {
-  const selection = await listProjectsForSession();
+export async function listEffectiveTaskCategoriesForSession(user?: AuthUser) {
+  const selection = await listProjectsForSession(user);
   return listEffectiveTaskCategoriesForProject(selection.currentProjectId ?? null);
 }
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { badRequest } from "@/lib/api/errors";
 import {
@@ -30,14 +32,16 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
+    await requireCurrentProjectAccess(user);
     const body = await readRequestBody(request);
     const [project, tasks, allFiles, storedLayout, categoryDefinitions, foundationSettings] = await Promise.all([
       getSelectedTaskProject(),
       listTasks("active"),
       listFiles("active"),
       getTaskListLayout(user.id),
-      listEffectiveTaskCategoriesForSession(),
+      listEffectiveTaskCategoriesForSession(user),
       getAdminFoundationSettings(),
     ]);
     const selectedCategoricalFilters = resolveExportCategoricalFilters(body);

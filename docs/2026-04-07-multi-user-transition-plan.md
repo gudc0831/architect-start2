@@ -1,7 +1,9 @@
 # Multi-User Transition Plan
 
-- Updated: 2026-04-10
+- Updated: 2026-04-28
 - Parent index: [../PLAN.md](../PLAN.md)
+- Latest follow-up execution plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
+- Post-Phase 1 collaboration expansion: [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md)
 - Locked auth and RBAC decisions: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Deployment guardrails: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
 - Supporting setup: [SUPABASE_MIGRATION.md](SUPABASE_MIGRATION.md)
@@ -50,10 +52,38 @@ Phase 1 includes:
 
 Phase 1 does not include:
 
-- `viewer/editor` roles
-- open self-signup
 - local-mode parity as proof of correctness
-- full real-time collaboration
+- post-Phase 1 collaboration expansion such as `viewer/editor`, open self-signup, invitation and approval workflow, realtime collaboration, and broader collaboration UX
+
+Those post-Phase 1 items are tracked in [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md).
+
+## Status As Of 2026-04-28
+
+Completed and should not be reworked unless a regression appears:
+
+- Phase 0 preview/test environment readiness for the current preview path
+- Phase 1 identity and provisioning path for Google OAuth preview login
+- Phase 2 membership-filtered project access baseline
+- Phase 3 shared route guard and request-integrity baseline for the verified routes
+- Phase 4 database and storage policy boundary in Preview
+- Phase 5 assignee-to-profile linkage foundation
+- Phase 6 concurrency hardening
+- Phase 7 no-access UX, conflict recovery UX, and non-production release readiness
+- preview manager/member/no-access auth verification baseline
+- GitHub branch protection and required-check baseline
+- Vercel Preview Authentication restore and preview env separation
+
+Still deferred before production promotion, not before non-production Phase 1 completion:
+
+- exact production root URL
+- Vercel Production env vars pointing only to production Supabase/Postgres
+- production Supabase Auth Site URL and redirect URL confirmation
+- Google OAuth authorized redirect URI for the production Supabase project
+- production runtime smoke after deployment
+
+Current active work order:
+
+- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md), which records non-production readiness as complete and production promotion as deferred
 
 ## Read Order For Implementers
 
@@ -75,6 +105,11 @@ Phase 1 does not include:
 ## Phase Breakdown
 
 ### Phase 0. Preview And Test Environment Readiness
+
+Status:
+
+- complete for the current preview path as of 2026-04-23
+- do not recreate preview accounts, `preview-rbac-b`, branch protection, or preview env separation unless a regression appears
 
 Goal:
 
@@ -119,6 +154,11 @@ Exit criteria:
 
 ### Phase 1. Identity And Provisioning Path
 
+Status:
+
+- complete for the verified preview path
+- keep the password route as a controlled utility only, as documented in the worklogs
+
 Goal:
 
 - Replace the current cloud password-oriented login path with the locked Google OAuth path.
@@ -160,6 +200,11 @@ Exit criteria:
 
 ### Phase 2. Membership-Filtered Project Access
 
+Status:
+
+- complete for the verified preview baseline
+- `Project A`/`Project B` manager and member behavior is recorded in [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
+
 Goal:
 
 - Make the selected project and project list membership-aware.
@@ -190,6 +235,11 @@ Exit criteria:
 - admin can still see all projects
 
 ### Phase 3. Route Guard And Role Split
+
+Status:
+
+- complete for the verified manager/admin/member guard and origin-integrity baseline
+- optional destructive manager-negative probe remains deferred unless final sign-off requires it
 
 Goal:
 
@@ -227,6 +277,13 @@ Exit criteria:
 
 ### Phase 4. Database And Storage Policy Boundary
 
+Status:
+
+- complete for Preview
+- preview DB/Storage policy rollout was applied on 2026-04-24
+- DB-level RLS, manager, no-access, anonymous, and rollback-only Storage insert probes passed
+- Project B upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final DB/Storage cleanup were verified through the local app server against Preview DB/Storage
+
 Goal:
 
 - Promote Postgres RLS and Storage policies to the formal long-term security boundary for browser-facing access paths.
@@ -263,6 +320,12 @@ Exit criteria:
 
 ### Phase 5. Assignee To Profile Link Foundation
 
+Status:
+
+- complete for the current Phase 1 non-production slice
+- implemented locally and applied to Preview DB on 2026-04-24
+- unresolved assignee mapping report returned `0`
+
 Goal:
 
 - Move task assignment toward actual project members rather than free text only.
@@ -296,6 +359,12 @@ Exit criteria:
 
 ### Phase 6. Concurrency Hardening
 
+Status:
+
+- complete for the current Phase 1 non-production slice
+- implemented locally and applied to Preview DB on 2026-04-24
+- conflict UX recovery has been implemented for the recoverable paths introduced by this phase
+
 Goal:
 
 - Close the main write races already visible in the current codebase.
@@ -325,6 +394,12 @@ Exit criteria:
 
 ### Phase 7. Login Outcome UX And Recovery UX
 
+Status:
+
+- complete for no-access login outcome in Preview
+- complete for conflict recovery UX for task update, task reorder, and file-version upload `409` paths
+- production promotion remains deferred until production URL, env vars, OAuth callback, and production runtime smoke are confirmed
+
 Goal:
 
 - Make the new auth and RBAC states understandable to users.
@@ -350,28 +425,11 @@ Exit criteria:
 - admin with no project gets a usable setup path
 - conflict states guide the user to recover
 
-### Phase 8. Realtime Follow-Up
+## Post-Phase 1 Collaboration Expansion
 
-Goal:
+The follow-up work for `viewer/editor`, self-signup, invitation and approval workflow, realtime collaboration, and broader collaboration UX is no longer planned in this baseline Phase 1 document.
 
-- Add collaborative freshness after correctness is already stable.
-
-Primary work:
-
-1. Add a project-scoped invalidation event model.
-2. Start with refresh/revalidate, not fine-grained patch merge.
-3. Keep real-time as a follow-up phase after auth, RBAC, and concurrency are stable.
-
-Main files:
-
-- `src/providers/dashboard-provider.tsx`
-- `src/providers/project-provider.tsx`
-- new real-time helper files if needed
-
-Exit criteria:
-
-- project changes propagate without breaking local draft recovery
-- refresh semantics stay consistent with the guard model
+Use [2026-04-28-collaboration-expansion-plan.md](2026-04-28-collaboration-expansion-plan.md) as the working plan after the user approves its decision gates.
 
 ## File Ownership Map
 
@@ -435,7 +493,7 @@ Minimum preview verification for sign-off:
 
 ## Completion Criteria
 
-Phase 1 is complete only when all of the following are true:
+Phase 1 non-production readiness is complete when all of the following are true:
 
 1. Google OAuth is the active cloud login path.
 2. Successful login without access does not grant project visibility.
@@ -447,3 +505,5 @@ Phase 1 is complete only when all of the following are true:
 8. Assignee linkage groundwork exists and fails safely for unresolved legacy data.
 9. The main concurrent write paths return correct, recoverable outcomes.
 10. Preview verification has been run against real cloud accounts, memberships, and policy boundaries.
+
+As of 2026-04-28, these non-production criteria are recorded as complete in [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md). Production promotion remains a separate sign-off path and is blocked until the production dashboard values and production runtime smoke are confirmed.

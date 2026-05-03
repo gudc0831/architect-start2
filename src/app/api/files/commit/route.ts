@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { commitFileUpload } from "@/use-cases/file-service";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
+    await requireCurrentProjectEditor(user);
     const body = (await request.json()) as {
       projectId?: string;
       taskId?: string;

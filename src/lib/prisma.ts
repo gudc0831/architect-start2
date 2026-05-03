@@ -1,3 +1,4 @@
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { serviceUnavailable } from "@/lib/api/errors";
 
@@ -12,7 +13,10 @@ function createPrismaClient() {
     throw serviceUnavailable("DATABASE_URL이 설정되지 않았습니다.", "DATABASE_URL_MISSING");
   }
 
+  const adapter = new PrismaPg({ connectionString: databaseUrl });
+
   return new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 }
