@@ -6,6 +6,7 @@ import { backendMode } from "@/lib/backend-mode";
 import {
   defaultProjectName,
   localAdminStorePath,
+  localAssistantStorePath,
   localDataRoot,
   localFileStorePath,
   localPreferenceStorePath,
@@ -31,7 +32,7 @@ import {
   writeJsonFile,
 } from "@/lib/data-guard/shared";
 
-export type LocalStoreName = "project" | "tasks" | "files" | "sequence" | "preferences" | "admin";
+export type LocalStoreName = "project" | "tasks" | "files" | "assistant" | "sequence" | "preferences" | "admin";
 
 type LocalGuardStoreState = {
   exists: boolean;
@@ -48,6 +49,7 @@ type LocalFingerprint = {
   projectMetaPath: string;
   taskStorePath: string;
   fileStorePath: string;
+  assistantStorePath: string;
   preferenceStorePath: string;
   sequenceStorePath: string;
   adminStorePath: string;
@@ -139,6 +141,19 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
       return Array.isArray(value) ? value.length : 0;
     },
   },
+  assistant: {
+    path: localAssistantStorePath,
+    snapshotName: "assistant-records.json",
+    fallback: { records: [], summaries: [] },
+    countRecords(value) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return 0;
+      }
+
+      const store = value as { records?: unknown; summaries?: unknown };
+      return (Array.isArray(store.records) ? store.records.length : 0) + (Array.isArray(store.summaries) ? store.summaries.length : 0);
+    },
+  },
   sequence: {
     path: localSequenceStorePath,
     snapshotName: "task-sequence.json",
@@ -173,6 +188,7 @@ function defaultState(): LocalGuardState {
       project: { exists: false, path: localProjectMetaPath, recordCount: 0, updatedAt: null },
       tasks: { exists: false, path: localTaskStorePath, recordCount: 0, updatedAt: null },
       files: { exists: false, path: localFileStorePath, recordCount: 0, updatedAt: null },
+      assistant: { exists: false, path: localAssistantStorePath, recordCount: 0, updatedAt: null },
       sequence: { exists: false, path: localSequenceStorePath, recordCount: 0, updatedAt: null },
       preferences: { exists: false, path: localPreferenceStorePath, recordCount: 0, updatedAt: null },
       admin: { exists: false, path: localAdminStorePath, recordCount: 0, updatedAt: null },
@@ -199,6 +215,7 @@ function normalizeFingerprint(input: LocalFingerprint | null | undefined) {
     projectMetaPath: input.projectMetaPath,
     taskStorePath: input.taskStorePath,
     fileStorePath: input.fileStorePath,
+    assistantStorePath: input.assistantStorePath,
     preferenceStorePath: input.preferenceStorePath,
     sequenceStorePath: input.sequenceStorePath,
     adminStorePath: input.adminStorePath,
@@ -269,6 +286,7 @@ async function computeFingerprint(): Promise<LocalFingerprint> {
     projectMetaPath: localProjectMetaPath,
     taskStorePath: localTaskStorePath,
     fileStorePath: localFileStorePath,
+    assistantStorePath: localAssistantStorePath,
     preferenceStorePath: localPreferenceStorePath,
     sequenceStorePath: localSequenceStorePath,
     adminStorePath: localAdminStorePath,

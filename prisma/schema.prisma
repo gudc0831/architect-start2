@@ -66,6 +66,8 @@ model Profile {
   accessRequests AccessRequest[] @relation("AccessRequestProfile")
   reviewedAccessRequests AccessRequest[] @relation("AccessRequestReviewedBy")
   heldEditLeases EditLease[] @relation("EditLeaseHolder")
+  assistantTaskRecords AssistantTaskRecord[]
+  assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -86,6 +88,8 @@ model Project {
   editLeases EditLease[]
   tasks     Task[]
   files     File[]
+  assistantTaskRecords AssistantTaskRecord[]
+  assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
   workTypeDefinitions WorkTypeDefinition[]
 
   @@map("projects")
@@ -135,6 +139,8 @@ model Task {
   updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
   assigneeProfile    Profile?    @relation("TaskAssignedTo", fields: [assigneeProfileId], references: [id], onDelete: SetNull)
   files              File[]
+  assistantTaskRecords AssistantTaskRecord[]
+  assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
 
   @@unique([projectId, taskNumber])
   @@index([projectId, deletedAt, purgedAt])
@@ -297,4 +303,55 @@ model WorkTypeDefinition {
   @@index([fieldKey, projectId, isActive])
   @@index([fieldKey, projectId, sortOrder])
   @@map("work_type_definitions")
+}
+
+model AssistantTaskRecord {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId        String   @map("project_id") @db.Uuid
+  taskId           String   @map("task_id") @db.Uuid
+  profileId        String   @map("profile_id") @db.Uuid
+  question         String
+  answer           String
+  evidence         Json     @default("[]")
+  confidenceScore  Int      @default(0) @map("confidence_score")
+  confidenceReason String   @default("") @map("confidence_reason")
+  executionMode    String   @default("mock") @map("execution_mode")
+  runtimeMode      String   @default("mock") @map("runtime_mode")
+  draftSummary     Json     @default("{}") @map("draft_summary")
+  cleanupState     String   @default("draft") @map("cleanup_state")
+  candidateState   String   @default("candidate") @map("candidate_state")
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task             Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  profile          Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  workSummaryDraft AssistantWorkSummaryDraft?
+
+  @@index([projectId, taskId, createdAt])
+  @@index([profileId, createdAt])
+  @@map("assistant_task_records")
+}
+
+model AssistantWorkSummaryDraft {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  taskId         String   @map("task_id") @db.Uuid
+  recordId       String   @unique @map("record_id") @db.Uuid
+  profileId      String   @map("profile_id") @db.Uuid
+  conclusion     String
+  tags           Json     @default("[]")
+  scope          String   @default("")
+  followUpAction String   @default("") @map("follow_up_action")
+  status         String   @default("draft")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  record         AssistantTaskRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  profile        Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, taskId, createdAt])
+  @@index([profileId, createdAt])
+  @@map("assistant_work_summary_drafts")
 }

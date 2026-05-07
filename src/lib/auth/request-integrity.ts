@@ -49,6 +49,10 @@ function getAllowedOrigins(request: Request) {
     allowedOrigins.add(vercelUrl);
   }
 
+  for (const origin of getConfiguredExtensionOrigins()) {
+    allowedOrigins.add(origin);
+  }
+
   return allowedOrigins;
 }
 
@@ -61,6 +65,13 @@ function normalizeOptionalUrl(value: string | undefined) {
   return parseOrigin(normalized.startsWith("http://") || normalized.startsWith("https://") ? normalized : `https://${normalized}`);
 }
 
+function getConfiguredExtensionOrigins() {
+  return (process.env.ARCHITECT_ASSISTANT_EXTENSION_ORIGINS ?? "")
+    .split(",")
+    .map((value) => parseOrigin(value.trim()))
+    .filter((value): value is string => Boolean(value));
+}
+
 function parseOrigin(value: string | null | undefined) {
   if (!value) {
     return null;
@@ -68,7 +79,7 @@ function parseOrigin(value: string | null | undefined) {
 
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:" && parsed.protocol !== "chrome-extension:") {
       return null;
     }
 

@@ -1,0 +1,29 @@
+import { backendMode } from "@/lib/backend-mode";
+import type { AssistantRepository } from "@/repositories/assistant/contracts";
+import { localAssistantRepository } from "@/repositories/assistant/local-store";
+import { postgresAssistantRepository } from "@/repositories/assistant/postgres-store";
+
+let assistantRepositoryInstance: AssistantRepository | null = null;
+
+function getAssistantRepository() {
+  if (!assistantRepositoryInstance) {
+    assistantRepositoryInstance = backendMode === "cloud" ? postgresAssistantRepository : localAssistantRepository;
+  }
+
+  return assistantRepositoryInstance;
+}
+
+export const assistantRepository: AssistantRepository = {
+  listRecordsByTask(taskId) {
+    return getAssistantRepository().listRecordsByTask(taskId);
+  },
+  findRecordById(recordId) {
+    return getAssistantRepository().findRecordById(recordId);
+  },
+  createRecord(input) {
+    return getAssistantRepository().createRecord(input);
+  },
+  saveWorkSummaryDraft(input) {
+    return getAssistantRepository().saveWorkSummaryDraft(input);
+  },
+};
