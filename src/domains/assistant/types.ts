@@ -35,6 +35,42 @@ export type AssistantDraftSummary = {
   followUpAction?: string;
 };
 
+export type AssistantCandidateState =
+  | "candidate"
+  | "not_candidate"
+  | "pending_review"
+  | "approved"
+  | "rejected";
+
+export type KnowledgePublicationScope = "admin_only" | "organization" | "project_members" | "project";
+
+export type KnowledgeReviewMetadata = {
+  status: "approved" | "rejected";
+  reviewerId: string;
+  reviewedAt: string;
+  rejectionReason?: string;
+};
+
+export type ApprovedKnowledgeItem = {
+  id: string;
+  title: string;
+  summary: string;
+  bodyMarkdown: string;
+  tags: string[];
+  scope: KnowledgePublicationScope;
+  sourceRecordId: string;
+  sourceTaskId: string;
+  sourceProjectId: string;
+  sourceReferences: AssistantEvidence[];
+  approvedBy: string;
+  approvedAt: string;
+};
+
+export type AssistantRecordMetadata = {
+  knowledgeReview?: KnowledgeReviewMetadata;
+  approvedKnowledgeItem?: ApprovedKnowledgeItem;
+};
+
 export type AssistantRecord = {
   id: string;
   projectId: string;
@@ -49,7 +85,8 @@ export type AssistantRecord = {
   runtimeMode: string;
   draftSummary: AssistantDraftSummary | null;
   cleanupState: "draft" | "approved" | "deferred";
-  candidateState: "candidate" | "not_candidate" | "pending_review";
+  candidateState: AssistantCandidateState;
+  metadata: AssistantRecordMetadata;
   createdAt: string;
   updatedAt: string;
 };

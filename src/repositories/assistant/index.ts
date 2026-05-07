@@ -17,13 +17,22 @@ export const assistantRepository: AssistantRepository = {
   listRecordsByTask(taskId) {
     return getAssistantRepository().listRecordsByTask(taskId);
   },
+  listKnowledgeCandidateRecords(input) {
+    return getAssistantRepository().listKnowledgeCandidateRecords(input);
+  },
   findRecordById(recordId) {
     return getAssistantRepository().findRecordById(recordId);
+  },
+  findWorkSummaryDraftByRecordId(recordId) {
+    return getAssistantRepository().findWorkSummaryDraftByRecordId(recordId);
   },
   createRecord(input) {
     return getAssistantRepository().createRecord(input);
   },
   saveWorkSummaryDraft(input) {
     return getAssistantRepository().saveWorkSummaryDraft(input);
+  },
+  reviewKnowledgeCandidate(input) {
+    return getAssistantRepository().reviewKnowledgeCandidate(input);
   },
 };
