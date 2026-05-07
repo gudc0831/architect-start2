@@ -44,6 +44,7 @@ import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-o
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
+import { TaskAssistantPanel } from "@/components/tasks/task-assistant-panel";
 import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
 import { TaskQuickCreate } from "@/components/tasks/task-quick-create";
 import type { TaskQuickCreateFormValues } from "@/components/tasks/task-quick-create-state";
@@ -5331,6 +5332,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               ) : null}
             </aside>
           ) : null}
+
+          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTask} /> : null}
         </div>
       )}
     </section>
