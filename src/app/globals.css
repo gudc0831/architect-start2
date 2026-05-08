@@ -3684,10 +3684,16 @@ a {
   padding: 0.7rem;
 }
 
+.task-assistant__field--plain {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.task-assistant__field select,
 .task-assistant__field textarea {
   width: 100%;
   min-width: 0;
-  resize: vertical;
   border: 1px solid var(--theme-border-field-strong);
   border-radius: 8px;
   background: var(--theme-surface-field);
@@ -3696,6 +3702,10 @@ a {
   font-size: 0.8rem;
   line-height: 1.45;
   padding: 0.6rem;
+}
+
+.task-assistant__field textarea {
+  resize: vertical;
 }
 
 .task-assistant__actions {

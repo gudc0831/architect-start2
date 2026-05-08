@@ -32,6 +32,8 @@ import type {
 import type { FileRecord, TaskFileSummary, TaskRecord } from "@/domains/task/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import { storageProvider } from "@/storage";
+import { normalizeFileMetadata } from "@/domains/file/analysis";
+import type { FileMetadata } from "@/domains/file/analysis";
 
 function toProjectRecord(project: {
   id: string;
@@ -139,6 +141,7 @@ function toFileRecord(file: {
   uploadedBy: string | null;
   deletedAt: Date | null;
   purgedAt: Date | null;
+  metadata: Prisma.JsonValue;
 }): FileRecord {
   return {
     id: file.id,
@@ -158,6 +161,7 @@ function toFileRecord(file: {
     uploadedBy: file.uploadedBy,
     deletedAt: file.deletedAt ? file.deletedAt.toISOString() : null,
     purgedAt: file.purgedAt ? file.purgedAt.toISOString() : null,
+    metadata: normalizeFileMetadata(file.metadata),
   };
 }
 
@@ -591,6 +595,7 @@ class PostgresFileRepository implements FileRepository {
         version: input.version ?? 1,
         uploadedBy: input.uploadedBy ?? null,
         purgedAt: null,
+        metadata: {},
       },
     });
 
@@ -636,6 +641,17 @@ class PostgresFileRepository implements FileRepository {
       where: { taskId, purgedAt: null },
       data: { deletedAt: null },
     });
+  }
+
+  async updateFileMetadata(fileId: string, metadata: FileMetadata) {
+    const file = await prisma.file.update({
+      where: { id: fileId },
+      data: {
+        metadata: normalizeFileMetadata(metadata) as Prisma.InputJsonValue,
+      },
+    });
+
+    return toFileRecord(file);
   }
 }
 

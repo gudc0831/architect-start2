@@ -1,6 +1,7 @@
 export type { TaskStatus } from "./status";
 
 import type { TaskStatus } from "./status";
+import type { FileMetadata } from "@/domains/file/analysis";
 
 export type TaskRecord = {
   id: string;
@@ -63,6 +64,7 @@ export type FileRecord = {
   uploadedBy: string | null;
   deletedAt: string | null;
   purgedAt: string | null;
+  metadata: FileMetadata;
 };
 
 export type DashboardMode = "board" | "daily" | "calendar" | "trash";

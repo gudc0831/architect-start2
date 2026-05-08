@@ -5,6 +5,8 @@ import type {
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import { getFileAnalysisEntries } from "@/domains/file/analysis";
+import type { FileAnalysisEntry, FileAnalysisSourceType } from "@/domains/file/analysis";
 import type { AuthUser } from "@/domains/auth/types";
 import type { TaskRecord } from "@/domains/task/types";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
@@ -56,11 +58,14 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     assistantRepository.listRecordsByTask(task.id),
   ]);
   const evidence = buildEvidence({ task, projectName: project.name, question, tasks, files, previousRecords });
+  const hasFileAnalysisEvidence = evidence.some((item) => item.id.startsWith("file-analysis:"));
 
   return {
     taskContext: toTaskContext(task, project.name),
     evidence,
-    unavailableEvidenceKinds: ["central_knowledge", "regulation", "project_document"] as const,
+    unavailableEvidenceKinds: hasFileAnalysisEvidence
+      ? (["central_knowledge", "regulation"] as const)
+      : (["central_knowledge", "regulation", "project_document"] as const),
   };
 }
 
@@ -167,18 +172,66 @@ function buildEvidence(input: {
   }
 
   for (const file of input.files.slice(0, 3)) {
+    const fileAnalysis = getUsableFileAnalysis(file.metadata).slice(0, 2);
+    if (fileAnalysis.length > 0) {
+      for (const analysis of fileAnalysis) {
+        evidence.push({
+          id: `file-analysis:${file.id}:${analysis.id}`,
+          kind: "project_document",
+          priority: 4,
+          title: `${file.originalName} / ${formatFileAnalysisSource(analysis.sourceType)}`,
+          excerpt: compactExcerpt([formatFileAnalysisNotice(analysis), analysis.summary, analysis.extractedText]),
+          recordId: file.id,
+          confidenceWeight: analysis.confidenceWeight,
+        });
+      }
+      continue;
+    }
+
     evidence.push({
       id: `file:${file.id}`,
       kind: "project_document",
       priority: 4,
       title: file.originalName,
-      excerpt: `Attached file for ${input.task.issueId || "current task"} in ${input.projectName}. Text extraction is planned for a later slice.`,
+      excerpt: `Attached file for ${input.task.issueId || "current task"} in ${input.projectName}. Text extraction has not been confirmed yet.`,
       recordId: file.id,
-      confidenceWeight: 0.35,
+      confidenceWeight: 0.25,
     });
   }
 
   return evidence.sort((left, right) => left.priority - right.priority);
+}
+
+function getUsableFileAnalysis(metadata: unknown): FileAnalysisEntry[] {
+  return getFileAnalysisEntries(metadata)
+    .filter((entry) => entry.verificationState !== "rejected" && (entry.summary || entry.extractedText))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function formatFileAnalysisSource(sourceType: FileAnalysisSourceType) {
+  switch (sourceType) {
+    case "document_text":
+      return "document text";
+    case "ocr_text":
+      return "OCR text";
+    case "image_region":
+      return "image region";
+    case "manual_text":
+    default:
+      return "manual analysis";
+  }
+}
+
+function formatFileAnalysisNotice(entry: FileAnalysisEntry) {
+  if (entry.verificationState === "user_confirmed") {
+    return "User-confirmed file evidence.";
+  }
+
+  if (entry.sourceType === "ocr_text" || entry.sourceType === "image_region") {
+    return "Unconfirmed OCR/image evidence. Do not use as final official judgment before user review.";
+  }
+
+  return "Unconfirmed file evidence. Use as a review lead until the user confirms it.";
 }
 
 function rankRelatedTasks(tasks: TaskRecord[], currentTask: TaskRecord, question: string) {

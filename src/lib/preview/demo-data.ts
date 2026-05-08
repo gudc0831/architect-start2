@@ -348,6 +348,7 @@ export const previewFiles: FileRecord[] = [
     uploadedBy: "preview-user",
     deletedAt: null,
     purgedAt: null,
+    metadata: {},
   },
   {
     id: "file-101",
@@ -367,6 +368,7 @@ export const previewFiles: FileRecord[] = [
     uploadedBy: "preview-user",
     deletedAt: null,
     purgedAt: null,
+    metadata: {},
   },
   {
     id: "file-102",
@@ -386,5 +388,6 @@ export const previewFiles: FileRecord[] = [
     uploadedBy: "preview-user",
     deletedAt: "2026-03-10T15:00:00.000Z",
     purgedAt: null,
+    metadata: {},
   },
 ];

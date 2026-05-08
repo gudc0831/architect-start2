@@ -130,6 +130,9 @@ export const fileRepository: FileRepository = {
   restoreFilesByTask(taskId) {
     return getFileRepository().restoreFilesByTask(taskId);
   },
+  updateFileMetadata(fileId, metadata) {
+    return getFileRepository().updateFileMetadata(fileId, metadata);
+  },
 };
 
 export const projectRepository: ProjectRepository = {

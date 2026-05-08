@@ -16,6 +16,20 @@ type AssistantEvidence = {
   confidenceWeight?: number;
 };
 
+type AssistantFileAnalysis = {
+  id: string;
+  sourceType: string;
+  verificationState: string;
+};
+
+type AssistantFile = {
+  id: string;
+  originalName: string;
+  metadata?: {
+    analysis?: AssistantFileAnalysis[];
+  };
+};
+
 type AssistantTaskContext = {
   taskId: string;
   projectId: string;
@@ -64,6 +78,11 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
   const [output, setOutput] = useState<AssistantOutput | null>(null);
   const [record, setRecord] = useState<SavedAssistantRecord | null>(null);
+  const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState("");
+  const [analysisText, setAnalysisText] = useState("");
+  const [analysisSummary, setAnalysisSummary] = useState("");
+  const [filesLoading, setFilesLoading] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 그 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
 
@@ -73,6 +92,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setRetrieveResult(null);
     setOutput(null);
     setRecord(null);
+    setTaskFiles([]);
+    setSelectedFileId("");
+    setAnalysisText("");
+    setAnalysisSummary("");
 
     if (!selectedTask) {
       setQuestion("");
@@ -83,6 +106,37 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setQuestion(`${selectedTaskLabel} task의 검토 근거와 후속 조치를 정리해줘.`);
     setStatus(`${selectedTaskLabel} task가 선택되었습니다.`);
   }, [selectedTask, selectedTaskLabel]);
+
+  useEffect(() => {
+    if (!isOpen || !selectedTask) {
+      return;
+    }
+
+    let cancelled = false;
+    setFilesLoading(true);
+    getJson<AssistantFile[]>(`/api/files?taskId=${encodeURIComponent(selectedTask.id)}`)
+      .then((files) => {
+        if (cancelled) {
+          return;
+        }
+        setTaskFiles(files);
+        setSelectedFileId((current) => current || files[0]?.id || "");
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFilesLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedTask]);
 
   async function runAssistantReview() {
     if (!selectedTask || !question.trim()) {
@@ -147,6 +201,39 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     }
   }
 
+  async function saveSelectedFileAnalysis() {
+    if (!selectedTask || !selectedFileId) {
+      setStatus("분석 근거를 저장할 첨부 파일을 먼저 선택하세요.");
+      return;
+    }
+
+    if (!analysisText.trim() && !analysisSummary.trim()) {
+      setStatus("파일에서 확인한 텍스트나 요약을 입력하세요.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const saved = await postJson<{ file: AssistantFile }>(`/api/files/${encodeURIComponent(selectedFileId)}/analysis`, {
+        sourceType: "manual_text",
+        extractedText: analysisText,
+        summary: analysisSummary,
+        verificationState: "unverified",
+      });
+      setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
+      setAnalysisText("");
+      setAnalysisSummary("");
+      setRetrieveResult(null);
+      setOutput(null);
+      setRecord(null);
+      setStatus("파일 분석 근거를 저장했습니다. 이제 근거 조회를 실행하면 assistant 의견에 반영됩니다.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="task-assistant" data-task-portal-interaction="true">
       {!isOpen ? (
@@ -182,6 +269,58 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 <p>선택한 task의 제목, 설명, 프로젝트 맥락을 기준으로 답변합니다.</p>
               </section>
             )}
+
+            {selectedTask ? (
+              <section className="task-assistant__section">
+                <div className="task-assistant__section-header">
+                  <h4>파일 근거</h4>
+                  <span>{filesLoading ? "loading" : `${taskFiles.length}`}</span>
+                </div>
+                <label className="task-assistant__field task-assistant__field--plain">
+                  <span>첨부 파일</span>
+                  <select
+                    disabled={busy || filesLoading || taskFiles.length === 0}
+                    onChange={(event) => setSelectedFileId(event.target.value)}
+                    value={selectedFileId}
+                  >
+                    {taskFiles.length === 0 ? <option value="">첨부 파일 없음</option> : null}
+                    {taskFiles.map((file) => (
+                      <option key={file.id} value={file.id}>
+                        {file.originalName} {file.metadata?.analysis?.length ? `(${file.metadata.analysis.length})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="task-assistant__field task-assistant__field--plain">
+                  <span>확인한 내용</span>
+                  <textarea
+                    disabled={busy || !selectedFileId}
+                    onChange={(event) => setAnalysisText(event.target.value)}
+                    placeholder="도면 메모, PDF 본문, 이미지 OCR에서 확인한 내용을 붙여 넣으세요."
+                    rows={3}
+                    value={analysisText}
+                  />
+                </label>
+                <label className="task-assistant__field task-assistant__field--plain">
+                  <span>요약</span>
+                  <textarea
+                    disabled={busy || !selectedFileId}
+                    onChange={(event) => setAnalysisSummary(event.target.value)}
+                    placeholder="assistant 근거 목록에 표시할 짧은 요약"
+                    rows={2}
+                    value={analysisSummary}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={busy || !selectedFileId || (!analysisText.trim() && !analysisSummary.trim())}
+                  onClick={() => void saveSelectedFileAnalysis()}
+                  type="button"
+                >
+                  파일 근거 저장
+                </button>
+              </section>
+            ) : null}
 
             <label className="task-assistant__field">
               <span>질문</span>
@@ -228,7 +367,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   <span>{retrieveResult.evidence.length}</span>
                 </div>
                 <div className="task-assistant__evidence-list">
-                  {retrieveResult.evidence.slice(0, 4).map((item) => (
+                  {retrieveResult.evidence.slice(0, 10).map((item) => (
                     <article className="task-assistant__evidence" key={item.id}>
                       <strong>{item.title}</strong>
                       <small>{item.kind} / priority {item.priority}</small>
@@ -270,7 +409,7 @@ function generateArchitectReview(input: {
   question: string;
   instruction: string;
 }): AssistantOutput {
-  const primary = input.evidence[0];
+  const primary = input.evidence.find((item) => item.id.startsWith("file-analysis:")) ?? input.evidence[0];
   const taskLabel = input.taskContext.issueId || input.taskContext.taskId;
   const evidenceSummary = primary
     ? `${primary.title}: ${primary.excerpt}`
@@ -299,6 +438,16 @@ async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
+  if (!response.ok) {
+    throw new Error(parsed.error?.message ?? "Request failed");
+  }
+
+  return parsed.data as T;
+}
+
+async function getJson<T = unknown>(path: string): Promise<T> {
+  const response = await fetch(path);
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {
     throw new Error(parsed.error?.message ?? "Request failed");

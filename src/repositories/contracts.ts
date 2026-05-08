@@ -1,5 +1,6 @@
 import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
+import type { FileMetadata } from "@/domains/file/analysis";
 import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 export type TaskOrderUpdateInput = {
@@ -124,6 +125,7 @@ export interface FileRepository {
   deleteFile(fileId: string): Promise<void>;
   moveFilesToTrashByTask(taskId: string): Promise<void>;
   restoreFilesByTask(taskId: string): Promise<void>;
+  updateFileMetadata(fileId: string, metadata: FileMetadata): Promise<FileRecord>;
 }
 
 export interface ProjectRepository {

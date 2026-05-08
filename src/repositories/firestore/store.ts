@@ -9,6 +9,7 @@ import {
 } from "@/domains/task/status";
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
+import { normalizeFileMetadata } from "@/domains/file/analysis";
 import type {
   CreateTaskInput,
   FileRepository,
@@ -141,6 +142,7 @@ const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => 
     uploadedBy: typeof data.uploadedBy === "string" ? String(data.uploadedBy) : null,
     deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
     purgedAt: data.purgedAt ? toIsoString(data.purgedAt as FirestoreValue) : null,
+    metadata: normalizeFileMetadata(data.metadata),
   };
 };
 
@@ -516,6 +518,7 @@ class FirestoreFileRepository implements FileRepository {
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
       purgedAt: null,
+      metadata: {},
     };
 
     const ref = doc(collection(db, fileCollectionName));
@@ -584,6 +587,23 @@ class FirestoreFileRepository implements FileRepository {
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId && !entry.data().purgedAt);
     const updatedAt = new Date().toISOString();
     await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null, updatedAt })));
+  }
+
+  async updateFileMetadata(fileId: string, metadata) {
+    const db = getDb();
+    if (!db) {
+      throw new Error("Firestore is not configured");
+    }
+
+    const targetRef = doc(db, fileCollectionName, fileId);
+    await updateDoc(targetRef, { metadata: normalizeFileMetadata(metadata), updatedAt: new Date().toISOString() });
+    const snapshot = await getDoc(targetRef);
+
+    if (!snapshot.exists()) {
+      throw new Error("File not found");
+    }
+
+    return toFileRecord(snapshot.id, snapshot.data());
   }
 }
 

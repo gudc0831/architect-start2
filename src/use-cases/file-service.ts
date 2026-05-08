@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
+import {
+  appendFileAnalysisEntry,
+  getFileAnalysisEntries,
+  normalizeFileAnalysisConfidence,
+  normalizeFileAnalysisSourceType,
+  normalizeFileAnalysisTags,
+  normalizeFileAnalysisVerificationState,
+} from "@/domains/file/analysis";
 import { resolveFileContentType } from "@/domains/file/metadata";
+import type { FileAnalysisEntry } from "@/domains/file/analysis";
 import type { FileRecord } from "@/domains/task/types";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
 import { badRequest, conflict } from "@/lib/api/errors";
@@ -36,6 +45,16 @@ export type FileUploadIntent = {
 
 export type FileUploadCommitInput = Omit<FileUploadIntent, "uploadMode"> & {
   uploadedBy?: string | null;
+};
+
+export type FileAnalysisSaveInput = {
+  fileId: string;
+  sourceType?: string | null;
+  extractedText?: string | null;
+  summary?: string | null;
+  tags?: unknown;
+  confidenceWeight?: number | null;
+  verificationState?: string | null;
 };
 
 export async function listFiles(scope: FileScope, taskId?: string) {
@@ -313,6 +332,46 @@ export async function readFileContent(fileId: string, options?: { allowDeleted?:
   };
 }
 
+export async function listFileAnalysis(fileId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  return getFileAnalysisEntries(file.metadata);
+}
+
+export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: string | null) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(input.fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
+  }
+
+  const sourceType = normalizeFileAnalysisSourceType(input.sourceType);
+  const verificationState = normalizeFileAnalysisVerificationState(input.verificationState);
+  const extractedText = normalizeAnalysisText(input.extractedText, 12000);
+  const summary = normalizeAnalysisText(input.summary, 1200) || summarizeAnalysisText(extractedText);
+  if (!extractedText && !summary) {
+    throw badRequest("analysis text or summary is required", "FILE_ANALYSIS_TEXT_REQUIRED");
+  }
+
+  const timestamp = new Date().toISOString();
+  const analysis: FileAnalysisEntry = {
+    id: randomUUID(),
+    sourceType,
+    extractedText,
+    summary,
+    tags: normalizeFileAnalysisTags(input.tags),
+    confidenceWeight: normalizeFileAnalysisConfidence(input.confidenceWeight, sourceType, verificationState),
+    verificationState,
+    createdBy: userId ?? null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const nextFile = await fileRepository.updateFileMetadata(file.id, appendFileAnalysisEntry(file.metadata, analysis));
+
+  return {
+    file: nextFile,
+    analysis,
+  };
+}
+
 function validateUploadDescriptor(originalName: string, sizeBytes: number) {
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     throw badRequest("file is required", "FILE_REQUIRED");
@@ -371,6 +430,28 @@ function normalizeOptionalId(value?: string | null) {
 
   const normalized = value.trim();
   return normalized ? normalized : null;
+}
+
+function normalizeRequiredId(value: string, fieldName: string) {
+  const normalized = normalizeOptionalId(value);
+  if (!normalized) {
+    throw badRequest(`${fieldName} is required`, `${fieldName.toUpperCase()}_REQUIRED`);
+  }
+
+  return normalized;
+}
+
+function normalizeAnalysisText(value: string | null | undefined, maxLength: number) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized.slice(0, maxLength) : "";
+}
+
+function summarizeAnalysisText(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  return value.length > 220 ? `${value.slice(0, 217)}...` : value;
 }
 
 function normalizePositiveInteger(value: number, fieldName: string) {

@@ -166,6 +166,7 @@ model File {
   uploadedBy      String?   @map("uploaded_by") @db.Uuid
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
   purgedAt        DateTime? @map("purged_at") @db.Timestamptz(6)
+  metadata        Json      @default("{}")
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)

@@ -17,6 +17,8 @@ import type {
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
+import { normalizeFileMetadata } from "@/domains/file/analysis";
+import type { FileMetadata } from "@/domains/file/analysis";
 import { conflict, serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
@@ -410,6 +412,7 @@ function normalizeFileRecords(files: Array<Record<string, unknown>>) {
       uploadedBy: typeof raw.uploadedBy === "string" ? raw.uploadedBy : null,
       deletedAt: typeof raw.deletedAt === "string" ? raw.deletedAt : raw.deletedAt === null ? null : null,
       purgedAt: typeof raw.purgedAt === "string" ? raw.purgedAt : raw.purgedAt === null ? null : null,
+      metadata: normalizeFileMetadata(raw.metadata),
     } satisfies FileRecord;
   });
 }
@@ -475,6 +478,7 @@ class MemoryFileRepository implements FileRepository {
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
       purgedAt: null,
+      metadata: {},
     };
 
     files.unshift(record);
@@ -548,6 +552,20 @@ class MemoryFileRepository implements FileRepository {
       file.taskId === taskId && !file.purgedAt ? { ...file, deletedAt: null, updatedAt: restoredAt } : file,
     );
     await writeLocalStore("files", next, { reason: "files.bulk-restore" });
+  }
+
+  async updateFileMetadata(fileId: string, metadata: FileMetadata) {
+    const files = await readFiles();
+    const index = files.findIndex((file) => file.id === fileId);
+
+    if (index === -1 || files[index].purgedAt) {
+      throw new Error("File not found");
+    }
+
+    const next = { ...files[index], metadata: normalizeFileMetadata(metadata), updatedAt: now() };
+    files[index] = next;
+    await writeLocalStore("files", files, { reason: "files.metadata" });
+    return next;
   }
 }
 
