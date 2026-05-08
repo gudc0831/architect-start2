@@ -1,3 +1,5 @@
+import type { ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
+
 export type AssistantEvidenceKind =
   | "central_knowledge"
   | "regulation"
@@ -69,6 +71,7 @@ export type ApprovedKnowledgeItem = {
 export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
+  externalEvidence?: ExternalEvidenceRecord;
 };
 
 export type AssistantRecord = {

@@ -17,6 +17,9 @@ export const assistantRepository: AssistantRepository = {
   listRecordsByTask(taskId) {
     return getAssistantRepository().listRecordsByTask(taskId);
   },
+  listExternalEvidenceByTask(taskId) {
+    return getAssistantRepository().listExternalEvidenceByTask(taskId);
+  },
   listKnowledgeCandidateRecords(input) {
     return getAssistantRepository().listKnowledgeCandidateRecords(input);
   },
@@ -28,6 +31,9 @@ export const assistantRepository: AssistantRepository = {
   },
   createRecord(input) {
     return getAssistantRepository().createRecord(input);
+  },
+  createExternalEvidence(input) {
+    return getAssistantRepository().createExternalEvidence(input);
   },
   saveWorkSummaryDraft(input) {
     return getAssistantRepository().saveWorkSummaryDraft(input);

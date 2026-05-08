@@ -178,7 +178,7 @@ function buildWikiDraft(record: AssistantRecord, summary: AssistantWorkSummaryDr
     record.answer,
     "",
     "## 근거",
-    ...record.evidence.map((evidence) => `- ${evidence.title}: ${evidence.excerpt}`),
+    ...record.evidence.map(formatEvidenceReference),
     "",
     "## 출처",
     `- task: ${record.taskId}`,
@@ -192,6 +192,11 @@ function buildWikiDraft(record: AssistantRecord, summary: AssistantWorkSummaryDr
     tags: record.metadata.approvedKnowledgeItem?.tags ?? tags,
     scope: record.metadata.approvedKnowledgeItem?.scope ?? "organization",
   } satisfies KnowledgeCandidateDetail["wikiDraft"];
+}
+
+function formatEvidenceReference(evidence: AssistantRecord["evidence"][number]) {
+  const source = evidence.sourceUrl ? ` (${evidence.sourceUrl})` : "";
+  return `- ${evidence.title}${source}: ${evidence.excerpt}`;
 }
 
 function buildTitle(record: AssistantRecord, summary: AssistantWorkSummaryDraft | null, task: TaskRecord | null) {

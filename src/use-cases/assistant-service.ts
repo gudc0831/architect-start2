@@ -5,6 +5,11 @@ import type {
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import {
+  externalEvidenceToAssistantEvidence,
+  isExternalEvidenceSourceType,
+  type ExternalEvidenceSourceType,
+} from "@/domains/assistant/external-evidence";
 import { getFileAnalysisEntries } from "@/domains/file/analysis";
 import type { FileAnalysisEntry, FileAnalysisSourceType } from "@/domains/file/analysis";
 import type { AuthUser } from "@/domains/auth/types";
@@ -42,6 +47,17 @@ type SaveWorkSummaryDraftInput = {
   status?: AssistantWorkSummaryDraft["status"];
 };
 
+type SaveExternalEvidenceInput = {
+  taskId: string;
+  sourceType?: unknown;
+  title?: unknown;
+  excerpt?: unknown;
+  sourceUrl?: unknown;
+  toolName?: unknown;
+  permissionState?: unknown;
+  capturedAt?: unknown;
+};
+
 export async function getAssistantTaskContext(taskId: string): Promise<AssistantTaskContext> {
   const task = await requireTaskInSelectedProject(normalizeRequiredId(taskId, "taskId"));
   const project = await getSelectedTaskProject();
@@ -52,20 +68,27 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const project = await getSelectedTaskProject();
   const question = normalizeText(input.question);
-  const [tasks, files, previousRecords] = await Promise.all([
+  const [tasks, files, previousRecords, externalEvidence] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     fileRepository.listFilesByTask(task.id),
     assistantRepository.listRecordsByTask(task.id),
+    assistantRepository.listExternalEvidenceByTask(task.id),
   ]);
-  const evidence = buildEvidence({ task, projectName: project.name, question, tasks, files, previousRecords });
+  const evidence = buildEvidence({ task, projectName: project.name, question, tasks, files, previousRecords, externalEvidence });
   const hasFileAnalysisEvidence = evidence.some((item) => item.id.startsWith("file-analysis:"));
+  const hasExternalEvidence = externalEvidence.length > 0;
+  const unavailableEvidenceKinds: AssistantEvidence["kind"][] = ["central_knowledge", "regulation"];
+  if (!hasFileAnalysisEvidence) {
+    unavailableEvidenceKinds.push("project_document");
+  }
+  if (!hasExternalEvidence) {
+    unavailableEvidenceKinds.push("web_or_skill");
+  }
 
   return {
     taskContext: toTaskContext(task, project.name),
     evidence,
-    unavailableEvidenceKinds: hasFileAnalysisEvidence
-      ? (["central_knowledge", "regulation"] as const)
-      : (["central_knowledge", "regulation", "project_document"] as const),
+    unavailableEvidenceKinds,
   };
 }
 
@@ -89,6 +112,37 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
     runtimeMode: normalizeText(input.runtimeMode) || "mock",
     draftSummary: normalizeDraftSummary(input.draftSummary),
   });
+}
+
+export async function listExternalEvidence(taskId: string) {
+  const task = await requireTaskInSelectedProject(normalizeRequiredId(taskId, "taskId"));
+  return assistantRepository.listExternalEvidenceByTask(task.id);
+}
+
+export async function saveExternalEvidence(input: SaveExternalEvidenceInput, user: AuthUser) {
+  const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
+  const sourceType = normalizeExternalSourceType(input.sourceType);
+  if (input.permissionState !== "user_approved") {
+    throw badRequest("permissionState must be user_approved", "EXTERNAL_EVIDENCE_PERMISSION_REQUIRED");
+  }
+
+  const externalEvidence = await assistantRepository.createExternalEvidence({
+    projectId: task.projectId,
+    taskId: task.id,
+    createdBy: user.id,
+    sourceType,
+    title: normalizeRequiredText(input.title, "title"),
+    excerpt: normalizeRequiredText(input.excerpt, "excerpt"),
+    sourceUrl: normalizeSourceUrl(input.sourceUrl),
+    toolName: normalizeOptionalText(input.toolName),
+    permissionState: "user_approved",
+    capturedAt: normalizeCapturedAt(input.capturedAt),
+  });
+
+  return {
+    externalEvidence,
+    evidence: externalEvidenceToAssistantEvidence(externalEvidence),
+  };
 }
 
 export async function saveWorkSummaryDraft(input: SaveWorkSummaryDraftInput, user: AuthUser) {
@@ -134,6 +188,7 @@ function buildEvidence(input: {
   tasks: TaskRecord[];
   files: Awaited<ReturnType<typeof fileRepository.listFilesByTask>>;
   previousRecords: Awaited<ReturnType<typeof assistantRepository.listRecordsByTask>>;
+  externalEvidence: Awaited<ReturnType<typeof assistantRepository.listExternalEvidenceByTask>>;
 }): AssistantEvidence[] {
   const evidence: AssistantEvidence[] = [
     {
@@ -147,7 +202,11 @@ function buildEvidence(input: {
     },
   ];
 
-  for (const record of input.previousRecords.slice(0, 2)) {
+  const previousAssistantRecords = input.previousRecords.filter(
+    (record) => record.runtimeMode !== "external-evidence" && !record.metadata.externalEvidence,
+  );
+
+  for (const record of previousAssistantRecords.slice(0, 2)) {
     evidence.push({
       id: `assistant-record:${record.id}`,
       kind: "task",
@@ -197,6 +256,10 @@ function buildEvidence(input: {
       recordId: file.id,
       confidenceWeight: 0.25,
     });
+  }
+
+  for (const externalEvidence of input.externalEvidence.slice(0, 3)) {
+    evidence.push(externalEvidenceToAssistantEvidence(externalEvidence));
   }
 
   return evidence.sort((left, right) => left.priority - right.priority);
@@ -302,6 +365,46 @@ function normalizeEvidenceKind(value: unknown): AssistantEvidence["kind"] {
     value === "web_or_skill"
     ? value
     : "task";
+}
+
+function normalizeExternalSourceType(value: unknown): ExternalEvidenceSourceType {
+  if (!isExternalEvidenceSourceType(value)) {
+    throw badRequest("sourceType is invalid", "EXTERNAL_EVIDENCE_SOURCE_TYPE_INVALID");
+  }
+
+  return value;
+}
+
+function normalizeSourceUrl(value: unknown) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Unsupported protocol");
+    }
+
+    return url.toString();
+  } catch {
+    throw badRequest("sourceUrl must be a valid http(s) URL", "EXTERNAL_EVIDENCE_SOURCE_URL_INVALID");
+  }
+}
+
+function normalizeCapturedAt(value: unknown) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return new Date().toISOString();
+  }
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    throw badRequest("capturedAt must be a valid date", "EXTERNAL_EVIDENCE_CAPTURED_AT_INVALID");
+  }
+
+  return parsed.toISOString();
 }
 
 function normalizeDraftSummary(value: unknown): AssistantDraftSummary | null {

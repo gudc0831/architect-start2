@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import {
+  type CreateExternalEvidenceInput,
+  externalEvidenceToAssistantEvidence,
+  normalizeExternalEvidenceMetadata,
+} from "@/domains/assistant/external-evidence";
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
@@ -68,6 +73,10 @@ function asMetadata(value: Prisma.JsonValue): AssistantRecordMetadata {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as AssistantRecordMetadata) : {};
 }
 
+function toInputJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 function toRecord(record: PrismaAssistantRecord): AssistantRecord {
   return {
     id: record.id,
@@ -116,6 +125,16 @@ class PostgresAssistantRepository implements AssistantRepository {
     return records.map(toRecord);
   }
 
+  async listExternalEvidenceByTask(taskId: string) {
+    const records = await prisma.assistantTaskRecord.findMany({
+      where: { taskId, runtimeMode: "external-evidence" },
+      orderBy: { createdAt: "desc" },
+    });
+    return records
+      .map((record) => normalizeExternalEvidenceMetadata(toRecord(record).metadata.externalEvidence))
+      .filter((record) => record !== null);
+  }
+
   async listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }) {
     const states = input?.states ?? ["candidate", "pending_review", "approved", "rejected"];
     const records = await prisma.assistantTaskRecord.findMany({
@@ -150,11 +169,45 @@ class PostgresAssistantRepository implements AssistantRepository {
         executionMode: input.executionMode,
         runtimeMode: input.runtimeMode,
         draftSummary: (input.draftSummary ?? {}) as Prisma.InputJsonValue,
-        metadata: {},
+        cleanupState: input.cleanupState,
+        candidateState: input.candidateState,
+        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
 
     return toRecord(record);
+  }
+
+  async createExternalEvidence(input: CreateExternalEvidenceInput) {
+    const timestamp = new Date().toISOString();
+    const externalEvidence = {
+      id: randomUUID(),
+      ...input,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const evidence = externalEvidenceToAssistantEvidence(externalEvidence);
+    await prisma.assistantTaskRecord.create({
+      data: {
+        id: externalEvidence.id,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        profileId: input.createdBy,
+        question: `External evidence: ${input.title}`,
+        answer: input.excerpt,
+        evidence: toInputJson([evidence]),
+        confidenceScore: Math.round((evidence.confidenceWeight ?? 0.28) * 100),
+        confidenceReason: "User-approved external web/skill evidence saved for assistant retrieval.",
+        executionMode: "unavailable",
+        runtimeMode: "external-evidence",
+        draftSummary: {},
+        cleanupState: "deferred",
+        candidateState: "not_candidate",
+        metadata: toInputJson({ externalEvidence }),
+      },
+    });
+
+    return externalEvidence;
   }
 
   async saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput) {

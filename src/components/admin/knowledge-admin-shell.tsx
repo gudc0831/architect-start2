@@ -12,6 +12,7 @@ type Evidence = {
   title: string;
   excerpt: string;
   priority: number;
+  sourceUrl?: string;
 };
 
 type CandidateListItem = {
@@ -277,6 +278,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <span>{evidence.kind}</span>
                         <strong>{evidence.title}</strong>
                         <p>{evidence.excerpt}</p>
+                        {evidence.sourceUrl ? (
+                          <a href={evidence.sourceUrl} rel="noreferrer" target="_blank">
+                            source
+                          </a>
+                        ) : null}
                       </article>
                     )) : <p className={styles.empty}>저장된 근거가 없습니다.</p>}
                   </div>

@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+  type CreateExternalEvidenceInput,
+  externalEvidenceToAssistantEvidence,
+  normalizeExternalEvidenceMetadata,
+} from "@/domains/assistant/external-evidence";
 import type { ApprovedKnowledgeItem, AssistantCandidateState, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
 import type {
@@ -49,6 +54,15 @@ class LocalAssistantRepository implements AssistantRepository {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async listExternalEvidenceByTask(taskId: string) {
+    const store = await readStore();
+    return store.records
+      .filter((record) => record.taskId === taskId)
+      .map((record) => normalizeExternalEvidenceMetadata(record.metadata.externalEvidence))
+      .filter((record) => record !== null)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   async listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }) {
     const store = await readStore();
     const states = new Set(input?.states ?? ["candidate", "pending_review", "approved", "rejected"]);
@@ -73,15 +87,52 @@ class LocalAssistantRepository implements AssistantRepository {
     const record: AssistantRecord = {
       id: randomUUID(),
       ...input,
-      cleanupState: "draft",
-      candidateState: "candidate",
-      metadata: {},
+      cleanupState: input.cleanupState ?? "draft",
+      candidateState: input.candidateState ?? "candidate",
+      metadata: input.metadata ?? {},
       createdAt: timestamp,
       updatedAt: timestamp,
     };
 
     await writeLocalStore("assistant", { ...store, records: [record, ...store.records] }, { reason: "assistant.record.create" });
     return record;
+  }
+
+  async createExternalEvidence(input: CreateExternalEvidenceInput) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const externalEvidence = {
+      id: randomUUID(),
+      ...input,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const record: AssistantRecord = {
+      id: externalEvidence.id,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      profileId: input.createdBy,
+      question: `External evidence: ${input.title}`,
+      answer: input.excerpt,
+      evidence: [externalEvidenceToAssistantEvidence(externalEvidence)],
+      confidenceScore: Math.round((externalEvidenceToAssistantEvidence(externalEvidence).confidenceWeight ?? 0.28) * 100),
+      confidenceReason: "User-approved external web/skill evidence saved for assistant retrieval.",
+      executionMode: "unavailable",
+      runtimeMode: "external-evidence",
+      draftSummary: null,
+      cleanupState: "deferred",
+      candidateState: "not_candidate",
+      metadata: { externalEvidence },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      { ...store, records: [record, ...store.records] },
+      { reason: "assistant.external-evidence.create" },
+    );
+    return externalEvidence;
   }
 
   async saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput) {
