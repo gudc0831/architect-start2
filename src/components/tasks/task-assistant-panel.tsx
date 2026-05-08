@@ -52,6 +52,8 @@ type AssistantOutput = {
   draftSummary: DraftSummary;
 };
 
+type AssistantExecutionMode = "mock" | "saas-api";
+
 type RetrieveResponse = {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
@@ -87,6 +89,33 @@ type SaveExternalEvidenceResponse = {
   evidence: AssistantEvidence;
 };
 
+type AssistantPolicyResponse = {
+  enabled: boolean;
+  provider: "mock" | "openai";
+  model: string;
+  externalEvidenceAllowed: boolean;
+  allowedEvidenceKinds: AssistantEvidence["kind"][];
+};
+
+type AssistantGenerateResponse = {
+  answer: string;
+  suggestedDraftSummary: DraftSummary;
+  citations: Array<{ sourceType: AssistantEvidence["kind"]; sourceId: string; title: string }>;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostCents: number;
+  };
+  executionMode: "saas-api";
+  policyDecision: string;
+  policy: {
+    enabled: boolean;
+    provider: "mock" | "openai";
+    model: string;
+    monthlyBudgetCents: number;
+  };
+};
+
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
 };
@@ -113,6 +142,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [analysisText, setAnalysisText] = useState("");
   const [analysisSummary, setAnalysisSummary] = useState("");
+  const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>("mock");
+  const [assistantPolicy, setAssistantPolicy] = useState<AssistantPolicyResponse | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [externalLoading, setExternalLoading] = useState(false);
   const [externalAllowed, setExternalAllowed] = useState(false);
@@ -135,6 +166,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setSelectedFileId("");
     setAnalysisText("");
     setAnalysisSummary("");
+    setExecutionMode("mock");
+    setAssistantPolicy(null);
     setExternalEvidence([]);
     setExternalAllowed(false);
     setExternalTitle("");
@@ -197,6 +230,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         }
       });
 
+    getJson<AssistantPolicyResponse>("/api/assistant/policy")
+      .then((policy) => {
+        if (!cancelled) {
+          setAssistantPolicy(policy);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus(errorMessage(error));
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -218,12 +263,19 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       });
       setRetrieveResult(retrieved);
 
-      const generated = generateArchitectReview({
-        evidence: retrieved.evidence,
-        instruction,
-        question,
-        taskContext: retrieved.taskContext,
-      });
+      const generated =
+        executionMode === "saas-api"
+          ? await generateSaasApiReview({
+              instruction,
+              question,
+              taskId: retrieved.taskContext.taskId,
+            })
+          : generateArchitectReview({
+              evidence: retrieved.evidence,
+              instruction,
+              question,
+              taskContext: retrieved.taskContext,
+            });
       setOutput(generated);
 
       const savedRecord = await postJson<SavedAssistantRecord>("/api/assistant/records", {
@@ -231,12 +283,16 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         question,
         answer: generated.answer,
         evidence: retrieved.evidence,
-        executionMode: "mock",
-        runtimeMode: "saas-daily-task-panel",
+        executionMode,
+        runtimeMode: executionMode === "saas-api" ? "saas-api-daily-task-panel" : "saas-daily-task-panel",
         draftSummary: generated.draftSummary,
       });
       setRecord(savedRecord);
-      setStatus(`검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`);
+      setStatus(
+        executionMode === "saas-api"
+          ? `SaaS API Mode 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
+          : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
+      );
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -531,6 +587,30 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <textarea disabled={!selectedTask || busy} onChange={(event) => setQuestion(event.target.value)} rows={3} value={question} />
             </label>
             <label className="task-assistant__field">
+              <span>실행 모드</span>
+              <select
+                disabled={!selectedTask || busy}
+                onChange={(event) => setExecutionMode(event.target.value as AssistantExecutionMode)}
+                value={executionMode}
+              >
+                <option value="mock">Mock/local foundation</option>
+                <option value="saas-api">SaaS API foundation</option>
+              </select>
+            </label>
+            {executionMode === "saas-api" ? (
+              <section className="task-assistant__section">
+                <div className="task-assistant__section-header">
+                  <h4>SaaS API Mode</h4>
+                  <span>{assistantPolicy?.enabled ? "enabled" : "disabled"}</span>
+                </div>
+                <p className="task-assistant__hint">
+                  {assistantPolicy?.enabled
+                    ? `${assistantPolicy.provider} / ${assistantPolicy.model}`
+                    : "관리자 정책이 꺼져 있으면 생성 요청은 감사 로그와 사용량 차단 기록만 남깁니다."}
+                </p>
+              </section>
+            ) : null}
+            <label className="task-assistant__field">
               <span>검토 지침</span>
               <textarea disabled={!selectedTask || busy} onChange={(event) => setInstruction(event.target.value)} rows={4} value={instruction} />
             </label>
@@ -590,6 +670,22 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       )}
     </div>
   );
+}
+
+async function generateSaasApiReview(input: { taskId: string; question: string; instruction: string }): Promise<AssistantOutput> {
+  const generated = await postJson<AssistantGenerateResponse>("/api/assistant/generate", {
+    taskId: input.taskId,
+    question: input.question,
+    instruction: input.instruction,
+  });
+
+  return {
+    answer: [
+      generated.answer,
+      `사용량: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
+    ].join("\n\n"),
+    draftSummary: generated.suggestedDraftSummary,
+  };
 }
 
 function generateArchitectReview(input: {

@@ -7,7 +7,7 @@ export type AssistantEvidenceKind =
   | "project_document"
   | "web_or_skill";
 
-export type AssistantExecutionMode = "local-chatgpt-codex" | "mock" | "unavailable";
+export type AssistantExecutionMode = "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
 
 export type AssistantEvidence = {
   id: string;

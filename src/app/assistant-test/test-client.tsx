@@ -44,6 +44,26 @@ type AssistantOutput = {
   draftSummary: DraftSummary;
 };
 
+type AssistantPolicy = {
+  enabled: boolean;
+  provider: "mock" | "openai";
+  model: string;
+  monthlyBudgetCents?: number;
+};
+
+type AssistantGenerateResponse = {
+  answer: string;
+  suggestedDraftSummary: DraftSummary;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostCents: number;
+  };
+  executionMode: "saas-api";
+  policyDecision: string;
+  policy: AssistantPolicy;
+};
+
 type RetrieveResponse = {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
@@ -59,11 +79,13 @@ export function AssistantTestClient() {
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
   const [output, setOutput] = useState<AssistantOutput | null>(null);
   const [recordId, setRecordId] = useState("");
+  const [policy, setPolicy] = useState<AssistantPolicy | null>(null);
   const [status, setStatus] = useState("Loading tasks...");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void loadTasks();
+    void loadPolicy();
   }, []);
 
   const selectedTask = useMemo(
@@ -97,6 +119,36 @@ export function AssistantTestClient() {
       setTasks((current) => [task, ...current]);
       setSelectedTaskId(task.id);
       setStatus("Sample task created.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadPolicy() {
+    try {
+      const data = await getJson<AssistantPolicy>("/api/admin/assistant/policy");
+      setPolicy(data);
+    } catch {
+      setPolicy(null);
+    }
+  }
+
+  async function enableSaasPolicy() {
+    setBusy(true);
+    try {
+      const data = await putJson<AssistantPolicy>("/api/admin/assistant/policy", {
+        enabled: true,
+        provider: "mock",
+        model: "deterministic-foundation",
+        monthlyBudgetCents: 50000,
+        maxInputTokens: 12000,
+        maxOutputTokens: 2000,
+        externalEvidenceAllowed: true,
+      });
+      setPolicy(data);
+      setStatus("SaaS API Mode policy enabled for the current project.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -153,6 +205,45 @@ export function AssistantTestClient() {
     }
   }
 
+  async function generateWithSaasApiAndSave() {
+    if (!selectedTaskId || !question.trim()) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const generated = await postJson<AssistantGenerateResponse>("/api/assistant/generate", {
+        taskId: selectedTaskId,
+        question,
+        instruction: "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변해줘.",
+      });
+      const nextOutput = {
+        answer: [
+          generated.answer,
+          `Usage: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
+        ].join("\n\n"),
+        draftSummary: generated.suggestedDraftSummary,
+      } satisfies AssistantOutput;
+      setOutput(nextOutput);
+      const record = await postJson<{ id: string; confidenceScore: number }>("/api/assistant/records", {
+        taskId: selectedTaskId,
+        question,
+        answer: nextOutput.answer,
+        evidence: retrieveResult?.evidence ?? [],
+        executionMode: "saas-api",
+        runtimeMode: "saas-api-test-harness",
+        draftSummary: nextOutput.draftSummary,
+      });
+      setRecordId(record.id);
+      setStatus(`SaaS API Mode generated and saved. Confidence ${record.confidenceScore}%.`);
+      void loadPolicy();
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveSummary(statusValue: "approved" | "deferred") {
     if (!retrieveResult || !recordId || !output) {
       return;
@@ -188,7 +279,11 @@ export function AssistantTestClient() {
         <div style={styles.toolbar}>
           <button style={styles.secondaryButton} type="button" onClick={loadTasks} disabled={busy}>Reload tasks</button>
           <button style={styles.secondaryButton} type="button" onClick={createSampleTask} disabled={busy}>Create sample task</button>
+          <button style={styles.secondaryButton} type="button" onClick={enableSaasPolicy} disabled={busy}>Enable SaaS policy</button>
         </div>
+        <p style={styles.muted}>
+          SaaS policy: {policy?.enabled ? `enabled (${policy.provider} / ${policy.model})` : "disabled or unavailable"}
+        </p>
         <label style={styles.label}>
           Task
           <select
@@ -221,6 +316,9 @@ export function AssistantTestClient() {
           </button>
           <button style={styles.primaryButton} type="button" onClick={generateAndSave} disabled={busy || !retrieveResult}>
             2. Mock Generate + Save
+          </button>
+          <button style={styles.primaryButton} type="button" onClick={generateWithSaasApiAndSave} disabled={busy || !selectedTaskId}>
+            SaaS Generate + Save
           </button>
         </div>
       </section>
@@ -299,6 +397,15 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJson<T>(response);
+}
+
+async function putJson<T = unknown>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });

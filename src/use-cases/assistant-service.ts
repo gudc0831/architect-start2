@@ -451,7 +451,7 @@ function buildConfidenceReason(score: number, evidence: AssistantEvidence[]) {
 }
 
 function normalizeExecutionMode(value: unknown): AssistantExecutionMode {
-  return value === "local-chatgpt-codex" || value === "mock" || value === "unavailable" ? value : "mock";
+  return value === "local-chatgpt-codex" || value === "mock" || value === "unavailable" || value === "saas-api" ? value : "mock";
 }
 
 function normalizeSummaryStatus(value: unknown): AssistantWorkSummaryDraft["status"] {

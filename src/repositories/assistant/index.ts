@@ -41,4 +41,19 @@ export const assistantRepository: AssistantRepository = {
   reviewKnowledgeCandidate(input) {
     return getAssistantRepository().reviewKnowledgeCandidate(input);
   },
+  getRunPolicy(projectId) {
+    return getAssistantRepository().getRunPolicy(projectId);
+  },
+  upsertRunPolicy(input) {
+    return getAssistantRepository().upsertRunPolicy(input);
+  },
+  createUsageEvent(input) {
+    return getAssistantRepository().createUsageEvent(input);
+  },
+  listUsageEvents(input) {
+    return getAssistantRepository().listUsageEvents(input);
+  },
+  createAuditEvent(input) {
+    return getAssistantRepository().createAuditEvent(input);
+  },
 };

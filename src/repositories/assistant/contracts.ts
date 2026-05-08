@@ -10,6 +10,14 @@ import type {
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
 import type { CreateExternalEvidenceInput, ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
+import type {
+  AssistantAuditEvent,
+  AssistantPolicyDecision,
+  AssistantPolicyProvider,
+  AssistantRunPolicy,
+  AssistantUsageEvent,
+  AssistantUsageStatus,
+} from "@/domains/assistant/saas-api-mode";
 
 export type CreateAssistantRecordInput = {
   projectId: string;
@@ -58,6 +66,53 @@ export type ReviewKnowledgeCandidateInput =
       rejectionReason: string;
     };
 
+export type UpsertAssistantRunPolicyInput = {
+  projectId: string;
+  enabled: boolean;
+  provider: AssistantPolicyProvider;
+  model: string;
+  monthlyBudgetCents: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  externalEvidenceAllowed: boolean;
+  allowedEvidenceKinds: AssistantRunPolicy["allowedEvidenceKinds"];
+  retentionDays: number;
+  actorId: string | null;
+};
+
+export type CreateAssistantUsageEventInput = {
+  projectId: string;
+  taskId?: string | null;
+  profileId: string;
+  assistantRecordId?: string | null;
+  executionMode: "saas-api";
+  runtimeMode: string;
+  provider: AssistantPolicyProvider;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostCents: number;
+  status: AssistantUsageStatus;
+  policyDecision: AssistantPolicyDecision;
+  requestHash?: string | null;
+  errorCode?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type ListAssistantUsageEventsInput = {
+  projectId: string;
+  month?: string;
+};
+
+export type CreateAssistantAuditEventInput = {
+  projectId?: string | null;
+  profileId?: string | null;
+  eventType: string;
+  targetType: string;
+  targetId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 export interface AssistantRepository {
   listRecordsByTask(taskId: string): Promise<AssistantRecord[]>;
   listExternalEvidenceByTask(taskId: string): Promise<ExternalEvidenceRecord[]>;
@@ -71,4 +126,9 @@ export interface AssistantRepository {
     record: AssistantRecord;
     approvedKnowledgeItem: ApprovedKnowledgeItem | null;
   }>;
+  getRunPolicy(projectId: string): Promise<AssistantRunPolicy | null>;
+  upsertRunPolicy(input: UpsertAssistantRunPolicyInput): Promise<AssistantRunPolicy>;
+  createUsageEvent(input: CreateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
+  listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
+  createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;
 }

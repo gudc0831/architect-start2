@@ -3600,6 +3600,7 @@ a {
 .task-assistant__evidence p,
 .task-assistant__answer p,
 .task-assistant__summary p,
+.task-assistant__hint,
 .task-assistant__status {
   margin: 0;
 }
@@ -3672,7 +3673,8 @@ a {
 .task-assistant__empty p,
 .task-assistant__evidence p,
 .task-assistant__answer p,
-.task-assistant__summary p {
+.task-assistant__summary p,
+.task-assistant__hint {
   color: var(--theme-text-muted);
   font-size: 0.78rem;
   line-height: 1.5;

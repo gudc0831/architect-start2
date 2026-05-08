@@ -14,12 +14,23 @@ import type {
   AssistantRecord,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import type {
+  AssistantAuditEvent,
+  AssistantPolicyProvider,
+  AssistantRunPolicy,
+  AssistantUsageEvent,
+} from "@/domains/assistant/saas-api-mode";
+import { normalizeAllowedEvidenceKinds } from "@/domains/assistant/saas-api-mode";
 import { prisma } from "@/lib/prisma";
 import type {
   AssistantRepository,
+  CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
+  CreateAssistantUsageEventInput,
+  ListAssistantUsageEventsInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
+  UpsertAssistantRunPolicyInput,
 } from "@/repositories/assistant/contracts";
 
 type PrismaAssistantRecord = {
@@ -57,6 +68,70 @@ type PrismaAssistantWorkSummaryDraft = {
   updatedAt: Date;
 };
 
+type PrismaAssistantRunPolicy = {
+  id: string;
+  projectId: string;
+  enabled: boolean;
+  provider: string;
+  model: string;
+  monthlyBudgetCents: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  externalEvidenceAllowed: boolean;
+  allowedEvidenceKinds: Prisma.JsonValue;
+  retentionDays: number;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaAssistantUsageEvent = {
+  id: string;
+  projectId: string;
+  taskId: string | null;
+  profileId: string;
+  assistantRecordId: string | null;
+  executionMode: string;
+  runtimeMode: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostCents: number;
+  status: string;
+  policyDecision: string;
+  requestHash: string | null;
+  errorCode: string | null;
+  metadata: Prisma.JsonValue;
+  createdAt: Date;
+};
+
+type PrismaAssistantAuditEvent = {
+  id: string;
+  projectId: string | null;
+  profileId: string | null;
+  eventType: string;
+  targetType: string;
+  targetId: string | null;
+  metadata: Prisma.JsonValue;
+  createdAt: Date;
+};
+
+const assistantPrisma = prisma as typeof prisma & {
+  assistantRunPolicy: {
+    findUnique: (...args: unknown[]) => Promise<PrismaAssistantRunPolicy | null>;
+    upsert: (...args: unknown[]) => Promise<PrismaAssistantRunPolicy>;
+  };
+  assistantUsageEvent: {
+    create: (...args: unknown[]) => Promise<PrismaAssistantUsageEvent>;
+    findMany: (...args: unknown[]) => Promise<PrismaAssistantUsageEvent[]>;
+  };
+  assistantAuditEvent: {
+    create: (...args: unknown[]) => Promise<PrismaAssistantAuditEvent>;
+  };
+};
+
 function asEvidence(value: Prisma.JsonValue): AssistantEvidence[] {
   return Array.isArray(value) ? (value as AssistantEvidence[]) : [];
 }
@@ -71,6 +146,10 @@ function asTags(value: Prisma.JsonValue): string[] {
 
 function asMetadata(value: Prisma.JsonValue): AssistantRecordMetadata {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as AssistantRecordMetadata) : {};
+}
+
+function asRecordMetadata(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
@@ -113,6 +192,63 @@ function toSummary(record: PrismaAssistantWorkSummaryDraft): AssistantWorkSummar
     status: record.status as AssistantWorkSummaryDraft["status"],
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toPolicy(policy: PrismaAssistantRunPolicy): AssistantRunPolicy {
+  return {
+    id: policy.id,
+    scopeType: "project",
+    projectId: policy.projectId,
+    enabled: policy.enabled,
+    provider: policy.provider as AssistantPolicyProvider,
+    model: policy.model,
+    monthlyBudgetCents: policy.monthlyBudgetCents,
+    maxInputTokens: policy.maxInputTokens,
+    maxOutputTokens: policy.maxOutputTokens,
+    externalEvidenceAllowed: policy.externalEvidenceAllowed,
+    allowedEvidenceKinds: normalizeAllowedEvidenceKinds(policy.allowedEvidenceKinds),
+    retentionDays: policy.retentionDays,
+    createdBy: policy.createdBy,
+    updatedBy: policy.updatedBy,
+    createdAt: policy.createdAt.toISOString(),
+    updatedAt: policy.updatedAt.toISOString(),
+  };
+}
+
+function toUsageEvent(event: PrismaAssistantUsageEvent): AssistantUsageEvent {
+  return {
+    id: event.id,
+    projectId: event.projectId,
+    taskId: event.taskId,
+    profileId: event.profileId,
+    assistantRecordId: event.assistantRecordId,
+    executionMode: "saas-api",
+    runtimeMode: event.runtimeMode,
+    provider: event.provider as AssistantPolicyProvider,
+    model: event.model,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    estimatedCostCents: event.estimatedCostCents,
+    status: event.status as AssistantUsageEvent["status"],
+    policyDecision: event.policyDecision as AssistantUsageEvent["policyDecision"],
+    requestHash: event.requestHash,
+    errorCode: event.errorCode,
+    metadata: asRecordMetadata(event.metadata),
+    createdAt: event.createdAt.toISOString(),
+  };
+}
+
+function toAuditEvent(event: PrismaAssistantAuditEvent): AssistantAuditEvent {
+  return {
+    id: event.id,
+    projectId: event.projectId,
+    profileId: event.profileId,
+    eventType: event.eventType,
+    targetType: event.targetType,
+    targetId: event.targetId,
+    metadata: asRecordMetadata(event.metadata),
+    createdAt: event.createdAt.toISOString(),
   };
 }
 
@@ -295,6 +431,113 @@ class PostgresAssistantRepository implements AssistantRepository {
 
     return { record: toRecord(record), approvedKnowledgeItem };
   }
+
+  async getRunPolicy(projectId: string) {
+    const policy = await assistantPrisma.assistantRunPolicy.findUnique({
+      where: { projectId },
+    });
+
+    return policy ? toPolicy(policy) : null;
+  }
+
+  async upsertRunPolicy(input: UpsertAssistantRunPolicyInput) {
+    const policy = await assistantPrisma.assistantRunPolicy.upsert({
+      where: { projectId: input.projectId },
+      update: {
+        enabled: input.enabled,
+        provider: input.provider,
+        model: input.model,
+        monthlyBudgetCents: input.monthlyBudgetCents,
+        maxInputTokens: input.maxInputTokens,
+        maxOutputTokens: input.maxOutputTokens,
+        externalEvidenceAllowed: input.externalEvidenceAllowed,
+        allowedEvidenceKinds: input.allowedEvidenceKinds as Prisma.InputJsonValue,
+        retentionDays: input.retentionDays,
+        updatedBy: input.actorId,
+      },
+      create: {
+        projectId: input.projectId,
+        enabled: input.enabled,
+        provider: input.provider,
+        model: input.model,
+        monthlyBudgetCents: input.monthlyBudgetCents,
+        maxInputTokens: input.maxInputTokens,
+        maxOutputTokens: input.maxOutputTokens,
+        externalEvidenceAllowed: input.externalEvidenceAllowed,
+        allowedEvidenceKinds: input.allowedEvidenceKinds as Prisma.InputJsonValue,
+        retentionDays: input.retentionDays,
+        createdBy: input.actorId,
+        updatedBy: input.actorId,
+      },
+    });
+
+    return toPolicy(policy);
+  }
+
+  async createUsageEvent(input: CreateAssistantUsageEventInput) {
+    const event = await assistantPrisma.assistantUsageEvent.create({
+      data: {
+        projectId: input.projectId,
+        taskId: input.taskId ?? null,
+        profileId: input.profileId,
+        assistantRecordId: input.assistantRecordId ?? null,
+        executionMode: input.executionMode,
+        runtimeMode: input.runtimeMode,
+        provider: input.provider,
+        model: input.model,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        estimatedCostCents: input.estimatedCostCents,
+        status: input.status,
+        policyDecision: input.policyDecision,
+        requestHash: input.requestHash ?? null,
+        errorCode: input.errorCode ?? null,
+        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+
+    return toUsageEvent(event);
+  }
+
+  async listUsageEvents(input: ListAssistantUsageEventsInput) {
+    const createdAt = buildMonthRange(input.month);
+    const events = await assistantPrisma.assistantUsageEvent.findMany({
+      where: {
+        projectId: input.projectId,
+        ...(createdAt ? { createdAt } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+
+    return events.map(toUsageEvent);
+  }
+
+  async createAuditEvent(input: CreateAssistantAuditEventInput) {
+    const event = await assistantPrisma.assistantAuditEvent.create({
+      data: {
+        projectId: input.projectId ?? null,
+        profileId: input.profileId ?? null,
+        eventType: input.eventType,
+        targetType: input.targetType,
+        targetId: input.targetId ?? null,
+        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+
+    return toAuditEvent(event);
+  }
 }
 
 export const postgresAssistantRepository = new PostgresAssistantRepository();
+
+function buildMonthRange(month?: string) {
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    return null;
+  }
+
+  const [yearValue, monthValue] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(yearValue, monthValue - 1, 1));
+  const end = new Date(Date.UTC(yearValue, monthValue, 1));
+  return { gte: start, lt: end };
+}

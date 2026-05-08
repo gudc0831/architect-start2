@@ -356,3 +356,66 @@ model AssistantWorkSummaryDraft {
   @@index([profileId, createdAt])
   @@map("assistant_work_summary_drafts")
 }
+
+model AssistantRunPolicy {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId                String   @unique @map("project_id") @db.Uuid
+  enabled                  Boolean  @default(false)
+  provider                 String   @default("mock")
+  model                    String   @default("deterministic-foundation")
+  monthlyBudgetCents       Int      @default(50000) @map("monthly_budget_cents")
+  maxInputTokens           Int      @default(12000) @map("max_input_tokens")
+  maxOutputTokens          Int      @default(2000) @map("max_output_tokens")
+  externalEvidenceAllowed  Boolean  @default(true) @map("external_evidence_allowed")
+  allowedEvidenceKinds     Json     @default("[\"central_knowledge\",\"regulation\",\"task\",\"project_document\",\"web_or_skill\"]") @map("allowed_evidence_kinds")
+  retentionDays            Int      @default(365) @map("retention_days")
+  createdBy                String?  @map("created_by") @db.Uuid
+  updatedBy                String?  @map("updated_by") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([enabled, updatedAt])
+  @@map("assistant_run_policies")
+}
+
+model AssistantUsageEvent {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId          String   @map("project_id") @db.Uuid
+  taskId             String?  @map("task_id") @db.Uuid
+  profileId          String   @map("profile_id") @db.Uuid
+  assistantRecordId  String?  @map("assistant_record_id") @db.Uuid
+  executionMode      String   @default("saas-api") @map("execution_mode")
+  runtimeMode        String   @default("saas-api") @map("runtime_mode")
+  provider           String   @default("mock")
+  model              String   @default("deterministic-foundation")
+  inputTokens        Int      @default(0) @map("input_tokens")
+  outputTokens       Int      @default(0) @map("output_tokens")
+  estimatedCostCents Int      @default(0) @map("estimated_cost_cents")
+  status             String   @default("success")
+  policyDecision     String   @default("allowed") @map("policy_decision")
+  requestHash        String?  @map("request_hash")
+  errorCode          String?  @map("error_code")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([projectId, createdAt])
+  @@index([taskId, createdAt])
+  @@index([profileId, createdAt])
+  @@map("assistant_usage_events")
+}
+
+model AssistantAuditEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String?  @map("project_id") @db.Uuid
+  profileId   String?  @map("profile_id") @db.Uuid
+  eventType   String   @map("event_type")
+  targetType  String   @map("target_type")
+  targetId    String?  @map("target_id") @db.Uuid
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([projectId, createdAt])
+  @@index([profileId, createdAt])
+  @@index([eventType, createdAt])
+  @@map("assistant_audit_events")
+}

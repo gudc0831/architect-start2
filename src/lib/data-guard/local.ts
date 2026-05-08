@@ -144,14 +144,26 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
   assistant: {
     path: localAssistantStorePath,
     snapshotName: "assistant-records.json",
-    fallback: { records: [], summaries: [] },
+    fallback: { records: [], summaries: [], runPolicies: [], usageEvents: [], auditEvents: [] },
     countRecords(value) {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return 0;
       }
 
-      const store = value as { records?: unknown; summaries?: unknown };
-      return (Array.isArray(store.records) ? store.records.length : 0) + (Array.isArray(store.summaries) ? store.summaries.length : 0);
+      const store = value as {
+        records?: unknown;
+        summaries?: unknown;
+        runPolicies?: unknown;
+        usageEvents?: unknown;
+        auditEvents?: unknown;
+      };
+      return (
+        (Array.isArray(store.records) ? store.records.length : 0) +
+        (Array.isArray(store.summaries) ? store.summaries.length : 0) +
+        (Array.isArray(store.runPolicies) ? store.runPolicies.length : 0) +
+        (Array.isArray(store.usageEvents) ? store.usageEvents.length : 0) +
+        (Array.isArray(store.auditEvents) ? store.auditEvents.length : 0)
+      );
     },
   },
   sequence: {

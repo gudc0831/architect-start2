@@ -5,22 +5,33 @@ import {
   normalizeExternalEvidenceMetadata,
 } from "@/domains/assistant/external-evidence";
 import type { ApprovedKnowledgeItem, AssistantCandidateState, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
+import type { AssistantAuditEvent, AssistantRunPolicy, AssistantUsageEvent } from "@/domains/assistant/saas-api-mode";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
 import type {
   AssistantRepository,
+  CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
+  CreateAssistantUsageEventInput,
+  ListAssistantUsageEventsInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
+  UpsertAssistantRunPolicyInput,
 } from "@/repositories/assistant/contracts";
 
 type AssistantLocalStore = {
   records: AssistantRecord[];
   summaries: AssistantWorkSummaryDraft[];
+  runPolicies: AssistantRunPolicy[];
+  usageEvents: AssistantUsageEvent[];
+  auditEvents: AssistantAuditEvent[];
 };
 
 const emptyStore: AssistantLocalStore = {
   records: [],
   summaries: [],
+  runPolicies: [],
+  usageEvents: [],
+  auditEvents: [],
 };
 
 function nowIso() {
@@ -31,6 +42,9 @@ function normalizeStore(value: Partial<AssistantLocalStore>): AssistantLocalStor
   return {
     records: Array.isArray(value.records) ? value.records.map(normalizeRecord) : [],
     summaries: Array.isArray(value.summaries) ? value.summaries : [],
+    runPolicies: Array.isArray(value.runPolicies) ? value.runPolicies : [],
+    usageEvents: Array.isArray(value.usageEvents) ? value.usageEvents : [],
+    auditEvents: Array.isArray(value.auditEvents) ? value.auditEvents : [],
   };
 }
 
@@ -157,7 +171,7 @@ class LocalAssistantRepository implements AssistantRepository {
       record.id === input.recordId ? { ...record, cleanupState: input.status, updatedAt: timestamp } : record,
     );
 
-    await writeLocalStore("assistant", { records, summaries }, { reason: "assistant.summary.save" });
+    await writeLocalStore("assistant", { ...store, records, summaries }, { reason: "assistant.summary.save" });
     return summary;
   }
 
@@ -222,6 +236,107 @@ class LocalAssistantRepository implements AssistantRepository {
     );
 
     return { record: nextRecord, approvedKnowledgeItem };
+  }
+
+  async getRunPolicy(projectId: string) {
+    const store = await readStore();
+    return store.runPolicies.find((policy) => policy.projectId === projectId) ?? null;
+  }
+
+  async upsertRunPolicy(input: UpsertAssistantRunPolicyInput) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const current = store.runPolicies.find((policy) => policy.projectId === input.projectId);
+    const policy: AssistantRunPolicy = {
+      id: current?.id ?? randomUUID(),
+      scopeType: "project",
+      projectId: input.projectId,
+      enabled: input.enabled,
+      provider: input.provider,
+      model: input.model,
+      monthlyBudgetCents: input.monthlyBudgetCents,
+      maxInputTokens: input.maxInputTokens,
+      maxOutputTokens: input.maxOutputTokens,
+      externalEvidenceAllowed: input.externalEvidenceAllowed,
+      allowedEvidenceKinds: input.allowedEvidenceKinds,
+      retentionDays: input.retentionDays,
+      createdBy: current?.createdBy ?? input.actorId,
+      updatedBy: input.actorId,
+      createdAt: current?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        runPolicies: [policy, ...store.runPolicies.filter((item) => item.projectId !== input.projectId)],
+      },
+      { reason: "assistant.saas-policy.upsert" },
+    );
+
+    return policy;
+  }
+
+  async createUsageEvent(input: CreateAssistantUsageEventInput) {
+    const store = await readStore();
+    const event: AssistantUsageEvent = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId ?? null,
+      profileId: input.profileId,
+      assistantRecordId: input.assistantRecordId ?? null,
+      executionMode: "saas-api",
+      runtimeMode: input.runtimeMode,
+      provider: input.provider,
+      model: input.model,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
+      estimatedCostCents: input.estimatedCostCents,
+      status: input.status,
+      policyDecision: input.policyDecision,
+      requestHash: input.requestHash ?? null,
+      errorCode: input.errorCode ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: nowIso(),
+    };
+
+    await writeLocalStore(
+      "assistant",
+      { ...store, usageEvents: [event, ...store.usageEvents] },
+      { reason: "assistant.usage.create" },
+    );
+
+    return event;
+  }
+
+  async listUsageEvents(input: ListAssistantUsageEventsInput) {
+    const store = await readStore();
+    return store.usageEvents
+      .filter((event) => event.projectId === input.projectId && (!input.month || event.createdAt.startsWith(`${input.month}-`)))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async createAuditEvent(input: CreateAssistantAuditEventInput) {
+    const store = await readStore();
+    const event: AssistantAuditEvent = {
+      id: randomUUID(),
+      projectId: input.projectId ?? null,
+      profileId: input.profileId ?? null,
+      eventType: input.eventType,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: nowIso(),
+    };
+
+    await writeLocalStore(
+      "assistant",
+      { ...store, auditEvents: [event, ...store.auditEvents] },
+      { reason: "assistant.audit.create" },
+    );
+
+    return event;
   }
 }
 

@@ -1,6 +1,6 @@
 # Assistant Extension API Contract
 
-Updated: 2026-05-07
+Updated: 2026-05-08
 
 Purpose: define the API boundary used by `architect-browser-assistant` for the Task Assistant Core Loop slice.
 
@@ -69,7 +69,7 @@ type SaveAssistantRecordRequest = {
   evidence: AssistantEvidence[];
   confidenceScore?: number;
   confidenceReason?: string;
-  executionMode?: "local-chatgpt-codex" | "mock" | "unavailable";
+  executionMode?: "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
   runtimeMode?: string;
   draftSummary?: {
     conclusion: string;
@@ -79,6 +79,66 @@ type SaveAssistantRecordRequest = {
   };
 };
 ```
+
+### `GET /api/assistant/policy`
+
+Returns the current project SaaS API Mode policy summary for user-facing assistant UI. Requires current-project access.
+
+```ts
+type AssistantPolicyResponse = {
+  enabled: boolean;
+  provider: "mock" | "openai";
+  model: string;
+  externalEvidenceAllowed: boolean;
+  allowedEvidenceKinds: AssistantEvidence["kind"][];
+};
+```
+
+### `POST /api/assistant/generate`
+
+Runs the SaaS API Mode foundation path for the selected task. Requires project editor permission. This endpoint currently does not call a live provider; it validates policy, writes usage/audit events, and returns a deterministic foundation response.
+
+```ts
+type GenerateAssistantRequest = {
+  taskId: string;
+  question: string;
+  instruction?: string;
+};
+
+type GenerateAssistantResponse = {
+  answer: string;
+  suggestedDraftSummary: {
+    conclusion: string;
+    tags: string[];
+    scope: string;
+    followUpAction?: string;
+  };
+  citations: Array<{
+    sourceType: AssistantEvidence["kind"];
+    sourceId: string;
+    title: string;
+  }>;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostCents: number;
+  };
+  executionMode: "saas-api";
+  policyDecision: "allowed" | "disabled" | "budget_exceeded" | "evidence_disallowed" | "unauthorized" | "rate_limited";
+};
+```
+
+### `GET /api/admin/assistant/policy`
+
+Returns the full admin policy for the current or specified project. Requires global admin.
+
+### `PUT /api/admin/assistant/policy`
+
+Updates the current or specified project SaaS API Mode policy. Requires global admin and request integrity. Writes an audit event.
+
+### `GET /api/admin/assistant/usage?month=YYYY-MM`
+
+Returns request count, success/blocked/failed counts, token estimates, cost estimate, and recent usage events for the current or specified project. Requires global admin.
 
 ### `POST /api/assistant/summaries`
 
@@ -101,3 +161,4 @@ type SaveWorkSummaryDraftRequest = {
 - Central official knowledge, regulation DB, and extracted project documents are represented as unavailable classes until later slices add those stores.
 - Real Chrome extension origin support requires setting `ARCHITECT_ASSISTANT_EXTENSION_ORIGINS` to the installed extension origin, for example `chrome-extension://<extension-id>`.
 - Real local ChatGPT/Codex answer generation is not part of SaaS. The browser assistant owns the runtime adapter and sends generated text back for storage.
+- SaaS API Mode currently uses a deterministic foundation response. Live provider calls and provider cost mapping remain a later slice.
