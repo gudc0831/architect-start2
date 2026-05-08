@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
-import type { AssistantDraftSummary, AssistantEvidence } from "@/domains/assistant/types";
+import type { AssistantEvidence } from "@/domains/assistant/types";
 import {
   defaultAssistantRunPolicy,
   normalizeAllowedEvidenceKinds,
@@ -11,7 +11,13 @@ import {
   type AssistantRunPolicy,
   type AssistantUsageEvent,
 } from "@/domains/assistant/saas-api-mode";
-import { badRequest, forbidden } from "@/lib/api/errors";
+import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
+import {
+  AssistantProviderError,
+  estimateCostCents,
+  estimateTokens,
+  runAssistantProvider,
+} from "@/lib/assistant/saas-provider-adapter";
 import { requireCurrentProjectAccess, requireProjectAccess } from "@/lib/auth/project-guards";
 import { assistantRepository } from "@/repositories/assistant";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
@@ -97,6 +103,18 @@ export async function getAssistantUsageSummary(input: { projectId?: string | nul
   };
 }
 
+export async function getAssistantAuditEvents(
+  input: { projectId?: string | null; month?: string | null; limit?: string | null },
+  user: AuthUser,
+) {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const limit = normalizePositiveInteger(input.limit, 100, 1, 500);
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit });
+
+  return { projectId, month, events };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -126,36 +144,40 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     requestHash,
   });
 
-  const answer = buildDeterministicAnswer({
-    taskLabel: retrieved.taskContext.issueId || retrieved.taskContext.taskId,
+  const taskLabel = retrieved.taskContext.issueId || retrieved.taskContext.taskId;
+  const providerResult = await runProviderOrRecordFailure({
+    policy,
+    taskId: retrieved.taskContext.taskId,
+    taskLabel,
+    profileId: user.id,
     question,
     instruction,
+    promptText,
     evidence: retrieved.evidence,
+    inputTokens,
+    requestHash,
   });
-  const suggestedDraftSummary = buildSuggestedSummary({
-    taskLabel: retrieved.taskContext.issueId || retrieved.taskContext.taskId,
-    evidence: retrieved.evidence,
-  });
-  const outputTokens = Math.min(estimateTokens(`${answer}\n${JSON.stringify(suggestedDraftSummary)}`), policy.maxOutputTokens);
-  const estimatedCostCents = estimateCostCents(inputTokens, outputTokens);
+
   await assistantRepository.createUsageEvent({
     projectId: policy.projectId,
     taskId: retrieved.taskContext.taskId,
     profileId: user.id,
     executionMode: "saas-api",
-    runtimeMode: "saas-api-foundation",
+    runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
     provider: policy.provider,
     model: policy.model,
-    inputTokens,
-    outputTokens,
-    estimatedCostCents,
+    inputTokens: providerResult.inputTokens,
+    outputTokens: providerResult.outputTokens,
+    estimatedCostCents: providerResult.estimatedCostCents,
     status: "success",
     policyDecision: "allowed",
     requestHash,
     metadata: {
       evidenceCount: retrieved.evidence.length,
       evidenceKinds: [...new Set(retrieved.evidence.map((item) => item.kind))],
-      providerCall: "not_configured_foundation_response",
+      providerCallMode: providerResult.callMode,
+      providerRequestId: providerResult.providerRequestId,
+      ...providerResult.metadata,
     },
   });
   await assistantRepository.createAuditEvent({
@@ -168,22 +190,26 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
       executionMode: "saas-api",
       requestHash,
       evidenceCount: retrieved.evidence.length,
-      estimatedCostCents,
+      provider: policy.provider,
+      model: policy.model,
+      providerCallMode: providerResult.callMode,
+      providerRequestId: providerResult.providerRequestId,
+      estimatedCostCents: providerResult.estimatedCostCents,
     },
   });
 
   return {
-    answer,
-    suggestedDraftSummary,
+    answer: providerResult.answer,
+    suggestedDraftSummary: providerResult.suggestedDraftSummary,
     citations: retrieved.evidence.slice(0, 8).map((item) => ({
       sourceType: item.kind,
       sourceId: item.id,
       title: item.title,
     })),
     usage: {
-      inputTokens,
-      outputTokens,
-      estimatedCostCents,
+      inputTokens: providerResult.inputTokens,
+      outputTokens: providerResult.outputTokens,
+      estimatedCostCents: providerResult.estimatedCostCents,
     },
     executionMode: "saas-api",
     policyDecision: "allowed",
@@ -193,7 +219,46 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
       model: policy.model,
       monthlyBudgetCents: policy.monthlyBudgetCents,
     },
+    provider: {
+      provider: policy.provider,
+      model: policy.model,
+      callMode: providerResult.callMode,
+      requestId: providerResult.providerRequestId,
+    },
   };
+}
+
+async function runProviderOrRecordFailure(input: {
+  policy: AssistantRunPolicy;
+  taskId: string;
+  taskLabel: string;
+  profileId: string;
+  question: string;
+  instruction: string;
+  promptText: string;
+  evidence: AssistantEvidence[];
+  inputTokens: number;
+  requestHash: string;
+}) {
+  try {
+    return await runAssistantProvider({
+      policy: input.policy,
+      taskLabel: input.taskLabel,
+      question: input.question,
+      instruction: input.instruction,
+      promptText: input.promptText,
+      evidence: input.evidence,
+      estimatedInputTokens: input.inputTokens,
+      requestHash: input.requestHash,
+    });
+  } catch (error) {
+    if (error instanceof AssistantProviderError) {
+      await recordFailedUsage(input, error);
+      throw serviceUnavailable(error.message, error.code);
+    }
+
+    throw error;
+  }
 }
 
 async function enforcePolicy(input: {
@@ -291,6 +356,54 @@ async function recordBlockedUsage(
   });
 }
 
+async function recordFailedUsage(
+  input: {
+    policy: AssistantRunPolicy;
+    taskId: string;
+    profileId: string;
+    evidence: AssistantEvidence[];
+    inputTokens: number;
+    requestHash: string;
+  },
+  error: AssistantProviderError,
+) {
+  await assistantRepository.createUsageEvent({
+    projectId: input.policy.projectId,
+    taskId: input.taskId,
+    profileId: input.profileId,
+    executionMode: "saas-api",
+    runtimeMode: "saas-api-provider-failed",
+    provider: input.policy.provider,
+    model: input.policy.model,
+    inputTokens: input.inputTokens,
+    outputTokens: 0,
+    estimatedCostCents: 0,
+    status: "failed",
+    policyDecision: "allowed",
+    requestHash: input.requestHash,
+    errorCode: error.code,
+    metadata: {
+      reason: error.message,
+      evidenceCount: input.evidence.length,
+      evidenceKinds: [...new Set(input.evidence.map((item) => item.kind))],
+      ...error.metadata,
+    },
+  });
+  await assistantRepository.createAuditEvent({
+    projectId: input.policy.projectId,
+    profileId: input.profileId,
+    eventType: "assistant.generate.failed",
+    targetType: "task",
+    targetId: input.taskId,
+    metadata: {
+      errorCode: error.code,
+      reason: error.message,
+      requestHash: input.requestHash,
+      ...error.metadata,
+    },
+  });
+}
+
 async function getStoredOrDefaultPolicy(projectId: string) {
   return (await assistantRepository.getRunPolicy(projectId)) ?? defaultAssistantRunPolicy({ projectId });
 }
@@ -313,55 +426,6 @@ function buildPromptText(input: { taskTitle: string; question: string; instructi
     "Evidence:",
     summarizeEvidenceForPrompt(input.evidence),
   ].join("\n");
-}
-
-function buildDeterministicAnswer(input: {
-  taskLabel: string;
-  question: string;
-  instruction: string;
-  evidence: AssistantEvidence[];
-}) {
-  const primary = input.evidence[0];
-  const external = input.evidence.find((item) => item.kind === "web_or_skill");
-  const projectDocument = input.evidence.find((item) => item.kind === "project_document");
-
-  return [
-    `${input.taskLabel} task를 SaaS API Mode foundation으로 검토했습니다.`,
-    `질문: ${input.question}`,
-    `지침: ${input.instruction}`,
-    primary ? `주요 근거: ${primary.title} - ${primary.excerpt}` : "주요 근거: 현재 연결된 근거가 부족합니다.",
-    projectDocument ? `문서 근거 확인: ${projectDocument.title} - ${projectDocument.excerpt}` : null,
-    external ? `외부 근거 확인: ${external.title} - ${external.excerpt}` : null,
-    "의견: 이 응답은 실제 provider 호출 전 정책/사용량/감사 로그 검증용 deterministic 응답입니다. 공식 결론으로 반영하기 전 도면, 기준 문서, 담당자 협의를 확인하세요.",
-    "후속 조치: 부족한 근거를 보강하고, 확인 책임자와 기한이 필요한 항목은 별도 follow-up task로 분리하세요.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function buildSuggestedSummary(input: { taskLabel: string; evidence: AssistantEvidence[] }): AssistantDraftSummary {
-  const primary = input.evidence[0];
-
-  return {
-    conclusion: primary
-      ? "SaaS API Mode foundation이 연결된 task/project 근거를 기준으로 후속 확인 필요 의견을 생성했습니다."
-      : "근거 보강 후 SaaS API Mode assistant 재검토가 필요합니다.",
-    tags: ["assistant", "saas-api", "건축검토"],
-    scope: input.taskLabel,
-    followUpAction: "근거 문서와 담당자 확인 후 task 기록에 반영하세요.",
-  };
-}
-
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function estimateCostCents(inputTokens: number, outputTokens: number) {
-  if (inputTokens + outputTokens <= 0) {
-    return 0;
-  }
-
-  return Math.max(1, Math.ceil((inputTokens + outputTokens * 3) / 1000));
 }
 
 function createRequestHash(input: { taskId: string; question: string; instruction: string; evidenceIds: string[] }) {

@@ -114,6 +114,12 @@ type AssistantGenerateResponse = {
     model: string;
     monthlyBudgetCents: number;
   };
+  provider: {
+    provider: "mock" | "openai";
+    model: string;
+    callMode: "mock" | "live";
+    requestId: string | null;
+  };
 };
 
 type TaskAssistantPanelProps = {
@@ -594,7 +600,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 value={executionMode}
               >
                 <option value="mock">Mock/local foundation</option>
-                <option value="saas-api">SaaS API foundation</option>
+                <option value="saas-api">SaaS API</option>
               </select>
             </label>
             {executionMode === "saas-api" ? (
@@ -682,6 +688,7 @@ async function generateSaasApiReview(input: { taskId: string; question: string; 
   return {
     answer: [
       generated.answer,
+      `Provider: ${generated.provider.provider} / ${generated.provider.model} / ${generated.provider.callMode}`,
       `사용량: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
     ].join("\n\n"),
     draftSummary: generated.suggestedDraftSummary,

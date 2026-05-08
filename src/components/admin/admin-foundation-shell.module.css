@@ -21,6 +21,12 @@
   gap: 0.4rem;
 }
 
+.heroActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .eyebrow {
   margin: 0;
   font-size: 0.75rem;
@@ -524,6 +530,10 @@
 
   .supportMeta {
     white-space: normal;
+  }
+
+  .heroActions {
+    display: grid;
   }
 
   .inlineForm,

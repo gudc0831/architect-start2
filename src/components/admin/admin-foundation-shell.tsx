@@ -636,6 +636,14 @@ export function AdminFoundationShell() {
             프로젝트, 참여자, 작업유형, 협업범위, 관련분야, 요청자, 위치참조 카테고리 정의를 한 화면에서 관리합니다.
           </p>
         </div>
+        <div className={styles.heroActions}>
+          <a className={clsx(styles.button, styles.buttonSecondary)} href="/admin/assistant">
+            Assistant 운영
+          </a>
+          <a className={clsx(styles.button, styles.buttonSecondary)} href="/admin/knowledge">
+            Knowledge WIKI
+          </a>
+        </div>
         {statusMessage ? (
           <p aria-live="polite" className={styles.statusBanner} role="status">
             {statusMessage}

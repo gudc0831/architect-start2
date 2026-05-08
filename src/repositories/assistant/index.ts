@@ -56,4 +56,7 @@ export const assistantRepository: AssistantRepository = {
   createAuditEvent(input) {
     return getAssistantRepository().createAuditEvent(input);
   },
+  listAuditEvents(input) {
+    return getAssistantRepository().listAuditEvents(input);
+  },
 };

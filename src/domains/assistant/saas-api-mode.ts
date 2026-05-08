@@ -10,6 +10,7 @@ export type AssistantPolicyDecision =
   | "unauthorized"
   | "rate_limited";
 export type AssistantUsageStatus = "success" | "blocked" | "failed" | "cancelled";
+export type AssistantProviderCallMode = "mock" | "live";
 
 export type AssistantRunPolicy = {
   id: string;
@@ -78,6 +79,12 @@ export type AssistantGenerateResult = {
   executionMode: "saas-api";
   policyDecision: AssistantPolicyDecision;
   policy: Pick<AssistantRunPolicy, "enabled" | "provider" | "model" | "monthlyBudgetCents">;
+  provider: {
+    provider: AssistantPolicyProvider;
+    model: string;
+    callMode: AssistantProviderCallMode;
+    requestId: string | null;
+  };
 };
 
 export const ASSISTANT_EVIDENCE_KINDS: AssistantEvidenceKind[] = [

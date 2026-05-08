@@ -96,7 +96,11 @@ type AssistantPolicyResponse = {
 
 ### `POST /api/assistant/generate`
 
-Runs the SaaS API Mode foundation path for the selected task. Requires project editor permission. This endpoint currently does not call a live provider; it validates policy, writes usage/audit events, and returns a deterministic foundation response.
+Runs the SaaS API Mode path for the selected task. Requires project editor permission. The endpoint validates policy, writes usage/audit events, and then routes to the configured server-side provider adapter.
+
+- `provider: "mock"` returns a deterministic server response for development and local verification.
+- `provider: "openai"` calls the OpenAI Responses API only when `OPENAI_API_KEY` is configured on the server. The key is never sent to the browser or extension.
+- Provider failures are recorded as failed usage and audit events with safe error codes.
 
 ```ts
 type GenerateAssistantRequest = {
@@ -125,6 +129,12 @@ type GenerateAssistantResponse = {
   };
   executionMode: "saas-api";
   policyDecision: "allowed" | "disabled" | "budget_exceeded" | "evidence_disallowed" | "unauthorized" | "rate_limited";
+  provider: {
+    provider: "mock" | "openai";
+    model: string;
+    callMode: "mock" | "live";
+    requestId: string | null;
+  };
 };
 ```
 
@@ -139,6 +149,14 @@ Updates the current or specified project SaaS API Mode policy. Requires global a
 ### `GET /api/admin/assistant/usage?month=YYYY-MM`
 
 Returns request count, success/blocked/failed counts, token estimates, cost estimate, and recent usage events for the current or specified project. Requires global admin.
+
+### `GET /api/admin/assistant/audit?month=YYYY-MM&limit=100`
+
+Returns project-scoped assistant audit events for policy updates, generate successes, blocked requests, and provider failures. Requires global admin.
+
+### `/admin/assistant`
+
+Admin reporting screen for SaaS API Mode. It exposes policy editing, monthly usage totals, recent usage events, and audit timeline for the current project.
 
 ### `POST /api/assistant/summaries`
 
@@ -161,4 +179,5 @@ type SaveWorkSummaryDraftRequest = {
 - Central official knowledge, regulation DB, and extracted project documents are represented as unavailable classes until later slices add those stores.
 - Real Chrome extension origin support requires setting `ARCHITECT_ASSISTANT_EXTENSION_ORIGINS` to the installed extension origin, for example `chrome-extension://<extension-id>`.
 - Real local ChatGPT/Codex answer generation is not part of SaaS. The browser assistant owns the runtime adapter and sends generated text back for storage.
-- SaaS API Mode currently uses a deterministic foundation response. Live provider calls and provider cost mapping remain a later slice.
+- OpenAI live provider calls require server-side `OPENAI_API_KEY`.
+- Cost values remain estimates. Exact provider pricing is not hard-coded and should be calibrated before billing use.

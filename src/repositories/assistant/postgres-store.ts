@@ -27,6 +27,7 @@ import type {
   CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
   CreateAssistantUsageEventInput,
+  ListAssistantAuditEventsInput,
   ListAssistantUsageEventsInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
@@ -129,6 +130,7 @@ const assistantPrisma = prisma as typeof prisma & {
   };
   assistantAuditEvent: {
     create: (...args: unknown[]) => Promise<PrismaAssistantAuditEvent>;
+    findMany: (...args: unknown[]) => Promise<PrismaAssistantAuditEvent[]>;
   };
 };
 
@@ -526,6 +528,20 @@ class PostgresAssistantRepository implements AssistantRepository {
     });
 
     return toAuditEvent(event);
+  }
+
+  async listAuditEvents(input: ListAssistantAuditEventsInput) {
+    const createdAt = buildMonthRange(input.month);
+    const events = await assistantPrisma.assistantAuditEvent.findMany({
+      where: {
+        projectId: input.projectId,
+        ...(createdAt ? { createdAt } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: input.limit ?? 100,
+    });
+
+    return events.map(toAuditEvent);
   }
 }
 

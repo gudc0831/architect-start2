@@ -104,6 +104,12 @@ export type ListAssistantUsageEventsInput = {
   month?: string;
 };
 
+export type ListAssistantAuditEventsInput = {
+  projectId: string;
+  month?: string;
+  limit?: number;
+};
+
 export type CreateAssistantAuditEventInput = {
   projectId?: string | null;
   profileId?: string | null;
@@ -131,4 +137,5 @@ export interface AssistantRepository {
   createUsageEvent(input: CreateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
   listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
   createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;
+  listAuditEvents(input: ListAssistantAuditEventsInput): Promise<AssistantAuditEvent[]>;
 }

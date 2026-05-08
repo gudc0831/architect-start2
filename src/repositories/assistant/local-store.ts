@@ -12,6 +12,7 @@ import type {
   CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
   CreateAssistantUsageEventInput,
+  ListAssistantAuditEventsInput,
   ListAssistantUsageEventsInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
@@ -337,6 +338,14 @@ class LocalAssistantRepository implements AssistantRepository {
     );
 
     return event;
+  }
+
+  async listAuditEvents(input: ListAssistantAuditEventsInput) {
+    const store = await readStore();
+    return store.auditEvents
+      .filter((event) => event.projectId === input.projectId && (!input.month || event.createdAt.startsWith(`${input.month}-`)))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, input.limit ?? 100);
   }
 }
 
