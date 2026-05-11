@@ -3548,6 +3548,10 @@ a {
   color: var(--theme-text-primary);
 }
 
+html[data-architect-browser-assistant="installed"] .task-assistant {
+  display: none;
+}
+
 .task-assistant__launcher {
   display: grid;
   min-width: 11rem;
