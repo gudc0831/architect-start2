@@ -173,6 +173,16 @@ type LocalCodexHealthReport = {
   steps: LocalCodexHealthStep[];
 };
 
+type ClosureGateItem = {
+  id: string;
+  label: string;
+  detail: string;
+  status: "pass" | "warn" | "fail";
+  required: boolean;
+};
+
+type SummarySaveStatus = "approved" | "deferred";
+
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
 };
@@ -195,6 +205,9 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
   const [output, setOutput] = useState<AssistantOutput | null>(null);
   const [record, setRecord] = useState<SavedAssistantRecord | null>(null);
+  const [summaryDraft, setSummaryDraft] = useState<DraftSummary | null>(null);
+  const [summaryTagsInput, setSummaryTagsInput] = useState("");
+  const [closureAcknowledged, setClosureAcknowledged] = useState(false);
   const [recordHistory, setRecordHistory] = useState<AssistantRecordHistoryItem[]>([]);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
@@ -218,11 +231,21 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [busy, setBusy] = useState(false);
 
   const selectedTaskLabel = useMemo(() => (selectedTask ? formatTaskDisplayId(selectedTask) : ""), [selectedTask]);
+  const closureGate = useMemo(
+    () => buildClosureGate({ record, retrieveResult, summaryDraft }),
+    [record, retrieveResult, summaryDraft],
+  );
+  const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
+  const canDeferSummary = Boolean(selectedTask && record && output && summaryDraft && !busy);
+  const canApproveSummary = canDeferSummary && closureAcknowledged && approvalBlockers.length === 0;
 
   useEffect(() => {
     setRetrieveResult(null);
     setOutput(null);
     setRecord(null);
+    setSummaryDraft(null);
+    setSummaryTagsInput("");
+    setClosureAcknowledged(false);
     setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
@@ -366,6 +389,9 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 taskContext: retrieved.taskContext,
               });
       setOutput(generated);
+      setSummaryDraft(generated.draftSummary);
+      setSummaryTagsInput(generated.draftSummary.tags.join(", "));
+      setClosureAcknowledged(false);
 
       const savedRecord = await postJson<SavedAssistantRecord>("/api/assistant/records", {
         taskId: retrieved.taskContext.taskId,
@@ -425,24 +451,50 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     }
   }
 
-  async function approveSummary() {
-    if (!selectedTask || !record || !output) {
+  function updateSummaryDraft(field: keyof DraftSummary, value: string) {
+    setSummaryDraft((current) => (current ? { ...current, [field]: value } : current));
+    setClosureAcknowledged(false);
+  }
+
+  async function saveSummary(statusValue: SummarySaveStatus) {
+    if (!selectedTask || !record || !summaryDraft) {
       return;
     }
 
+    const blockers = closureGate.filter((item) => item.required && item.status !== "pass");
+    if (statusValue === "approved" && blockers.length > 0) {
+      setStatus(`Approval blocked: ${blockers.map((item) => item.label).join(", ")}.`);
+      return;
+    }
+    if (statusValue === "approved" && !closureAcknowledged) {
+      setStatus("Confirm the closure acknowledgement before approving this work summary.");
+      return;
+    }
+
+    let savedSummaryStatus: SummarySaveStatus | null = null;
     setBusy(true);
     try {
       await postJson("/api/assistant/summaries", {
         taskId: selectedTask.id,
         recordId: record.id,
-        ...output.draftSummary,
-        status: "approved",
+        ...summaryDraft,
+        tags: parseSummaryTags(summaryTagsInput),
+        status: statusValue,
       });
-      setStatus("작업 기록 정리 초안을 승인했습니다.");
+      await refreshAssistantRecords(selectedTask.id);
+      savedSummaryStatus = statusValue;
+      setStatus(statusValue === "approved" ? "Work summary approved after closure review." : "Work summary saved as deferred for later review.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
       setBusy(false);
+      if (savedSummaryStatus) {
+        setStatus(
+          savedSummaryStatus === "approved"
+            ? "Work summary approved after closure review."
+            : "Work summary saved as deferred for later review.",
+        );
+      }
     }
   }
 
@@ -528,6 +580,9 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setRetrieveResult(null);
     setOutput(null);
     setRecord(null);
+    setSummaryDraft(null);
+    setSummaryTagsInput("");
+    setClosureAcknowledged(false);
   }
 
   return (
@@ -825,8 +880,11 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <button className="primary-button" disabled={!selectedTask || busy} onClick={() => void runAssistantReview()} type="button">
                 {busy ? "검토 중" : "근거 조회 + 의견 생성"}
               </button>
-              <button className="secondary-button" disabled={!record || !output || busy} onClick={() => void approveSummary()} type="button">
+              <button className="secondary-button" disabled={!canApproveSummary} onClick={() => void saveSummary("approved")} type="button">
                 작업 기록 승인
+              </button>
+              <button className="secondary-button" disabled={!canDeferSummary} onClick={() => void saveSummary("deferred")} type="button">
+                보류 저장
               </button>
             </div>
 
@@ -862,11 +920,70 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 <article className="task-assistant__answer">
                   <p>{output.answer}</p>
                 </article>
-                <article className="task-assistant__summary">
-                  <strong>{output.draftSummary.conclusion}</strong>
-                  <small>{output.draftSummary.tags.join(", ")}</small>
-                  <p>{output.draftSummary.followUpAction}</p>
-                </article>
+                {summaryDraft ? (
+                  <article className="task-assistant__summary task-assistant__closure">
+                    <div className="task-assistant__section-header">
+                      <h4>작업 기록 정리 초안</h4>
+                      <span>{approvalBlockers.length === 0 ? "ready" : `${approvalBlockers.length} blockers`}</span>
+                    </div>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>결론</span>
+                      <textarea
+                        disabled={busy}
+                        onChange={(event) => updateSummaryDraft("conclusion", event.target.value)}
+                        rows={3}
+                        value={summaryDraft.conclusion}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>태그</span>
+                      <input
+                        disabled={busy}
+                        onChange={(event) => {
+                          setSummaryTagsInput(event.target.value);
+                          setClosureAcknowledged(false);
+                        }}
+                        value={summaryTagsInput}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>적용 범위</span>
+                      <textarea
+                        disabled={busy}
+                        onChange={(event) => updateSummaryDraft("scope", event.target.value)}
+                        rows={2}
+                        value={summaryDraft.scope}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>후속 조치</span>
+                      <textarea
+                        disabled={busy}
+                        onChange={(event) => updateSummaryDraft("followUpAction", event.target.value)}
+                        rows={3}
+                        value={summaryDraft.followUpAction ?? ""}
+                      />
+                    </label>
+                    <div className="task-assistant__closure-list">
+                      {closureGate.map((item) => (
+                        <article className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`} key={item.id}>
+                          <strong>{item.label}</strong>
+                          <span>{item.status}</span>
+                          <p>{item.detail}</p>
+                        </article>
+                      ))}
+                    </div>
+                    <label className="task-assistant__toggle task-assistant__toggle--boxed">
+                      <input
+                        checked={closureAcknowledged}
+                        disabled={busy || approvalBlockers.length > 0}
+                        onChange={(event) => setClosureAcknowledged(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>위 초안, 근거, 신뢰도와 후속 조치를 확인했고 이 내용을 작업 기록으로 승인합니다.</span>
+                    </label>
+                  </article>
+                ) : null}
               </section>
             ) : null}
           </div>
@@ -876,6 +993,66 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       )}
     </div>
   );
+}
+
+function buildClosureGate(input: {
+  record: SavedAssistantRecord | null;
+  retrieveResult: RetrieveResponse | null;
+  summaryDraft: DraftSummary | null;
+}): ClosureGateItem[] {
+  const evidenceCount = input.retrieveResult?.evidence.length ?? 0;
+  const hasConclusion = Boolean(input.summaryDraft?.conclusion.trim());
+  const hasScope = Boolean(input.summaryDraft?.scope.trim());
+  const hasFollowUp = Boolean(input.summaryDraft?.followUpAction?.trim());
+  const hasConfidence = Boolean(input.record?.confidenceReason?.trim() || input.record?.confidenceScore !== undefined);
+
+  return [
+    {
+      id: "conclusion",
+      label: "Conclusion",
+      detail: hasConclusion ? "The summary has a conclusion." : "Add the decision or review conclusion before approval.",
+      status: hasConclusion ? "pass" : "fail",
+      required: true,
+    },
+    {
+      id: "scope",
+      label: "Scope",
+      detail: hasScope ? "The summary names the applicable task or scope." : "State exactly what task or scope this summary applies to.",
+      status: hasScope ? "pass" : "fail",
+      required: true,
+    },
+    {
+      id: "evidence",
+      label: "Evidence",
+      detail: evidenceCount > 0 ? `${evidenceCount} evidence items are linked.` : "Run retrieval/generation so evidence is linked to the record.",
+      status: evidenceCount > 0 ? "pass" : "fail",
+      required: true,
+    },
+    {
+      id: "confidence",
+      label: "Confidence",
+      detail: hasConfidence
+        ? `Confidence ${input.record?.confidenceScore ?? "-"}% is saved with the assistant record.`
+        : "Save an assistant record with confidence before approval.",
+      status: hasConfidence ? "pass" : "fail",
+      required: true,
+    },
+    {
+      id: "follow-up",
+      label: "Follow-up",
+      detail: hasFollowUp ? "A follow-up action is documented." : "Add the next action, owner check, or reason this can be closed.",
+      status: hasFollowUp ? "pass" : "fail",
+      required: true,
+    },
+  ];
+}
+
+function parseSummaryTags(value: string) {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 async function generateSaasApiReview(input: { taskId: string; question: string; instruction: string }): Promise<AssistantOutput> {

@@ -2,6 +2,7 @@ import type {
   AssistantDraftSummary,
   AssistantEvidence,
   AssistantExecutionMode,
+  AssistantRecord,
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
@@ -179,17 +180,55 @@ export async function saveWorkSummaryDraft(input: SaveWorkSummaryDraftInput, use
     throw forbidden("Only the record author or an admin can update this summary.", "ASSISTANT_SUMMARY_FORBIDDEN");
   }
 
+  const status = normalizeSummaryStatus(input.status);
+  const conclusion = normalizeRequiredText(input.conclusion, "conclusion");
+  const scope = normalizeRequiredText(input.scope, "scope");
+  const followUpAction = normalizeText(input.followUpAction);
+
+  if (status === "approved") {
+    assertApprovedSummaryReady({ record, conclusion, scope, followUpAction });
+  }
+
   return assistantRepository.saveWorkSummaryDraft({
     projectId: task.projectId,
     taskId: task.id,
     recordId: record.id,
     profileId: user.id,
-    conclusion: normalizeRequiredText(input.conclusion, "conclusion"),
+    conclusion,
     tags: normalizeTags(input.tags),
-    scope: normalizeRequiredText(input.scope, "scope"),
-    followUpAction: normalizeText(input.followUpAction),
-    status: normalizeSummaryStatus(input.status),
+    scope,
+    followUpAction,
+    status,
   });
+}
+
+function assertApprovedSummaryReady(input: {
+  record: AssistantRecord;
+  conclusion: string;
+  scope: string;
+  followUpAction: string;
+}) {
+  const blockers: string[] = [];
+
+  if (!input.conclusion) {
+    blockers.push("conclusion is required");
+  }
+  if (!input.scope) {
+    blockers.push("scope is required");
+  }
+  if (!input.followUpAction) {
+    blockers.push("followUpAction is required");
+  }
+  if (input.record.evidence.length === 0) {
+    blockers.push("linked evidence is required");
+  }
+  if (!input.record.confidenceReason.trim()) {
+    blockers.push("confidence reason is required");
+  }
+
+  if (blockers.length > 0) {
+    throw badRequest(`Cannot approve work summary: ${blockers.join("; ")}`, "ASSISTANT_SUMMARY_CLOSURE_GATE_FAILED");
+  }
 }
 
 function toTaskContext(task: TaskRecord, projectName: string): AssistantTaskContext {

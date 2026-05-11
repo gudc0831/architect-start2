@@ -1,0 +1,4 @@
+Req: Implement Slice 13 assistant-backed task closure and work-summary approval flow in the `/daily` in-page assistant popup.
+Diff: Added editable work-summary draft fields, closure checklist, approval acknowledgement, deferred save action, server-side approved-summary validation, closure-gate styling, and user-guide documentation.
+Why: Assistant-generated summaries should not become approved task review material without explicit user review of required closure fields.
+Verify/Time: `npm run typecheck`; `npm run lint` (passes with 7 pre-existing hook warnings); browser `/daily` task 001 Mock generation showed closure checklist, approve disabled before acknowledgement, defer enabled, and approve succeeded after acknowledgement; API negative check returned HTTP 400 when approved summary omitted `followUpAction`; `rg -n "작업 기록 승인 게이트|assistant work-summary closure gate" "사용자 가이드.md"` confirmed guide updates | 2026-05-11 15:08-15:24 KST.
