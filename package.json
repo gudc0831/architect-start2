@@ -26,6 +26,7 @@
     "data:rekey-issue-ids": "tsx scripts/rekey-project-issue-ids.ts",
     "data:restore": "tsx scripts/data-restore.ts",
     "task-export:verify": "tsx scripts/task-export-verify.ts",
+    "assistant:verify-record": "node scripts/verify-assistant-record.mjs",
     "worklog:new": "node scripts/worklog-create.mjs",
     "worklog:check": "node scripts/worklog-guard.mjs",
     "git:hooks:install": "node scripts/install-git-hooks.mjs",
