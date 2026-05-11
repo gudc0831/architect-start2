@@ -3732,6 +3732,72 @@ a {
   gap: 0.6rem;
 }
 
+.task-assistant__health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.task-assistant__health-actions span {
+  color: var(--theme-text-subtle);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.task-assistant__health-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.task-assistant__health-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 0.25rem 0.55rem;
+  align-items: start;
+  padding: 0.55rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.task-assistant__health-step strong {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.task-assistant__health-step p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.task-assistant__health-badge {
+  border-radius: 999px;
+  padding: 0.14rem 0.48rem;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.task-assistant__health-badge--pass {
+  background: rgba(38, 96, 71, 0.12);
+  color: #266047;
+}
+
+.task-assistant__health-badge--warn {
+  background: rgba(167, 109, 20, 0.14);
+  color: #86570f;
+}
+
+.task-assistant__health-badge--fail {
+  background: rgba(182, 58, 49, 0.12);
+  color: #9e2f27;
+}
+
 .task-assistant__section {
   display: grid;
   gap: 0.7rem;

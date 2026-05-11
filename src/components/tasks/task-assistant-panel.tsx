@@ -142,6 +142,19 @@ type LocalCodexBridgeResponse<T> =
       error: string;
     };
 
+type LocalCodexHealthStep = {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+type LocalCodexHealthReport = {
+  checkedAt: string;
+  summary: string;
+  steps: LocalCodexHealthStep[];
+};
+
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
 };
@@ -179,6 +192,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [externalUrl, setExternalUrl] = useState("");
   const [externalToolName, setExternalToolName] = useState("");
   const [externalExcerpt, setExternalExcerpt] = useState("");
+  const [localCodexHealth, setLocalCodexHealth] = useState<LocalCodexHealthReport | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
 
@@ -200,6 +215,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setExternalUrl("");
     setExternalToolName("");
     setExternalExcerpt("");
+    setLocalCodexHealth(null);
+    setHealthLoading(false);
 
     if (!selectedTask) {
       setQuestion("");
@@ -334,6 +351,24 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       setStatus(errorMessage(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function checkLocalCodexHealth() {
+    setHealthLoading(true);
+    setLocalCodexHealth(null);
+
+    try {
+      const bridgeStatus = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
+      const report = buildLocalCodexHealthReport(bridgeStatus);
+      setLocalCodexHealth(report);
+      setStatus(report.summary);
+    } catch (error) {
+      const report = buildLocalCodexMissingBridgeReport(errorMessage(error));
+      setLocalCodexHealth(report);
+      setStatus(report.summary);
+    } finally {
+      setHealthLoading(false);
     }
   }
 
@@ -654,6 +689,30 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   <h4>Local Codex</h4>
                   <span>extension bridge</span>
                 </div>
+                <div className="task-assistant__health-actions">
+                  <button
+                    className="secondary-button"
+                    disabled={healthLoading || busy}
+                    onClick={() => void checkLocalCodexHealth()}
+                    type="button"
+                  >
+                    {healthLoading ? "Checking..." : "Check bridge"}
+                  </button>
+                  {localCodexHealth ? <span>{localCodexHealth.checkedAt}</span> : null}
+                </div>
+                {localCodexHealth ? (
+                  <div className="task-assistant__health-list">
+                    {localCodexHealth.steps.map((step) => (
+                      <article className="task-assistant__health-step" key={step.id}>
+                        <strong>{step.label}</strong>
+                        <span className={`task-assistant__health-badge task-assistant__health-badge--${step.status}`}>
+                          {step.status}
+                        </span>
+                        <p>{step.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
                 <p className="task-assistant__hint">
                   Chrome extension native host가 등록되어 있어야 합니다. 응답 생성은 사용자 PC의 Codex CLI 로그인 상태를 사용하며,
                   credential은 SaaS나 브라우저 저장소에 저장하지 않습니다.
@@ -787,6 +846,86 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
           : "Confirm cited evidence before updating the task record.",
     },
   };
+}
+
+function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealthReport {
+  const ready = status.available;
+
+  return {
+    checkedAt: formatHealthCheckTime(),
+    summary: ready
+      ? "Local Codex bridge is ready for this page."
+      : "Extension bridge responded, but Local Codex is not ready.",
+    steps: [
+      {
+        id: "content-script",
+        label: "Extension bridge",
+        status: "pass",
+        detail: "The /daily page received a response from the extension content script.",
+      },
+      {
+        id: "native-codex",
+        label: "Native host / Codex",
+        status: ready ? "pass" : "fail",
+        detail: status.reason ?? "Native Codex bridge responded.",
+      },
+      {
+        id: "credentials",
+        label: "Credentials",
+        status: "pass",
+        detail: "Codex/OpenAI credentials are not stored in SaaS or browser extension storage.",
+      },
+      {
+        id: "generation",
+        label: "Generation",
+        status: ready ? "pass" : "warn",
+        detail: ready
+          ? "You can run Local Codex generation for the selected task."
+          : "Fix native host registration, Codex CLI install, or Codex login before generating.",
+      },
+    ],
+  };
+}
+
+function buildLocalCodexMissingBridgeReport(error: string): LocalCodexHealthReport {
+  return {
+    checkedAt: formatHealthCheckTime(),
+    summary: "Local Codex extension bridge did not respond on this page.",
+    steps: [
+      {
+        id: "content-script",
+        label: "Extension bridge",
+        status: "fail",
+        detail: error,
+      },
+      {
+        id: "native-codex",
+        label: "Native host / Codex",
+        status: "warn",
+        detail: "The native host was not reached because the page bridge did not respond.",
+      },
+      {
+        id: "credentials",
+        label: "Credentials",
+        status: "pass",
+        detail: "No Codex/OpenAI credential is stored by this page.",
+      },
+      {
+        id: "generation",
+        label: "Generation",
+        status: "fail",
+        detail: "Reload the rebuilt Chrome extension and refresh /daily before trying Local Codex generation.",
+      },
+    ],
+  };
+}
+
+function formatHealthCheckTime() {
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date());
 }
 
 function requestLocalCodexBridge<T>(
