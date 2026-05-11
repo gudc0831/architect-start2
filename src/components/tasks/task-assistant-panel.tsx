@@ -52,7 +52,7 @@ type AssistantOutput = {
   draftSummary: DraftSummary;
 };
 
-type AssistantExecutionMode = "mock" | "saas-api";
+type AssistantExecutionMode = "mock" | "saas-api" | "local-codex";
 
 type RetrieveResponse = {
   taskContext: AssistantTaskContext;
@@ -121,6 +121,26 @@ type AssistantGenerateResponse = {
     requestId: string | null;
   };
 };
+
+type LocalCodexStatus = {
+  available: boolean;
+  mode: "local-chatgpt-codex" | "mock";
+  reason?: string;
+};
+
+type LocalCodexBridgeResponse<T> =
+  | {
+      type: "architect:page-local-runtime-response";
+      requestId: string;
+      ok: true;
+      data: T;
+    }
+  | {
+      type: "architect:page-local-runtime-response";
+      requestId: string;
+      ok: false;
+      error: string;
+    };
 
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
@@ -276,12 +296,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               question,
               taskId: retrieved.taskContext.taskId,
             })
-          : generateArchitectReview({
-              evidence: retrieved.evidence,
-              instruction,
-              question,
-              taskContext: retrieved.taskContext,
-            });
+          : executionMode === "local-codex"
+            ? await generateLocalCodexReview({
+                evidence: retrieved.evidence,
+                question,
+                taskContext: retrieved.taskContext,
+              })
+            : generateArchitectReview({
+                evidence: retrieved.evidence,
+                instruction,
+                question,
+                taskContext: retrieved.taskContext,
+              });
       setOutput(generated);
 
       const savedRecord = await postJson<SavedAssistantRecord>("/api/assistant/records", {
@@ -289,8 +315,13 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         question,
         answer: generated.answer,
         evidence: retrieved.evidence,
-        executionMode,
-        runtimeMode: executionMode === "saas-api" ? "saas-api-daily-task-panel" : "saas-daily-task-panel",
+        executionMode: toRecordExecutionMode(executionMode),
+        runtimeMode:
+          executionMode === "saas-api"
+            ? "saas-api-daily-task-panel"
+            : executionMode === "local-codex"
+              ? "extension-native-bridge-in-page"
+              : "saas-daily-task-panel",
         draftSummary: generated.draftSummary,
       });
       setRecord(savedRecord);
@@ -600,6 +631,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 value={executionMode}
               >
                 <option value="mock">Mock/local foundation</option>
+                <option value="local-codex">Local Codex (extension)</option>
                 <option value="saas-api">SaaS API</option>
               </select>
             </label>
@@ -613,6 +645,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   {assistantPolicy?.enabled
                     ? `${assistantPolicy.provider} / ${assistantPolicy.model}`
                     : "관리자 정책이 꺼져 있으면 생성 요청은 감사 로그와 사용량 차단 기록만 남깁니다."}
+                </p>
+              </section>
+            ) : null}
+            {executionMode === "local-codex" ? (
+              <section className="task-assistant__section">
+                <div className="task-assistant__section-header">
+                  <h4>Local Codex</h4>
+                  <span>extension bridge</span>
+                </div>
+                <p className="task-assistant__hint">
+                  Chrome extension native host가 등록되어 있어야 합니다. 응답 생성은 사용자 PC의 Codex CLI 로그인 상태를 사용하며,
+                  credential은 SaaS나 브라우저 저장소에 저장하지 않습니다.
                 </p>
               </section>
             ) : null}
@@ -693,6 +737,119 @@ async function generateSaasApiReview(input: { taskId: string; question: string; 
     ].join("\n\n"),
     draftSummary: generated.suggestedDraftSummary,
   };
+}
+
+async function generateLocalCodexReview(input: {
+  taskContext: AssistantTaskContext;
+  evidence: AssistantEvidence[];
+  question: string;
+}): Promise<AssistantOutput> {
+  const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
+  if (!status.available) {
+    throw new Error(status.reason ?? "Local Codex bridge is unavailable.");
+  }
+
+  const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
+    "generate",
+    {
+      question: input.question,
+      taskContext: input.taskContext,
+      evidence: input.evidence,
+    },
+    120000,
+  );
+
+  return normalizeLocalCodexOutput(generated, input.taskContext);
+}
+
+function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext: AssistantTaskContext): AssistantOutput {
+  const fallbackScope = taskContext.issueId || taskContext.taskId;
+  const draftSummary = output.draftSummary;
+
+  return {
+    answer:
+      typeof output.answer === "string" && output.answer.trim()
+        ? output.answer
+        : "Local Codex bridge returned no answer.",
+    draftSummary: {
+      conclusion:
+        typeof draftSummary?.conclusion === "string" && draftSummary.conclusion.trim()
+          ? draftSummary.conclusion
+          : "Local Codex answer should be reviewed before task closure.",
+      tags: Array.isArray(draftSummary?.tags)
+        ? draftSummary.tags.filter((tag): tag is string => typeof tag === "string").slice(0, 12)
+        : ["assistant", "local-codex"],
+      scope:
+        typeof draftSummary?.scope === "string" && draftSummary.scope.trim() ? draftSummary.scope : fallbackScope,
+      followUpAction:
+        typeof draftSummary?.followUpAction === "string" && draftSummary.followUpAction.trim()
+          ? draftSummary.followUpAction
+          : "Confirm cited evidence before updating the task record.",
+    },
+  };
+}
+
+function requestLocalCodexBridge<T>(
+  command: "status" | "generate",
+  input?: unknown,
+  timeoutMs = 30000,
+): Promise<T> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("Local Codex bridge is only available in the browser."));
+  }
+
+  const requestId = `architect-page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage);
+      reject(
+        new Error(
+          "Local Codex extension bridge did not respond. Check that the Chrome extension is loaded and refreshed.",
+        ),
+      );
+    }, timeoutMs);
+
+    function handleMessage(event: MessageEvent) {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+
+      const response = event.data as LocalCodexBridgeResponse<T>;
+      if (
+        !response ||
+        response.type !== "architect:page-local-runtime-response" ||
+        response.requestId !== requestId
+      ) {
+        return;
+      }
+
+      window.clearTimeout(timer);
+      window.removeEventListener("message", handleMessage);
+
+      if (response.ok) {
+        resolve(response.data);
+        return;
+      }
+
+      reject(new Error(response.error));
+    }
+
+    window.addEventListener("message", handleMessage);
+    window.postMessage(
+      {
+        type: "architect:page-local-runtime-request",
+        requestId,
+        command,
+        input,
+      },
+      window.location.origin,
+    );
+  });
+}
+
+function toRecordExecutionMode(mode: AssistantExecutionMode): "local-chatgpt-codex" | "mock" | "saas-api" {
+  return mode === "local-codex" ? "local-chatgpt-codex" : mode;
 }
 
 function generateArchitectReview(input: {

@@ -1,0 +1,4 @@
+Req: Implement slice 07 from the browser-assistant roadmap so the default SaaS `/daily` in-page popup can call Local Codex through the Chrome extension bridge.
+Diff: Added `Local Codex (extension)` execution mode to `src/components/tasks/task-assistant-panel.tsx`; the popup now checks bridge status, sends selected task/evidence/question to the extension content-script bridge, normalizes the returned answer/draft summary, and saves assistant records as `local-chatgpt-codex`; updated `사용자 가이드.md`.
+Why: Users should work from the daily task list and bottom-right in-page AI review popup by default. The Chrome side panel remains useful for diagnostics, but it should not be required for task-specific architecture review.
+Verify/Time: `npm run typecheck` passed; `npm run lint` passed with existing unrelated React hook warnings; `npm run build` passed | 2026-05-11 13:11 KST.
