@@ -114,6 +114,29 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
   });
 }
 
+export async function listAssistantRecords(taskId: string) {
+  const task = await requireTaskInSelectedProject(normalizeRequiredId(taskId, "taskId"));
+  const records = await assistantRepository.listRecordsByTask(task.id);
+
+  return records.slice(0, 12).map((record) => ({
+    id: record.id,
+    taskId: record.taskId,
+    question: record.question,
+    answer: record.answer,
+    evidenceCount: record.evidence.length,
+    evidenceKinds: Array.from(new Set(record.evidence.map((item) => item.kind))),
+    confidenceScore: record.confidenceScore,
+    confidenceReason: record.confidenceReason,
+    executionMode: record.executionMode,
+    runtimeMode: record.runtimeMode,
+    draftSummary: record.draftSummary,
+    cleanupState: record.cleanupState,
+    candidateState: record.candidateState,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }));
+}
+
 export async function listExternalEvidence(taskId: string) {
   const task = await requireTaskInSelectedProject(normalizeRequiredId(taskId, "taskId"));
   return assistantRepository.listExternalEvidenceByTask(task.id);

@@ -66,6 +66,24 @@ type SavedAssistantRecord = {
   confidenceReason?: string;
 };
 
+type AssistantRecordHistoryItem = {
+  id: string;
+  taskId: string;
+  question: string;
+  answer: string;
+  evidenceCount: number;
+  evidenceKinds: AssistantEvidence["kind"][];
+  confidenceScore: number;
+  confidenceReason: string;
+  executionMode: "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
+  runtimeMode: string;
+  draftSummary: DraftSummary | null;
+  cleanupState: "draft" | "approved" | "deferred";
+  candidateState: "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected";
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ExternalEvidenceSourceType =
   | "web_page"
   | "skill_output"
@@ -177,12 +195,14 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
   const [output, setOutput] = useState<AssistantOutput | null>(null);
   const [record, setRecord] = useState<SavedAssistantRecord | null>(null);
+  const [recordHistory, setRecordHistory] = useState<AssistantRecordHistoryItem[]>([]);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [analysisText, setAnalysisText] = useState("");
   const [analysisSummary, setAnalysisSummary] = useState("");
   const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>("mock");
   const [assistantPolicy, setAssistantPolicy] = useState<AssistantPolicyResponse | null>(null);
+  const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const [externalLoading, setExternalLoading] = useState(false);
   const [externalAllowed, setExternalAllowed] = useState(false);
@@ -203,6 +223,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setRetrieveResult(null);
     setOutput(null);
     setRecord(null);
+    setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
     setAnalysisText("");
@@ -217,6 +238,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setExternalExcerpt("");
     setLocalCodexHealth(null);
     setHealthLoading(false);
+    setRecordHistoryLoading(false);
 
     if (!selectedTask) {
       setQuestion("");
@@ -234,8 +256,26 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     }
 
     let cancelled = false;
+    setRecordHistoryLoading(true);
     setFilesLoading(true);
     setExternalLoading(true);
+
+    getJson<AssistantRecordHistoryItem[]>(`/api/assistant/records?taskId=${encodeURIComponent(selectedTask.id)}`)
+      .then((items) => {
+        if (!cancelled) {
+          setRecordHistory(items);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRecordHistoryLoading(false);
+        }
+      });
 
     getJson<AssistantFile[]>(`/api/files?taskId=${encodeURIComponent(selectedTask.id)}`)
       .then((files) => {
@@ -342,6 +382,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         draftSummary: generated.draftSummary,
       });
       setRecord(savedRecord);
+      await refreshAssistantRecords(retrieved.taskContext.taskId);
       setStatus(
         executionMode === "saas-api"
           ? `SaaS API Mode 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
@@ -369,6 +410,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       setStatus(report.summary);
     } finally {
       setHealthLoading(false);
+    }
+  }
+
+  async function refreshAssistantRecords(taskId: string) {
+    setRecordHistoryLoading(true);
+    try {
+      const items = await getJson<AssistantRecordHistoryItem[]>(`/api/assistant/records?taskId=${encodeURIComponent(taskId)}`);
+      setRecordHistory(items);
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setRecordHistoryLoading(false);
     }
   }
 
@@ -508,6 +561,45 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 <p>선택한 task의 제목, 설명, 프로젝트 맥락을 기준으로 응답합니다.</p>
               </section>
             )}
+
+            {selectedTask ? (
+              <section className="task-assistant__section">
+                <div className="task-assistant__section-header">
+                  <h4>최근 검토 기록</h4>
+                  <span>{recordHistoryLoading ? "loading" : `${recordHistory.length}`}</span>
+                </div>
+                {recordHistory.length ? (
+                  <div className="task-assistant__history-list">
+                    {recordHistory.slice(0, 4).map((item) => (
+                      <article
+                        className={`task-assistant__history-item task-assistant__history-item--${historyTone(item.executionMode)}`}
+                        key={item.id}
+                      >
+                        <header>
+                          <strong>{executionModeLabel(item.executionMode)}</strong>
+                          <span>{item.confidenceScore}%</span>
+                        </header>
+                        <small>
+                          {formatRecordDate(item.createdAt)} / {runtimeModeLabel(item.runtimeMode)} / 근거 {item.evidenceCount}
+                        </small>
+                        <p>{recordPreview(item)}</p>
+                        <div className="task-assistant__history-tags">
+                          <span>{item.cleanupState}</span>
+                          <span>{item.candidateState}</span>
+                          {item.evidenceKinds.slice(0, 3).map((kind) => (
+                            <span key={kind}>{kind}</span>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="task-assistant__hint">
+                    {recordHistoryLoading ? "assistant 기록을 불러오는 중입니다." : "아직 이 task에 저장된 assistant 기록이 없습니다."}
+                  </p>
+                )}
+              </section>
+            ) : null}
 
             {selectedTask ? (
               <section className="task-assistant__section">
@@ -712,6 +804,11 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       </article>
                     ))}
                   </div>
+                ) : null}
+                {localCodexHealth ? (
+                  <p className={`task-assistant__diagnostic task-assistant__diagnostic--${diagnosticTone(localCodexHealth)}`}>
+                    {localCodexDiagnostic(localCodexHealth)}
+                  </p>
                 ) : null}
                 <p className="task-assistant__hint">
                   Chrome extension native host가 등록되어 있어야 합니다. 응답 생성은 사용자 PC의 Codex CLI 로그인 상태를 사용하며,
@@ -996,6 +1093,99 @@ function requestLocalCodexBridge<T>(
 
 function toRecordExecutionMode(mode: AssistantExecutionMode): "local-chatgpt-codex" | "mock" | "saas-api" {
   return mode === "local-codex" ? "local-chatgpt-codex" : mode;
+}
+
+function executionModeLabel(mode: AssistantRecordHistoryItem["executionMode"]) {
+  if (mode === "local-chatgpt-codex") {
+    return "Local Codex";
+  }
+  if (mode === "saas-api") {
+    return "SaaS API";
+  }
+  if (mode === "unavailable") {
+    return "Evidence only";
+  }
+  return "Mock";
+}
+
+function runtimeModeLabel(mode: string) {
+  if (mode === "extension-native-bridge-in-page") {
+    return "extension bridge";
+  }
+  if (mode === "saas-api-daily-task-panel") {
+    return "SaaS popup";
+  }
+  if (mode === "saas-daily-task-panel") {
+    return "daily popup";
+  }
+  if (mode === "external-evidence") {
+    return "external evidence";
+  }
+  return mode || "unknown runtime";
+}
+
+function historyTone(mode: AssistantRecordHistoryItem["executionMode"]) {
+  if (mode === "local-chatgpt-codex") {
+    return "local";
+  }
+  if (mode === "saas-api") {
+    return "saas";
+  }
+  if (mode === "unavailable") {
+    return "muted";
+  }
+  return "mock";
+}
+
+function recordPreview(record: AssistantRecordHistoryItem) {
+  const text =
+    record.draftSummary?.conclusion?.trim() ||
+    record.answer?.replace(/\s+/g, " ").trim() ||
+    record.question?.replace(/\s+/g, " ").trim() ||
+    "No assistant output was stored.";
+  return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+}
+
+function formatRecordDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "unknown time";
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function diagnosticTone(report: LocalCodexHealthReport) {
+  if (report.steps.some((step) => step.status === "fail")) {
+    return "fail";
+  }
+  if (report.steps.some((step) => step.status === "warn")) {
+    return "warn";
+  }
+  return "pass";
+}
+
+function localCodexDiagnostic(report: LocalCodexHealthReport) {
+  const failed = report.steps.find((step) => step.status === "fail");
+  if (!failed) {
+    return "Ready: this page can send the selected task context through the extension and local Codex CLI.";
+  }
+
+  if (failed.id === "content-script") {
+    return "Page bridge missing: reload Architect Browser Assistant in chrome://extensions, refresh /daily, then run Check bridge again.";
+  }
+  if (failed.id === "native-codex") {
+    return "Native host or Codex is not ready: run the installed-path verifier and confirm Codex CLI login before generation.";
+  }
+  if (failed.id === "generation") {
+    return "Generation is blocked until the failed bridge or native-host check is fixed.";
+  }
+  return failed.detail;
 }
 
 function generateArchitectReview(input: {

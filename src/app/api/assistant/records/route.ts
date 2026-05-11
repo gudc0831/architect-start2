@@ -1,9 +1,22 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
-import { saveAssistantRecord } from "@/use-cases/assistant-service";
+import { listAssistantRecords, saveAssistantRecord } from "@/use-cases/assistant-service";
+
+export async function GET(request: Request) {
+  try {
+    const user = await requireUser();
+    await requireCurrentProjectAccess(user);
+    const { searchParams } = new URL(request.url);
+    const data = await listAssistantRecords(searchParams.get("taskId") ?? "");
+
+    return NextResponse.json({ data });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {

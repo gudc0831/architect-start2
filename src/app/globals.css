@@ -3609,6 +3609,7 @@ a {
 .task-assistant__field span,
 .task-assistant__section-header span,
 .task-assistant__evidence small,
+.task-assistant__history-item small,
 .task-assistant__summary small {
   color: var(--theme-text-subtle);
   font-size: 0.72rem;
@@ -3798,6 +3799,29 @@ a {
   color: #9e2f27;
 }
 
+.task-assistant__diagnostic {
+  margin: 0;
+  border-left: 3px solid var(--theme-border-field-strong);
+  padding: 0.55rem 0.65rem;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.task-assistant__diagnostic--pass {
+  border-color: #266047;
+}
+
+.task-assistant__diagnostic--warn {
+  border-color: #a76d14;
+}
+
+.task-assistant__diagnostic--fail {
+  border-color: #b63a31;
+}
+
 .task-assistant__section {
   display: grid;
   gap: 0.7rem;
@@ -3818,6 +3842,75 @@ a {
 .task-assistant__evidence-list {
   display: grid;
   gap: 0.6rem;
+}
+
+.task-assistant__history-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.task-assistant__history-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem;
+  border: 1px solid var(--theme-border-field);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.task-assistant__history-item--local {
+  border-left-color: #266047;
+}
+
+.task-assistant__history-item--saas {
+  border-left-color: var(--accent);
+}
+
+.task-assistant__history-item--mock {
+  border-left-color: #a76d14;
+}
+
+.task-assistant__history-item--muted {
+  border-left-color: var(--theme-border-field-strong);
+}
+
+.task-assistant__history-item header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.task-assistant__history-item header span {
+  border-radius: 999px;
+  padding: 0.16rem 0.48rem;
+  background: rgba(38, 96, 71, 0.1);
+  color: #266047;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.task-assistant__history-item p {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.task-assistant__history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.task-assistant__history-tags span {
+  border: 1px solid var(--theme-border-field);
+  border-radius: 999px;
+  padding: 0.12rem 0.42rem;
+  color: var(--theme-text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
 .task-assistant__evidence,
