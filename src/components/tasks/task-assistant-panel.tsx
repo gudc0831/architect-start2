@@ -183,6 +183,37 @@ type ClosureGateItem = {
 
 type SummarySaveStatus = "approved" | "deferred";
 
+type TaskUpdateProposal = {
+  nextStatus: TaskRecord["status"];
+  statusChanged: boolean;
+  alreadyRecorded: boolean;
+  decisionAppend: string;
+  nextDecision: string;
+};
+
+type FollowUpTaskProposal = {
+  issueTitle: string;
+  issueDetailNote: string;
+  requestBody: {
+    dueDate: string;
+    workType: string;
+    coordinationScope: string;
+    requestedBy: string;
+    relatedDisciplines: string;
+    assignee: string;
+    assigneeProfileId: string | null;
+    reviewedAt: string;
+    isDaily: boolean;
+    locationRef: string;
+    calendarLinked: boolean;
+    issueTitle: string;
+    issueDetailNote: string;
+    status: "new";
+    decision: string;
+    parentTaskId: string;
+  };
+};
+
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
 };
@@ -208,6 +239,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [summaryDraft, setSummaryDraft] = useState<DraftSummary | null>(null);
   const [summaryTagsInput, setSummaryTagsInput] = useState("");
   const [closureAcknowledged, setClosureAcknowledged] = useState(false);
+  const [summarySaveState, setSummarySaveState] = useState<SummarySaveStatus | null>(null);
+  const [proposalStatus, setProposalStatus] = useState("");
+  const [taskUpdateApplied, setTaskUpdateApplied] = useState(false);
+  const [followUpTaskCreated, setFollowUpTaskCreated] = useState(false);
   const [recordHistory, setRecordHistory] = useState<AssistantRecordHistoryItem[]>([]);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
@@ -238,6 +273,25 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
   const canDeferSummary = Boolean(selectedTask && record && output && summaryDraft && !busy);
   const canApproveSummary = canDeferSummary && closureAcknowledged && approvalBlockers.length === 0;
+  const summaryTags = useMemo(() => parseSummaryTags(summaryTagsInput), [summaryTagsInput]);
+  const taskUpdateProposal = useMemo(
+    () =>
+      summarySaveState === "approved" && selectedTask && record && summaryDraft
+        ? buildTaskUpdateProposal(selectedTask, summaryDraft, summaryTags, record)
+        : null,
+    [record, selectedTask, summaryDraft, summarySaveState, summaryTags],
+  );
+  const followUpTaskProposal = useMemo(
+    () =>
+      summarySaveState === "approved" && selectedTask && record && summaryDraft
+        ? buildFollowUpTaskProposal(selectedTask, summaryDraft, summaryTags, record)
+        : null,
+    [record, selectedTask, summaryDraft, summarySaveState, summaryTags],
+  );
+  const canApplyTaskUpdate = Boolean(
+    taskUpdateProposal && !busy && !taskUpdateApplied && (!taskUpdateProposal.alreadyRecorded || taskUpdateProposal.statusChanged),
+  );
+  const canCreateFollowUpTask = Boolean(followUpTaskProposal && !busy && !followUpTaskCreated);
 
   useEffect(() => {
     setRetrieveResult(null);
@@ -246,6 +300,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setSummaryDraft(null);
     setSummaryTagsInput("");
     setClosureAcknowledged(false);
+    setSummarySaveState(null);
+    setProposalStatus("");
+    setTaskUpdateApplied(false);
+    setFollowUpTaskCreated(false);
     setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
@@ -362,6 +420,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setBusy(true);
     setOutput(null);
     setRecord(null);
+    setSummarySaveState(null);
+    setProposalStatus("");
+    setTaskUpdateApplied(false);
+    setFollowUpTaskCreated(false);
     try {
       const retrieved = await postJson<RetrieveResponse>("/api/assistant/retrieve", {
         taskId: selectedTask.id,
@@ -454,6 +516,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   function updateSummaryDraft(field: keyof DraftSummary, value: string) {
     setSummaryDraft((current) => (current ? { ...current, [field]: value } : current));
     setClosureAcknowledged(false);
+    setSummarySaveState(null);
+    setProposalStatus("");
+    setTaskUpdateApplied(false);
+    setFollowUpTaskCreated(false);
   }
 
   async function saveSummary(statusValue: SummarySaveStatus) {
@@ -478,11 +544,19 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         taskId: selectedTask.id,
         recordId: record.id,
         ...summaryDraft,
-        tags: parseSummaryTags(summaryTagsInput),
+        tags: summaryTags,
         status: statusValue,
       });
       await refreshAssistantRecords(selectedTask.id);
       savedSummaryStatus = statusValue;
+      setSummarySaveState(statusValue);
+      setTaskUpdateApplied(false);
+      setFollowUpTaskCreated(false);
+      setProposalStatus(
+        statusValue === "approved"
+          ? "Task update and follow-up proposals are ready. Nothing has been applied yet."
+          : "",
+      );
       setStatus(statusValue === "approved" ? "Work summary approved after closure review." : "Work summary saved as deferred for later review.");
     } catch (error) {
       setStatus(errorMessage(error));
@@ -495,6 +569,62 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
             : "Work summary saved as deferred for later review.",
         );
       }
+    }
+  }
+
+  async function applyTaskUpdateProposal() {
+    if (!selectedTask || !taskUpdateProposal) {
+      return;
+    }
+
+    setBusy(true);
+    setProposalStatus("");
+    try {
+      const patchBody: Record<string, unknown> = {
+        version: selectedTask.version,
+        decision: taskUpdateProposal.nextDecision,
+      };
+
+      if (taskUpdateProposal.statusChanged) {
+        patchBody.status = taskUpdateProposal.nextStatus;
+      }
+
+      await patchJson<TaskRecord>(`/api/tasks/${encodeURIComponent(selectedTask.id)}`, patchBody);
+      setTaskUpdateApplied(true);
+      setProposalStatus(
+        taskUpdateProposal.statusChanged
+          ? `Task decision updated and status moved to ${taskUpdateProposal.nextStatus}.`
+          : "Task decision updated from the approved assistant summary.",
+      );
+      setStatus("Task record update applied from the approved assistant summary.");
+    } catch (error) {
+      const message = errorMessage(error);
+      setProposalStatus(message);
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createFollowUpTaskProposal() {
+    if (!followUpTaskProposal) {
+      return;
+    }
+
+    setBusy(true);
+    setProposalStatus("");
+    try {
+      const created = await postJson<TaskRecord>("/api/tasks", followUpTaskProposal.requestBody);
+      const createdLabel = formatTaskDisplayId(created);
+      setFollowUpTaskCreated(true);
+      setProposalStatus(`Follow-up task ${createdLabel} created.`);
+      setStatus(`Follow-up task ${createdLabel} created from the approved assistant summary.`);
+    } catch (error) {
+      const message = errorMessage(error);
+      setProposalStatus(message);
+      setStatus(message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -583,6 +713,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setSummaryDraft(null);
     setSummaryTagsInput("");
     setClosureAcknowledged(false);
+    setSummarySaveState(null);
+    setProposalStatus("");
+    setTaskUpdateApplied(false);
+    setFollowUpTaskCreated(false);
   }
 
   return (
@@ -942,6 +1076,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                         onChange={(event) => {
                           setSummaryTagsInput(event.target.value);
                           setClosureAcknowledged(false);
+                          setSummarySaveState(null);
+                          setProposalStatus("");
+                          setTaskUpdateApplied(false);
+                          setFollowUpTaskCreated(false);
                         }}
                         value={summaryTagsInput}
                       />
@@ -982,6 +1120,60 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       />
                       <span>위 초안, 근거, 신뢰도와 후속 조치를 확인했고 이 내용을 작업 기록으로 승인합니다.</span>
                     </label>
+                  </article>
+                ) : null}
+                {taskUpdateProposal || followUpTaskProposal ? (
+                  <article className="task-assistant__summary task-assistant__proposal">
+                    <div className="task-assistant__section-header">
+                      <h4>Task 반영 제안</h4>
+                      <span>optional</span>
+                    </div>
+                    <p className="task-assistant__hint">
+                      승인된 요약은 자동으로 task를 수정하지 않습니다. 필요한 항목만 아래 버튼으로 별도 적용하세요.
+                    </p>
+                    {taskUpdateProposal ? (
+                      <div className="task-assistant__proposal-card">
+                        <header>
+                          <strong>Task 기록 업데이트</strong>
+                          <span>
+                            {selectedTask?.status} -&gt; {taskUpdateProposal.nextStatus}
+                          </span>
+                        </header>
+                        <p className="task-assistant__proposal-preview">{taskUpdateProposal.decisionAppend}</p>
+                        {taskUpdateProposal.alreadyRecorded ? (
+                          <small>이 assistant record는 이미 task decision에 기록되어 있습니다.</small>
+                        ) : null}
+                        <button
+                          className="secondary-button"
+                          disabled={!canApplyTaskUpdate}
+                          onClick={() => void applyTaskUpdateProposal()}
+                          type="button"
+                        >
+                          task 기록 업데이트 적용
+                        </button>
+                      </div>
+                    ) : null}
+                    {followUpTaskProposal ? (
+                      <div className="task-assistant__proposal-card">
+                        <header>
+                          <strong>후속 task 생성</strong>
+                          <span>child task</span>
+                        </header>
+                        <p className="task-assistant__proposal-title">{followUpTaskProposal.issueTitle}</p>
+                        <p className="task-assistant__proposal-preview">{followUpTaskProposal.issueDetailNote}</p>
+                        <button
+                          className="secondary-button"
+                          disabled={!canCreateFollowUpTask}
+                          onClick={() => void createFollowUpTaskProposal()}
+                          type="button"
+                        >
+                          후속 task 생성
+                        </button>
+                      </div>
+                    ) : null}
+                    {proposalStatus ? (
+                      <p className="task-assistant__diagnostic task-assistant__diagnostic--pass">{proposalStatus}</p>
+                    ) : null}
                   </article>
                 ) : null}
               </section>
@@ -1053,6 +1245,105 @@ function parseSummaryTags(value: string) {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 12);
+}
+
+function buildTaskUpdateProposal(
+  task: TaskRecord,
+  summary: DraftSummary,
+  tags: string[],
+  record: SavedAssistantRecord,
+): TaskUpdateProposal {
+  const marker = `[Assistant approved summary ${record.id}]`;
+  const decisionAppend = buildApprovedSummaryBlock(summary, tags, marker);
+  const alreadyRecorded = task.decision.includes(marker);
+  const nextStatus = suggestNextTaskStatus(task.status);
+  const statusChanged = nextStatus !== task.status;
+  const nextDecision = alreadyRecorded
+    ? task.decision
+    : [task.decision.trim(), decisionAppend].filter(Boolean).join("\n\n");
+
+  return {
+    nextStatus,
+    statusChanged,
+    alreadyRecorded,
+    decisionAppend,
+    nextDecision,
+  };
+}
+
+function buildFollowUpTaskProposal(
+  task: TaskRecord,
+  summary: DraftSummary,
+  tags: string[],
+  record: SavedAssistantRecord,
+): FollowUpTaskProposal | null {
+  const followUpAction = summary.followUpAction?.trim();
+  if (!followUpAction) {
+    return null;
+  }
+
+  const issueTitle = createFollowUpTitle(followUpAction);
+  const issueDetailNote = [
+    `Parent task: ${formatTaskDisplayId(task)}`,
+    `Source assistant record: ${record.id}`,
+    `Conclusion: ${compactText(summary.conclusion)}`,
+    `Scope: ${compactText(summary.scope)}`,
+    `Follow-up action: ${compactText(followUpAction)}`,
+    tags.length ? `Tags: ${tags.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    issueTitle,
+    issueDetailNote,
+    requestBody: {
+      dueDate: "",
+      workType: task.workType,
+      coordinationScope: task.coordinationScope,
+      requestedBy: task.requestedBy,
+      relatedDisciplines: task.relatedDisciplines,
+      assignee: task.assignee,
+      assigneeProfileId: task.assigneeProfileId,
+      reviewedAt: "",
+      isDaily: true,
+      locationRef: task.locationRef,
+      calendarLinked: false,
+      issueTitle,
+      issueDetailNote,
+      status: "new",
+      decision: "",
+      parentTaskId: task.id,
+    },
+  };
+}
+
+function buildApprovedSummaryBlock(summary: DraftSummary, tags: string[], marker: string) {
+  return [
+    marker,
+    `Conclusion: ${compactText(summary.conclusion)}`,
+    `Scope: ${compactText(summary.scope)}`,
+    summary.followUpAction?.trim() ? `Follow-up: ${compactText(summary.followUpAction)}` : null,
+    tags.length ? `Tags: ${tags.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function suggestNextTaskStatus(status: TaskRecord["status"]): TaskRecord["status"] {
+  return status === "new" ? "in_review" : status;
+}
+
+function createFollowUpTitle(value: string) {
+  return `Follow-up: ${truncateText(compactText(value), 84)}`;
+}
+
+function compactText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
 async function generateSaasApiReview(input: { taskId: string; question: string; instruction: string }): Promise<AssistantOutput> {
@@ -1408,6 +1699,20 @@ function generateArchitectReview(input: {
 async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
+  if (!response.ok) {
+    throw new Error(parsed.error?.message ?? "Request failed");
+  }
+
+  return parsed.data as T;
+}
+
+async function patchJson<T = unknown>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });

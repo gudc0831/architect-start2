@@ -3972,6 +3972,63 @@ a {
   line-height: 1.45;
 }
 
+.task-assistant__proposal {
+  gap: 0.65rem;
+}
+
+.task-assistant__proposal-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem;
+  border: 1px solid var(--theme-border-field);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.task-assistant__proposal-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.task-assistant__proposal-card header strong {
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.task-assistant__proposal-card header span,
+.task-assistant__proposal-card small {
+  color: var(--theme-text-subtle);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.task-assistant__proposal-title,
+.task-assistant__proposal-preview {
+  margin: 0;
+}
+
+.task-assistant__proposal-title {
+  color: var(--theme-text-primary);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.task-assistant__proposal-preview {
+  max-height: 8rem;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 6px;
+  background: var(--theme-surface-form-label);
+  color: var(--theme-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
 .task-assistant__evidence,
 .task-assistant__answer,
 .task-assistant__summary {
