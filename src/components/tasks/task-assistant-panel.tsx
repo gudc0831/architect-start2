@@ -914,7 +914,14 @@ function buildLocalCodexMissingBridgeReport(error: string): LocalCodexHealthRepo
         id: "generation",
         label: "Generation",
         status: "fail",
-        detail: "Reload the rebuilt Chrome extension and refresh /daily before trying Local Codex generation.",
+        detail: "Open chrome://extensions, reload Architect Browser Assistant, then refresh /daily before trying Local Codex generation.",
+      },
+      {
+        id: "installed-path-verifier",
+        label: "Installed path verifier",
+        status: "warn",
+        detail:
+          "If this still fails after reload, run `npm run native-host:verify:windows -- --extension-id <id> --strict` from architect-browser-assistant.",
       },
     ],
   };
@@ -944,7 +951,7 @@ function requestLocalCodexBridge<T>(
       window.removeEventListener("message", handleMessage);
       reject(
         new Error(
-          "Local Codex extension bridge did not respond. Check that the Chrome extension is loaded and refreshed.",
+          "Local Codex extension bridge did not respond. Reload Architect Browser Assistant in chrome://extensions, then refresh /daily.",
         ),
       );
     }, timeoutMs);
