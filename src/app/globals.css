@@ -3540,6 +3540,101 @@ a {
   background: var(--warn-soft);
 }
 
+.detail-assistant-audit {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(41, 92, 67, 0.28);
+  border-left: 3px solid var(--accent);
+  border-radius: 14px;
+  background: var(--theme-accent-soft-ghost);
+}
+
+.detail-assistant-audit__header {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.detail-assistant-audit__header span,
+.detail-assistant-audit__item span {
+  color: var(--theme-text-subtle);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.detail-assistant-audit__header strong {
+  color: var(--theme-text-primary);
+  font-size: 0.9rem;
+}
+
+.detail-assistant-audit__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem;
+}
+
+.detail-assistant-audit__item {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 10px;
+  background: var(--theme-surface-form-label);
+}
+
+.detail-assistant-audit__item--wide {
+  grid-column: 1 / -1;
+}
+
+.detail-assistant-audit__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.detail-assistant-audit__chips code {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  background: var(--theme-surface-field);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+}
+
+.detail-assistant-audit__item small,
+.detail-assistant-audit__children small,
+.detail-assistant-audit__children p {
+  color: var(--theme-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.detail-assistant-audit__children {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.detail-assistant-audit__children article {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.detail-assistant-audit__children strong,
+.detail-assistant-audit__children p {
+  margin: 0;
+}
+
 .task-assistant {
   position: fixed;
   right: 1.25rem;

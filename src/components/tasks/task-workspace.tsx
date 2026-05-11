@@ -493,6 +493,21 @@ type TrashFileItem = {
 
 type TrashItem = TrashTaskItem | TrashFileItem;
 type BoardCollapsedStatusMap = Partial<Record<TaskStatus, true>>;
+
+type AssistantAuditChildTask = {
+  id: string;
+  label: string;
+  title: string;
+  recordIds: string[];
+};
+
+type AssistantAuditIndicator = {
+  summaryRecordIds: string[];
+  sourceRecordIds: string[];
+  parentReference: string | null;
+  followUpChildren: AssistantAuditChildTask[];
+};
+
 type UploadIntentResponse = {
   uploadMode?: "direct" | "relay" | string;
   projectId?: string | null;
@@ -526,6 +541,9 @@ const statusLabel: Record<TaskStatus, string> = {
   blocked: labelForStatus("blocked"),
   done: labelForStatus("done"),
 };
+const ASSISTANT_APPROVED_SUMMARY_PATTERN = /\[Assistant approved summary ([^\]]+)\]/g;
+const ASSISTANT_SOURCE_RECORD_PATTERN = /^Source assistant record:\s*(.+)$/gim;
+const ASSISTANT_PARENT_TASK_PATTERN = /^Parent task:\s*(.+)$/im;
 const calendarWeekdayColumns = Array.from({ length: 7 }, (_unused, index) => ({
   index,
   label: getWeekdayLabelByIndex(index),
@@ -2392,10 +2410,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       isDetailExpanded,
     };
   }, [isDetailExpanded, selectedTaskId]);
-  const selectedParentTask = useMemo(() => {
+const selectedParentTask = useMemo(() => {
     if (!selectedTask?.parentTaskId) return null;
     return taskById.get(selectedTask.parentTaskId) ?? null;
   }, [selectedTask, taskById]);
+  const selectedTaskAssistantAudit = useMemo(
+    () => (selectedTask ? buildAssistantAuditIndicator(selectedTask, sortedTasks, selectedParentTask) : null),
+    [selectedParentTask, selectedTask, sortedTasks],
+  );
 
   useEffect(() => {
     selectedParentTaskRef.current = selectedParentTask;
@@ -4291,6 +4313,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           </label>
         </div>
 
+        {selectedTaskAssistantAudit ? <AssistantAuditPanel audit={selectedTaskAssistantAudit} /> : null}
+
         <section className="detail-section">
           <div className="detail-section__header">
             <h4>{labelForField("linkedDocuments")}</h4>
@@ -5185,6 +5209,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   previewDetailPanelBody
                 ) : draft ? (
                   <div className="detail-panel__body">
+                    {selectedTaskAssistantAudit ? <AssistantAuditPanel audit={selectedTaskAssistantAudit} /> : null}
+
                     <TaskFormFields
                       assigneeOptions={assigneeOptions}
                       form={draft}
@@ -6539,6 +6565,57 @@ function TaskFormFields({
         {renderResizeHandle("decision")}
       </label>
     </div>
+  );
+}
+
+function AssistantAuditPanel({ audit }: { audit: AssistantAuditIndicator }) {
+  return (
+    <section aria-label="Assistant provenance" className="detail-assistant-audit">
+      <div className="detail-assistant-audit__header">
+        <span>AI provenance</span>
+        <strong>Assistant-origin task change</strong>
+      </div>
+
+      <div className="detail-assistant-audit__grid">
+        {audit.summaryRecordIds.length ? (
+          <div className="detail-assistant-audit__item">
+            <span>Approved summary records</span>
+            <div className="detail-assistant-audit__chips">
+              {audit.summaryRecordIds.map((recordId) => (
+                <code key={recordId}>{recordId}</code>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {audit.sourceRecordIds.length ? (
+          <div className="detail-assistant-audit__item">
+            <span>Source assistant records</span>
+            <div className="detail-assistant-audit__chips">
+              {audit.sourceRecordIds.map((recordId) => (
+                <code key={recordId}>{recordId}</code>
+              ))}
+            </div>
+            {audit.parentReference ? <small>Parent: {audit.parentReference}</small> : null}
+          </div>
+        ) : null}
+
+        {audit.followUpChildren.length ? (
+          <div className="detail-assistant-audit__item detail-assistant-audit__item--wide">
+            <span>Assistant-created follow-up tasks</span>
+            <div className="detail-assistant-audit__children">
+              {audit.followUpChildren.map((child) => (
+                <article key={child.id}>
+                  <strong>{child.label}</strong>
+                  <p>{child.title}</p>
+                  <small>Source record: {child.recordIds.join(", ")}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -8188,6 +8265,51 @@ function formatReadonlyValue(value: string | null | undefined) {
 function formatPreviewFieldValue(value: string | null | undefined) {
   const trimmed = String(value ?? "").trim();
   return trimmed || "-";
+}
+
+function buildAssistantAuditIndicator(
+  task: TaskRecord,
+  allTasks: readonly TaskRecord[],
+  selectedParentTask: TaskRecord | null,
+): AssistantAuditIndicator | null {
+  const summaryRecordIds = extractUniquePatternMatches(task.decision, ASSISTANT_APPROVED_SUMMARY_PATTERN);
+  const sourceRecordIds = extractUniquePatternMatches(task.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN);
+  const parentReference =
+    sourceRecordIds.length > 0
+      ? extractAssistantParentReference(task.issueDetailNote) ?? (selectedParentTask ? formatTaskDisplayId(selectedParentTask) : null)
+      : null;
+  const followUpChildren = allTasks
+    .filter((candidate) => candidate.parentTaskId === task.id)
+    .map((candidate) => ({
+      id: candidate.id,
+      label: formatTaskDisplayId(candidate),
+      title: candidate.issueTitle || "-",
+      recordIds: extractUniquePatternMatches(candidate.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN),
+    }))
+    .filter((candidate) => candidate.recordIds.length > 0);
+
+  if (summaryRecordIds.length === 0 && sourceRecordIds.length === 0 && followUpChildren.length === 0) {
+    return null;
+  }
+
+  return {
+    summaryRecordIds,
+    sourceRecordIds,
+    parentReference,
+    followUpChildren,
+  };
+}
+
+function extractUniquePatternMatches(value: string, pattern: RegExp) {
+  return uniqueStrings(Array.from(value.matchAll(pattern), (match) => match[1]?.trim()).filter(Boolean));
+}
+
+function extractAssistantParentReference(value: string) {
+  return value.match(ASSISTANT_PARENT_TASK_PATTERN)?.[1]?.trim() || null;
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
 }
 
 function normalizeParentTaskNumberInput(value: string) {
