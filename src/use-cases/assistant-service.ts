@@ -6,6 +6,12 @@ import type {
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import type {
+  AssistantActionAuditAction,
+  AssistantActionAuditRecord,
+  AssistantActionAuditSummary,
+  AssistantAuditEvent,
+} from "@/domains/assistant/saas-api-mode";
 import {
   externalEvidenceToAssistantEvidence,
   isExternalEvidenceSourceType,
@@ -57,6 +63,18 @@ type SaveExternalEvidenceInput = {
   toolName?: unknown;
   permissionState?: unknown;
   capturedAt?: unknown;
+};
+
+type SaveAssistantActionAuditInput = {
+  action?: unknown;
+  sourceTaskId?: unknown;
+  targetTaskId?: unknown;
+  createdTaskId?: unknown;
+  assistantRecordId?: unknown;
+  summary?: unknown;
+  statusFrom?: unknown;
+  statusTo?: unknown;
+  decisionMarker?: unknown;
 };
 
 export async function getAssistantTaskContext(taskId: string): Promise<AssistantTaskContext> {
@@ -143,6 +161,18 @@ export async function listExternalEvidence(taskId: string) {
   return assistantRepository.listExternalEvidenceByTask(task.id);
 }
 
+export async function listAssistantActionAudits(taskId: string): Promise<AssistantActionAuditRecord[]> {
+  const task = await requireTaskInSelectedProject(normalizeRequiredId(taskId, "taskId"));
+  const events = await assistantRepository.listAuditEvents({ projectId: task.projectId, limit: 250 });
+
+  return events
+    .map(toAssistantActionAuditRecord)
+    .filter((record): record is AssistantActionAuditRecord => Boolean(record))
+    .filter((record) => isActionAuditRelevantToTask(record, task.id))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 50);
+}
+
 export async function saveExternalEvidence(input: SaveExternalEvidenceInput, user: AuthUser) {
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const sourceType = normalizeExternalSourceType(input.sourceType);
@@ -202,6 +232,52 @@ export async function saveWorkSummaryDraft(input: SaveWorkSummaryDraftInput, use
   });
 }
 
+export async function saveAssistantActionAudit(input: SaveAssistantActionAuditInput, user: AuthUser) {
+  const action = normalizeAssistantAction(input.action);
+  const sourceTask = await requireTaskInSelectedProject(normalizeRequiredId(input.sourceTaskId, "sourceTaskId"));
+  const targetTask = await requireTaskInSelectedProject(normalizeRequiredId(input.targetTaskId, "targetTaskId"));
+  const createdTaskId = normalizeOptionalText(input.createdTaskId) ?? null;
+  const createdTask = createdTaskId ? await requireTaskInSelectedProject(createdTaskId) : null;
+  const assistantRecord = await assistantRepository.findRecordById(normalizeRequiredId(input.assistantRecordId, "assistantRecordId"));
+
+  if (!assistantRecord || assistantRecord.projectId !== sourceTask.projectId) {
+    throw notFound("Assistant record not found", "ASSISTANT_RECORD_NOT_FOUND");
+  }
+  if (sourceTask.projectId !== targetTask.projectId || (createdTask && createdTask.projectId !== sourceTask.projectId)) {
+    throw badRequest("Assistant action audit tasks must belong to the same project.", "ASSISTANT_ACTION_AUDIT_PROJECT_MISMATCH");
+  }
+  if (action === "follow_up_task_created" && !createdTask) {
+    throw badRequest("createdTaskId is required for follow-up audit records.", "ASSISTANT_ACTION_AUDIT_CREATED_TASK_REQUIRED");
+  }
+
+  const event = await assistantRepository.createAuditEvent({
+    projectId: sourceTask.projectId,
+    profileId: user.id,
+    eventType: assistantActionEventType(action),
+    targetType: "task",
+    targetId: targetTask.id,
+    metadata: {
+      assistantActionAuditVersion: 1,
+      action,
+      sourceTaskId: sourceTask.id,
+      targetTaskId: targetTask.id,
+      createdTaskId,
+      assistantRecordId: assistantRecord.id,
+      summary: normalizeActionAuditSummary(input.summary),
+      statusFrom: normalizeOptionalText(input.statusFrom) ?? null,
+      statusTo: normalizeOptionalText(input.statusTo) ?? null,
+      decisionMarker: normalizeOptionalText(input.decisionMarker) ?? null,
+    },
+  });
+
+  const record = toAssistantActionAuditRecord(event);
+  if (!record) {
+    throw badRequest("Assistant action audit could not be normalized.", "ASSISTANT_ACTION_AUDIT_INVALID");
+  }
+
+  return record;
+}
+
 function assertApprovedSummaryReady(input: {
   record: AssistantRecord;
   conclusion: string;
@@ -229,6 +305,78 @@ function assertApprovedSummaryReady(input: {
   if (blockers.length > 0) {
     throw badRequest(`Cannot approve work summary: ${blockers.join("; ")}`, "ASSISTANT_SUMMARY_CLOSURE_GATE_FAILED");
   }
+}
+
+function assistantActionEventType(action: AssistantActionAuditAction) {
+  return `assistant.${action}`;
+}
+
+function normalizeAssistantAction(value: unknown): AssistantActionAuditAction {
+  if (value === "task_update_applied" || value === "follow_up_task_created") {
+    return value;
+  }
+
+  throw badRequest("action is invalid", "ASSISTANT_ACTION_AUDIT_ACTION_INVALID");
+}
+
+function readAssistantAction(value: unknown): AssistantActionAuditAction | null {
+  return value === "task_update_applied" || value === "follow_up_task_created" ? value : null;
+}
+
+function normalizeActionAuditSummary(value: unknown): AssistantActionAuditSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const source = value as Partial<AssistantActionAuditSummary>;
+  const conclusion = normalizeText(source.conclusion);
+  const scope = normalizeText(source.scope);
+  const followUpAction = normalizeText(source.followUpAction);
+  const tags = normalizeTags(source.tags);
+
+  if (!conclusion && !scope && !followUpAction && tags.length === 0) {
+    return null;
+  }
+
+  return {
+    conclusion,
+    scope,
+    followUpAction,
+    tags,
+  };
+}
+
+function toAssistantActionAuditRecord(event: AssistantAuditEvent): AssistantActionAuditRecord | null {
+  const metadata = event.metadata;
+  const action = readAssistantAction(metadata.action);
+  const projectId = normalizeText(event.projectId);
+  const sourceTaskId = normalizeText(metadata.sourceTaskId);
+  const targetTaskId = normalizeText(metadata.targetTaskId) || normalizeText(event.targetId);
+  const assistantRecordId = normalizeText(metadata.assistantRecordId);
+
+  if (!action || !projectId || !sourceTaskId || !targetTaskId || !assistantRecordId) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    action,
+    projectId,
+    sourceTaskId,
+    targetTaskId,
+    createdTaskId: normalizeText(metadata.createdTaskId) || null,
+    assistantRecordId,
+    summary: normalizeActionAuditSummary(metadata.summary),
+    statusFrom: normalizeText(metadata.statusFrom) || null,
+    statusTo: normalizeText(metadata.statusTo) || null,
+    decisionMarker: normalizeText(metadata.decisionMarker) || null,
+    createdBy: event.profileId,
+    createdAt: event.createdAt,
+  };
+}
+
+function isActionAuditRelevantToTask(record: AssistantActionAuditRecord, taskId: string) {
+  return record.sourceTaskId === taskId || record.targetTaskId === taskId || record.createdTaskId === taskId;
 }
 
 function toTaskContext(task: TaskRecord, projectName: string): AssistantTaskContext {

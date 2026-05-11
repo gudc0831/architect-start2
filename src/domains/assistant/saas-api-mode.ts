@@ -63,6 +63,31 @@ export type AssistantAuditEvent = {
   createdAt: string;
 };
 
+export type AssistantActionAuditAction = "task_update_applied" | "follow_up_task_created";
+
+export type AssistantActionAuditSummary = {
+  conclusion: string;
+  scope: string;
+  followUpAction: string;
+  tags: string[];
+};
+
+export type AssistantActionAuditRecord = {
+  id: string;
+  action: AssistantActionAuditAction;
+  projectId: string;
+  sourceTaskId: string;
+  targetTaskId: string;
+  createdTaskId: string | null;
+  assistantRecordId: string;
+  summary: AssistantActionAuditSummary | null;
+  statusFrom: string | null;
+  statusTo: string | null;
+  decisionMarker: string | null;
+  createdBy: string | null;
+  createdAt: string;
+};
+
 export type AssistantGenerateResult = {
   answer: string;
   suggestedDraftSummary: AssistantDraftSummary;

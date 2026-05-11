@@ -53,6 +53,7 @@ import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provi
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
 import type { ProjectMembershipRole } from "@/domains/admin/types";
+import type { AssistantActionAuditRecord } from "@/domains/assistant/saas-api-mode";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
 import { canEditProjectWorkspace } from "@/lib/auth/project-capabilities";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
@@ -506,6 +507,7 @@ type AssistantAuditIndicator = {
   sourceRecordIds: string[];
   parentReference: string | null;
   followUpChildren: AssistantAuditChildTask[];
+  structuredActions: AssistantActionAuditRecord[];
 };
 
 type UploadIntentResponse = {
@@ -748,6 +750,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(true);
   const [hasInitializedCreateForm, setHasInitializedCreateForm] = useState(false);
   const [detailPanelState, setDetailPanelState] = useState<DetailPanelState>("collapsed");
+  const [assistantActionAudits, setAssistantActionAudits] = useState<AssistantActionAuditRecord[]>([]);
   const [isDetailPanelSticky, setIsDetailPanelSticky] = useState(false);
   const [canHoverDetails, setCanHoverDetails] = useState(false);
   const [quickCreateWidths, setQuickCreateWidths] = useState<ResolvedQuickCreateWidthMap>(() => resolveQuickCreateWidths());
@@ -2410,13 +2413,65 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       isDetailExpanded,
     };
   }, [isDetailExpanded, selectedTaskId]);
-const selectedParentTask = useMemo(() => {
+  const selectedParentTask = useMemo(() => {
     if (!selectedTask?.parentTaskId) return null;
     return taskById.get(selectedTask.parentTaskId) ?? null;
   }, [selectedTask, taskById]);
+
+  useEffect(() => {
+    if (isPreview || mode !== "daily" || !selectedTask?.id) {
+      setAssistantActionAudits([]);
+      return;
+    }
+
+    let cancelled = false;
+    const selectedAssistantAuditTaskId = selectedTask.id;
+    const abortController = new AbortController();
+
+    async function loadAssistantActionAudits() {
+      try {
+        const response = await fetch(`/api/assistant/action-audits?taskId=${encodeURIComponent(selectedAssistantAuditTaskId)}`, {
+          cache: "no-store",
+          signal: abortController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await readErrorMessage(response, "loadDashboardFailed"));
+        }
+
+        const payload = (await response.json()) as { data?: AssistantActionAuditRecord[] };
+        if (!cancelled) {
+          setAssistantActionAudits(Array.isArray(payload.data) ? payload.data : []);
+        }
+      } catch (error) {
+        if (!cancelled && !(error instanceof DOMException && error.name === "AbortError")) {
+          setAssistantActionAudits([]);
+        }
+      }
+    }
+
+    function handleAssistantActionAuditSaved(event: Event) {
+      const detail = event instanceof CustomEvent ? (event.detail as Partial<AssistantActionAuditRecord>) : null;
+      if (
+        detail &&
+        [detail.sourceTaskId, detail.targetTaskId, detail.createdTaskId].some((taskId) => taskId === selectedAssistantAuditTaskId)
+      ) {
+        void loadAssistantActionAudits();
+      }
+    }
+
+    void loadAssistantActionAudits();
+    window.addEventListener("architect:assistant-action-audit-saved", handleAssistantActionAuditSaved);
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      window.removeEventListener("architect:assistant-action-audit-saved", handleAssistantActionAuditSaved);
+    };
+  }, [isPreview, mode, selectedTask?.id]);
+
   const selectedTaskAssistantAudit = useMemo(
-    () => (selectedTask ? buildAssistantAuditIndicator(selectedTask, sortedTasks, selectedParentTask) : null),
-    [selectedParentTask, selectedTask, sortedTasks],
+    () => (selectedTask ? buildAssistantAuditIndicator(selectedTask, sortedTasks, selectedParentTask, assistantActionAudits) : null),
+    [assistantActionAudits, selectedParentTask, selectedTask, sortedTasks],
   );
 
   useEffect(() => {
@@ -6577,6 +6632,24 @@ function AssistantAuditPanel({ audit }: { audit: AssistantAuditIndicator }) {
       </div>
 
       <div className="detail-assistant-audit__grid">
+        {audit.structuredActions.length ? (
+          <div className="detail-assistant-audit__item detail-assistant-audit__item--wide">
+            <span>Structured audit records</span>
+            <div className="detail-assistant-audit__children">
+              {audit.structuredActions.map((action) => (
+                <article key={action.id}>
+                  <strong>{formatAssistantActionAuditLabel(action.action)}</strong>
+                  <p>{formatAssistantActionAuditSummary(action)}</p>
+                  <small>
+                    Record: {action.assistantRecordId} / Target: {action.targetTaskId}
+                    {action.createdTaskId ? ` / Created: ${action.createdTaskId}` : ""}
+                  </small>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {audit.summaryRecordIds.length ? (
           <div className="detail-assistant-audit__item">
             <span>Approved summary records</span>
@@ -8271,24 +8344,52 @@ function buildAssistantAuditIndicator(
   task: TaskRecord,
   allTasks: readonly TaskRecord[],
   selectedParentTask: TaskRecord | null,
+  actionAudits: readonly AssistantActionAuditRecord[],
 ): AssistantAuditIndicator | null {
-  const summaryRecordIds = extractUniquePatternMatches(task.decision, ASSISTANT_APPROVED_SUMMARY_PATTERN);
-  const sourceRecordIds = extractUniquePatternMatches(task.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN);
+  const structuredTaskUpdateRecordIds = actionAudits
+    .filter((audit) => audit.action === "task_update_applied" && audit.targetTaskId === task.id)
+    .map((audit) => audit.assistantRecordId);
+  const structuredSourceRecordIds = actionAudits
+    .filter((audit) => audit.action === "follow_up_task_created" && (audit.targetTaskId === task.id || audit.createdTaskId === task.id))
+    .map((audit) => audit.assistantRecordId);
+  const summaryRecordIds = uniqueStrings([
+    ...extractUniquePatternMatches(task.decision, ASSISTANT_APPROVED_SUMMARY_PATTERN),
+    ...structuredTaskUpdateRecordIds,
+  ]);
+  const sourceRecordIds = uniqueStrings([
+    ...extractUniquePatternMatches(task.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN),
+    ...structuredSourceRecordIds,
+  ]);
   const parentReference =
     sourceRecordIds.length > 0
       ? extractAssistantParentReference(task.issueDetailNote) ?? (selectedParentTask ? formatTaskDisplayId(selectedParentTask) : null)
       : null;
-  const followUpChildren = allTasks
+  const followUpChildrenById = new Map<string, AssistantAuditChildTask>();
+  allTasks
     .filter((candidate) => candidate.parentTaskId === task.id)
-    .map((candidate) => ({
-      id: candidate.id,
-      label: formatTaskDisplayId(candidate),
-      title: candidate.issueTitle || "-",
-      recordIds: extractUniquePatternMatches(candidate.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN),
-    }))
-    .filter((candidate) => candidate.recordIds.length > 0);
+    .forEach((candidate) => {
+      mergeAssistantAuditChild(followUpChildrenById, {
+        id: candidate.id,
+        label: formatTaskDisplayId(candidate),
+        title: candidate.issueTitle || "-",
+        recordIds: extractUniquePatternMatches(candidate.issueDetailNote, ASSISTANT_SOURCE_RECORD_PATTERN),
+      });
+    });
 
-  if (summaryRecordIds.length === 0 && sourceRecordIds.length === 0 && followUpChildren.length === 0) {
+  actionAudits
+    .filter((audit) => audit.action === "follow_up_task_created" && audit.sourceTaskId === task.id && audit.createdTaskId)
+    .forEach((audit) => {
+      const child = allTasks.find((candidate) => candidate.id === audit.createdTaskId);
+      mergeAssistantAuditChild(followUpChildrenById, {
+        id: audit.createdTaskId ?? audit.id,
+        label: child ? formatTaskDisplayId(child) : audit.createdTaskId ?? audit.targetTaskId,
+        title: child?.issueTitle || audit.summary?.followUpAction || "-",
+        recordIds: [audit.assistantRecordId],
+      });
+    });
+  const followUpChildren = Array.from(followUpChildrenById.values()).filter((candidate) => candidate.recordIds.length > 0);
+
+  if (summaryRecordIds.length === 0 && sourceRecordIds.length === 0 && followUpChildren.length === 0 && actionAudits.length === 0) {
     return null;
   }
 
@@ -8297,7 +8398,32 @@ function buildAssistantAuditIndicator(
     sourceRecordIds,
     parentReference,
     followUpChildren,
+    structuredActions: [...actionAudits],
   };
+}
+
+function mergeAssistantAuditChild(childrenById: Map<string, AssistantAuditChildTask>, child: AssistantAuditChildTask) {
+  const current = childrenById.get(child.id);
+  if (!current) {
+    childrenById.set(child.id, { ...child, recordIds: uniqueStrings(child.recordIds) });
+    return;
+  }
+
+  childrenById.set(child.id, {
+    ...current,
+    recordIds: uniqueStrings([...current.recordIds, ...child.recordIds]),
+  });
+}
+
+function formatAssistantActionAuditLabel(action: AssistantActionAuditRecord["action"]) {
+  return action === "task_update_applied" ? "Task update applied" : "Follow-up task created";
+}
+
+function formatAssistantActionAuditSummary(action: AssistantActionAuditRecord) {
+  const summaryText = action.summary?.conclusion || action.summary?.followUpAction || action.decisionMarker || "";
+  const statusText =
+    action.statusFrom || action.statusTo ? `Status: ${action.statusFrom ?? "-"} -> ${action.statusTo ?? "-"}` : null;
+  return [summaryText || "Assistant action persisted as structured audit.", statusText].filter(Boolean).join(" / ");
 }
 
 function extractUniquePatternMatches(value: string, pattern: RegExp) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
+import type { AssistantActionAuditRecord, AssistantActionAuditSummary } from "@/domains/assistant/saas-api-mode";
 
 type AssistantEvidence = {
   id: string;
@@ -573,7 +574,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   }
 
   async function applyTaskUpdateProposal() {
-    if (!selectedTask || !taskUpdateProposal) {
+    if (!selectedTask || !taskUpdateProposal || !record) {
       return;
     }
 
@@ -590,6 +591,16 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       }
 
       await patchJson<TaskRecord>(`/api/tasks/${encodeURIComponent(selectedTask.id)}`, patchBody);
+      await saveAssistantActionAudit({
+        action: "task_update_applied",
+        sourceTaskId: selectedTask.id,
+        targetTaskId: selectedTask.id,
+        assistantRecordId: record.id,
+        summary: summaryDraft ? buildActionAuditSummary(summaryDraft, summaryTags) : null,
+        statusFrom: selectedTask.status,
+        statusTo: taskUpdateProposal.nextStatus,
+        decisionMarker: `[Assistant approved summary ${record.id}]`,
+      });
       setTaskUpdateApplied(true);
       setProposalStatus(
         taskUpdateProposal.statusChanged
@@ -607,7 +618,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   }
 
   async function createFollowUpTaskProposal() {
-    if (!followUpTaskProposal) {
+    if (!selectedTask || !followUpTaskProposal || !record) {
       return;
     }
 
@@ -615,6 +626,16 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setProposalStatus("");
     try {
       const created = await postJson<TaskRecord>("/api/tasks", followUpTaskProposal.requestBody);
+      await saveAssistantActionAudit({
+        action: "follow_up_task_created",
+        sourceTaskId: selectedTask.id,
+        targetTaskId: created.id,
+        createdTaskId: created.id,
+        assistantRecordId: record.id,
+        summary: summaryDraft ? buildActionAuditSummary(summaryDraft, summaryTags) : null,
+        statusTo: created.status,
+        decisionMarker: `[Assistant approved summary ${record.id}]`,
+      });
       const createdLabel = formatTaskDisplayId(created);
       setFollowUpTaskCreated(true);
       setProposalStatus(`Follow-up task ${createdLabel} created.`);
@@ -1328,6 +1349,39 @@ function buildApprovedSummaryBlock(summary: DraftSummary, tags: string[], marker
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildActionAuditSummary(summary: DraftSummary, tags: string[]): AssistantActionAuditSummary {
+  return {
+    conclusion: compactText(summary.conclusion),
+    scope: compactText(summary.scope),
+    followUpAction: compactText(summary.followUpAction ?? ""),
+    tags,
+  };
+}
+
+async function saveAssistantActionAudit(body: {
+  action: AssistantActionAuditRecord["action"];
+  sourceTaskId: string;
+  targetTaskId: string;
+  createdTaskId?: string;
+  assistantRecordId: string;
+  summary: AssistantActionAuditSummary | null;
+  statusFrom?: string;
+  statusTo?: string;
+  decisionMarker?: string;
+}) {
+  const audit = await postJson<AssistantActionAuditRecord>("/api/assistant/action-audits", body);
+  window.dispatchEvent(
+    new CustomEvent("architect:assistant-action-audit-saved", {
+      detail: {
+        sourceTaskId: audit.sourceTaskId,
+        targetTaskId: audit.targetTaskId,
+        createdTaskId: audit.createdTaskId,
+      },
+    }),
+  );
+  return audit;
 }
 
 function suggestNextTaskStatus(status: TaskRecord["status"]): TaskRecord["status"] {
