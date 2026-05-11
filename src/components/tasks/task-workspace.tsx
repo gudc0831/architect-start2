@@ -2348,23 +2348,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
+    const focusedTaskId = focusTaskId && visibleDailyTasks.some((task) => task.id === focusTaskId) ? focusTaskId : null;
     const nextSelectedTaskId =
-      previousSelectedTaskId && visibleDailyTasks.some((task) => task.id === previousSelectedTaskId)
+      focusedTaskId ??
+      (previousSelectedTaskId && visibleDailyTasks.some((task) => task.id === previousSelectedTaskId)
         ? previousSelectedTaskId
         : isPagedDailyListView || isPreviewDaily
           ? null
-          : visibleDailyTasks[0]?.id ?? null;
+          : visibleDailyTasks[0]?.id ?? null);
     setTaskListSelection(nextSelectedTaskId);
-  }, [isPagedDailyListView, isPreviewDaily, mode, setTaskListSelection, taskListRowInteractionStore, visibleDailyTasks]);
+  }, [focusTaskId, isPagedDailyListView, isPreviewDaily, mode, setTaskListSelection, taskListRowInteractionStore, visibleDailyTasks]);
 
   useEffect(() => {
-    if (!isPreviewDaily || !focusTaskId || focusTaskId !== selectedTaskId) {
+    if (mode !== "daily" || !focusTaskId || focusTaskId !== selectedTaskId) {
       return;
     }
 
     setIsDetailPanelSticky(true);
     setDetailPanelState("expanded");
-  }, [focusTaskId, isPreviewDaily, selectedTaskId]);
+  }, [focusTaskId, mode, selectedTaskId]);
 
   useEffect(() => {
     if (!isPagedDailyListView) {

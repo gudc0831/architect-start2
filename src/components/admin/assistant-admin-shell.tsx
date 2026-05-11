@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { AssistantActionAuditAction } from "@/domains/assistant/saas-api-mode";
 import type { AssistantEvidenceKind } from "@/domains/assistant/types";
 import { useProjectMeta } from "@/providers/project-provider";
 import styles from "./assistant-admin-shell.module.css";
@@ -64,12 +65,59 @@ type AuditResponse = {
   events: AuditEvent[];
 };
 
+type AdminActionAuditRecord = {
+  id: string;
+  action: AssistantActionAuditAction;
+  projectId: string;
+  sourceTaskId: string;
+  targetTaskId: string;
+  createdTaskId: string | null;
+  assistantRecordId: string;
+  summary: {
+    conclusion: string;
+    scope: string;
+    followUpAction: string;
+    tags: string[];
+  } | null;
+  statusFrom: string | null;
+  statusTo: string | null;
+  decisionMarker: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  sourceTaskLabel: string | null;
+  sourceTaskTitle: string | null;
+  targetTaskLabel: string | null;
+  targetTaskTitle: string | null;
+  createdTaskLabel: string | null;
+  createdTaskTitle: string | null;
+  dailyTaskId: string;
+  dailyTaskUrl: string;
+};
+
+type ActionAuditResponse = {
+  projectId: string;
+  month: string;
+  filters: {
+    action: AssistantActionAuditAction | null;
+    task: string;
+    assistantRecordId: string;
+    actorId: string;
+  };
+  events: AdminActionAuditRecord[];
+};
+
 const evidenceOptions: Array<{ value: AssistantEvidenceKind; label: string }> = [
   { value: "central_knowledge", label: "중앙 WIKI" },
   { value: "regulation", label: "법규/기준" },
   { value: "task", label: "Task 기록" },
   { value: "project_document", label: "프로젝트 문서" },
   { value: "web_or_skill", label: "외부 웹/스킬" },
+];
+
+const actionAuditOptions: Array<{ value: AssistantActionAuditAction | "all"; label: string }> = [
+  { value: "all", label: "All actions" },
+  { value: "task_update_applied", label: "Task update applied" },
+  { value: "follow_up_task_created", label: "Follow-up task created" },
 ];
 
 const defaultPolicy: AssistantPolicy = {
@@ -96,9 +144,15 @@ export function AssistantAdminShell() {
   const [policy, setPolicy] = useState<AssistantPolicy>(defaultPolicy);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [actionAudits, setActionAudits] = useState<AdminActionAuditRecord[]>([]);
   const [month, setMonth] = useState(currentMonth);
+  const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
+  const [actionAuditTask, setActionAuditTask] = useState("");
+  const [actionAuditRecordId, setActionAuditRecordId] = useState("");
+  const [actionAuditActorId, setActionAuditActorId] = useState("");
   const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
+  const [actionAuditLoading, setActionAuditLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
@@ -109,6 +163,25 @@ export function AssistantAdminShell() {
 
     return Math.min(999, Math.round((usage.estimatedCostCents / policy.monthlyBudgetCents) * 100));
   }, [policy.monthlyBudgetCents, usage]);
+  const actionAuditQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      limit: "250",
+    });
+    if (actionAuditAction !== "all") {
+      params.set("action", actionAuditAction);
+    }
+    if (actionAuditTask.trim()) {
+      params.set("task", actionAuditTask.trim());
+    }
+    if (actionAuditRecordId.trim()) {
+      params.set("assistantRecordId", actionAuditRecordId.trim());
+    }
+    if (actionAuditActorId.trim()) {
+      params.set("actorId", actionAuditActorId.trim());
+    }
+    return params.toString();
+  }, [actionAuditAction, actionAuditActorId, actionAuditRecordId, actionAuditTask, month]);
 
   useEffect(() => {
     void refreshProjects();
@@ -148,6 +221,32 @@ export function AssistantAdminShell() {
       active = false;
     };
   }, [month]);
+
+  useEffect(() => {
+    let active = true;
+    setActionAuditLoading(true);
+
+    readJson<ActionAuditResponse>(`/api/admin/assistant/action-audits?${actionAuditQuery}`)
+      .then((data) => {
+        if (active) {
+          setActionAudits(data.events);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setActionAudits([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setActionAuditLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [actionAuditQuery]);
 
   async function savePolicy() {
     setSaving(true);
@@ -373,6 +472,98 @@ export function AssistantAdminShell() {
           </div>
 
           <div className={styles.tableBlock}>
+            <div className={styles.actionAuditHeader}>
+              <div>
+                <h3>Assistant action audits</h3>
+                <p>Approved assistant task changes with task, assistant record, actor, and daily task links.</p>
+              </div>
+              <span>{actionAuditLoading ? "Loading" : `${actionAudits.length} records`}</span>
+            </div>
+
+            <div className={styles.filterGrid}>
+              <label className={styles.field}>
+                <span>Action</span>
+                <select
+                  value={actionAuditAction}
+                  onChange={(event) => setActionAuditAction(event.target.value as AssistantActionAuditAction | "all")}
+                >
+                  {actionAuditOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Task ID or title</span>
+                <input
+                  placeholder="001, task id, or title"
+                  value={actionAuditTask}
+                  onChange={(event) => setActionAuditTask(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Assistant record</span>
+                <input
+                  placeholder="assistant record id"
+                  value={actionAuditRecordId}
+                  onChange={(event) => setActionAuditRecordId(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Actor</span>
+                <input
+                  placeholder="profile id"
+                  value={actionAuditActorId}
+                  onChange={(event) => setActionAuditActorId(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className={styles.actionAuditList}>
+              {actionAudits.map((event) => (
+                <article className={styles.actionAuditCard} key={event.id}>
+                  <header>
+                    <div>
+                      <strong>{actionAuditLabel(event.action)}</strong>
+                      <span>{formatDate(event.createdAt)} / actor {event.createdBy ?? "-"}</span>
+                    </div>
+                    <a href={event.dailyTaskUrl}>Open task</a>
+                  </header>
+                  <p>{formatActionAuditSummary(event)}</p>
+                  <dl>
+                    <div>
+                      <dt>Source task</dt>
+                      <dd>{formatTaskReference(event.sourceTaskLabel, event.sourceTaskId, event.sourceTaskTitle)}</dd>
+                    </div>
+                    <div>
+                      <dt>Target task</dt>
+                      <dd>{formatTaskReference(event.targetTaskLabel, event.targetTaskId, event.targetTaskTitle)}</dd>
+                    </div>
+                    <div>
+                      <dt>Created task</dt>
+                      <dd>
+                        {event.createdTaskId
+                          ? formatTaskReference(event.createdTaskLabel, event.createdTaskId, event.createdTaskTitle)
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Assistant record</dt>
+                      <dd>{event.assistantRecordId}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+              {actionAudits.length === 0 ? (
+                <p className={styles.empty}>
+                  {actionAuditLoading ? "Loading assistant action audits..." : "No assistant action audits match the current filters."}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={styles.tableBlock}>
             <h3>Audit timeline</h3>
             <div className={styles.timeline}>
               {audit.map((event) => (
@@ -398,6 +589,27 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function actionAuditLabel(action: AssistantActionAuditAction) {
+  return action === "follow_up_task_created" ? "Follow-up task created" : "Task update applied";
+}
+
+function formatTaskReference(label: string | null, taskId: string, title: string | null) {
+  return [label ?? taskId, title].filter(Boolean).join(" / ");
+}
+
+function formatActionAuditSummary(event: AdminActionAuditRecord) {
+  if (event.summary?.conclusion) {
+    return event.summary.conclusion;
+  }
+  if (event.summary?.followUpAction) {
+    return event.summary.followUpAction;
+  }
+  if (event.statusFrom || event.statusTo) {
+    return `Status ${event.statusFrom ?? "-"} -> ${event.statusTo ?? "-"}`;
+  }
+  return event.decisionMarker ?? "Assistant-approved task action";
 }
 
 async function readJson<T>(input: RequestInfo) {

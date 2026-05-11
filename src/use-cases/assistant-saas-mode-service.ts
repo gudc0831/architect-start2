@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
 import type { AssistantEvidence } from "@/domains/assistant/types";
+import { readAssistantAction, toAssistantActionAuditRecord } from "@/domains/assistant/action-audit";
 import {
   defaultAssistantRunPolicy,
   normalizeAllowedEvidenceKinds,
   summarizeEvidenceForPrompt,
+  type AssistantActionAuditAction,
+  type AssistantActionAuditRecord,
   type AssistantGenerateResult,
   type AssistantPolicyDecision,
   type AssistantPolicyProvider,
@@ -20,6 +23,9 @@ import {
 } from "@/lib/assistant/saas-provider-adapter";
 import { requireCurrentProjectAccess, requireProjectAccess } from "@/lib/auth/project-guards";
 import { assistantRepository } from "@/repositories/assistant";
+import { taskRepository } from "@/repositories";
+import { formatTaskDisplayId } from "@/domains/task/daily-list";
+import type { TaskRecord } from "@/domains/task/types";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
 
 type UpdateAssistantRunPolicyInput = {
@@ -39,6 +45,27 @@ type GenerateAssistantInput = {
   taskId?: unknown;
   question?: unknown;
   instruction?: unknown;
+};
+
+type GetAssistantActionAuditReviewInput = {
+  projectId?: string | null;
+  month?: string | null;
+  limit?: string | null;
+  action?: string | null;
+  task?: string | null;
+  assistantRecordId?: string | null;
+  actorId?: string | null;
+};
+
+export type AdminAssistantActionAuditRecord = AssistantActionAuditRecord & {
+  sourceTaskLabel: string | null;
+  sourceTaskTitle: string | null;
+  targetTaskLabel: string | null;
+  targetTaskTitle: string | null;
+  createdTaskLabel: string | null;
+  createdTaskTitle: string | null;
+  dailyTaskId: string;
+  dailyTaskUrl: string;
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -113,6 +140,41 @@ export async function getAssistantAuditEvents(
   const events = await assistantRepository.listAuditEvents({ projectId, month, limit });
 
   return { projectId, month, events };
+}
+
+export async function getAssistantActionAuditReview(input: GetAssistantActionAuditReviewInput, user: AuthUser) {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const limit = normalizePositiveInteger(input.limit, 250, 1, 500);
+  const action = normalizeOptionalAction(input.action);
+  const taskQuery = normalizeOptionalText(input.task).toLowerCase();
+  const assistantRecordIdQuery = normalizeOptionalText(input.assistantRecordId).toLowerCase();
+  const actorIdQuery = normalizeOptionalText(input.actorId).toLowerCase();
+  const [events, tasks] = await Promise.all([
+    assistantRepository.listAuditEvents({ projectId, month, limit }),
+    taskRepository.listActiveTasks(projectId),
+  ]);
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const actionRecords = events
+    .map(toAssistantActionAuditRecord)
+    .filter((record): record is AssistantActionAuditRecord => Boolean(record))
+    .filter((record) => !action || record.action === action)
+    .filter((record) => !assistantRecordIdQuery || record.assistantRecordId.toLowerCase().includes(assistantRecordIdQuery))
+    .filter((record) => !actorIdQuery || String(record.createdBy ?? "").toLowerCase().includes(actorIdQuery))
+    .map((record) => toAdminActionAuditRecord(record, taskById))
+    .filter((record) => !taskQuery || actionAuditMatchesTaskQuery(record, taskQuery));
+
+  return {
+    projectId,
+    month,
+    filters: {
+      action,
+      task: taskQuery,
+      assistantRecordId: assistantRecordIdQuery,
+      actorId: actorIdQuery,
+    },
+    events: actionRecords,
+  };
 }
 
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
@@ -440,6 +502,20 @@ function normalizeProvider(value: unknown, fallback: AssistantPolicyProvider): A
   return value === "openai" || value === "mock" ? value : fallback;
 }
 
+function normalizeOptionalAction(value: unknown): AssistantActionAuditAction | null {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized || normalized === "all") {
+    return null;
+  }
+
+  const action = readAssistantAction(normalized);
+  if (!action) {
+    throw badRequest("action is invalid", "ASSISTANT_ACTION_AUDIT_ACTION_INVALID");
+  }
+
+  return action;
+}
+
 function normalizeModel(value: unknown, fallback: string) {
   const normalized = normalizeOptionalText(value);
   return normalized ? normalized.slice(0, 120) : fallback;
@@ -482,4 +558,42 @@ function normalizeOptionalText(value: unknown) {
 
 function sumBy(events: AssistantUsageEvent[], key: "inputTokens" | "outputTokens" | "estimatedCostCents") {
   return events.reduce((total, event) => total + event[key], 0);
+}
+
+function toAdminActionAuditRecord(
+  record: AssistantActionAuditRecord,
+  taskById: ReadonlyMap<string, TaskRecord>,
+): AdminAssistantActionAuditRecord {
+  const sourceTask = taskById.get(record.sourceTaskId) ?? null;
+  const targetTask = taskById.get(record.targetTaskId) ?? null;
+  const createdTask = record.createdTaskId ? taskById.get(record.createdTaskId) ?? null : null;
+  const dailyTaskId = record.createdTaskId ?? record.targetTaskId ?? record.sourceTaskId;
+
+  return {
+    ...record,
+    sourceTaskLabel: sourceTask ? formatTaskDisplayId(sourceTask) : null,
+    sourceTaskTitle: sourceTask?.issueTitle ?? null,
+    targetTaskLabel: targetTask ? formatTaskDisplayId(targetTask) : null,
+    targetTaskTitle: targetTask?.issueTitle ?? null,
+    createdTaskLabel: createdTask ? formatTaskDisplayId(createdTask) : null,
+    createdTaskTitle: createdTask?.issueTitle ?? null,
+    dailyTaskId,
+    dailyTaskUrl: `/daily?taskId=${encodeURIComponent(dailyTaskId)}`,
+  };
+}
+
+function actionAuditMatchesTaskQuery(record: AdminAssistantActionAuditRecord, taskQuery: string) {
+  return [
+    record.sourceTaskId,
+    record.targetTaskId,
+    record.createdTaskId,
+    record.sourceTaskLabel,
+    record.sourceTaskTitle,
+    record.targetTaskLabel,
+    record.targetTaskTitle,
+    record.createdTaskLabel,
+    record.createdTaskTitle,
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(taskQuery));
 }
