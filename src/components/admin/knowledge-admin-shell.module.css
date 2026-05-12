@@ -157,6 +157,27 @@
   color: var(--accent);
 }
 
+.queueSearch {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+  color: var(--theme-text-subtle);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.queueSearch input {
+  min-height: 2.1rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--theme-border-field-strong);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
 .candidateList {
   display: grid;
   align-content: start;

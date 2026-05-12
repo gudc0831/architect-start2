@@ -77,6 +77,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [status, setStatus] = useState("후보를 선택하세요.");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
+  const [candidateSearch, setCandidateSearch] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -86,10 +87,26 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     rejectionReason: "",
   });
 
-  const visibleCandidates = useMemo(
-    () => candidates.filter((candidate) => filter === "all" || candidate.state === filter),
-    [candidates, filter],
-  );
+  const visibleCandidates = useMemo(() => {
+    const search = candidateSearch.trim().toLowerCase();
+    return candidates.filter((candidate) => {
+      const stateMatches = filter === "all" || candidate.state === filter;
+      if (!stateMatches) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return [
+        candidate.title,
+        candidate.summary,
+        candidate.projectName,
+        candidate.taskIssueId,
+        candidate.taskTitle,
+        candidate.tags.join(" "),
+      ].some((value) => value.toLowerCase().includes(search));
+    });
+  }, [candidateSearch, candidates, filter]);
   const candidateStateCounts = useMemo(
     () => ({
       all: candidates.length,
@@ -244,6 +261,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </button>
             ))}
           </div>
+          <label className={styles.queueSearch}>
+            Search candidates
+            <input
+              onChange={(event) => setCandidateSearch(event.target.value)}
+              placeholder="Title, task, project, tag"
+              value={candidateSearch}
+            />
+          </label>
 
           <div className={styles.candidateList}>
             {visibleCandidates.length ? visibleCandidates.map((candidate) => (
