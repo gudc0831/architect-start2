@@ -799,6 +799,17 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </div>
                 </div>
                 <section
+                  className={dirtyDraftCount ? styles.reviewBannerWarning : styles.reviewBannerReady}
+                  aria-label="Knowledge dirty draft reset warning"
+                >
+                  <strong>{dirtyDraftCount ? "Draft has unsaved edits" : "Draft matches selected candidate"}</strong>
+                  <p>
+                    {dirtyDraftCount
+                      ? `Reset draft will discard ${dirtyDraftCount} changed field${dirtyDraftCount === 1 ? "" : "s"}.`
+                      : "Reset draft will keep the current values unchanged."}
+                  </p>
+                </section>
+                <section
                   className={reviewStatus.tone === "ready" ? styles.reviewBannerReady : styles.reviewBannerWarning}
                   aria-label="Knowledge review status banner"
                 >
