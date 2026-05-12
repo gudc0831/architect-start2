@@ -163,6 +163,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }),
     [candidates],
   );
+  const selectedCandidate = useMemo(
+    () => candidates.find((candidate) => candidate.id === selectedId) ?? null,
+    [candidates, selectedId],
+  );
+  const selectedCandidateIndex = visibleCandidates.findIndex((candidate) => candidate.id === selectedId);
   const draftReadiness = useMemo(
     () => [
       { label: "Title", ready: Boolean(draft.title.trim()) },
@@ -418,6 +423,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               ))}
             </select>
           </label>
+          <div className={styles.queueSelectionSummary} aria-label="Knowledge candidate selection summary">
+            {selectedCandidate ? (
+              <>
+                <span>{selectedCandidateIndex >= 0 ? `Selected ${selectedCandidateIndex + 1}/${visibleCandidates.length}` : "Selected outside filters"}</span>
+                <strong>{selectedCandidate.title}</strong>
+              </>
+            ) : (
+              <span>No selected candidate</span>
+            )}
+          </div>
           <label className={styles.queueSearch}>
             Search candidates
             <div>

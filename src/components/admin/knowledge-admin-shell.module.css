@@ -209,6 +209,29 @@
   font-weight: 800;
 }
 
+.queueSelectionSummary {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+  color: var(--theme-text-muted);
+}
+
+.queueSelectionSummary span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.queueSelectionSummary strong {
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queueSearch {
   display: grid;
   gap: 0.35rem;
