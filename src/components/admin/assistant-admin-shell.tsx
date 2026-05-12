@@ -614,6 +614,29 @@ export function AssistantAdminShell() {
     cleanupReviewNoteCleanupId.trim() ? `cleanup ${cleanupReviewNoteCleanupId.trim()}` : null,
     cleanupReviewStaleDays !== 7 ? `stale ${cleanupReviewStaleDays} days` : null,
   ].filter((item): item is string => Boolean(item));
+  const cleanupReviewCoverageGroups = useMemo(
+    () => [
+      {
+        key: "stale-unreviewed",
+        title: "Stale unreviewed queue",
+        description: "Unreviewed cleanup runs older than the active stale threshold.",
+        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && item.isStale),
+      },
+      {
+        key: "other-unreviewed",
+        title: "Other unreviewed queue",
+        description: "Cleanup runs that still need a review note but are not stale yet.",
+        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && !item.isStale),
+      },
+      {
+        key: "reviewed",
+        title: "Reviewed evidence queue",
+        description: "Cleanup runs that already have cleanup review evidence.",
+        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "reviewed"),
+      },
+    ],
+    [cleanupReviewCoverage],
+  );
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -1906,61 +1929,76 @@ export function AssistantAdminShell() {
               </div>
             ) : null}
 
-            <div className={styles.actionAuditList}>
-              {cleanupReviewCoverage.map((item) => (
-                <article className={styles.actionAuditCard} key={item.cleanupId}>
+            <div className={styles.cleanupQueueList}>
+              {cleanupReviewCoverageGroups.map((group) => (
+                <section className={styles.cleanupQueueGroup} key={group.key}>
                   <header>
                     <div>
-                      <strong>{item.coverageStatus === "reviewed" ? "Reviewed cleanup" : "Unreviewed cleanup"}</strong>
-                      <span>{formatDate(item.cleanupCreatedAt)} / actor {item.cleanupActorId ?? "-"}{item.isStale ? " / stale review alert" : ""}</span>
+                      <h4>{group.title}</h4>
+                      <p>{group.description}</p>
                     </div>
-                    <div className={styles.actionAuditCardActions}>
-                      <button onClick={() => void openAuditCleanupDetail(item.cleanupId)} type="button">
-                        {selectedCleanupId === item.cleanupId ? "Hide cleanup" : "Review cleanup"}
-                      </button>
-                      <button onClick={() => setCleanupReviewNoteToken(item.archivePreviewToken)} type="button">
-                        Focus token
-                      </button>
-                      <button onClick={() => setCleanupReviewNoteCleanupId(item.cleanupId)} type="button">
-                        Focus cleanup
-                      </button>
-                      <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(item.cleanupId)}/package?month=${encodeURIComponent(month)}`}>
-                        Export package
-                      </a>
-                    </div>
+                    <span>{group.rows.length} runs</span>
                   </header>
-                  <p>Token {item.archivePreviewToken} / notes {item.noteCount} / latest {item.latestNoteCreatedAt ? formatDate(item.latestNoteCreatedAt) : "-"}</p>
-                  <dl>
-                    <div>
-                      <dt>Cleanup audit</dt>
-                      <dd>{item.cleanupId}</dd>
-                    </div>
-                    <div>
-                      <dt>Reviewers</dt>
-                      <dd>{item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>Cleanup counts</dt>
-                      <dd>{item.deletedCount} deleted / {item.skippedCount} skipped</dd>
-                    </div>
-                    <div>
-                      <dt>Cutoff</dt>
-                      <dd>{formatDate(item.cutoffAt)}</dd>
-                    </div>
-                  </dl>
-                  {selectedCleanupId === item.cleanupId ? (
-                    <AuditCleanupDetailPanel
-                      detail={auditCleanupDetail}
-                      loading={auditCleanupDetailLoading}
-                      noteCategory={cleanupReviewNoteCategory}
-                      noteSaving={cleanupReviewNoteSaving}
-                      noteText={cleanupReviewNoteText}
-                      onNoteCategoryChange={setCleanupReviewNoteCategory}
-                      onNoteTextChange={setCleanupReviewNoteText}
-                      onSaveNote={() => void saveCleanupReviewNote()}
-                    />
-                  ) : null}
-                </article>
+                  <div className={styles.actionAuditList}>
+                    {group.rows.length ? group.rows.map((item) => (
+                      <article className={styles.actionAuditCard} key={item.cleanupId}>
+                        <header>
+                          <div>
+                            <strong>{item.coverageStatus === "reviewed" ? "Reviewed cleanup" : "Unreviewed cleanup"}</strong>
+                            <span>{formatDate(item.cleanupCreatedAt)} / actor {item.cleanupActorId ?? "-"}{item.isStale ? " / stale review alert" : ""}</span>
+                          </div>
+                          <div className={styles.actionAuditCardActions}>
+                            <button onClick={() => void openAuditCleanupDetail(item.cleanupId)} type="button">
+                              {selectedCleanupId === item.cleanupId ? "Hide cleanup" : "Review cleanup"}
+                            </button>
+                            <button onClick={() => setCleanupReviewNoteToken(item.archivePreviewToken)} type="button">
+                              Focus token
+                            </button>
+                            <button onClick={() => setCleanupReviewNoteCleanupId(item.cleanupId)} type="button">
+                              Focus cleanup
+                            </button>
+                            <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(item.cleanupId)}/package?month=${encodeURIComponent(month)}`}>
+                              Export package
+                            </a>
+                          </div>
+                        </header>
+                        <p>Token {item.archivePreviewToken} / notes {item.noteCount} / latest {item.latestNoteCreatedAt ? formatDate(item.latestNoteCreatedAt) : "-"}</p>
+                        <dl>
+                          <div>
+                            <dt>Cleanup audit</dt>
+                            <dd>{item.cleanupId}</dd>
+                          </div>
+                          <div>
+                            <dt>Reviewers</dt>
+                            <dd>{item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}</dd>
+                          </div>
+                          <div>
+                            <dt>Cleanup counts</dt>
+                            <dd>{item.deletedCount} deleted / {item.skippedCount} skipped</dd>
+                          </div>
+                          <div>
+                            <dt>Cutoff</dt>
+                            <dd>{formatDate(item.cutoffAt)}</dd>
+                          </div>
+                        </dl>
+                        {selectedCleanupId === item.cleanupId ? (
+                          <AuditCleanupDetailPanel
+                            detail={auditCleanupDetail}
+                            loading={auditCleanupDetailLoading}
+                            noteCategory={cleanupReviewNoteCategory}
+                            noteSaving={cleanupReviewNoteSaving}
+                            noteText={cleanupReviewNoteText}
+                            onNoteCategoryChange={setCleanupReviewNoteCategory}
+                            onNoteTextChange={setCleanupReviewNoteText}
+                            onSaveNote={() => void saveCleanupReviewNote()}
+                          />
+                        ) : null}
+                      </article>
+                    )) : (
+                      <p className={styles.empty}>No cleanup runs in this queue.</p>
+                    )}
+                  </div>
+                </section>
               ))}
               {cleanupReviewCoverage.length === 0 ? (
                 <p className={styles.empty}>
