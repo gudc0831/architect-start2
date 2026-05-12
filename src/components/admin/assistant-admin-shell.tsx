@@ -1811,6 +1811,13 @@ export function AssistantAdminShell() {
                 />
               </label>
             </div>
+            <div className={styles.quickFilterList}>
+              {[0, 7, 30].map((days) => (
+                <button key={days} onClick={() => setCleanupReviewStaleDays(days)} type="button">
+                  {days} stale days
+                </button>
+              ))}
+            </div>
 
             <div className={styles.filterGrid}>
               <Metric label="Cleanup notes" value={cleanupReviewNoteSummaryLoading ? "Loading" : cleanupReviewNoteSummary?.totalNotes ?? 0} />
