@@ -386,6 +386,31 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyEvidenceFilterHandoff() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge evidence filter handoff",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Source filter: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
+          `- Priority filter: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
+          `- Visible evidence: ${visibleEvidence.length}/${detail.evidence.length}`,
+          "",
+          "Visible evidence",
+          ...visibleEvidence.map((item) => `- ${item.title} (${item.kind}, ${readEvidencePriorityTier(item.priority)}, priority ${item.priority})`),
+        ].join("\n"),
+      );
+      setStatus("Evidence filter handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the evidence filter chips manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -686,6 +711,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       type="button"
                     >
                       Clear evidence filters
+                    </button>
+                    <button className={styles.queueQuickFilter} onClick={copyEvidenceFilterHandoff} type="button">
+                      Copy evidence filter handoff
                     </button>
                   </div>
                   <div className={styles.evidenceList}>
