@@ -78,6 +78,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
   const [candidateSearch, setCandidateSearch] = useState("");
+  const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -482,8 +483,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     onChange={(event) => setDraft((current) => ({ ...current, bodyMarkdown: event.target.value }))}
                   />
                 </label>
-                <section className={styles.markdownPreview} aria-label="Knowledge draft Markdown preview">
-                  <h4>Markdown preview</h4>
+                <section
+                  className={[
+                    styles.markdownPreview,
+                    previewCompact ? styles.markdownPreviewCompact : "",
+                  ].filter(Boolean).join(" ")}
+                  aria-label="Knowledge draft Markdown preview"
+                >
+                  <div className={styles.markdownPreviewHeader}>
+                    <h4>Markdown preview</h4>
+                    <button onClick={() => setPreviewCompact((current) => !current)} type="button">
+                      {previewCompact ? "Expanded preview" : "Compact preview"}
+                    </button>
+                  </div>
                   <pre>{draft.bodyMarkdown.trim() || "No Markdown body yet."}</pre>
                 </section>
               </section>
