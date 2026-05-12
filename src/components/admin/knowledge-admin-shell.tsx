@@ -202,6 +202,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     return Array.from(counts.entries());
   }, [detail?.evidence]);
+  const evidencePriorityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of detail?.evidence ?? []) {
+      const tier = readEvidencePriorityTier(item.priority);
+      counts.set(tier, (counts.get(tier) ?? 0) + 1);
+    }
+    return Array.from(counts.entries());
+  }, [detail?.evidence]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -660,6 +668,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>No evidence kinds</span>
                   )}
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge evidence priority rollup">
+                  {evidencePriorityCounts.length ? (
+                    evidencePriorityCounts.map(([tier, count]) => <span key={tier}>{tier} {count}</span>)
+                  ) : (
+                    <span>No evidence priority</span>
+                  )}
+                </div>
                 <div className={styles.sourceChips} aria-label="Knowledge draft length counters">
                   <span>Title {draft.title.trim().length} chars</span>
                   <span>Summary {draft.summary.trim().length} chars</span>
@@ -912,6 +927,16 @@ function readConfidenceBand(score: number) {
     return "medium";
   }
   return "low";
+}
+
+function readEvidencePriorityTier(priority: number) {
+  if (priority <= 3) {
+    return "High priority";
+  }
+  if (priority <= 5) {
+    return "Normal priority";
+  }
+  return "Low priority";
 }
 
 function readReviewStatus(warnings: number, readyCount: number, totalCount: number): ApprovalGuardrail {
