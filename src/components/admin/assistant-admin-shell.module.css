@@ -447,6 +447,31 @@
   margin: 0;
 }
 
+.cleanupQueueHeaderTools {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.cleanupQueueActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.cleanupQueueActions button {
+  min-height: 30px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-secondary-button);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .cleanupQueueStats div {
   display: grid;
   gap: 0.1rem;

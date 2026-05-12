@@ -1131,6 +1131,11 @@ export function AssistantAdminShell() {
     setCleanupReviewCoveragePreset("reviewed");
   }
 
+  function showAllCleanupCoverage() {
+    setCleanupReviewCoveragePreset("all");
+    setCleanupReviewStaleDays(7);
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -1951,24 +1956,43 @@ export function AssistantAdminShell() {
                       <h4>{group.title}</h4>
                       <p>{group.description}</p>
                     </div>
-                    <dl className={styles.cleanupQueueStats}>
-                      <div>
-                        <dt>Runs</dt>
-                        <dd>{group.rows.length}</dd>
+                    <div className={styles.cleanupQueueHeaderTools}>
+                      <dl className={styles.cleanupQueueStats}>
+                        <div>
+                          <dt>Runs</dt>
+                          <dd>{group.rows.length}</dd>
+                        </div>
+                        <div>
+                          <dt>Notes</dt>
+                          <dd>{group.stats.notes}</dd>
+                        </div>
+                        <div>
+                          <dt>Deleted</dt>
+                          <dd>{group.stats.deleted}</dd>
+                        </div>
+                        <div>
+                          <dt>Skipped</dt>
+                          <dd>{group.stats.skipped}</dd>
+                        </div>
+                      </dl>
+                      <div className={styles.cleanupQueueActions}>
+                        {group.key === "stale-unreviewed" ? (
+                          <button onClick={showStaleUnreviewedCleanupCoverage} type="button">
+                            Focus stale
+                          </button>
+                        ) : null}
+                        {group.key === "reviewed" ? (
+                          <button onClick={showReviewedCleanupCoverage} type="button">
+                            Focus reviewed
+                          </button>
+                        ) : null}
+                        {group.key === "other-unreviewed" ? (
+                          <button onClick={showAllCleanupCoverage} type="button">
+                            Show all coverage
+                          </button>
+                        ) : null}
                       </div>
-                      <div>
-                        <dt>Notes</dt>
-                        <dd>{group.stats.notes}</dd>
-                      </div>
-                      <div>
-                        <dt>Deleted</dt>
-                        <dd>{group.stats.deleted}</dd>
-                      </div>
-                      <div>
-                        <dt>Skipped</dt>
-                        <dd>{group.stats.skipped}</dd>
-                      </div>
-                    </dl>
+                    </div>
                   </header>
                   <div className={styles.actionAuditList}>
                     {group.rows.length ? group.rows.map((item) => (
