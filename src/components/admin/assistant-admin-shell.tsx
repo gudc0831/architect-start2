@@ -1085,6 +1085,11 @@ export function AssistantAdminShell() {
     setCleanupReviewStaleDays(7);
   }
 
+  function showStaleUnreviewedCleanupCoverage() {
+    setCleanupReviewCoveragePreset("stale_unreviewed");
+    setCleanupReviewStaleDays(0);
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -1766,6 +1771,9 @@ export function AssistantAdminShell() {
                 </button>
                 <button onClick={resetCleanupReviewFilters} type="button">
                   Clear cleanup filters
+                </button>
+                <button onClick={showStaleUnreviewedCleanupCoverage} type="button">
+                  Show stale unreviewed
                 </button>
               </div>
             </div>
