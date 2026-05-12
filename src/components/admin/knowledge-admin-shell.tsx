@@ -346,6 +346,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setCandidateSearch("");
   }
 
+  function revealSelectedCandidate() {
+    if (!selectedCandidate) {
+      return;
+    }
+    if (selectedCandidate.state === "candidate" || selectedCandidate.state === "approved" || selectedCandidate.state === "rejected") {
+      setFilter(selectedCandidate.state);
+    } else {
+      setFilter("all");
+    }
+    setRiskFilter("all");
+    setCandidateSearch("");
+    setCandidateSort("newest");
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -428,6 +442,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               <>
                 <span>{selectedCandidateIndex >= 0 ? `Selected ${selectedCandidateIndex + 1}/${visibleCandidates.length}` : "Selected outside filters"}</span>
                 <strong>{selectedCandidate.title}</strong>
+                {selectedCandidateIndex < 0 ? (
+                  <button onClick={revealSelectedCandidate} type="button">Show selected candidate</button>
+                ) : null}
               </>
             ) : (
               <span>No selected candidate</span>
