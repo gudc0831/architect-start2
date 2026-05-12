@@ -155,14 +155,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           return;
         }
         setDetail(data);
-        setDraft({
-          title: data.wikiDraft.title,
-          summary: data.wikiDraft.summary,
-          bodyMarkdown: data.wikiDraft.bodyMarkdown,
-          tagsText: data.wikiDraft.tags.join(", "),
-          scope: data.wikiDraft.scope,
-          rejectionReason: data.review?.rejectionReason ?? "",
-        });
+        setDraft(createDraftFromDetail(data));
         setStatus(`${stateLabels[data.state]} 후보를 불러왔습니다.`);
       })
       .catch((error: unknown) => {
@@ -187,6 +180,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     const data = await readJson<CandidateListItem[]>("/api/admin/knowledge/candidates");
     setCandidates(data);
     setSelectedId(nextSelectedId);
+  }
+
+  function resetDraft() {
+    if (!detail) {
+      return;
+    }
+
+    setDraft(createDraftFromDetail(detail));
+    setStatus("Draft restored from selected candidate.");
   }
 
   async function approveCandidate() {
@@ -369,15 +371,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <p>WIKI Draft</p>
                     <h3>승인 전 편집</h3>
                   </div>
-                  <select
-                    aria-label="공개 범위"
-                    value={draft.scope}
-                    onChange={(event) => setDraft((current) => ({ ...current, scope: event.target.value as Scope }))}
-                  >
-                    {Object.entries(scopeLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
+                  <div className={styles.editorTools}>
+                    <button onClick={resetDraft} type="button">Reset draft</button>
+                    <select
+                      aria-label="공개 범위"
+                      value={draft.scope}
+                      onChange={(event) => setDraft((current) => ({ ...current, scope: event.target.value as Scope }))}
+                    >
+                      {Object.entries(scopeLabels).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge draft source references">
                   <span>Task {detail.taskIssueId}</span>
@@ -512,6 +517,17 @@ function readError(payload: unknown) {
 
 function splitTags(value: string) {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 12);
+}
+
+function createDraftFromDetail(detail: CandidateDetail) {
+  return {
+    title: detail.wikiDraft.title,
+    summary: detail.wikiDraft.summary,
+    bodyMarkdown: detail.wikiDraft.bodyMarkdown,
+    tagsText: detail.wikiDraft.tags.join(", "),
+    scope: detail.wikiDraft.scope,
+    rejectionReason: detail.review?.rejectionReason ?? "",
+  };
 }
 
 function formatDate(value: string) {

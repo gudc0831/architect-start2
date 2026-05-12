@@ -345,6 +345,25 @@
   gap: 1rem;
 }
 
+.editorTools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.editorTools button {
+  min-height: 2.1rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+  color: var(--theme-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .editor label,
 .footer label {
   display: grid;
