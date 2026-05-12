@@ -64,6 +64,7 @@ type ApprovalGuardrail = {
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
 type CandidateSort = "newest" | "low_confidence";
 type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
+type EvidencePriorityFilter = "all" | "high" | "normal" | "low";
 
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
@@ -98,6 +99,13 @@ const evidenceSourceFilterLabels: Record<EvidenceSourceFilter, string> = {
   unsourced: "Unsourced",
 };
 
+const evidencePriorityFilterLabels: Record<EvidencePriorityFilter, string> = {
+  all: "All priorities",
+  high: "High priority",
+  normal: "Normal priority",
+  low: "Low priority",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -109,6 +117,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [candidateSort, setCandidateSort] = useState<CandidateSort>("newest");
   const [candidateQueueCompact, setCandidateQueueCompact] = useState(false);
   const [evidenceSourceFilter, setEvidenceSourceFilter] = useState<EvidenceSourceFilter>("all");
+  const [evidencePriorityFilter, setEvidencePriorityFilter] = useState<EvidencePriorityFilter>("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -229,14 +238,17 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   }, [detail?.evidence]);
   const visibleEvidence = useMemo(() => {
     const evidence = detail?.evidence ?? [];
-    if (evidenceSourceFilter === "sourced") {
-      return evidence.filter((item) => Boolean(item.sourceUrl));
-    }
-    if (evidenceSourceFilter === "unsourced") {
-      return evidence.filter((item) => !item.sourceUrl);
-    }
-    return evidence;
-  }, [detail?.evidence, evidenceSourceFilter]);
+    return evidence.filter((item) => {
+      const sourceMatches =
+        evidenceSourceFilter === "all" ||
+        (evidenceSourceFilter === "sourced" && Boolean(item.sourceUrl)) ||
+        (evidenceSourceFilter === "unsourced" && !item.sourceUrl);
+      const priorityMatches =
+        evidencePriorityFilter === "all" ||
+        readEvidencePriorityFilter(item.priority) === evidencePriorityFilter;
+      return sourceMatches && priorityMatches;
+    });
+  }, [detail?.evidence, evidencePriorityFilter, evidenceSourceFilter]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -635,6 +647,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </button>
                     ))}
                   </div>
+                  <div className={styles.evidenceFilters} aria-label="Knowledge evidence priority filters">
+                    {(["all", "high", "normal", "low"] as EvidencePriorityFilter[]).map((value) => (
+                      <button
+                        className={evidencePriorityFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+                        key={value}
+                        onClick={() => setEvidencePriorityFilter(value)}
+                        type="button"
+                      >
+                        {evidencePriorityFilterLabels[value]}
+                      </button>
+                    ))}
+                  </div>
                   <div className={styles.evidenceList}>
                     {visibleEvidence.length ? visibleEvidence.map((evidence) => (
                       <article className={styles.evidence} key={evidence.id}>
@@ -1013,6 +1037,16 @@ function readEvidencePriorityTier(priority: number) {
     return "Normal priority";
   }
   return "Low priority";
+}
+
+function readEvidencePriorityFilter(priority: number): EvidencePriorityFilter {
+  if (priority <= 3) {
+    return "high";
+  }
+  if (priority <= 5) {
+    return "normal";
+  }
+  return "low";
 }
 
 function readReviewStatus(warnings: number, readyCount: number, totalCount: number): ApprovalGuardrail {
