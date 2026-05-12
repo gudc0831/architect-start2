@@ -346,6 +346,22 @@
   opacity: 0.55;
 }
 
+.cleanupPanel a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-secondary-button);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .actionAuditList {
   display: grid;
   gap: 0.65rem;
@@ -706,6 +722,7 @@
 
   .actionAuditTools a,
   .cleanupPanel button,
+  .cleanupPanel a,
   .actionAuditCardActions,
   .actionAuditCardActions a,
   .actionAuditCardActions button {

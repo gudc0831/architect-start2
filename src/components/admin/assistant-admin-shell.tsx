@@ -266,6 +266,23 @@ type AuditCleanupHistoryResponse = {
   cleanups: AuditCleanupHistoryItem[];
 };
 
+type AuditCleanupComparison = {
+  projectId: string;
+  generatedAt: string;
+  previousCleanup: AuditCleanupHistoryItem;
+  currentPreview: {
+    previewRetentionDays: number;
+    cutoffAt: string;
+    archivePreviewToken: string;
+    eligibleCount: number;
+    protectedCount: number;
+  };
+  newlyEligibleIds: string[];
+  previouslyDeletedEligibleIds: string[];
+  previouslySkippedEligibleIds: string[];
+  stillProtectedCount: number;
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -326,12 +343,14 @@ export function AssistantAdminShell() {
   const [auditRetentionPreview, setAuditRetentionPreview] = useState<AuditRetentionPreview | null>(null);
   const [auditRetentionCleanupResult, setAuditRetentionCleanupResult] = useState<AuditRetentionCleanupResult | null>(null);
   const [auditCleanupHistory, setAuditCleanupHistory] = useState<AuditCleanupHistoryItem[]>([]);
+  const [auditCleanupComparison, setAuditCleanupComparison] = useState<AuditCleanupComparison | null>(null);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
   const [cleanupHistoryActorId, setCleanupHistoryActorId] = useState("");
   const [cleanupHistoryCutoffAt, setCleanupHistoryCutoffAt] = useState("");
   const [cleanupHistoryToken, setCleanupHistoryToken] = useState("");
+  const [cleanupComparisonToken, setCleanupComparisonToken] = useState("");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -354,6 +373,7 @@ export function AssistantAdminShell() {
   const [governanceReportDetailLoading, setGovernanceReportDetailLoading] = useState(false);
   const [auditRetentionLoading, setAuditRetentionLoading] = useState(false);
   const [auditCleanupHistoryLoading, setAuditCleanupHistoryLoading] = useState(false);
+  const [auditCleanupComparisonLoading, setAuditCleanupComparisonLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -431,6 +451,18 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [cleanupHistoryActorId, cleanupHistoryCutoffAt, cleanupHistoryToken, month]);
   const auditCleanupHistoryExportUrl = `/api/admin/assistant/audit-cleanups/export?${auditCleanupHistoryQuery}`;
+  const auditCleanupComparisonQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      retentionDays: String(retentionPreviewDays),
+      limit: "500",
+    });
+    if (cleanupComparisonToken.trim()) {
+      params.set("archivePreviewToken", cleanupComparisonToken.trim());
+    }
+    return params.toString();
+  }, [cleanupComparisonToken, month, retentionPreviewDays]);
+  const auditCleanupComparisonExportUrl = `/api/admin/assistant/audit-cleanups/compare/export?${auditCleanupComparisonQuery}`;
 
   useEffect(() => {
     void refreshProjects();
@@ -748,6 +780,27 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Assistant audit cleanup failed.");
     } finally {
       setAuditRetentionCleaning(false);
+    }
+  }
+
+  async function runAuditCleanupComparison() {
+    if (!cleanupComparisonToken.trim()) {
+      setStatus("Cleanup preview token is required for comparison.");
+      return;
+    }
+
+    setAuditCleanupComparisonLoading(true);
+    try {
+      const comparison = await readJson<AuditCleanupComparison>(
+        `/api/admin/assistant/audit-cleanups/compare?${auditCleanupComparisonQuery}`,
+      );
+      setAuditCleanupComparison(comparison);
+      setStatus("Assistant audit cleanup comparison loaded.");
+    } catch (error) {
+      setAuditCleanupComparison(null);
+      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup comparison failed.");
+    } finally {
+      setAuditCleanupComparisonLoading(false);
     }
   }
 
@@ -1304,6 +1357,50 @@ export function AssistantAdminShell() {
                 />
               </label>
             </div>
+
+            <div className={styles.cleanupPanel}>
+              <div>
+                <h4>Dry-run comparison</h4>
+                <p>Compare a previous cleanup token with the current retention preview before another cleanup run.</p>
+              </div>
+              <label className={styles.field}>
+                <span>Cleanup token</span>
+                <input
+                  value={cleanupComparisonToken}
+                  placeholder="previous cleanup token"
+                  onChange={(event) => setCleanupComparisonToken(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={auditCleanupComparisonLoading || !cleanupComparisonToken.trim()}
+                onClick={() => void runAuditCleanupComparison()}
+              >
+                {auditCleanupComparisonLoading ? "Comparing" : "Compare"}
+              </button>
+              {auditCleanupComparison ? (
+                <a download href={auditCleanupComparisonExportUrl}>
+                  Export comparison JSON
+                </a>
+              ) : null}
+            </div>
+
+            {auditCleanupComparison ? (
+              <div className={styles.filterGrid}>
+                <DetailBlock title="Current token">
+                  <p>{auditCleanupComparison.currentPreview.archivePreviewToken}</p>
+                </DetailBlock>
+                <DetailBlock title="Newly eligible">
+                  <p>{auditCleanupComparison.newlyEligibleIds.length}</p>
+                </DetailBlock>
+                <DetailBlock title="Previously deleted/skipped">
+                  <p>{auditCleanupComparison.previouslyDeletedEligibleIds.length} / {auditCleanupComparison.previouslySkippedEligibleIds.length}</p>
+                </DetailBlock>
+                <DetailBlock title="Still protected">
+                  <p>{auditCleanupComparison.stillProtectedCount}</p>
+                </DetailBlock>
+              </div>
+            ) : null}
 
             <div className={styles.actionAuditList}>
               {auditCleanupHistory.map((cleanup) => (

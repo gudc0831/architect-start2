@@ -99,6 +99,11 @@ type GetAssistantAuditCleanupHistoryInput = {
   limit?: string | null;
 };
 
+type GetAssistantAuditCleanupComparisonInput = GetAssistantAuditRetentionPreviewInput & {
+  month?: string | null;
+  archivePreviewToken?: string | null;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -266,6 +271,23 @@ export type AdminAssistantAuditCleanupHistoryReport = {
     archivePreviewToken: string;
   };
   cleanups: AdminAssistantAuditCleanupHistoryItem[];
+};
+
+export type AdminAssistantAuditCleanupComparison = {
+  projectId: string;
+  generatedAt: string;
+  previousCleanup: AdminAssistantAuditCleanupHistoryItem;
+  currentPreview: {
+    previewRetentionDays: number;
+    cutoffAt: string;
+    archivePreviewToken: string;
+    eligibleCount: number;
+    protectedCount: number;
+  };
+  newlyEligibleIds: string[];
+  previouslyDeletedEligibleIds: string[];
+  previouslySkippedEligibleIds: string[];
+  stillProtectedCount: number;
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -761,6 +783,66 @@ export async function exportAssistantAuditCleanupHistory(input: GetAssistantAudi
   return {
     filename: `assistant-audit-cleanups-${report.month}.csv`,
     csv: toCleanupHistoryCsv(report.cleanups),
+  };
+}
+
+export async function getAssistantAuditCleanupComparison(
+  input: GetAssistantAuditCleanupComparisonInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupComparison> {
+  const archivePreviewToken = normalizeRequiredText(input.archivePreviewToken, "archivePreviewToken");
+  const [history, preview] = await Promise.all([
+    getAssistantAuditCleanupHistory(
+      {
+        projectId: input.projectId,
+        month: input.month,
+        archivePreviewToken,
+        limit: "500",
+      },
+      user,
+    ),
+    getAssistantAuditRetentionPreview(input, user),
+  ]);
+  const previousCleanup = history.cleanups.find((cleanup) => cleanup.archivePreviewToken === archivePreviewToken);
+  if (!previousCleanup) {
+    throw notFound("Assistant audit cleanup history record not found.", "ASSISTANT_AUDIT_CLEANUP_NOT_FOUND");
+  }
+
+  const previousDeletedIds = new Set(previousCleanup.deletedIds);
+  const previousSkippedIds = new Set(previousCleanup.skippedIds);
+  const currentEligibleIds = preview.archiveItems.map((item) => item.id);
+
+  return {
+    projectId: preview.projectId,
+    generatedAt: new Date().toISOString(),
+    previousCleanup,
+    currentPreview: {
+      previewRetentionDays: preview.previewRetentionDays,
+      cutoffAt: preview.cutoffAt,
+      archivePreviewToken: preview.archivePreviewToken,
+      eligibleCount: preview.eligibleCount,
+      protectedCount: preview.protectedCount,
+    },
+    newlyEligibleIds: currentEligibleIds.filter((id) => !previousDeletedIds.has(id) && !previousSkippedIds.has(id)),
+    previouslyDeletedEligibleIds: currentEligibleIds.filter((id) => previousDeletedIds.has(id)),
+    previouslySkippedEligibleIds: currentEligibleIds.filter((id) => previousSkippedIds.has(id)),
+    stillProtectedCount: preview.protectedCount,
+  };
+}
+
+export async function exportAssistantAuditCleanupComparison(input: GetAssistantAuditCleanupComparisonInput, user: AuthUser) {
+  const comparison = await getAssistantAuditCleanupComparison(input, user);
+
+  return {
+    filename: `assistant-audit-cleanup-comparison-${comparison.previousCleanup.archivePreviewToken}.json`,
+    json: JSON.stringify(
+      {
+        warning: "Read-only cleanup comparison. This export does not delete or mutate assistant audit records.",
+        ...comparison,
+      },
+      null,
+      2,
+    ),
   };
 }
 
