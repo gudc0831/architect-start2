@@ -615,26 +615,40 @@ export function AssistantAdminShell() {
     cleanupReviewStaleDays !== 7 ? `stale ${cleanupReviewStaleDays} days` : null,
   ].filter((item): item is string => Boolean(item));
   const cleanupReviewCoverageGroups = useMemo(
-    () => [
-      {
-        key: "stale-unreviewed",
-        title: "Stale unreviewed queue",
-        description: "Unreviewed cleanup runs older than the active stale threshold.",
-        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && item.isStale),
-      },
-      {
-        key: "other-unreviewed",
-        title: "Other unreviewed queue",
-        description: "Cleanup runs that still need a review note but are not stale yet.",
-        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && !item.isStale),
-      },
-      {
-        key: "reviewed",
-        title: "Reviewed evidence queue",
-        description: "Cleanup runs that already have cleanup review evidence.",
-        rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "reviewed"),
-      },
-    ],
+    () => {
+      const groups = [
+        {
+          key: "stale-unreviewed",
+          title: "Stale unreviewed queue",
+          description: "Unreviewed cleanup runs older than the active stale threshold.",
+          rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && item.isStale),
+        },
+        {
+          key: "other-unreviewed",
+          title: "Other unreviewed queue",
+          description: "Cleanup runs that still need a review note but are not stale yet.",
+          rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && !item.isStale),
+        },
+        {
+          key: "reviewed",
+          title: "Reviewed evidence queue",
+          description: "Cleanup runs that already have cleanup review evidence.",
+          rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "reviewed"),
+        },
+      ];
+
+      return groups.map((group) => ({
+        ...group,
+        stats: group.rows.reduce(
+          (current, item) => ({
+            notes: current.notes + item.noteCount,
+            deleted: current.deleted + item.deletedCount,
+            skipped: current.skipped + item.skippedCount,
+          }),
+          { notes: 0, deleted: 0, skipped: 0 },
+        ),
+      }));
+    },
     [cleanupReviewCoverage],
   );
   const auditCleanupComparisonQuery = useMemo(() => {
@@ -1937,7 +1951,24 @@ export function AssistantAdminShell() {
                       <h4>{group.title}</h4>
                       <p>{group.description}</p>
                     </div>
-                    <span>{group.rows.length} runs</span>
+                    <dl className={styles.cleanupQueueStats}>
+                      <div>
+                        <dt>Runs</dt>
+                        <dd>{group.rows.length}</dd>
+                      </div>
+                      <div>
+                        <dt>Notes</dt>
+                        <dd>{group.stats.notes}</dd>
+                      </div>
+                      <div>
+                        <dt>Deleted</dt>
+                        <dd>{group.stats.deleted}</dd>
+                      </div>
+                      <div>
+                        <dt>Skipped</dt>
+                        <dd>{group.stats.skipped}</dd>
+                      </div>
+                    </dl>
                   </header>
                   <div className={styles.actionAuditList}>
                     {group.rows.length ? group.rows.map((item) => (

@@ -440,10 +440,38 @@
   line-height: 1.45;
 }
 
-.cleanupQueueGroup > header > span {
+.cleanupQueueStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(3.5rem, auto));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.cleanupQueueStats div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.cleanupQueueStats dt,
+.cleanupQueueStats dd {
+  margin: 0;
   white-space: nowrap;
+}
+
+.cleanupQueueStats dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.cleanupQueueStats dd {
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 900;
 }
 
