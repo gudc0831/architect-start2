@@ -582,6 +582,7 @@ export function AssistantAdminShell() {
   const cleanupReviewNoteExportUrl = `/api/admin/assistant/cleanup-review-notes/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
+  const cleanupReviewCoveragePackageUrl = `/api/admin/assistant/cleanup-review-notes/coverage/package?${cleanupReviewNoteReportQuery}`;
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -1707,6 +1708,9 @@ export function AssistantAdminShell() {
                 </a>
                 <a download href={cleanupReviewCoverageJsonUrl}>
                   Export coverage JSON
+                </a>
+                <a download href={cleanupReviewCoveragePackageUrl}>
+                  Export rollup package
                 </a>
               </div>
             </div>

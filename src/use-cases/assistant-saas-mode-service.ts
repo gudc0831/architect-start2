@@ -1232,6 +1232,21 @@ export async function exportAssistantAuditCleanupReviewCoverageJson(
   };
 }
 
+export async function exportAssistantAuditCleanupReviewCoveragePackage(
+  input: GetAssistantAuditCleanupReviewCoverageInput,
+  user: AuthUser,
+) {
+  const [report, summary] = await Promise.all([
+    getAssistantAuditCleanupReviewCoverageReport(input, user),
+    getAssistantAuditCleanupReviewNoteSummary(input, user),
+  ]);
+
+  return {
+    filename: `assistant-cleanup-review-rollup-${report.month}.md`,
+    markdown: toCleanupReviewCoveragePackageMarkdown(report, summary),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -2258,6 +2273,70 @@ function toCleanupReviewCoverageCsv(coverage: AdminAssistantAuditCleanupReviewCo
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toCleanupReviewCoveragePackageMarkdown(
+  report: AdminAssistantAuditCleanupReviewCoverageReport,
+  summary: AdminAssistantAuditCleanupReviewNoteSummary,
+) {
+  return [
+    "# Assistant Audit Cleanup Review Rollup",
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    `Project id: ${report.projectId}`,
+    `Month: ${report.month}`,
+    "",
+    "## Filters",
+    "",
+    `- Category: ${report.filters.category ?? "all"}`,
+    `- Reviewer: ${report.filters.reviewerId || "all"}`,
+    `- Archive preview token: ${report.filters.archivePreviewToken || "all"}`,
+    `- Cleanup id: ${report.filters.cleanupId || "all"}`,
+    "",
+    "## Summary",
+    "",
+    `- Cleanup notes: ${summary.totalNotes}`,
+    `- Total cleanup runs: ${summary.totalCleanupRuns}`,
+    `- Reviewed cleanup runs: ${summary.reviewedCleanupRuns}`,
+    `- Unreviewed cleanup runs: ${summary.unreviewedCleanupRuns}`,
+    `- Stale threshold days: ${summary.staleThresholdDays}`,
+    `- Stale unreviewed cleanup runs: ${summary.staleUnreviewedCleanupRuns}`,
+    "",
+    "## Category Counts",
+    "",
+    summary.categoryCounts.length
+      ? summary.categoryCounts.map((item) => `- ${item.category}: ${item.count}`).join("\n")
+      : "- No category counts.",
+    "",
+    "## Reviewer Counts",
+    "",
+    summary.reviewerCounts.length
+      ? summary.reviewerCounts.map((item) => `- ${item.reviewerId ?? "-"}: ${item.count}`).join("\n")
+      : "- No reviewer counts.",
+    "",
+    "## Coverage Rows",
+    "",
+    report.coverage.length
+      ? report.coverage
+          .map((item) =>
+            [
+              `### ${item.coverageStatus}: ${item.cleanupId}`,
+              "",
+              `- Archive preview token: ${item.archivePreviewToken}`,
+              `- Created at: ${item.cleanupCreatedAt}`,
+              `- Actor id: ${item.cleanupActorId ?? "-"}`,
+              `- Cutoff: ${item.cutoffAt}`,
+              `- Deleted/skipped: ${item.deletedCount}/${item.skippedCount}`,
+              `- Note count: ${item.noteCount}`,
+              `- Latest note: ${item.latestNoteCreatedAt ?? "-"}`,
+              `- Reviewers: ${item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}`,
+              `- Stale: ${item.isStale ? "yes" : "no"}`,
+            ].join("\n"),
+          )
+          .join("\n\n")
+      : "No cleanup coverage rows match the current filters.",
+    "",
+  ].join("\n");
 }
 
 function toCleanupDetailMarkdown(detail: AdminAssistantAuditCleanupDetail) {
