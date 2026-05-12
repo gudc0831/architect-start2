@@ -364,6 +364,10 @@
   font-weight: 800;
 }
 
+.editorTools button:disabled {
+  opacity: 0.55;
+}
+
 .editor label,
 .footer label {
   display: grid;

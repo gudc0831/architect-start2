@@ -191,6 +191,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setStatus("Draft restored from selected candidate.");
   }
 
+  async function copyDraftMarkdown() {
+    if (!draft.bodyMarkdown.trim()) {
+      setStatus("No Markdown body to copy.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(draft.bodyMarkdown);
+      setStatus("Markdown draft copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Select the Markdown body manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -373,6 +387,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </div>
                   <div className={styles.editorTools}>
                     <button onClick={resetDraft} type="button">Reset draft</button>
+                    <button disabled={!draft.bodyMarkdown.trim()} onClick={copyDraftMarkdown} type="button">
+                      Copy Markdown
+                    </button>
                     <select
                       aria-label="공개 범위"
                       value={draft.scope}
