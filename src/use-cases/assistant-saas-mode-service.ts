@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
-import type { AssistantEvidence } from "@/domains/assistant/types";
+import type { AssistantEvidence, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
 import { readAssistantAction, toAssistantActionAuditRecord } from "@/domains/assistant/action-audit";
 import {
   defaultAssistantRunPolicy,
@@ -14,7 +14,7 @@ import {
   type AssistantRunPolicy,
   type AssistantUsageEvent,
 } from "@/domains/assistant/saas-api-mode";
-import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
+import { badRequest, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
 import {
   AssistantProviderError,
   estimateCostCents,
@@ -57,6 +57,12 @@ type GetAssistantActionAuditReviewInput = {
   actorId?: string | null;
 };
 
+type GetAssistantActionAuditDetailInput = {
+  auditId?: string | null;
+  projectId?: string | null;
+  month?: string | null;
+};
+
 export type AdminAssistantActionAuditRecord = AssistantActionAuditRecord & {
   sourceTaskLabel: string | null;
   sourceTaskTitle: string | null;
@@ -66,6 +72,58 @@ export type AdminAssistantActionAuditRecord = AssistantActionAuditRecord & {
   createdTaskTitle: string | null;
   dailyTaskId: string;
   dailyTaskUrl: string;
+};
+
+export type AdminAssistantActionAuditTaskSnapshot = {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  decision: string;
+  statusHistory: string;
+  updatedAt: string;
+};
+
+export type AdminAssistantActionAuditDetail = {
+  audit: AdminAssistantActionAuditRecord;
+  rawAuditEvent: {
+    id: string;
+    eventType: string;
+    targetType: string;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  };
+  assistantRecord: Pick<
+    AssistantRecord,
+    | "id"
+    | "taskId"
+    | "question"
+    | "answer"
+    | "evidence"
+    | "confidenceScore"
+    | "confidenceReason"
+    | "executionMode"
+    | "runtimeMode"
+    | "draftSummary"
+    | "cleanupState"
+    | "candidateState"
+    | "createdAt"
+  > | null;
+  workSummaryDraft: AssistantWorkSummaryDraft | null;
+  tasks: {
+    source: AdminAssistantActionAuditTaskSnapshot | null;
+    target: AdminAssistantActionAuditTaskSnapshot | null;
+    created: AdminAssistantActionAuditTaskSnapshot | null;
+  };
+  governance: {
+    dailyTaskUrl: string;
+    decisionMarker: string | null;
+    statusTransition: string | null;
+    closureState: string;
+    taskHistory: string;
+    provenance: string[];
+  };
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -189,6 +247,90 @@ export async function exportAssistantActionAuditReview(input: GetAssistantAction
   return {
     filename: `assistant-action-audits-${review.month}.csv`,
     csv: toActionAuditCsv(review.events),
+  };
+}
+
+export async function getAssistantActionAuditGovernanceDetail(
+  input: GetAssistantActionAuditDetailInput,
+  user: AuthUser,
+): Promise<AdminAssistantActionAuditDetail> {
+  const auditId = normalizeRequiredText(input.auditId, "auditId");
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const event = events.find((item) => item.id === auditId);
+  if (!event) {
+    throw notFound("Assistant action audit record not found.", "ASSISTANT_ACTION_AUDIT_NOT_FOUND");
+  }
+
+  const record = toAssistantActionAuditRecord(event);
+  if (!record) {
+    throw notFound("Assistant action audit record not found.", "ASSISTANT_ACTION_AUDIT_NOT_FOUND");
+  }
+
+  const taskIds = [...new Set([record.sourceTaskId, record.targetTaskId, record.createdTaskId].filter(Boolean) as string[])];
+  const [tasks, assistantRecord, workSummaryDraft] = await Promise.all([
+    Promise.all(taskIds.map((taskId) => taskRepository.findTaskById(taskId))),
+    assistantRepository.findRecordById(record.assistantRecordId),
+    assistantRepository.findWorkSummaryDraftByRecordId(record.assistantRecordId),
+  ]);
+  const taskById = new Map(
+    tasks
+      .filter((task): task is TaskRecord => Boolean(task))
+      .filter((task) => task.projectId === projectId)
+      .map((task) => [task.id, task]),
+  );
+
+  if (assistantRecord && assistantRecord.projectId !== projectId) {
+    throw notFound("Assistant record not found.", "ASSISTANT_RECORD_NOT_FOUND");
+  }
+
+  const adminRecord = toAdminActionAuditRecord(record, taskById);
+  const sourceTask = taskById.get(record.sourceTaskId) ?? null;
+  const targetTask = taskById.get(record.targetTaskId) ?? null;
+  const createdTask = record.createdTaskId ? taskById.get(record.createdTaskId) ?? null : null;
+
+  return {
+    audit: adminRecord,
+    rawAuditEvent: {
+      id: event.id,
+      eventType: event.eventType,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      metadata: event.metadata,
+      createdAt: event.createdAt,
+    },
+    assistantRecord: assistantRecord
+      ? {
+          id: assistantRecord.id,
+          taskId: assistantRecord.taskId,
+          question: assistantRecord.question,
+          answer: assistantRecord.answer,
+          evidence: assistantRecord.evidence,
+          confidenceScore: assistantRecord.confidenceScore,
+          confidenceReason: assistantRecord.confidenceReason,
+          executionMode: assistantRecord.executionMode,
+          runtimeMode: assistantRecord.runtimeMode,
+          draftSummary: assistantRecord.draftSummary,
+          cleanupState: assistantRecord.cleanupState,
+          candidateState: assistantRecord.candidateState,
+          createdAt: assistantRecord.createdAt,
+        }
+      : null,
+    workSummaryDraft: workSummaryDraft?.projectId === projectId ? workSummaryDraft : null,
+    tasks: {
+      source: toGovernanceTaskSnapshot(sourceTask),
+      target: toGovernanceTaskSnapshot(targetTask),
+      created: toGovernanceTaskSnapshot(createdTask),
+    },
+    governance: {
+      dailyTaskUrl: adminRecord.dailyTaskUrl,
+      decisionMarker: record.decisionMarker,
+      statusTransition: record.statusFrom || record.statusTo ? `${record.statusFrom ?? "-"} -> ${record.statusTo ?? "-"}` : null,
+      closureState: workSummaryDraft?.status ?? assistantRecord?.cleanupState ?? "unknown",
+      taskHistory: compactGovernanceText([targetTask?.statusHistory, createdTask?.statusHistory]),
+      provenance: buildGovernanceProvenance({ record, assistantRecord, targetTask, createdTask }),
+    },
   };
 }
 
@@ -595,6 +737,42 @@ function toAdminActionAuditRecord(
     dailyTaskId,
     dailyTaskUrl: `/daily?taskId=${encodeURIComponent(dailyTaskId)}`,
   };
+}
+
+function toGovernanceTaskSnapshot(task: TaskRecord | null): AdminAssistantActionAuditTaskSnapshot | null {
+  if (!task) {
+    return null;
+  }
+
+  return {
+    id: task.id,
+    label: formatTaskDisplayId(task),
+    title: task.issueTitle,
+    status: task.status,
+    decision: task.decision,
+    statusHistory: task.statusHistory,
+    updatedAt: task.updatedAt,
+  };
+}
+
+function compactGovernanceText(parts: Array<string | null | undefined>) {
+  const text = parts.map((part) => normalizeOptionalText(part)).filter(Boolean).join("\n\n");
+  return text.length > 1200 ? `${text.slice(0, 1197)}...` : text;
+}
+
+function buildGovernanceProvenance(input: {
+  record: AssistantActionAuditRecord;
+  assistantRecord: AssistantRecord | null;
+  targetTask: TaskRecord | null;
+  createdTask: TaskRecord | null;
+}) {
+  return [
+    `Audit event ${input.record.id} recorded ${input.record.action}.`,
+    `Assistant record ${input.record.assistantRecordId}${input.assistantRecord ? ` captured ${input.assistantRecord.evidence.length} evidence items` : " is not available"}.`,
+    input.record.decisionMarker ? `Decision marker: ${input.record.decisionMarker}` : null,
+    input.targetTask ? `Target task ${formatTaskDisplayId(input.targetTask)} is ${input.targetTask.status}.` : null,
+    input.createdTask ? `Created task ${formatTaskDisplayId(input.createdTask)} is ${input.createdTask.status}.` : null,
+  ].filter((item): item is string => Boolean(item));
 }
 
 function actionAuditMatchesTaskQuery(record: AdminAssistantActionAuditRecord, taskQuery: string) {

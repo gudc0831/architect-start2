@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type { AssistantActionAuditAction } from "@/domains/assistant/saas-api-mode";
 import type { AssistantEvidenceKind } from "@/domains/assistant/types";
 import { useProjectMeta } from "@/providers/project-provider";
@@ -106,6 +107,70 @@ type ActionAuditResponse = {
   events: AdminActionAuditRecord[];
 };
 
+type AdminActionAuditDetail = {
+  audit: AdminActionAuditRecord;
+  rawAuditEvent: {
+    id: string;
+    eventType: string;
+    targetType: string;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  };
+  assistantRecord: {
+    id: string;
+    taskId: string;
+    question: string;
+    answer: string;
+    evidence: Array<{ id: string; kind: string; title: string; excerpt: string }>;
+    confidenceScore: number;
+    confidenceReason: string;
+    executionMode: string;
+    runtimeMode: string;
+    draftSummary: {
+      conclusion: string;
+      tags: string[];
+      scope: string;
+      followUpAction?: string;
+    } | null;
+    cleanupState: string;
+    candidateState: string;
+    createdAt: string;
+  } | null;
+  workSummaryDraft: {
+    id: string;
+    conclusion: string;
+    tags: string[];
+    scope: string;
+    followUpAction: string;
+    status: string;
+    updatedAt: string;
+  } | null;
+  tasks: {
+    source: AdminActionAuditTaskSnapshot | null;
+    target: AdminActionAuditTaskSnapshot | null;
+    created: AdminActionAuditTaskSnapshot | null;
+  };
+  governance: {
+    dailyTaskUrl: string;
+    decisionMarker: string | null;
+    statusTransition: string | null;
+    closureState: string;
+    taskHistory: string;
+    provenance: string[];
+  };
+};
+
+type AdminActionAuditTaskSnapshot = {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  decision: string;
+  statusHistory: string;
+  updatedAt: string;
+};
+
 const evidenceOptions: Array<{ value: AssistantEvidenceKind; label: string }> = [
   { value: "central_knowledge", label: "중앙 WIKI" },
   { value: "regulation", label: "법규/기준" },
@@ -150,9 +215,12 @@ export function AssistantAdminShell() {
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
   const [actionAuditActorId, setActionAuditActorId] = useState("");
+  const [selectedActionAuditId, setSelectedActionAuditId] = useState<string | null>(null);
+  const [actionAuditDetail, setActionAuditDetail] = useState<AdminActionAuditDetail | null>(null);
   const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
   const [actionAuditLoading, setActionAuditLoading] = useState(false);
+  const [actionAuditDetailLoading, setActionAuditDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
@@ -249,6 +317,11 @@ export function AssistantAdminShell() {
     };
   }, [actionAuditQuery]);
 
+  useEffect(() => {
+    setSelectedActionAuditId(null);
+    setActionAuditDetail(null);
+  }, [actionAuditQuery]);
+
   async function savePolicy() {
     setSaving(true);
     try {
@@ -289,6 +362,28 @@ export function AssistantAdminShell() {
         allowedEvidenceKinds: nextKinds.length ? nextKinds : current.allowedEvidenceKinds,
       };
     });
+  }
+
+  async function openActionAuditDetail(auditId: string) {
+    if (selectedActionAuditId === auditId) {
+      setSelectedActionAuditId(null);
+      setActionAuditDetail(null);
+      return;
+    }
+
+    setSelectedActionAuditId(auditId);
+    setActionAuditDetail(null);
+    setActionAuditDetailLoading(true);
+    try {
+      const detail = await readJson<AdminActionAuditDetail>(
+        `/api/admin/assistant/action-audits/${encodeURIComponent(auditId)}?month=${encodeURIComponent(month)}`,
+      );
+      setActionAuditDetail(detail);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Assistant action audit 상세를 불러오지 못했습니다.");
+    } finally {
+      setActionAuditDetailLoading(false);
+    }
   }
 
   return (
@@ -534,7 +629,12 @@ export function AssistantAdminShell() {
                       <strong>{actionAuditLabel(event.action)}</strong>
                       <span>{formatDate(event.createdAt)} / actor {event.createdBy ?? "-"}</span>
                     </div>
-                    <a href={event.dailyTaskUrl}>Open task</a>
+                    <div className={styles.actionAuditCardActions}>
+                      <button onClick={() => void openActionAuditDetail(event.id)} type="button">
+                        {selectedActionAuditId === event.id ? "Hide details" : "Review details"}
+                      </button>
+                      <a href={event.dailyTaskUrl}>Open task</a>
+                    </div>
                   </header>
                   <p>{formatActionAuditSummary(event)}</p>
                   <dl>
@@ -559,6 +659,9 @@ export function AssistantAdminShell() {
                       <dd>{event.assistantRecordId}</dd>
                     </div>
                   </dl>
+                  {selectedActionAuditId === event.id ? (
+                    <ActionAuditGovernanceDetail detail={actionAuditDetail} loading={actionAuditDetailLoading} />
+                  ) : null}
                 </article>
               ))}
               {actionAudits.length === 0 ? (
@@ -586,6 +689,89 @@ export function AssistantAdminShell() {
       </div>
     </section>
   );
+}
+
+function ActionAuditGovernanceDetail({ detail, loading }: { detail: AdminActionAuditDetail | null; loading: boolean }) {
+  if (loading) {
+    return <p className={styles.detailLoading}>Loading governance detail...</p>;
+  }
+
+  if (!detail) {
+    return <p className={styles.detailLoading}>Governance detail is not available.</p>;
+  }
+
+  const summary = detail.workSummaryDraft ?? detail.assistantRecord?.draftSummary ?? null;
+
+  return (
+    <section className={styles.governanceDetail} aria-label="Assistant action governance detail">
+      <div className={styles.governanceHeader}>
+        <div>
+          <h4>Governance detail</h4>
+          <p>{detail.rawAuditEvent.eventType} / {detail.rawAuditEvent.targetType}:{detail.rawAuditEvent.targetId ?? "-"}</p>
+        </div>
+        <a href={detail.governance.dailyTaskUrl}>Open daily detail</a>
+      </div>
+
+      <div className={styles.governanceGrid}>
+        <DetailBlock title="Audit">
+          <p>Action: {actionAuditLabel(detail.audit.action)}</p>
+          <p>Actor: {detail.audit.createdBy ?? "-"}</p>
+          <p>Status: {detail.governance.statusTransition ?? "-"}</p>
+          <p>Marker: {detail.governance.decisionMarker ?? "-"}</p>
+        </DetailBlock>
+        <DetailBlock title="Assistant record">
+          <p>ID: {detail.assistantRecord?.id ?? detail.audit.assistantRecordId}</p>
+          <p>Mode: {detail.assistantRecord ? `${detail.assistantRecord.executionMode} / ${detail.assistantRecord.runtimeMode}` : "-"}</p>
+          <p>Confidence: {detail.assistantRecord ? `${detail.assistantRecord.confidenceScore}%` : "-"}</p>
+          <p>Evidence: {detail.assistantRecord?.evidence.length ?? 0}</p>
+        </DetailBlock>
+        <DetailBlock title="Closure fields">
+          <p>State: {detail.governance.closureState}</p>
+          <p>Conclusion: {summary?.conclusion || "-"}</p>
+          <p>Scope: {summary?.scope || "-"}</p>
+          <p>Follow-up: {summary?.followUpAction || "-"}</p>
+          <p>Tags: {summary?.tags?.join(", ") || "-"}</p>
+        </DetailBlock>
+        <DetailBlock title="Task snapshots">
+          <TaskSnapshot label="Source" task={detail.tasks.source} />
+          <TaskSnapshot label="Target" task={detail.tasks.target} />
+          <TaskSnapshot label="Created" task={detail.tasks.created} />
+        </DetailBlock>
+      </div>
+
+      <div className={styles.governanceNarrative}>
+        <div>
+          <span>Task history</span>
+          <p>{detail.governance.taskHistory || "No status history was captured for the linked task snapshot."}</p>
+        </div>
+        <div>
+          <span>Provenance</span>
+          <ul>
+            {detail.governance.provenance.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DetailBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className={styles.detailBlock}>
+      <span>{title}</span>
+      {children}
+    </div>
+  );
+}
+
+function TaskSnapshot({ label, task }: { label: string; task: AdminActionAuditTaskSnapshot | null }) {
+  if (!task) {
+    return <p>{label}: -</p>;
+  }
+
+  return <p>{label}: {task.label} / {task.status} / {task.title}</p>;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {

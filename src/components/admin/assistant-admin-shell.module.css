@@ -337,7 +337,15 @@
   line-height: 1.25;
 }
 
-.actionAuditCard a {
+.actionAuditCardActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.actionAuditCard a,
+.actionAuditCard button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -351,6 +359,10 @@
   font-weight: 800;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.actionAuditCard button {
+  cursor: pointer;
 }
 
 .actionAuditCard p {
@@ -380,6 +392,87 @@
   font-size: 0.82rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.detailLoading,
+.governanceDetail {
+  border-top: 1px solid var(--theme-border-field-soft);
+  padding-top: 0.75rem;
+}
+
+.detailLoading {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.governanceDetail {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.governanceHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.governanceHeader h4,
+.governanceHeader p,
+.detailBlock p,
+.governanceNarrative p,
+.governanceNarrative ul {
+  margin: 0;
+}
+
+.governanceHeader h4 {
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.governanceHeader p,
+.detailBlock p,
+.governanceNarrative p,
+.governanceNarrative li {
+  color: var(--theme-text-subtle);
+  font-size: 0.8rem;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.governanceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.detailBlock,
+.governanceNarrative div {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-soft-strong);
+}
+
+.detailBlock span,
+.governanceNarrative span {
+  color: var(--theme-text-subtle);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.governanceNarrative {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.governanceNarrative ul {
+  display: grid;
+  gap: 0.25rem;
+  padding-left: 1rem;
 }
 
 .tableScroller {
@@ -470,15 +563,23 @@
   }
 
   .actionAuditHeader,
-  .actionAuditCard header {
+  .actionAuditCard header,
+  .governanceHeader {
     display: grid;
+  }
+
+  .governanceGrid {
+    grid-template-columns: 1fr;
   }
 
   .actionAuditTools {
     justify-content: stretch;
   }
 
-  .actionAuditTools a {
+  .actionAuditTools a,
+  .actionAuditCardActions,
+  .actionAuditCardActions a,
+  .actionAuditCardActions button {
     width: 100%;
   }
 
