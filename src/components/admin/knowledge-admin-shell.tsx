@@ -232,6 +232,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
             <span>Rejected {candidateStateCounts.rejected}</span>
             <span>All {candidateStateCounts.all}</span>
           </div>
+          <div className={styles.queueQuickFilters} aria-label="Knowledge candidate quick filters">
+            {(["candidate", "approved", "rejected", "all"] as Array<CandidateState | "all">).map((value) => (
+              <button
+                className={filter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+                key={value}
+                onClick={() => setFilter(value)}
+                type="button"
+              >
+                {value === "all" ? "All" : stateLabels[value]}
+              </button>
+            ))}
+          </div>
 
           <div className={styles.candidateList}>
             {visibleCandidates.length ? visibleCandidates.map((candidate) => (

@@ -132,6 +132,31 @@
   font-weight: 800;
 }
 
+.queueQuickFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+}
+
+.queueQuickFilter,
+.queueQuickFilterActive {
+  min-height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.queueQuickFilterActive {
+  border-color: var(--theme-accent-border-strong);
+  color: var(--accent);
+}
+
 .candidateList {
   display: grid;
   align-content: start;
