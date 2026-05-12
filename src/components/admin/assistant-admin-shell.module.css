@@ -323,6 +323,22 @@
   cursor: pointer;
 }
 
+.filterChipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.filterChipList span {
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .cleanupPanel {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.8fr) auto;

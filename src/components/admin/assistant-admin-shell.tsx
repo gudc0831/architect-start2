@@ -604,6 +604,16 @@ export function AssistantAdminShell() {
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoveragePackageUrl = `/api/admin/assistant/cleanup-review-notes/coverage/package?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageHandoffText = `cleanup-review-coverage?${cleanupReviewNoteReportQuery}`;
+  const cleanupReviewActiveFilters = [
+    cleanupReviewNoteFilterCategory !== "all" ? `category ${governanceNoteLabel(cleanupReviewNoteFilterCategory)}` : null,
+    cleanupReviewCoveragePreset !== "all"
+      ? `preset ${cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? cleanupReviewCoveragePreset}`
+      : null,
+    cleanupReviewNoteReviewer.trim() ? `reviewer ${cleanupReviewNoteReviewer.trim()}` : null,
+    cleanupReviewNoteToken.trim() ? `token ${cleanupReviewNoteToken.trim()}` : null,
+    cleanupReviewNoteCleanupId.trim() ? `cleanup ${cleanupReviewNoteCleanupId.trim()}` : null,
+    cleanupReviewStaleDays !== 7 ? `stale ${cleanupReviewStaleDays} days` : null,
+  ].filter((item): item is string => Boolean(item));
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -1829,6 +1839,13 @@ export function AssistantAdminShell() {
                   {days} stale days
                 </button>
               ))}
+            </div>
+            <div className={styles.filterChipList}>
+              {cleanupReviewActiveFilters.length ? (
+                cleanupReviewActiveFilters.map((filter) => <span key={filter}>{filter}</span>)
+              ) : (
+                <span>Default cleanup review scope</span>
+              )}
             </div>
 
             <div className={styles.filterGrid}>
