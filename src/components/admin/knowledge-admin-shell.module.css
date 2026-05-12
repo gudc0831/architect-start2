@@ -244,6 +244,14 @@
   font-weight: 800;
 }
 
+.queueDensity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+}
+
 .queueSearch {
   display: grid;
   gap: 0.35rem;

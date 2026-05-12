@@ -100,6 +100,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
   const [riskFilter, setRiskFilter] = useState<CandidateRiskFilter>("all");
   const [candidateSort, setCandidateSort] = useState<CandidateSort>("newest");
+  const [candidateQueueCompact, setCandidateQueueCompact] = useState(false);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -450,6 +451,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               <span>No selected candidate</span>
             )}
           </div>
+          <div className={styles.queueDensity} aria-label="Knowledge candidate queue density controls">
+            <button
+              className={candidateQueueCompact ? styles.queueQuickFilter : styles.queueQuickFilterActive}
+              onClick={() => setCandidateQueueCompact(false)}
+              type="button"
+            >
+              Detailed queue
+            </button>
+            <button
+              className={candidateQueueCompact ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+              onClick={() => setCandidateQueueCompact(true)}
+              type="button"
+            >
+              Compact queue
+            </button>
+          </div>
           <label className={styles.queueSearch}>
             Search candidates
             <div>
@@ -474,7 +491,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               >
                 <span>{stateLabels[candidate.state]}</span>
                 <strong>{candidate.title}</strong>
-                <small>{candidate.projectName} / {candidate.taskIssueId}</small>
+                {candidateQueueCompact ? null : <small>{candidate.projectName} / {candidate.taskIssueId}</small>}
                 <span className={styles.candidateRiskChips}>
                   <span>Confidence {readConfidenceBand(candidate.confidenceScore)}</span>
                   <span>{candidate.reviewedAt ? "Reviewed" : "Unreviewed"}</span>
