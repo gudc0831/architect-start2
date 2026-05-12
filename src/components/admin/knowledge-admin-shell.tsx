@@ -933,6 +933,7 @@ function buildApprovalGuardrails(
 
   if (detail.evidence.length) {
     const unsourcedCount = detail.evidence.filter((item) => !item.sourceUrl).length;
+    const highPriorityCount = detail.evidence.filter((item) => item.priority <= 3).length;
     if (unsourcedCount) {
       guardrails.push({
         label: "Unsourced evidence",
@@ -944,6 +945,19 @@ function buildApprovalGuardrails(
         label: "Evidence sources present",
         detail: "Every evidence row includes a source URL.",
         tone: "ready",
+      });
+    }
+    if (highPriorityCount) {
+      guardrails.push({
+        label: "High-priority evidence present",
+        detail: `${highPriorityCount}/${detail.evidence.length} evidence rows are high priority.`,
+        tone: "ready",
+      });
+    } else {
+      guardrails.push({
+        label: "No high-priority evidence",
+        detail: "Evidence is present, but none is high priority. Confirm support before approval.",
+        tone: "warning",
       });
     }
   }
