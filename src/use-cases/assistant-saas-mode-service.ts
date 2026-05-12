@@ -88,8 +88,12 @@ type GetAssistantAuditCleanupReviewNoteReportInput = {
   cleanupId?: string | null;
 };
 
-type GetAssistantAuditCleanupReviewNoteSummaryInput = Omit<GetAssistantAuditCleanupReviewNoteReportInput, "limit">;
-type GetAssistantAuditCleanupReviewCoverageInput = GetAssistantAuditCleanupReviewNoteSummaryInput;
+type GetAssistantAuditCleanupReviewNoteSummaryInput = Omit<GetAssistantAuditCleanupReviewNoteReportInput, "limit"> & {
+  staleDays?: string | null;
+};
+type GetAssistantAuditCleanupReviewCoverageInput = GetAssistantAuditCleanupReviewNoteSummaryInput & {
+  staleDays?: string | null;
+};
 
 type GetAssistantAuditRetentionPreviewInput = {
   projectId?: string | null;
@@ -374,6 +378,8 @@ export type AdminAssistantAuditCleanupReviewNoteSummary = {
   totalCleanupRuns: number;
   reviewedCleanupRuns: number;
   unreviewedCleanupRuns: number;
+  staleThresholdDays: number;
+  staleUnreviewedCleanupRuns: number;
   categoryCounts: Array<{ category: AssistantActionAuditGovernanceNoteCategory; count: number }>;
   reviewerCounts: Array<{ reviewerId: string | null; count: number }>;
 };
@@ -392,6 +398,8 @@ export type AdminAssistantAuditCleanupReviewCoverageItem = {
   noteCount: number;
   latestNoteCreatedAt: string | null;
   reviewerIds: string[];
+  staleThresholdDays: number;
+  isStale: boolean;
 };
 
 export type AdminAssistantAuditCleanupReviewCoverageReport = {
@@ -1102,6 +1110,7 @@ export async function getAssistantAuditCleanupReviewNoteSummary(
   const reviewerQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
   const tokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
   const cleanupIdQuery = normalizeOptionalText(input.cleanupId).toLowerCase();
+  const staleThresholdDays = normalizePositiveInteger(input.staleDays, 7, 0, 3650);
   const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
   const cleanups = events
     .map(toCleanupHistoryItem)
@@ -1116,6 +1125,7 @@ export async function getAssistantAuditCleanupReviewNoteSummary(
     .filter((note) => !category || note.category === category)
     .filter((note) => !reviewerQuery || (note.reviewerId ?? "").toLowerCase().includes(reviewerQuery));
   const reviewedCleanupIds = new Set(notes.map((note) => note.sourceCleanupId));
+  const staleCutoffAt = new Date(Date.now() - staleThresholdDays * 24 * 60 * 60 * 1000).toISOString();
 
   return {
     projectId,
@@ -1130,6 +1140,8 @@ export async function getAssistantAuditCleanupReviewNoteSummary(
     totalCleanupRuns: cleanups.length,
     reviewedCleanupRuns: reviewedCleanupIds.size,
     unreviewedCleanupRuns: cleanups.filter((cleanup) => !reviewedCleanupIds.has(cleanup.id)).length,
+    staleThresholdDays,
+    staleUnreviewedCleanupRuns: cleanups.filter((cleanup) => !reviewedCleanupIds.has(cleanup.id) && cleanup.createdAt < staleCutoffAt).length,
     categoryCounts: countCleanupReviewNotesByCategory(notes),
     reviewerCounts: countCleanupReviewNotesByReviewer(notes),
   };
@@ -1145,6 +1157,7 @@ export async function getAssistantAuditCleanupReviewCoverageReport(
   const reviewerQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
   const tokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
   const cleanupIdQuery = normalizeOptionalText(input.cleanupId).toLowerCase();
+  const staleThresholdDays = normalizePositiveInteger(input.staleDays, 7, 0, 3650);
   const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
   const cleanups = events
     .map(toCleanupHistoryItem)
@@ -1168,7 +1181,7 @@ export async function getAssistantAuditCleanupReviewCoverageReport(
       archivePreviewToken: tokenQuery,
       cleanupId: cleanupIdQuery,
     },
-    coverage: toCleanupReviewCoverageItems(cleanups, notes),
+    coverage: toCleanupReviewCoverageItems(cleanups, notes, staleThresholdDays),
   };
 }
 
@@ -1206,6 +1219,8 @@ export async function exportAssistantAuditCleanupReviewCoverageJson(
           totalCleanupRuns: summary.totalCleanupRuns,
           reviewedCleanupRuns: summary.reviewedCleanupRuns,
           unreviewedCleanupRuns: summary.unreviewedCleanupRuns,
+          staleThresholdDays: summary.staleThresholdDays,
+          staleUnreviewedCleanupRuns: summary.staleUnreviewedCleanupRuns,
           categoryCounts: summary.categoryCounts,
           reviewerCounts: summary.reviewerCounts,
         },
@@ -1911,8 +1926,10 @@ function countCleanupReviewNotesByReviewer(notes: AssistantAuditCleanupReviewNot
 function toCleanupReviewCoverageItems(
   cleanups: AdminAssistantAuditCleanupHistoryItem[],
   notes: AssistantAuditCleanupReviewNote[],
+  staleThresholdDays: number,
 ): AdminAssistantAuditCleanupReviewCoverageItem[] {
   const notesByCleanupId = new Map<string, AssistantAuditCleanupReviewNote[]>();
+  const staleCutoffAt = new Date(Date.now() - staleThresholdDays * 24 * 60 * 60 * 1000).toISOString();
   for (const note of notes) {
     const current = notesByCleanupId.get(note.sourceCleanupId) ?? [];
     current.push(note);
@@ -1940,6 +1957,8 @@ function toCleanupReviewCoverageItems(
       noteCount: cleanupNotes.length,
       latestNoteCreatedAt,
       reviewerIds,
+      staleThresholdDays,
+      isStale: cleanupNotes.length === 0 && cleanup.createdAt < staleCutoffAt,
     };
   });
 }
@@ -2217,6 +2236,8 @@ function toCleanupReviewCoverageCsv(coverage: AdminAssistantAuditCleanupReviewCo
     "note_count",
     "latest_note_created_at",
     "reviewer_ids",
+    "stale_threshold_days",
+    "is_stale",
   ];
   const rows = coverage.map((item) => [
     item.cleanupId,
@@ -2232,6 +2253,8 @@ function toCleanupReviewCoverageCsv(coverage: AdminAssistantAuditCleanupReviewCo
     String(item.noteCount),
     item.latestNoteCreatedAt ?? "",
     item.reviewerIds.join("; "),
+    String(item.staleThresholdDays),
+    item.isStale ? "true" : "false",
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";

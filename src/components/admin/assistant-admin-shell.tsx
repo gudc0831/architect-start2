@@ -343,6 +343,8 @@ type CleanupReviewNoteSummary = {
   totalCleanupRuns: number;
   reviewedCleanupRuns: number;
   unreviewedCleanupRuns: number;
+  staleThresholdDays: number;
+  staleUnreviewedCleanupRuns: number;
   categoryCounts: Array<{ category: GovernanceNoteCategory; count: number }>;
   reviewerCounts: Array<{ reviewerId: string | null; count: number }>;
 };
@@ -368,6 +370,8 @@ type CleanupReviewCoverageItem = {
   noteCount: number;
   latestNoteCreatedAt: string | null;
   reviewerIds: string[];
+  staleThresholdDays: number;
+  isStale: boolean;
 };
 
 type AdminActionAuditTaskSnapshot = {
@@ -446,6 +450,7 @@ export function AssistantAdminShell() {
   const [cleanupReviewNoteReviewer, setCleanupReviewNoteReviewer] = useState("");
   const [cleanupReviewNoteToken, setCleanupReviewNoteToken] = useState("");
   const [cleanupReviewNoteCleanupId, setCleanupReviewNoteCleanupId] = useState("");
+  const [cleanupReviewStaleDays, setCleanupReviewStaleDays] = useState(7);
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -558,6 +563,7 @@ export function AssistantAdminShell() {
     const params = new URLSearchParams({
       month,
       limit: "250",
+      staleDays: String(cleanupReviewStaleDays),
     });
     if (cleanupReviewNoteFilterCategory !== "all") {
       params.set("category", cleanupReviewNoteFilterCategory);
@@ -572,7 +578,7 @@ export function AssistantAdminShell() {
       params.set("cleanupId", cleanupReviewNoteCleanupId.trim());
     }
     return params.toString();
-  }, [cleanupReviewNoteCleanupId, cleanupReviewNoteFilterCategory, cleanupReviewNoteReviewer, cleanupReviewNoteToken, month]);
+  }, [cleanupReviewNoteCleanupId, cleanupReviewNoteFilterCategory, cleanupReviewNoteReviewer, cleanupReviewNoteToken, cleanupReviewStaleDays, month]);
   const cleanupReviewNoteExportUrl = `/api/admin/assistant/cleanup-review-notes/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
@@ -1744,12 +1750,23 @@ export function AssistantAdminShell() {
                   onChange={(event) => setCleanupReviewNoteCleanupId(event.target.value)}
                 />
               </label>
+              <label className={styles.field}>
+                <span>Stale days</span>
+                <input
+                  min={0}
+                  max={3650}
+                  type="number"
+                  value={cleanupReviewStaleDays}
+                  onChange={(event) => setCleanupReviewStaleDays(Math.max(0, Number(event.target.value) || 0))}
+                />
+              </label>
             </div>
 
             <div className={styles.filterGrid}>
               <Metric label="Cleanup notes" value={cleanupReviewNoteSummaryLoading ? "Loading" : cleanupReviewNoteSummary?.totalNotes ?? 0} />
               <Metric label="Reviewed runs" value={cleanupReviewNoteSummary?.reviewedCleanupRuns ?? 0} />
               <Metric label="Unreviewed runs" value={cleanupReviewNoteSummary?.unreviewedCleanupRuns ?? 0} />
+              <Metric label="Stale unreviewed" value={cleanupReviewNoteSummary?.staleUnreviewedCleanupRuns ?? 0} />
               <Metric label="Total cleanup runs" value={cleanupReviewNoteSummary?.totalCleanupRuns ?? 0} />
             </div>
 
@@ -1770,7 +1787,7 @@ export function AssistantAdminShell() {
                   <header>
                     <div>
                       <strong>{item.coverageStatus === "reviewed" ? "Reviewed cleanup" : "Unreviewed cleanup"}</strong>
-                      <span>{formatDate(item.cleanupCreatedAt)} / actor {item.cleanupActorId ?? "-"}</span>
+                      <span>{formatDate(item.cleanupCreatedAt)} / actor {item.cleanupActorId ?? "-"}{item.isStale ? " / stale review alert" : ""}</span>
                     </div>
                     <div className={styles.actionAuditCardActions}>
                       <button onClick={() => void openAuditCleanupDetail(item.cleanupId)} type="button">
