@@ -89,6 +89,7 @@ type GetAssistantAuditCleanupReviewNoteReportInput = {
 };
 
 type GetAssistantAuditCleanupReviewNoteSummaryInput = Omit<GetAssistantAuditCleanupReviewNoteReportInput, "limit">;
+type GetAssistantAuditCleanupReviewCoverageInput = GetAssistantAuditCleanupReviewNoteSummaryInput;
 
 type GetAssistantAuditRetentionPreviewInput = {
   projectId?: string | null;
@@ -375,6 +376,29 @@ export type AdminAssistantAuditCleanupReviewNoteSummary = {
   unreviewedCleanupRuns: number;
   categoryCounts: Array<{ category: AssistantActionAuditGovernanceNoteCategory; count: number }>;
   reviewerCounts: Array<{ reviewerId: string | null; count: number }>;
+};
+
+export type AdminAssistantAuditCleanupReviewCoverageItem = {
+  cleanupId: string;
+  coverageStatus: "reviewed" | "unreviewed";
+  cleanupCreatedAt: string;
+  cleanupActorId: string | null;
+  archivePreviewToken: string;
+  cutoffAt: string;
+  previewRetentionDays: number;
+  requestedEligibleCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  noteCount: number;
+  latestNoteCreatedAt: string | null;
+  reviewerIds: string[];
+};
+
+export type AdminAssistantAuditCleanupReviewCoverageReport = {
+  projectId: string;
+  month: string;
+  filters: AdminAssistantAuditCleanupReviewNoteReport["filters"];
+  coverage: AdminAssistantAuditCleanupReviewCoverageItem[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -1111,6 +1135,55 @@ export async function getAssistantAuditCleanupReviewNoteSummary(
   };
 }
 
+export async function getAssistantAuditCleanupReviewCoverageReport(
+  input: GetAssistantAuditCleanupReviewCoverageInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupReviewCoverageReport> {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const category = normalizeOptionalGovernanceNoteCategory(input.category);
+  const reviewerQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
+  const tokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
+  const cleanupIdQuery = normalizeOptionalText(input.cleanupId).toLowerCase();
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const cleanups = events
+    .map(toCleanupHistoryItem)
+    .filter((cleanup): cleanup is AdminAssistantAuditCleanupHistoryItem => Boolean(cleanup))
+    .filter((cleanup) => !tokenQuery || cleanup.archivePreviewToken.toLowerCase().includes(tokenQuery))
+    .filter((cleanup) => !cleanupIdQuery || cleanup.id.toLowerCase().includes(cleanupIdQuery));
+  const cleanupIds = new Set(cleanups.map((cleanup) => cleanup.id));
+  const notes = events
+    .map(toCleanupReviewNote)
+    .filter((note): note is AssistantAuditCleanupReviewNote => Boolean(note))
+    .filter((note) => cleanupIds.has(note.sourceCleanupId))
+    .filter((note) => !category || note.category === category)
+    .filter((note) => !reviewerQuery || (note.reviewerId ?? "").toLowerCase().includes(reviewerQuery));
+
+  return {
+    projectId,
+    month,
+    filters: {
+      category,
+      reviewerId: reviewerQuery,
+      archivePreviewToken: tokenQuery,
+      cleanupId: cleanupIdQuery,
+    },
+    coverage: toCleanupReviewCoverageItems(cleanups, notes),
+  };
+}
+
+export async function exportAssistantAuditCleanupReviewCoverageReport(
+  input: GetAssistantAuditCleanupReviewCoverageInput,
+  user: AuthUser,
+) {
+  const report = await getAssistantAuditCleanupReviewCoverageReport(input, user);
+
+  return {
+    filename: `assistant-cleanup-review-coverage-${report.month}.csv`,
+    csv: toCleanupReviewCoverageCsv(report.coverage),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -1802,6 +1875,42 @@ function countCleanupReviewNotesByReviewer(notes: AssistantAuditCleanupReviewNot
     .sort((left, right) => right.count - left.count || (left.reviewerId ?? "").localeCompare(right.reviewerId ?? ""));
 }
 
+function toCleanupReviewCoverageItems(
+  cleanups: AdminAssistantAuditCleanupHistoryItem[],
+  notes: AssistantAuditCleanupReviewNote[],
+): AdminAssistantAuditCleanupReviewCoverageItem[] {
+  const notesByCleanupId = new Map<string, AssistantAuditCleanupReviewNote[]>();
+  for (const note of notes) {
+    const current = notesByCleanupId.get(note.sourceCleanupId) ?? [];
+    current.push(note);
+    notesByCleanupId.set(note.sourceCleanupId, current);
+  }
+
+  return cleanups.map((cleanup) => {
+    const cleanupNotes = notesByCleanupId.get(cleanup.id) ?? [];
+    const reviewerIds = Array.from(new Set(cleanupNotes.map((note) => note.reviewerId).filter((id): id is string => Boolean(id)))).sort();
+    const latestNoteCreatedAt = cleanupNotes
+      .map((note) => note.createdAt)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+    return {
+      cleanupId: cleanup.id,
+      coverageStatus: cleanupNotes.length ? "reviewed" : "unreviewed",
+      cleanupCreatedAt: cleanup.createdAt,
+      cleanupActorId: cleanup.actorId,
+      archivePreviewToken: cleanup.archivePreviewToken,
+      cutoffAt: cleanup.cutoffAt,
+      previewRetentionDays: cleanup.previewRetentionDays,
+      requestedEligibleCount: cleanup.requestedEligibleCount,
+      deletedCount: cleanup.deletedCount,
+      skippedCount: cleanup.skippedCount,
+      noteCount: cleanupNotes.length,
+      latestNoteCreatedAt,
+      reviewerIds,
+    };
+  });
+}
+
 function normalizeOptionalIsoDate(value: unknown) {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -2055,6 +2164,41 @@ function toCleanupReviewNoteCsv(notes: AdminAssistantAuditCleanupReviewNoteRepor
     String(note.cleanupDeletedCount),
     String(note.cleanupSkippedCount),
     note.note,
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toCleanupReviewCoverageCsv(coverage: AdminAssistantAuditCleanupReviewCoverageItem[]) {
+  const headers = [
+    "cleanup_id",
+    "coverage_status",
+    "cleanup_created_at",
+    "cleanup_actor_id",
+    "archive_preview_token",
+    "cutoff_at",
+    "preview_retention_days",
+    "requested_eligible_count",
+    "deleted_count",
+    "skipped_count",
+    "note_count",
+    "latest_note_created_at",
+    "reviewer_ids",
+  ];
+  const rows = coverage.map((item) => [
+    item.cleanupId,
+    item.coverageStatus,
+    item.cleanupCreatedAt,
+    item.cleanupActorId ?? "",
+    item.archivePreviewToken,
+    item.cutoffAt,
+    String(item.previewRetentionDays),
+    String(item.requestedEligibleCount),
+    String(item.deletedCount),
+    String(item.skippedCount),
+    String(item.noteCount),
+    item.latestNoteCreatedAt ?? "",
+    item.reviewerIds.join("; "),
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";

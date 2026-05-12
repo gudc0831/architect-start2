@@ -549,6 +549,7 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [cleanupReviewNoteCleanupId, cleanupReviewNoteFilterCategory, cleanupReviewNoteReviewer, cleanupReviewNoteToken, month]);
   const cleanupReviewNoteExportUrl = `/api/admin/assistant/cleanup-review-notes/export?${cleanupReviewNoteReportQuery}`;
+  const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -1663,6 +1664,9 @@ export function AssistantAdminShell() {
                 <span>{cleanupReviewNoteReportLoading ? "Loading" : `${cleanupReviewNoteReport.length} notes`}</span>
                 <a download href={cleanupReviewNoteExportUrl}>
                   Export cleanup notes CSV
+                </a>
+                <a download href={cleanupReviewCoverageExportUrl}>
+                  Export coverage CSV
                 </a>
               </div>
             </div>
