@@ -257,6 +257,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       `Visible: ${visibleEvidence.length}/${total}`,
     ];
   }, [detail?.evidence.length, evidencePriorityFilter, evidenceSourceFilter, visibleEvidence.length]);
+  const visibleEvidenceSummary = useMemo(() => {
+    const sourced = visibleEvidence.filter((item) => Boolean(item.sourceUrl)).length;
+    const high = visibleEvidence.filter((item) => readEvidencePriorityFilter(item.priority) === "high").length;
+    const normal = visibleEvidence.filter((item) => readEvidencePriorityFilter(item.priority) === "normal").length;
+    const low = visibleEvidence.filter((item) => readEvidencePriorityFilter(item.priority) === "low").length;
+    return {
+      sourced,
+      unsourced: visibleEvidence.length - sourced,
+      high,
+      normal,
+      low,
+    };
+  }, [visibleEvidence]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -702,6 +715,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     {activeEvidenceFilterChips.map((chip) => (
                       <span key={chip}>{chip}</span>
                     ))}
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Knowledge visible evidence summary">
+                    <span>Visible sourced {visibleEvidenceSummary.sourced}</span>
+                    <span>Visible unsourced {visibleEvidenceSummary.unsourced}</span>
+                    <span>Visible high {visibleEvidenceSummary.high}</span>
+                    <span>Visible normal {visibleEvidenceSummary.normal}</span>
+                    <span>Visible low {visibleEvidenceSummary.low}</span>
                   </div>
                   <div className={styles.evidenceFilters}>
                     <button
