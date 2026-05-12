@@ -63,6 +63,23 @@ type GetAssistantActionAuditDetailInput = {
   month?: string | null;
 };
 
+type CreateAssistantActionAuditGovernanceNoteInput = GetAssistantActionAuditDetailInput & {
+  category?: unknown;
+  note?: unknown;
+};
+
+export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
+
+export type AssistantActionAuditGovernanceNote = {
+  id: string;
+  sourceAuditId: string;
+  sourceAssistantRecordId: string;
+  category: AssistantActionAuditGovernanceNoteCategory;
+  note: string;
+  reviewerId: string | null;
+  createdAt: string;
+};
+
 export type AdminAssistantActionAuditRecord = AssistantActionAuditRecord & {
   sourceTaskLabel: string | null;
   sourceTaskTitle: string | null;
@@ -124,6 +141,7 @@ export type AdminAssistantActionAuditDetail = {
     taskHistory: string;
     provenance: string[];
   };
+  governanceNotes: AssistantActionAuditGovernanceNote[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -269,10 +287,11 @@ export async function getAssistantActionAuditGovernanceDetail(
   }
 
   const taskIds = [...new Set([record.sourceTaskId, record.targetTaskId, record.createdTaskId].filter(Boolean) as string[])];
-  const [tasks, assistantRecord, workSummaryDraft] = await Promise.all([
+  const [tasks, assistantRecord, workSummaryDraft, noteEvents] = await Promise.all([
     Promise.all(taskIds.map((taskId) => taskRepository.findTaskById(taskId))),
     assistantRepository.findRecordById(record.assistantRecordId),
     assistantRepository.findWorkSummaryDraftByRecordId(record.assistantRecordId),
+    assistantRepository.listAuditEvents({ projectId, limit: 500 }),
   ]);
   const taskById = new Map(
     tasks
@@ -331,7 +350,54 @@ export async function getAssistantActionAuditGovernanceDetail(
       taskHistory: compactGovernanceText([targetTask?.statusHistory, createdTask?.statusHistory]),
       provenance: buildGovernanceProvenance({ record, assistantRecord, targetTask, createdTask }),
     },
+    governanceNotes: noteEvents
+      .map(toGovernanceNote)
+      .filter((note): note is AssistantActionAuditGovernanceNote => Boolean(note))
+      .filter((note) => note.sourceAuditId === auditId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
   };
+}
+
+export async function createAssistantActionAuditGovernanceNote(
+  input: CreateAssistantActionAuditGovernanceNoteInput,
+  user: AuthUser,
+) {
+  const auditId = normalizeRequiredText(input.auditId, "auditId");
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const sourceEvent = events.find((item) => item.id === auditId);
+  if (!sourceEvent) {
+    throw notFound("Assistant action audit record not found.", "ASSISTANT_ACTION_AUDIT_NOT_FOUND");
+  }
+
+  const sourceRecord = toAssistantActionAuditRecord(sourceEvent);
+  if (!sourceRecord) {
+    throw notFound("Assistant action audit record not found.", "ASSISTANT_ACTION_AUDIT_NOT_FOUND");
+  }
+
+  const event = await assistantRepository.createAuditEvent({
+    projectId,
+    profileId: user.id,
+    eventType: "assistant.governance_note.created",
+    targetType: "assistant_action_audit",
+    targetId: auditId,
+    metadata: {
+      sourceAuditId: auditId,
+      sourceAuditMonth: month,
+      sourceAction: sourceRecord.action,
+      sourceAssistantRecordId: sourceRecord.assistantRecordId,
+      category: normalizeGovernanceNoteCategory(input.category),
+      note: normalizeGovernanceNoteText(input.note),
+    },
+  });
+
+  const note = toGovernanceNote(event);
+  if (!note) {
+    throw badRequest("Governance note could not be normalized.", "ASSISTANT_GOVERNANCE_NOTE_INVALID");
+  }
+
+  return note;
 }
 
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
@@ -773,6 +839,59 @@ function buildGovernanceProvenance(input: {
     input.targetTask ? `Target task ${formatTaskDisplayId(input.targetTask)} is ${input.targetTask.status}.` : null,
     input.createdTask ? `Created task ${formatTaskDisplayId(input.createdTask)} is ${input.createdTask.status}.` : null,
   ].filter((item): item is string => Boolean(item));
+}
+
+function toGovernanceNote(event: {
+  id: string;
+  eventType: string;
+  targetId: string | null;
+  profileId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}): AssistantActionAuditGovernanceNote | null {
+  if (event.eventType !== "assistant.governance_note.created") {
+    return null;
+  }
+
+  const sourceAuditId = normalizeOptionalText(event.metadata.sourceAuditId) || normalizeOptionalText(event.targetId);
+  const sourceAssistantRecordId = normalizeOptionalText(event.metadata.sourceAssistantRecordId);
+  const category = readGovernanceNoteCategory(event.metadata.category);
+  const note = normalizeOptionalText(event.metadata.note);
+  if (!sourceAuditId || !sourceAssistantRecordId || !category || !note) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    sourceAuditId,
+    sourceAssistantRecordId,
+    category,
+    note,
+    reviewerId: event.profileId,
+    createdAt: event.createdAt,
+  };
+}
+
+function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory {
+  const category = readGovernanceNoteCategory(value);
+  if (!category) {
+    throw badRequest("category is invalid", "ASSISTANT_GOVERNANCE_NOTE_CATEGORY_INVALID");
+  }
+
+  return category;
+}
+
+function readGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory | null {
+  return value === "review_note" || value === "risk" || value === "follow_up" || value === "approval_context" ? value : null;
+}
+
+function normalizeGovernanceNoteText(value: unknown) {
+  const note = normalizeRequiredText(value, "note");
+  if (note.length > 1200) {
+    throw badRequest("note must be 1200 characters or fewer", "ASSISTANT_GOVERNANCE_NOTE_TOO_LONG");
+  }
+
+  return note;
 }
 
 function actionAuditMatchesTaskQuery(record: AdminAssistantActionAuditRecord, taskQuery: string) {

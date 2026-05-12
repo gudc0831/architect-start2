@@ -160,6 +160,7 @@
 
 .field input,
 .field select,
+.field textarea,
 .monthPicker input {
   min-height: 42px;
   padding: 0.62rem 0.75rem;
@@ -168,6 +169,10 @@
   background: var(--panel);
   color: var(--text);
   font-size: 0.92rem;
+}
+
+.field textarea {
+  resize: vertical;
 }
 
 .toggleField {
@@ -475,6 +480,68 @@
   padding-left: 1rem;
 }
 
+.governanceNotes {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.governanceNoteForm {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.governanceNoteForm button {
+  min-height: 42px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--theme-accent-border-strong);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--theme-text-contrast);
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.governanceNoteForm button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.governanceNoteList {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.governanceNoteList > span {
+  color: var(--theme-text-subtle);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.governanceNoteList article {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.governanceNoteList strong {
+  font-size: 0.82rem;
+}
+
+.governanceNoteList small,
+.governanceNoteList p {
+  margin: 0;
+  color: var(--theme-text-subtle);
+  font-size: 0.78rem;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
 .tableScroller {
   overflow-x: auto;
   border: 1px solid var(--theme-border-field-soft);
@@ -569,6 +636,10 @@
   }
 
   .governanceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .governanceNoteForm {
     grid-template-columns: 1fr;
   }
 

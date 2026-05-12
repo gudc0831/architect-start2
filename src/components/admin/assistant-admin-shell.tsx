@@ -159,6 +159,19 @@ type AdminActionAuditDetail = {
     taskHistory: string;
     provenance: string[];
   };
+  governanceNotes: GovernanceNote[];
+};
+
+type GovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
+
+type GovernanceNote = {
+  id: string;
+  sourceAuditId: string;
+  sourceAssistantRecordId: string;
+  category: GovernanceNoteCategory;
+  note: string;
+  reviewerId: string | null;
+  createdAt: string;
 };
 
 type AdminActionAuditTaskSnapshot = {
@@ -183,6 +196,13 @@ const actionAuditOptions: Array<{ value: AssistantActionAuditAction | "all"; lab
   { value: "all", label: "All actions" },
   { value: "task_update_applied", label: "Task update applied" },
   { value: "follow_up_task_created", label: "Follow-up task created" },
+];
+
+const governanceNoteOptions: Array<{ value: GovernanceNoteCategory; label: string }> = [
+  { value: "review_note", label: "Review note" },
+  { value: "risk", label: "Risk" },
+  { value: "follow_up", label: "Follow-up" },
+  { value: "approval_context", label: "Approval context" },
 ];
 
 const defaultPolicy: AssistantPolicy = {
@@ -217,10 +237,13 @@ export function AssistantAdminShell() {
   const [actionAuditActorId, setActionAuditActorId] = useState("");
   const [selectedActionAuditId, setSelectedActionAuditId] = useState<string | null>(null);
   const [actionAuditDetail, setActionAuditDetail] = useState<AdminActionAuditDetail | null>(null);
+  const [governanceNoteCategory, setGovernanceNoteCategory] = useState<GovernanceNoteCategory>("review_note");
+  const [governanceNoteText, setGovernanceNoteText] = useState("");
   const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
   const [actionAuditLoading, setActionAuditLoading] = useState(false);
   const [actionAuditDetailLoading, setActionAuditDetailLoading] = useState(false);
+  const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
@@ -320,6 +343,7 @@ export function AssistantAdminShell() {
   useEffect(() => {
     setSelectedActionAuditId(null);
     setActionAuditDetail(null);
+    setGovernanceNoteText("");
   }, [actionAuditQuery]);
 
   async function savePolicy() {
@@ -368,11 +392,14 @@ export function AssistantAdminShell() {
     if (selectedActionAuditId === auditId) {
       setSelectedActionAuditId(null);
       setActionAuditDetail(null);
+      setGovernanceNoteText("");
       return;
     }
 
     setSelectedActionAuditId(auditId);
     setActionAuditDetail(null);
+    setGovernanceNoteCategory("review_note");
+    setGovernanceNoteText("");
     setActionAuditDetailLoading(true);
     try {
       const detail = await readJson<AdminActionAuditDetail>(
@@ -383,6 +410,39 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Assistant action audit 상세를 불러오지 못했습니다.");
     } finally {
       setActionAuditDetailLoading(false);
+    }
+  }
+
+  async function saveGovernanceNote() {
+    if (!selectedActionAuditId || !governanceNoteText.trim()) {
+      setStatus("Governance note text is required.");
+      return;
+    }
+
+    setGovernanceNoteSaving(true);
+    try {
+      const note = await writeJson<GovernanceNote>(
+        `/api/admin/assistant/action-audits/${encodeURIComponent(selectedActionAuditId)}/notes?month=${encodeURIComponent(month)}`,
+        {
+          category: governanceNoteCategory,
+          note: governanceNoteText.trim(),
+        },
+        "POST",
+      );
+      setActionAuditDetail((current) =>
+        current
+          ? {
+              ...current,
+              governanceNotes: [note, ...current.governanceNotes],
+            }
+          : current,
+      );
+      setGovernanceNoteText("");
+      setStatus("Governance note saved.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Governance note 저장에 실패했습니다.");
+    } finally {
+      setGovernanceNoteSaving(false);
     }
   }
 
@@ -660,7 +720,16 @@ export function AssistantAdminShell() {
                     </div>
                   </dl>
                   {selectedActionAuditId === event.id ? (
-                    <ActionAuditGovernanceDetail detail={actionAuditDetail} loading={actionAuditDetailLoading} />
+                    <ActionAuditGovernanceDetail
+                      detail={actionAuditDetail}
+                      loading={actionAuditDetailLoading}
+                      noteCategory={governanceNoteCategory}
+                      noteSaving={governanceNoteSaving}
+                      noteText={governanceNoteText}
+                      onNoteCategoryChange={setGovernanceNoteCategory}
+                      onNoteTextChange={setGovernanceNoteText}
+                      onSaveNote={() => void saveGovernanceNote()}
+                    />
                   ) : null}
                 </article>
               ))}
@@ -691,7 +760,25 @@ export function AssistantAdminShell() {
   );
 }
 
-function ActionAuditGovernanceDetail({ detail, loading }: { detail: AdminActionAuditDetail | null; loading: boolean }) {
+function ActionAuditGovernanceDetail({
+  detail,
+  loading,
+  noteCategory,
+  noteSaving,
+  noteText,
+  onNoteCategoryChange,
+  onNoteTextChange,
+  onSaveNote,
+}: {
+  detail: AdminActionAuditDetail | null;
+  loading: boolean;
+  noteCategory: GovernanceNoteCategory;
+  noteSaving: boolean;
+  noteText: string;
+  onNoteCategoryChange: (category: GovernanceNoteCategory) => void;
+  onNoteTextChange: (text: string) => void;
+  onSaveNote: () => void;
+}) {
   if (loading) {
     return <p className={styles.detailLoading}>Loading governance detail...</p>;
   }
@@ -753,6 +840,49 @@ function ActionAuditGovernanceDetail({ detail, loading }: { detail: AdminActionA
           </ul>
         </div>
       </div>
+
+      <div className={styles.governanceNotes}>
+        <div className={styles.governanceNoteForm}>
+          <label className={styles.field}>
+            <span>Note category</span>
+            <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
+              {governanceNoteOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span>Governance note</span>
+            <textarea
+              maxLength={1200}
+              onChange={(event) => onNoteTextChange(event.target.value)}
+              placeholder="Append a governance review note"
+              rows={3}
+              value={noteText}
+            />
+          </label>
+          <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
+            {noteSaving ? "Saving..." : "Add note"}
+          </button>
+        </div>
+
+        <div className={styles.governanceNoteList}>
+          <span>Governance notes</span>
+          {detail.governanceNotes.length ? (
+            detail.governanceNotes.map((note) => (
+              <article key={note.id}>
+                <strong>{governanceNoteLabel(note.category)}</strong>
+                <small>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</small>
+                <p>{note.note}</p>
+              </article>
+            ))
+          ) : (
+            <p>No governance notes have been added.</p>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -787,6 +917,10 @@ function actionAuditLabel(action: AssistantActionAuditAction) {
   return action === "follow_up_task_created" ? "Follow-up task created" : "Task update applied";
 }
 
+function governanceNoteLabel(category: GovernanceNoteCategory) {
+  return governanceNoteOptions.find((option) => option.value === category)?.label ?? category;
+}
+
 function formatTaskReference(label: string | null, taskId: string, title: string | null) {
   return [label ?? taskId, title].filter(Boolean).join(" / ");
 }
@@ -813,9 +947,9 @@ async function readJson<T>(input: RequestInfo) {
   return json.data;
 }
 
-async function writeJson<T>(input: RequestInfo, body: unknown) {
+async function writeJson<T>(input: RequestInfo, body: unknown, method = "PUT") {
   const response = await fetch(input, {
-    method: "PUT",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
