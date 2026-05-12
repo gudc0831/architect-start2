@@ -287,8 +287,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     };
   }, [visibleEvidence]);
   const approvalGuardrails = useMemo(
-    () => buildApprovalGuardrails(draftReadiness, detail),
-    [detail, draftReadiness],
+    () => buildApprovalGuardrails(draftReadiness, detail, draftDirtyStates),
+    [detail, draftDirtyStates, draftReadiness],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
@@ -1055,6 +1055,7 @@ function createApprovalChecklist(
 function buildApprovalGuardrails(
   readiness: Array<{ label: string; ready: boolean }>,
   detail: CandidateDetail | null,
+  draftDirtyStates: Array<{ label: string; dirty: boolean }>,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
   const missing = readiness.filter((item) => !item.ready).map((item) => item.label);
@@ -1075,6 +1076,21 @@ function buildApprovalGuardrails(
 
   if (!detail) {
     return guardrails;
+  }
+
+  const changedDraftFields = draftDirtyStates.filter((item) => item.dirty).map((item) => item.label);
+  if (changedDraftFields.length) {
+    guardrails.push({
+      label: "Edited draft fields",
+      detail: `Approval will use edited draft fields: ${changedDraftFields.join(", ")}.`,
+      tone: "warning",
+    });
+  } else {
+    guardrails.push({
+      label: "Draft unchanged",
+      detail: "Draft fields match the selected candidate draft.",
+      tone: "ready",
+    });
   }
 
   if (detail.confidenceScore < 60) {
