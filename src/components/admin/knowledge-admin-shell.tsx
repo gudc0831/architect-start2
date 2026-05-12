@@ -367,6 +367,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ))}
                   </select>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft source references">
+                  <span>Task {detail.taskIssueId}</span>
+                  <span>Record {detail.id.slice(0, 8)}</span>
+                  <span>{detail.evidence.length} evidence</span>
+                  <span>Scope {scopeLabels[draft.scope]}</span>
+                </div>
                 <label>
                   제목
                   <input

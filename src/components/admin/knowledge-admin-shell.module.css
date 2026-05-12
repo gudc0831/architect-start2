@@ -338,6 +338,22 @@
   gap: 0.4rem;
 }
 
+.sourceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.sourceChips span {
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 999px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .readinessReady,
 .readinessMissing {
   padding: 0.28rem 0.5rem;
