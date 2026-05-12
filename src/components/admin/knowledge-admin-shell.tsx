@@ -212,6 +212,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ],
     [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.tagsText, draft.title],
   );
+  const draftDirtyStates = useMemo(() => {
+    if (!detail) {
+      return [];
+    }
+
+    const original = createDraftFromDetail(detail);
+    return [
+      { label: "Title", dirty: draft.title !== original.title },
+      { label: "Summary", dirty: draft.summary !== original.summary },
+      { label: "Body", dirty: draft.bodyMarkdown !== original.bodyMarkdown },
+      { label: "Tags", dirty: splitTags(draft.tagsText).join("|") !== splitTags(original.tagsText).join("|") },
+      { label: "Scope", dirty: draft.scope !== original.scope },
+      { label: "Rejection reason", dirty: draft.rejectionReason.trim() !== original.rejectionReason.trim() },
+    ];
+  }, [detail, draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.tagsText, draft.title]);
+  const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
   const evidenceKindCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of detail?.evidence ?? []) {
@@ -830,6 +846,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Summary {draft.summary.trim().length} chars</span>
                   <span>Body {draft.bodyMarkdown.trim().length} chars</span>
                   <span>Tags {splitTags(draft.tagsText).length}</span>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft dirty-state indicators">
+                  <span>Changed {dirtyDraftCount}/{draftDirtyStates.length}</span>
+                  {draftDirtyStates.map((item) => (
+                    <span key={item.label}>{item.dirty ? "Changed" : "Original"} {item.label}</span>
+                  ))}
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge guardrail summary">
                   <span>Guardrails {guardrailWarningCount} warnings</span>
