@@ -2018,6 +2018,13 @@ export function AssistantAdminShell() {
                           </div>
                         </header>
                         <p>Token {item.archivePreviewToken} / notes {item.noteCount} / latest {item.latestNoteCreatedAt ? formatDate(item.latestNoteCreatedAt) : "-"}</p>
+                        <div className={styles.cleanupRowChips}>
+                          <span>{item.coverageStatus === "reviewed" ? "reviewed" : "unreviewed"}</span>
+                          <span>{item.isStale ? "stale" : "not stale"}</span>
+                          <span>{item.noteCount} notes</span>
+                          <span>{item.reviewerIds.length} reviewers</span>
+                          <span>{item.staleThresholdDays} day threshold</span>
+                        </div>
                         <dl>
                           <div>
                             <dt>Cleanup audit</dt>

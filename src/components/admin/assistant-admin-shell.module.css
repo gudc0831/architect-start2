@@ -500,6 +500,22 @@
   font-weight: 900;
 }
 
+.cleanupRowChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.cleanupRowChips span {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 999px;
+  background: var(--theme-surface-field);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .actionAuditCard {
   display: grid;
   gap: 0.75rem;
