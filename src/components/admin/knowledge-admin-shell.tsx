@@ -931,6 +931,23 @@ function buildApprovalGuardrails(
     });
   }
 
+  if (detail.evidence.length) {
+    const unsourcedCount = detail.evidence.filter((item) => !item.sourceUrl).length;
+    if (unsourcedCount) {
+      guardrails.push({
+        label: "Unsourced evidence",
+        detail: `${unsourcedCount}/${detail.evidence.length} evidence rows do not include source URLs.`,
+        tone: "warning",
+      });
+    } else {
+      guardrails.push({
+        label: "Evidence sources present",
+        detail: "Every evidence row includes a source URL.",
+        tone: "ready",
+      });
+    }
+  }
+
   return guardrails;
 }
 
