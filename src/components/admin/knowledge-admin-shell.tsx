@@ -373,6 +373,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>{detail.evidence.length} evidence</span>
                   <span>Scope {scopeLabels[draft.scope]}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft freshness">
+                  <span>Created {formatDate(detail.createdAt)}</span>
+                  <span>Updated {formatDate(detail.updatedAt)}</span>
+                  <span>Reviewed {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
+                </div>
                 <label>
                   제목
                   <input
@@ -476,4 +481,13 @@ function readError(payload: unknown) {
 
 function splitTags(value: string) {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 12);
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
