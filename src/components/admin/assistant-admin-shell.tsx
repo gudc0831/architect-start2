@@ -1066,6 +1066,15 @@ export function AssistantAdminShell() {
     }
   }
 
+  function resetCleanupReviewFilters() {
+    setCleanupReviewNoteFilterCategory("all");
+    setCleanupReviewCoveragePreset("all");
+    setCleanupReviewNoteReviewer("");
+    setCleanupReviewNoteToken("");
+    setCleanupReviewNoteCleanupId("");
+    setCleanupReviewStaleDays(7);
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -1744,6 +1753,9 @@ export function AssistantAdminShell() {
                 </a>
                 <button onClick={() => void copyCleanupReviewCoverageHandoff()} type="button">
                   Copy filter handoff
+                </button>
+                <button onClick={resetCleanupReviewFilters} type="button">
+                  Clear cleanup filters
                 </button>
               </div>
             </div>
