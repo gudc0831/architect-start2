@@ -78,6 +78,16 @@ type GetAssistantActionAuditGovernanceNoteReportInput = {
   assistantRecordId?: string | null;
 };
 
+type GetAssistantAuditCleanupReviewNoteReportInput = {
+  projectId?: string | null;
+  month?: string | null;
+  limit?: string | null;
+  category?: string | null;
+  reviewerId?: string | null;
+  archivePreviewToken?: string | null;
+  cleanupId?: string | null;
+};
+
 type GetAssistantAuditRetentionPreviewInput = {
   projectId?: string | null;
   retentionDays?: string | null;
@@ -329,6 +339,28 @@ export type AssistantAuditCleanupReviewNote = {
   note: string;
   reviewerId: string | null;
   createdAt: string;
+};
+
+export type AdminAssistantAuditCleanupReviewNoteReportItem = AssistantAuditCleanupReviewNote & {
+  cleanupCreatedAt: string;
+  cleanupActorId: string | null;
+  cleanupCutoffAt: string;
+  cleanupPreviewRetentionDays: number;
+  cleanupRequestedEligibleCount: number;
+  cleanupDeletedCount: number;
+  cleanupSkippedCount: number;
+};
+
+export type AdminAssistantAuditCleanupReviewNoteReport = {
+  projectId: string;
+  month: string;
+  filters: {
+    category: AssistantActionAuditGovernanceNoteCategory | null;
+    reviewerId: string;
+    archivePreviewToken: string;
+    cleanupId: string;
+  };
+  notes: AdminAssistantAuditCleanupReviewNoteReportItem[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -967,6 +999,59 @@ export async function createAssistantAuditCleanupReviewNote(
   }
 
   return note;
+}
+
+export async function getAssistantAuditCleanupReviewNoteReport(
+  input: GetAssistantAuditCleanupReviewNoteReportInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupReviewNoteReport> {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const limit = normalizePositiveInteger(input.limit, 250, 1, 500);
+  const category = normalizeOptionalGovernanceNoteCategory(input.category);
+  const reviewerQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
+  const tokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
+  const cleanupIdQuery = normalizeOptionalText(input.cleanupId).toLowerCase();
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit });
+  const cleanupById = new Map(
+    events
+      .map(toCleanupHistoryItem)
+      .filter((cleanup): cleanup is AdminAssistantAuditCleanupHistoryItem => Boolean(cleanup))
+      .map((cleanup) => [cleanup.id, cleanup]),
+  );
+  const notes = events
+    .map(toCleanupReviewNote)
+    .filter((note): note is AssistantAuditCleanupReviewNote => Boolean(note))
+    .filter((note) => !category || note.category === category)
+    .filter((note) => !reviewerQuery || (note.reviewerId ?? "").toLowerCase().includes(reviewerQuery))
+    .filter((note) => !tokenQuery || note.sourceArchivePreviewToken.toLowerCase().includes(tokenQuery))
+    .filter((note) => !cleanupIdQuery || note.sourceCleanupId.toLowerCase().includes(cleanupIdQuery))
+    .map((note) => toCleanupReviewNoteReportItem(note, cleanupById))
+    .filter((note): note is AdminAssistantAuditCleanupReviewNoteReportItem => Boolean(note));
+
+  return {
+    projectId,
+    month,
+    filters: {
+      category,
+      reviewerId: reviewerQuery,
+      archivePreviewToken: tokenQuery,
+      cleanupId: cleanupIdQuery,
+    },
+    notes,
+  };
+}
+
+export async function exportAssistantAuditCleanupReviewNoteReport(
+  input: GetAssistantAuditCleanupReviewNoteReportInput,
+  user: AuthUser,
+) {
+  const report = await getAssistantAuditCleanupReviewNoteReport(input, user);
+
+  return {
+    filename: `assistant-cleanup-review-notes-${report.month}.csv`,
+    csv: toCleanupReviewNoteCsv(report.notes),
+  };
 }
 
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
@@ -1617,6 +1702,27 @@ function toCleanupReviewNote(event: {
   };
 }
 
+function toCleanupReviewNoteReportItem(
+  note: AssistantAuditCleanupReviewNote,
+  cleanupById: ReadonlyMap<string, AdminAssistantAuditCleanupHistoryItem>,
+): AdminAssistantAuditCleanupReviewNoteReportItem | null {
+  const cleanup = cleanupById.get(note.sourceCleanupId);
+  if (!cleanup) {
+    return null;
+  }
+
+  return {
+    ...note,
+    cleanupCreatedAt: cleanup.createdAt,
+    cleanupActorId: cleanup.actorId,
+    cleanupCutoffAt: cleanup.cutoffAt,
+    cleanupPreviewRetentionDays: cleanup.previewRetentionDays,
+    cleanupRequestedEligibleCount: cleanup.requestedEligibleCount,
+    cleanupDeletedCount: cleanup.deletedCount,
+    cleanupSkippedCount: cleanup.skippedCount,
+  };
+}
+
 function normalizeOptionalIsoDate(value: unknown) {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -1832,6 +1938,44 @@ function toCleanupHistoryCsv(cleanups: AdminAssistantAuditCleanupHistoryItem[]) 
     String(cleanup.skippedCount),
     cleanup.deletedIds.join("; "),
     cleanup.skippedIds.join("; "),
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toCleanupReviewNoteCsv(notes: AdminAssistantAuditCleanupReviewNoteReportItem[]) {
+  const headers = [
+    "note_id",
+    "category",
+    "note_created_at",
+    "reviewer_id",
+    "cleanup_id",
+    "cleanup_created_at",
+    "cleanup_actor_id",
+    "archive_preview_token",
+    "cutoff_at",
+    "preview_retention_days",
+    "requested_eligible_count",
+    "deleted_count",
+    "skipped_count",
+    "note",
+  ];
+
+  const rows = notes.map((note) => [
+    note.id,
+    note.category,
+    note.createdAt,
+    note.reviewerId ?? "",
+    note.sourceCleanupId,
+    note.cleanupCreatedAt,
+    note.cleanupActorId ?? "",
+    note.sourceArchivePreviewToken,
+    note.cleanupCutoffAt,
+    String(note.cleanupPreviewRetentionDays),
+    String(note.cleanupRequestedEligibleCount),
+    String(note.cleanupDeletedCount),
+    String(note.cleanupSkippedCount),
+    note.note,
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";

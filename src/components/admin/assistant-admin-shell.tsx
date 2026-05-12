@@ -313,6 +313,28 @@ type AuditCleanupReviewNote = {
   createdAt: string;
 };
 
+type CleanupReviewNoteReportResponse = {
+  projectId: string;
+  month: string;
+  filters: {
+    category: GovernanceNoteCategory | null;
+    reviewerId: string;
+    archivePreviewToken: string;
+    cleanupId: string;
+  };
+  notes: CleanupReviewNoteReportItem[];
+};
+
+type CleanupReviewNoteReportItem = AuditCleanupReviewNote & {
+  cleanupCreatedAt: string;
+  cleanupActorId: string | null;
+  cleanupCutoffAt: string;
+  cleanupPreviewRetentionDays: number;
+  cleanupRequestedEligibleCount: number;
+  cleanupDeletedCount: number;
+  cleanupSkippedCount: number;
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -375,6 +397,7 @@ export function AssistantAdminShell() {
   const [auditCleanupHistory, setAuditCleanupHistory] = useState<AuditCleanupHistoryItem[]>([]);
   const [auditCleanupComparison, setAuditCleanupComparison] = useState<AuditCleanupComparison | null>(null);
   const [auditCleanupDetail, setAuditCleanupDetail] = useState<AuditCleanupDetail | null>(null);
+  const [cleanupReviewNoteReport, setCleanupReviewNoteReport] = useState<CleanupReviewNoteReportItem[]>([]);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
@@ -382,6 +405,10 @@ export function AssistantAdminShell() {
   const [cleanupHistoryCutoffAt, setCleanupHistoryCutoffAt] = useState("");
   const [cleanupHistoryToken, setCleanupHistoryToken] = useState("");
   const [cleanupComparisonToken, setCleanupComparisonToken] = useState("");
+  const [cleanupReviewNoteFilterCategory, setCleanupReviewNoteFilterCategory] = useState<GovernanceNoteCategory | "all">("all");
+  const [cleanupReviewNoteReviewer, setCleanupReviewNoteReviewer] = useState("");
+  const [cleanupReviewNoteToken, setCleanupReviewNoteToken] = useState("");
+  const [cleanupReviewNoteCleanupId, setCleanupReviewNoteCleanupId] = useState("");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -409,6 +436,7 @@ export function AssistantAdminShell() {
   const [auditCleanupHistoryLoading, setAuditCleanupHistoryLoading] = useState(false);
   const [auditCleanupComparisonLoading, setAuditCleanupComparisonLoading] = useState(false);
   const [auditCleanupDetailLoading, setAuditCleanupDetailLoading] = useState(false);
+  const [cleanupReviewNoteReportLoading, setCleanupReviewNoteReportLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [cleanupReviewNoteSaving, setCleanupReviewNoteSaving] = useState(false);
@@ -487,6 +515,26 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [cleanupHistoryActorId, cleanupHistoryCutoffAt, cleanupHistoryToken, month]);
   const auditCleanupHistoryExportUrl = `/api/admin/assistant/audit-cleanups/export?${auditCleanupHistoryQuery}`;
+  const cleanupReviewNoteReportQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      limit: "250",
+    });
+    if (cleanupReviewNoteFilterCategory !== "all") {
+      params.set("category", cleanupReviewNoteFilterCategory);
+    }
+    if (cleanupReviewNoteReviewer.trim()) {
+      params.set("reviewerId", cleanupReviewNoteReviewer.trim());
+    }
+    if (cleanupReviewNoteToken.trim()) {
+      params.set("archivePreviewToken", cleanupReviewNoteToken.trim());
+    }
+    if (cleanupReviewNoteCleanupId.trim()) {
+      params.set("cleanupId", cleanupReviewNoteCleanupId.trim());
+    }
+    return params.toString();
+  }, [cleanupReviewNoteCleanupId, cleanupReviewNoteFilterCategory, cleanupReviewNoteReviewer, cleanupReviewNoteToken, month]);
+  const cleanupReviewNoteExportUrl = `/api/admin/assistant/cleanup-review-notes/export?${cleanupReviewNoteReportQuery}`;
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -602,6 +650,32 @@ export function AssistantAdminShell() {
     setSelectedGovernanceReportAuditId(null);
     setGovernanceReportDetail(null);
   }, [governanceNoteReportQuery]);
+
+  useEffect(() => {
+    let active = true;
+    setCleanupReviewNoteReportLoading(true);
+
+    readJson<CleanupReviewNoteReportResponse>(`/api/admin/assistant/cleanup-review-notes?${cleanupReviewNoteReportQuery}`)
+      .then((data) => {
+        if (active) {
+          setCleanupReviewNoteReport(data.notes);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCleanupReviewNoteReport([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setCleanupReviewNoteReportLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [cleanupReviewNoteReportQuery]);
 
   useEffect(() => {
     let active = true;
@@ -1553,6 +1627,119 @@ export function AssistantAdminShell() {
               {auditCleanupHistory.length === 0 ? (
                 <p className={styles.empty}>
                   {auditCleanupHistoryLoading ? "Loading cleanup history..." : "No cleanup history matches the current filters."}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={styles.tableBlock}>
+            <div className={styles.actionAuditHeader}>
+              <div>
+                <h3>Cleanup review-note report</h3>
+                <p>Append-only review notes across cleanup runs, filtered for cleanup governance review.</p>
+              </div>
+              <div className={styles.actionAuditTools}>
+                <span>{cleanupReviewNoteReportLoading ? "Loading" : `${cleanupReviewNoteReport.length} notes`}</span>
+                <a download href={cleanupReviewNoteExportUrl}>
+                  Export cleanup notes CSV
+                </a>
+              </div>
+            </div>
+
+            <div className={styles.filterGrid}>
+              <label className={styles.field}>
+                <span>Category</span>
+                <select
+                  value={cleanupReviewNoteFilterCategory}
+                  onChange={(event) => setCleanupReviewNoteFilterCategory(event.target.value as GovernanceNoteCategory | "all")}
+                >
+                  <option value="all">All categories</option>
+                  {governanceNoteOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Reviewer</span>
+                <input
+                  placeholder="reviewer id"
+                  value={cleanupReviewNoteReviewer}
+                  onChange={(event) => setCleanupReviewNoteReviewer(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Preview token</span>
+                <input
+                  placeholder="archive preview token"
+                  value={cleanupReviewNoteToken}
+                  onChange={(event) => setCleanupReviewNoteToken(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Cleanup id</span>
+                <input
+                  placeholder="cleanup audit id"
+                  value={cleanupReviewNoteCleanupId}
+                  onChange={(event) => setCleanupReviewNoteCleanupId(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className={styles.actionAuditList}>
+              {cleanupReviewNoteReport.map((note) => (
+                <article className={styles.actionAuditCard} key={note.id}>
+                  <header>
+                    <div>
+                      <strong>{governanceNoteLabel(note.category)}</strong>
+                      <span>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</span>
+                    </div>
+                    <div className={styles.actionAuditCardActions}>
+                      <button onClick={() => void openAuditCleanupDetail(note.sourceCleanupId)} type="button">
+                        {selectedCleanupId === note.sourceCleanupId ? "Hide cleanup" : "Review cleanup"}
+                      </button>
+                      <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(note.sourceCleanupId)}/package?month=${encodeURIComponent(month)}`}>
+                        Export package
+                      </a>
+                    </div>
+                  </header>
+                  <p>{note.note}</p>
+                  <dl>
+                    <div>
+                      <dt>Cleanup audit</dt>
+                      <dd>{note.sourceCleanupId}</dd>
+                    </div>
+                    <div>
+                      <dt>Preview token</dt>
+                      <dd>{note.sourceArchivePreviewToken}</dd>
+                    </div>
+                    <div>
+                      <dt>Cleanup counts</dt>
+                      <dd>{note.cleanupDeletedCount} deleted / {note.cleanupSkippedCount} skipped</dd>
+                    </div>
+                    <div>
+                      <dt>Cutoff</dt>
+                      <dd>{formatDate(note.cleanupCutoffAt)}</dd>
+                    </div>
+                  </dl>
+                  {selectedCleanupId === note.sourceCleanupId ? (
+                    <AuditCleanupDetailPanel
+                      detail={auditCleanupDetail}
+                      loading={auditCleanupDetailLoading}
+                      noteCategory={cleanupReviewNoteCategory}
+                      noteSaving={cleanupReviewNoteSaving}
+                      noteText={cleanupReviewNoteText}
+                      onNoteCategoryChange={setCleanupReviewNoteCategory}
+                      onNoteTextChange={setCleanupReviewNoteText}
+                      onSaveNote={() => void saveCleanupReviewNote()}
+                    />
+                  ) : null}
+                </article>
+              ))}
+              {cleanupReviewNoteReport.length === 0 ? (
+                <p className={styles.empty}>
+                  {cleanupReviewNoteReportLoading ? "Loading cleanup review notes..." : "No cleanup review notes match the current filters."}
                 </p>
               ) : null}
             </div>
