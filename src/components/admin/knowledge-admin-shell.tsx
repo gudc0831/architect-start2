@@ -749,7 +749,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </a>
                         ) : null}
                       </article>
-                    )) : <p className={styles.empty}>No evidence matches the active source filter.</p>}
+                    )) : (
+                      <p className={styles.empty}>
+                        No evidence matches {evidenceSourceFilterLabels[evidenceSourceFilter]} and {evidencePriorityFilterLabels[evidencePriorityFilter]}. Clear evidence filters to restore rows.
+                      </p>
+                    )}
                   </div>
                 </div>
               </section>
