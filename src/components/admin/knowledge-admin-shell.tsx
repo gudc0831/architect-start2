@@ -378,6 +378,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Updated {formatDate(detail.updatedAt)}</span>
                   <span>Reviewed {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft approval summary">
+                  <span>State {stateLabels[detail.state]}</span>
+                  <span>Cleanup {detail.cleanupState}</span>
+                  <span>Confidence {detail.confidenceScore}%</span>
+                  <span>Review {detail.review?.status ?? "pending"}</span>
+                </div>
                 <label>
                   제목
                   <input
