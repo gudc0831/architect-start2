@@ -90,6 +90,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => candidates.filter((candidate) => filter === "all" || candidate.state === filter),
     [candidates, filter],
   );
+  const candidateStateCounts = useMemo(
+    () => ({
+      all: candidates.length,
+      candidate: candidates.filter((candidate) => candidate.state === "candidate").length,
+      approved: candidates.filter((candidate) => candidate.state === "approved").length,
+      rejected: candidates.filter((candidate) => candidate.state === "rejected").length,
+    }),
+    [candidates],
+  );
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -216,6 +225,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               <option value="rejected">반려됨</option>
               <option value="all">전체</option>
             </select>
+          </div>
+          <div className={styles.queueCounts} aria-label="Knowledge candidate state counts">
+            <span>Candidate {candidateStateCounts.candidate}</span>
+            <span>Approved {candidateStateCounts.approved}</span>
+            <span>Rejected {candidateStateCounts.rejected}</span>
+            <span>All {candidateStateCounts.all}</span>
           </div>
 
           <div className={styles.candidateList}>
