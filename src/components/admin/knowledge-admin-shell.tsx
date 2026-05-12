@@ -126,6 +126,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ],
     [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.tagsText, draft.title],
   );
+  const evidenceKindCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of detail?.evidence ?? []) {
+      counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+    }
+    return Array.from(counts.entries());
+  }, [detail?.evidence]);
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -383,6 +390,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Cleanup {detail.cleanupState}</span>
                   <span>Confidence {detail.confidenceScore}%</span>
                   <span>Review {detail.review?.status ?? "pending"}</span>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge evidence kind rollup">
+                  {evidenceKindCounts.length ? (
+                    evidenceKindCounts.map(([kind, count]) => <span key={kind}>{kind} {count}</span>)
+                  ) : (
+                    <span>No evidence kinds</span>
+                  )}
                 </div>
                 <label>
                   제목
