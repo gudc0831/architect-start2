@@ -144,6 +144,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
   );
+  const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
+  const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -456,6 +458,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Body {draft.bodyMarkdown.trim().length} chars</span>
                   <span>Tags {splitTags(draft.tagsText).length}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge guardrail summary">
+                  <span>Guardrails {guardrailWarningCount} warnings</span>
+                  <span>Readiness {readyReadinessCount}/{draftReadiness.length}</span>
+                  <span>Confidence {detail ? readConfidenceBand(detail.confidenceScore) : "unknown"}</span>
+                </div>
                 <section className={styles.guardrails} aria-label="Knowledge approval guardrail notes">
                   <h4>Approval guardrails</h4>
                   <div>
@@ -664,6 +671,16 @@ function buildApprovalGuardrails(
   }
 
   return guardrails;
+}
+
+function readConfidenceBand(score: number) {
+  if (score >= 80) {
+    return "high";
+  }
+  if (score >= 60) {
+    return "medium";
+  }
+  return "low";
 }
 
 function formatDate(value: string) {
