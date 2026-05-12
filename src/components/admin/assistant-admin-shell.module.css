@@ -265,6 +265,7 @@
 .actionAuditHeader h3,
 .actionAuditHeader p,
 .actionAuditHeader span,
+.actionAuditTools button,
 .actionAuditTools a {
   margin: 0;
 }
@@ -280,7 +281,8 @@
   white-space: nowrap;
 }
 
-.actionAuditTools a {
+.actionAuditTools a,
+.actionAuditTools button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -294,6 +296,7 @@
   font-weight: 800;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .filterGrid {

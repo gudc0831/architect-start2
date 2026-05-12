@@ -603,6 +603,7 @@ export function AssistantAdminShell() {
   const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoveragePackageUrl = `/api/admin/assistant/cleanup-review-notes/coverage/package?${cleanupReviewNoteReportQuery}`;
+  const cleanupReviewCoverageHandoffText = `cleanup-review-coverage?${cleanupReviewNoteReportQuery}`;
   const auditCleanupComparisonQuery = useMemo(() => {
     const params = new URLSearchParams({
       month,
@@ -1053,6 +1054,15 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Cleanup review note 저장에 실패했습니다.");
     } finally {
       setCleanupReviewNoteSaving(false);
+    }
+  }
+
+  async function copyCleanupReviewCoverageHandoff() {
+    try {
+      await navigator.clipboard.writeText(cleanupReviewCoverageHandoffText);
+      setStatus("Cleanup coverage filter handoff copied.");
+    } catch {
+      setStatus(cleanupReviewCoverageHandoffText);
     }
   }
 
@@ -1732,6 +1742,9 @@ export function AssistantAdminShell() {
                 <a download href={cleanupReviewCoveragePackageUrl}>
                   Export rollup package
                 </a>
+                <button onClick={() => void copyCleanupReviewCoverageHandoff()} type="button">
+                  Copy filter handoff
+                </button>
               </div>
             </div>
 
@@ -1818,6 +1831,9 @@ export function AssistantAdminShell() {
                 </DetailBlock>
                 <DetailBlock title="Reviewer counts">
                   <p>{cleanupReviewNoteSummary.reviewerCounts.length ? cleanupReviewNoteSummary.reviewerCounts.map((item) => `${item.reviewerId ?? "-"} ${item.count}`).join(" / ") : "-"}</p>
+                </DetailBlock>
+                <DetailBlock title="Filter handoff">
+                  <p>{cleanupReviewCoverageHandoffText}</p>
                 </DetailBlock>
               </div>
             ) : null}
