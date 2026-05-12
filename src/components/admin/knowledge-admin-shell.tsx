@@ -164,6 +164,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }),
     [candidates],
   );
+  const candidateRiskCounts = useMemo(
+    () => ({
+      lowConfidence: candidates.filter((candidate) => candidate.confidenceScore < 60).length,
+      unreviewed: candidates.filter((candidate) => !candidate.reviewedAt).length,
+      cleanupApproved: candidates.filter((candidate) => candidate.cleanupState === "approved").length,
+    }),
+    [candidates],
+  );
   const selectedCandidate = useMemo(
     () => candidates.find((candidate) => candidate.id === selectedId) ?? null,
     [candidates, selectedId],
@@ -410,6 +418,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
             <span>Approved {candidateStateCounts.approved}</span>
             <span>Rejected {candidateStateCounts.rejected}</span>
             <span>All {candidateStateCounts.all}</span>
+          </div>
+          <div className={styles.queueCounts} aria-label="Knowledge candidate risk totals">
+            <span>Low confidence {candidateRiskCounts.lowConfidence}</span>
+            <span>Unreviewed {candidateRiskCounts.unreviewed}</span>
+            <span>Cleanup approved {candidateRiskCounts.cleanupApproved}</span>
+            <span>Risk groups 3</span>
           </div>
           <div className={styles.queueQuickFilters} aria-label="Knowledge candidate quick filters">
             {(["candidate", "approved", "rejected", "all"] as Array<CandidateState | "all">).map((value) => (
