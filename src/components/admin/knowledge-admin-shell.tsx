@@ -295,6 +295,25 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyCandidateFilterHandoff() {
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge candidate queue handoff",
+          `- State: ${filter === "all" ? "All" : stateLabels[filter]}`,
+          `- Risk: ${candidateRiskFilterLabels[riskFilter]}`,
+          `- Sort: ${candidateSortLabels[candidateSort]}`,
+          `- Search: ${candidateSearch.trim() || "none"}`,
+          `- Showing: ${visibleCandidates.length}/${candidates.length}`,
+          `- Selected: ${selectedCandidate ? `${selectedCandidate.title} (${selectedCandidate.id})` : "none"}`,
+        ].join("\n"),
+      );
+      setStatus("Candidate filter handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the active filter chips manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -425,6 +444,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
             <button disabled={!hasCustomCandidateFilters} onClick={clearCandidateFilters} type="button">
               Clear candidate filters
             </button>
+            <button onClick={copyCandidateFilterHandoff} type="button">Copy filter handoff</button>
           </div>
           <label className={styles.queueSort}>
             Sort candidates
