@@ -266,6 +266,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
+  const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -449,6 +450,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setRiskFilter("all");
     setCandidateSearch("");
     setCandidateSort("newest");
+  }
+
+  function clearEvidenceFilters() {
+    setEvidenceSourceFilter("all");
+    setEvidencePriorityFilter("all");
   }
 
   return (
@@ -671,6 +677,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     {activeEvidenceFilterChips.map((chip) => (
                       <span key={chip}>{chip}</span>
                     ))}
+                  </div>
+                  <div className={styles.evidenceFilters}>
+                    <button
+                      className={styles.queueQuickFilter}
+                      disabled={!hasCustomEvidenceFilters}
+                      onClick={clearEvidenceFilters}
+                      type="button"
+                    >
+                      Clear evidence filters
+                    </button>
                   </div>
                   <div className={styles.evidenceList}>
                     {visibleEvidence.length ? visibleEvidence.map((evidence) => (
