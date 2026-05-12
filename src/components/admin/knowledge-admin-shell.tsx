@@ -61,6 +61,8 @@ type ApprovalGuardrail = {
   tone: "ready" | "warning";
 };
 
+type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
+
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
   pending_review: "검토 중",
@@ -76,6 +78,13 @@ const scopeLabels: Record<Scope, string> = {
   project: "프로젝트 전용",
 };
 
+const candidateRiskFilterLabels: Record<CandidateRiskFilter, string> = {
+  all: "All risk",
+  low_confidence: "Low confidence",
+  unreviewed: "Unreviewed",
+  cleanup_approved: "Cleanup approved",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -83,6 +92,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [status, setStatus] = useState("후보를 선택하세요.");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
+  const [riskFilter, setRiskFilter] = useState<CandidateRiskFilter>("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -101,6 +111,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       if (!stateMatches) {
         return false;
       }
+      const riskMatches =
+        riskFilter === "all" ||
+        (riskFilter === "low_confidence" && candidate.confidenceScore < 60) ||
+        (riskFilter === "unreviewed" && !candidate.reviewedAt) ||
+        (riskFilter === "cleanup_approved" && candidate.cleanupState === "approved");
+      if (!riskMatches) {
+        return false;
+      }
       if (!search) {
         return true;
       }
@@ -113,7 +131,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         candidate.tags.join(" "),
       ].some((value) => value.toLowerCase().includes(search));
     });
-  }, [candidateSearch, candidates, filter]);
+  }, [candidateSearch, candidates, filter, riskFilter]);
   const candidateStateCounts = useMemo(
     () => ({
       all: candidates.length,
@@ -333,6 +351,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 type="button"
               >
                 {value === "all" ? "All" : stateLabels[value]}
+              </button>
+            ))}
+          </div>
+          <div className={styles.queueQuickFilters} aria-label="Knowledge candidate risk quick filters">
+            {(["all", "low_confidence", "unreviewed", "cleanup_approved"] as CandidateRiskFilter[]).map((value) => (
+              <button
+                className={riskFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+                key={value}
+                onClick={() => setRiskFilter(value)}
+                type="button"
+              >
+                {candidateRiskFilterLabels[value]}
               </button>
             ))}
           </div>
