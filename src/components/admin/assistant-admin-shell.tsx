@@ -723,6 +723,7 @@ export function AssistantAdminShell() {
                     <ActionAuditGovernanceDetail
                       detail={actionAuditDetail}
                       loading={actionAuditDetailLoading}
+                      month={month}
                       noteCategory={governanceNoteCategory}
                       noteSaving={governanceNoteSaving}
                       noteText={governanceNoteText}
@@ -763,6 +764,7 @@ export function AssistantAdminShell() {
 function ActionAuditGovernanceDetail({
   detail,
   loading,
+  month,
   noteCategory,
   noteSaving,
   noteText,
@@ -772,6 +774,7 @@ function ActionAuditGovernanceDetail({
 }: {
   detail: AdminActionAuditDetail | null;
   loading: boolean;
+  month: string;
   noteCategory: GovernanceNoteCategory;
   noteSaving: boolean;
   noteText: string;
@@ -788,6 +791,7 @@ function ActionAuditGovernanceDetail({
   }
 
   const summary = detail.workSummaryDraft ?? detail.assistantRecord?.draftSummary ?? null;
+  const packageUrl = `/api/admin/assistant/action-audits/${encodeURIComponent(detail.audit.id)}/package?month=${encodeURIComponent(month)}`;
 
   return (
     <section className={styles.governanceDetail} aria-label="Assistant action governance detail">
@@ -796,7 +800,10 @@ function ActionAuditGovernanceDetail({
           <h4>Governance detail</h4>
           <p>{detail.rawAuditEvent.eventType} / {detail.rawAuditEvent.targetType}:{detail.rawAuditEvent.targetId ?? "-"}</p>
         </div>
-        <a href={detail.governance.dailyTaskUrl}>Open daily detail</a>
+        <div className={styles.governanceHeaderActions}>
+          <a download href={packageUrl}>Export package</a>
+          <a href={detail.governance.dailyTaskUrl}>Open daily detail</a>
+        </div>
       </div>
 
       <div className={styles.governanceGrid}>

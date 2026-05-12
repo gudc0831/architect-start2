@@ -400,6 +400,15 @@ export async function createAssistantActionAuditGovernanceNote(
   return note;
 }
 
+export async function exportAssistantActionAuditEvidencePackage(input: GetAssistantActionAuditDetailInput, user: AuthUser) {
+  const detail = await getAssistantActionAuditGovernanceDetail(input, user);
+
+  return {
+    filename: `assistant-action-audit-${detail.audit.id}.md`,
+    markdown: toAssistantActionAuditEvidencePackageMarkdown(detail),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -971,4 +980,122 @@ function formatCsvCell(value: string) {
   }
 
   return safeValue;
+}
+
+function toAssistantActionAuditEvidencePackageMarkdown(detail: AdminAssistantActionAuditDetail) {
+  const assistant = detail.assistantRecord;
+  const summary = detail.workSummaryDraft ?? assistant?.draftSummary ?? null;
+
+  return [
+    `# Assistant Action Audit Evidence Package`,
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    `Audit id: ${detail.audit.id}`,
+    `Action: ${detail.audit.action}`,
+    `Created at: ${detail.audit.createdAt}`,
+    `Actor id: ${detail.audit.createdBy ?? "-"}`,
+    `Daily task link: ${detail.governance.dailyTaskUrl}`,
+    "",
+    "## Audit Event",
+    "",
+    `- Event type: ${detail.rawAuditEvent.eventType}`,
+    `- Target: ${detail.rawAuditEvent.targetType}:${detail.rawAuditEvent.targetId ?? "-"}`,
+    `- Assistant record: ${detail.audit.assistantRecordId}`,
+    `- Status transition: ${detail.governance.statusTransition ?? "-"}`,
+    `- Decision marker: ${detail.governance.decisionMarker ?? "-"}`,
+    "",
+    "## Assistant Record",
+    "",
+    assistant
+      ? [
+          `- ID: ${assistant.id}`,
+          `- Task ID: ${assistant.taskId}`,
+          `- Execution: ${assistant.executionMode} / ${assistant.runtimeMode}`,
+          `- Confidence: ${assistant.confidenceScore}%`,
+          `- Confidence reason: ${assistant.confidenceReason || "-"}`,
+          `- Evidence count: ${assistant.evidence.length}`,
+          `- Cleanup state: ${assistant.cleanupState}`,
+          `- Candidate state: ${assistant.candidateState}`,
+          "",
+          "### Question",
+          "",
+          formatMarkdownBlock(assistant.question),
+          "",
+          "### Answer",
+          "",
+          formatMarkdownBlock(assistant.answer),
+        ].join("\n")
+      : "Assistant record was not available.",
+    "",
+    "## Closure Fields",
+    "",
+    `- State: ${detail.governance.closureState}`,
+    `- Conclusion: ${summary?.conclusion || "-"}`,
+    `- Scope: ${summary?.scope || "-"}`,
+    `- Follow-up: ${summary?.followUpAction || "-"}`,
+    `- Tags: ${summary?.tags?.join(", ") || "-"}`,
+    "",
+    "## Task Snapshots",
+    "",
+    formatTaskSnapshotMarkdown("Source", detail.tasks.source),
+    "",
+    formatTaskSnapshotMarkdown("Target", detail.tasks.target),
+    "",
+    formatTaskSnapshotMarkdown("Created", detail.tasks.created),
+    "",
+    "## Provenance",
+    "",
+    detail.governance.provenance.length
+      ? detail.governance.provenance.map((item) => `- ${item}`).join("\n")
+      : "- No provenance entries.",
+    "",
+    "## Governance Notes",
+    "",
+    detail.governanceNotes.length
+      ? detail.governanceNotes
+          .map(
+            (note) =>
+              [`### ${note.category}`, "", `- Note id: ${note.id}`, `- Reviewer: ${note.reviewerId ?? "-"}`, `- Created at: ${note.createdAt}`, "", formatMarkdownBlock(note.note)].join("\n"),
+          )
+          .join("\n\n")
+      : "No governance notes have been added.",
+    "",
+    "## Raw Audit Metadata",
+    "",
+    "```json",
+    JSON.stringify(detail.rawAuditEvent.metadata, null, 2),
+    "```",
+    "",
+  ].join("\n");
+}
+
+function formatTaskSnapshotMarkdown(label: string, task: AdminAssistantActionAuditTaskSnapshot | null) {
+  if (!task) {
+    return `### ${label}\n\nTask snapshot was not available.`;
+  }
+
+  return [
+    `### ${label}`,
+    "",
+    `- ID: ${task.id}`,
+    `- Label: ${task.label}`,
+    `- Title: ${task.title}`,
+    `- Status: ${task.status}`,
+    `- Updated at: ${task.updatedAt}`,
+    "",
+    "Decision:",
+    "",
+    formatMarkdownBlock(task.decision || "-"),
+    "",
+    "Status history:",
+    "",
+    formatMarkdownBlock(task.statusHistory || "-"),
+  ].join("\n");
+}
+
+function formatMarkdownBlock(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
 }
