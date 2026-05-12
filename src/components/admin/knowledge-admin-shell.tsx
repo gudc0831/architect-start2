@@ -132,6 +132,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       ].some((value) => value.toLowerCase().includes(search));
     });
   }, [candidateSearch, candidates, filter, riskFilter]);
+  const activeCandidateFilterChips = useMemo(() => {
+    const search = candidateSearch.trim();
+    return [
+      `State: ${filter === "all" ? "All" : stateLabels[filter]}`,
+      `Risk: ${candidateRiskFilterLabels[riskFilter]}`,
+      search ? `Search: ${search}` : "Search: none",
+      `Showing: ${visibleCandidates.length}/${candidates.length}`,
+    ];
+  }, [candidateSearch, candidates.length, filter, riskFilter, visibleCandidates.length]);
   const candidateStateCounts = useMemo(
     () => ({
       all: candidates.length,
@@ -364,6 +373,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               >
                 {candidateRiskFilterLabels[value]}
               </button>
+            ))}
+          </div>
+          <div className={styles.queueFilterSummary} aria-label="Knowledge candidate active filter chips">
+            {activeCandidateFilterChips.map((chip) => (
+              <span key={chip}>{chip}</span>
             ))}
           </div>
           <label className={styles.queueSearch}>
