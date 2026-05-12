@@ -175,6 +175,28 @@
   font-weight: 800;
 }
 
+.queueFilterActions {
+  display: flex;
+  padding: 0 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+}
+
+.queueFilterActions button {
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.queueFilterActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .queueSearch {
   display: grid;
   gap: 0.35rem;

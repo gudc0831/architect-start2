@@ -174,6 +174,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
+  const hasCustomCandidateFilters =
+    filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -320,6 +322,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  function clearCandidateFilters() {
+    setFilter("candidate");
+    setRiskFilter("all");
+    setCandidateSearch("");
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -379,6 +387,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
             {activeCandidateFilterChips.map((chip) => (
               <span key={chip}>{chip}</span>
             ))}
+          </div>
+          <div className={styles.queueFilterActions}>
+            <button disabled={!hasCustomCandidateFilters} onClick={clearCandidateFilters} type="button">
+              Clear candidate filters
+            </button>
           </div>
           <label className={styles.queueSearch}>
             Search candidates
