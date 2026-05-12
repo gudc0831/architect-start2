@@ -600,6 +600,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     {detail.evidence.length ? detail.evidence.map((evidence) => (
                       <article className={styles.evidence} key={evidence.id}>
                         <span>{evidence.kind}</span>
+                        <span>{readEvidencePriorityTier(evidence.priority)} / Priority {evidence.priority}</span>
                         <strong>{evidence.title}</strong>
                         <p>{evidence.excerpt}</p>
                         {evidence.sourceUrl ? (
