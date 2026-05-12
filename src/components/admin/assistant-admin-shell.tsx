@@ -462,6 +462,7 @@ export function AssistantAdminShell() {
   const [cleanupReviewNoteCleanupId, setCleanupReviewNoteCleanupId] = useState("");
   const [cleanupReviewStaleDays, setCleanupReviewStaleDays] = useState(7);
   const [cleanupReviewCoveragePreset, setCleanupReviewCoveragePreset] = useState<CleanupReviewCoveragePreset>("all");
+  const [cleanupReviewQueueDensity, setCleanupReviewQueueDensity] = useState<"detailed" | "compact">("detailed");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -1824,6 +1825,12 @@ export function AssistantAdminShell() {
                 <button onClick={showReviewedCleanupCoverage} type="button">
                   Show reviewed cleanup
                 </button>
+                <button
+                  onClick={() => setCleanupReviewQueueDensity((current) => (current === "detailed" ? "compact" : "detailed"))}
+                  type="button"
+                >
+                  {cleanupReviewQueueDensity === "detailed" ? "Compact queue" : "Detailed queue"}
+                </button>
               </div>
             </div>
 
@@ -2025,24 +2032,26 @@ export function AssistantAdminShell() {
                           <span>{item.reviewerIds.length} reviewers</span>
                           <span>{item.staleThresholdDays} day threshold</span>
                         </div>
-                        <dl>
-                          <div>
-                            <dt>Cleanup audit</dt>
-                            <dd>{item.cleanupId}</dd>
-                          </div>
-                          <div>
-                            <dt>Reviewers</dt>
-                            <dd>{item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}</dd>
-                          </div>
-                          <div>
-                            <dt>Cleanup counts</dt>
-                            <dd>{item.deletedCount} deleted / {item.skippedCount} skipped</dd>
-                          </div>
-                          <div>
-                            <dt>Cutoff</dt>
-                            <dd>{formatDate(item.cutoffAt)}</dd>
-                          </div>
-                        </dl>
+                        {cleanupReviewQueueDensity === "detailed" ? (
+                          <dl>
+                            <div>
+                              <dt>Cleanup audit</dt>
+                              <dd>{item.cleanupId}</dd>
+                            </div>
+                            <div>
+                              <dt>Reviewers</dt>
+                              <dd>{item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}</dd>
+                            </div>
+                            <div>
+                              <dt>Cleanup counts</dt>
+                              <dd>{item.deletedCount} deleted / {item.skippedCount} skipped</dd>
+                            </div>
+                            <div>
+                              <dt>Cutoff</dt>
+                              <dd>{formatDate(item.cutoffAt)}</dd>
+                            </div>
+                          </dl>
+                        ) : null}
                         {selectedCleanupId === item.cleanupId ? (
                           <AuditCleanupDetailPanel
                             detail={auditCleanupDetail}
