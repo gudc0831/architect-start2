@@ -1830,7 +1830,24 @@ export function AssistantAdminShell() {
                   <p>{cleanupReviewNoteSummary.categoryCounts.length ? cleanupReviewNoteSummary.categoryCounts.map((item) => `${governanceNoteLabel(item.category)} ${item.count}`).join(" / ") : "-"}</p>
                 </DetailBlock>
                 <DetailBlock title="Reviewer counts">
-                  <p>{cleanupReviewNoteSummary.reviewerCounts.length ? cleanupReviewNoteSummary.reviewerCounts.map((item) => `${item.reviewerId ?? "-"} ${item.count}`).join(" / ") : "-"}</p>
+                  {cleanupReviewNoteSummary.reviewerCounts.length ? (
+                    <div className={styles.quickFilterList}>
+                      {cleanupReviewNoteSummary.reviewerCounts.map((item) => (
+                        <button
+                          key={item.reviewerId ?? "unknown-reviewer"}
+                          onClick={() => setCleanupReviewNoteReviewer(item.reviewerId ?? "")}
+                          type="button"
+                        >
+                          {item.reviewerId ?? "-"} {item.count}
+                        </button>
+                      ))}
+                      <button onClick={() => setCleanupReviewNoteReviewer("")} type="button">
+                        All reviewers
+                      </button>
+                    </div>
+                  ) : (
+                    <p>-</p>
+                  )}
                 </DetailBlock>
                 <DetailBlock title="Filter handoff">
                   <p>{cleanupReviewCoverageHandoffText}</p>
