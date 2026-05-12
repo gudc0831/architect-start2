@@ -210,6 +210,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     return Array.from(counts.entries());
   }, [detail?.evidence]);
+  const evidenceSourceCoverage = useMemo(() => {
+    const evidence = detail?.evidence ?? [];
+    const sourced = evidence.filter((item) => Boolean(item.sourceUrl)).length;
+    return {
+      sourced,
+      unsourced: evidence.length - sourced,
+      total: evidence.length,
+    };
+  }, [detail?.evidence]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -675,6 +684,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   ) : (
                     <span>No evidence priority</span>
                   )}
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge evidence source coverage">
+                  <span>Sourced {evidenceSourceCoverage.sourced}</span>
+                  <span>Unsourced {evidenceSourceCoverage.unsourced}</span>
+                  <span>Total evidence {evidenceSourceCoverage.total}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge draft length counters">
                   <span>Title {draft.title.trim().length} chars</span>
