@@ -249,6 +249,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       return sourceMatches && priorityMatches;
     });
   }, [detail?.evidence, evidencePriorityFilter, evidenceSourceFilter]);
+  const activeEvidenceFilterChips = useMemo(() => {
+    const total = detail?.evidence.length ?? 0;
+    return [
+      `Source: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
+      `Priority: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
+      `Visible: ${visibleEvidence.length}/${total}`,
+    ];
+  }, [detail?.evidence.length, evidencePriorityFilter, evidenceSourceFilter, visibleEvidence.length]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -657,6 +665,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       >
                         {evidencePriorityFilterLabels[value]}
                       </button>
+                    ))}
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Knowledge active evidence filter chips">
+                    {activeEvidenceFilterChips.map((chip) => (
+                      <span key={chip}>{chip}</span>
                     ))}
                   </div>
                   <div className={styles.evidenceList}>
