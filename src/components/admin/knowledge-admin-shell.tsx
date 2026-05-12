@@ -146,6 +146,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
+  const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -444,6 +445,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </select>
                   </div>
                 </div>
+                <section
+                  className={reviewStatus.tone === "ready" ? styles.reviewBannerReady : styles.reviewBannerWarning}
+                  aria-label="Knowledge review status banner"
+                >
+                  <strong>{reviewStatus.label}</strong>
+                  <p>{reviewStatus.detail}</p>
+                </section>
                 <div className={styles.sourceChips} aria-label="Knowledge draft source references">
                   <span>Task {detail.taskIssueId}</span>
                   <span>Record {detail.id.slice(0, 8)}</span>
@@ -720,6 +728,30 @@ function readConfidenceBand(score: number) {
     return "medium";
   }
   return "low";
+}
+
+function readReviewStatus(warnings: number, readyCount: number, totalCount: number): ApprovalGuardrail {
+  if (readyCount < totalCount) {
+    return {
+      label: "Review incomplete",
+      detail: `${readyCount}/${totalCount} readiness items are complete. Resolve missing draft inputs before approval.`,
+      tone: "warning",
+    };
+  }
+
+  if (warnings > 0) {
+    return {
+      label: "Review with caution",
+      detail: `${warnings} guardrail warning${warnings === 1 ? "" : "s"} need review before approval.`,
+      tone: "warning",
+    };
+  }
+
+  return {
+    label: "Ready for approval review",
+    detail: "Readiness fields are complete and no guardrail warnings are active.",
+    tone: "ready",
+  };
 }
 
 function formatDate(value: string) {
