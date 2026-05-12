@@ -231,6 +231,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovalChecklist() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        createApprovalChecklist(detail, draftReadiness, approvalGuardrails, evidenceKindCounts),
+      );
+      setStatus("Approval checklist copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the guardrails manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -417,6 +432,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       Copy Markdown
                     </button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
+                    <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <select
                       aria-label="공개 범위"
                       value={draft.scope}
@@ -620,6 +636,29 @@ function createSourceHandoff(
     `Confidence: ${detail.confidenceScore}%`,
     `Evidence: ${detail.evidence.length}`,
     `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+  ].join("\n");
+}
+
+function createApprovalChecklist(
+  detail: CandidateDetail,
+  readiness: Array<{ label: string; ready: boolean }>,
+  guardrails: ApprovalGuardrail[],
+  evidenceKindCounts: Array<[string, number]>,
+) {
+  return [
+    "Knowledge approval checklist",
+    `Record: ${detail.id}`,
+    `Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `State: ${detail.state}`,
+    `Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `Evidence: ${detail.evidence.length}`,
+    `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "",
+    "Readiness",
+    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Missing"} ${item.label}`),
+    "",
+    "Guardrails",
+    ...guardrails.map((item) => `- ${item.tone}: ${item.label} - ${item.detail}`),
   ].join("\n");
 }
 
