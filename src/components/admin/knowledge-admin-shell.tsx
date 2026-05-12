@@ -205,6 +205,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copySourceHandoff() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createSourceHandoff(detail, draft, evidenceKindCounts));
+      setStatus("Source handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Use the source chips to assemble the handoff manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -390,6 +403,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button disabled={!draft.bodyMarkdown.trim()} onClick={copyDraftMarkdown} type="button">
                       Copy Markdown
                     </button>
+                    <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <select
                       aria-label="공개 범위"
                       value={draft.scope}
@@ -545,6 +559,25 @@ function createDraftFromDetail(detail: CandidateDetail) {
     scope: detail.wikiDraft.scope,
     rejectionReason: detail.review?.rejectionReason ?? "",
   };
+}
+
+function createSourceHandoff(
+  detail: CandidateDetail,
+  draft: ReturnType<typeof createDraftFromDetail>,
+  evidenceKindCounts: Array<[string, number]>,
+) {
+  return [
+    "Knowledge candidate handoff",
+    `Record: ${detail.id}`,
+    `Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `Project: ${detail.projectName}`,
+    `State: ${detail.state}`,
+    `Review: ${detail.review?.status ?? "pending"}`,
+    `Scope: ${draft.scope}`,
+    `Confidence: ${detail.confidenceScore}%`,
+    `Evidence: ${detail.evidence.length}`,
+    `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+  ].join("\n");
 }
 
 function formatDate(value: string) {
