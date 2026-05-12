@@ -428,6 +428,13 @@
   gap: 0.6rem;
 }
 
+.evidenceFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
 .evidence {
   display: grid;
   gap: 0.25rem;

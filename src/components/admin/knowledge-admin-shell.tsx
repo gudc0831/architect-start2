@@ -63,6 +63,7 @@ type ApprovalGuardrail = {
 
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
 type CandidateSort = "newest" | "low_confidence";
+type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
 
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
@@ -91,6 +92,12 @@ const candidateSortLabels: Record<CandidateSort, string> = {
   low_confidence: "Low confidence first",
 };
 
+const evidenceSourceFilterLabels: Record<EvidenceSourceFilter, string> = {
+  all: "All evidence",
+  sourced: "Sourced",
+  unsourced: "Unsourced",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -101,6 +108,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [riskFilter, setRiskFilter] = useState<CandidateRiskFilter>("all");
   const [candidateSort, setCandidateSort] = useState<CandidateSort>("newest");
   const [candidateQueueCompact, setCandidateQueueCompact] = useState(false);
+  const [evidenceSourceFilter, setEvidenceSourceFilter] = useState<EvidenceSourceFilter>("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -219,6 +227,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       total: evidence.length,
     };
   }, [detail?.evidence]);
+  const visibleEvidence = useMemo(() => {
+    const evidence = detail?.evidence ?? [];
+    if (evidenceSourceFilter === "sourced") {
+      return evidence.filter((item) => Boolean(item.sourceUrl));
+    }
+    if (evidenceSourceFilter === "unsourced") {
+      return evidence.filter((item) => !item.sourceUrl);
+    }
+    return evidence;
+  }, [detail?.evidence, evidenceSourceFilter]);
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(draftReadiness, detail),
     [detail, draftReadiness],
@@ -605,8 +623,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
                 <div className={styles.panel}>
                   <h3>근거</h3>
+                  <div className={styles.evidenceFilters} aria-label="Knowledge evidence source filters">
+                    {(["all", "sourced", "unsourced"] as EvidenceSourceFilter[]).map((value) => (
+                      <button
+                        className={evidenceSourceFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+                        key={value}
+                        onClick={() => setEvidenceSourceFilter(value)}
+                        type="button"
+                      >
+                        {evidenceSourceFilterLabels[value]}
+                      </button>
+                    ))}
+                  </div>
                   <div className={styles.evidenceList}>
-                    {detail.evidence.length ? detail.evidence.map((evidence) => (
+                    {visibleEvidence.length ? visibleEvidence.map((evidence) => (
                       <article className={styles.evidence} key={evidence.id}>
                         <span>{evidence.kind}</span>
                         <span>{readEvidencePriorityTier(evidence.priority)} / Priority {evidence.priority}</span>
@@ -618,7 +648,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </a>
                         ) : null}
                       </article>
-                    )) : <p className={styles.empty}>저장된 근거가 없습니다.</p>}
+                    )) : <p className={styles.empty}>No evidence matches the active source filter.</p>}
                   </div>
                 </div>
               </section>
