@@ -249,9 +249,18 @@
   gap: 1rem;
 }
 
+.actionAuditTools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .actionAuditHeader h3,
 .actionAuditHeader p,
-.actionAuditHeader span {
+.actionAuditHeader span,
+.actionAuditTools a {
   margin: 0;
 }
 
@@ -263,6 +272,22 @@
 }
 
 .actionAuditHeader span {
+  white-space: nowrap;
+}
+
+.actionAuditTools a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-secondary-button);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
   white-space: nowrap;
 }
 
@@ -447,6 +472,14 @@
   .actionAuditHeader,
   .actionAuditCard header {
     display: grid;
+  }
+
+  .actionAuditTools {
+    justify-content: stretch;
+  }
+
+  .actionAuditTools a {
+    width: 100%;
   }
 
   .headerActions,

@@ -177,6 +177,21 @@ export async function getAssistantActionAuditReview(input: GetAssistantActionAud
   };
 }
 
+export async function exportAssistantActionAuditReview(input: GetAssistantActionAuditReviewInput, user: AuthUser) {
+  const review = await getAssistantActionAuditReview(
+    {
+      ...input,
+      limit: input.limit ?? "500",
+    },
+    user,
+  );
+
+  return {
+    filename: `assistant-action-audits-${review.month}.csv`,
+    csv: toActionAuditCsv(review.events),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -596,4 +611,67 @@ function actionAuditMatchesTaskQuery(record: AdminAssistantActionAuditRecord, ta
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(taskQuery));
+}
+
+function toActionAuditCsv(records: AdminAssistantActionAuditRecord[]) {
+  const headers = [
+    "audit_id",
+    "action",
+    "created_at",
+    "actor_id",
+    "source_task_id",
+    "source_task_label",
+    "source_task_title",
+    "target_task_id",
+    "target_task_label",
+    "target_task_title",
+    "created_task_id",
+    "created_task_label",
+    "created_task_title",
+    "assistant_record_id",
+    "daily_task_url",
+    "status_from",
+    "status_to",
+    "conclusion",
+    "scope",
+    "follow_up_action",
+    "tags",
+    "decision_marker",
+  ];
+
+  const rows = records.map((record) => [
+    record.id,
+    record.action,
+    record.createdAt,
+    record.createdBy ?? "",
+    record.sourceTaskId,
+    record.sourceTaskLabel ?? "",
+    record.sourceTaskTitle ?? "",
+    record.targetTaskId,
+    record.targetTaskLabel ?? "",
+    record.targetTaskTitle ?? "",
+    record.createdTaskId ?? "",
+    record.createdTaskLabel ?? "",
+    record.createdTaskTitle ?? "",
+    record.assistantRecordId,
+    record.dailyTaskUrl,
+    record.statusFrom ?? "",
+    record.statusTo ?? "",
+    record.summary?.conclusion ?? "",
+    record.summary?.scope ?? "",
+    record.summary?.followUpAction ?? "",
+    record.summary?.tags.join("; ") ?? "",
+    record.decisionMarker ?? "",
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function formatCsvCell(value: string) {
+  const safeValue = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  if (/[",\r\n]/.test(safeValue)) {
+    return `"${safeValue.replace(/"/g, '""')}"`;
+  }
+
+  return safeValue;
 }

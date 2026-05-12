@@ -182,6 +182,7 @@ export function AssistantAdminShell() {
     }
     return params.toString();
   }, [actionAuditAction, actionAuditActorId, actionAuditRecordId, actionAuditTask, month]);
+  const actionAuditExportUrl = `/api/admin/assistant/action-audits/export?${actionAuditQuery}`;
 
   useEffect(() => {
     void refreshProjects();
@@ -477,7 +478,12 @@ export function AssistantAdminShell() {
                 <h3>Assistant action audits</h3>
                 <p>Approved assistant task changes with task, assistant record, actor, and daily task links.</p>
               </div>
-              <span>{actionAuditLoading ? "Loading" : `${actionAudits.length} records`}</span>
+              <div className={styles.actionAuditTools}>
+                <span>{actionAuditLoading ? "Loading" : `${actionAudits.length} records`}</span>
+                <a download href={actionAuditExportUrl}>
+                  Export CSV
+                </a>
+              </div>
             </div>
 
             <div className={styles.filterGrid}>
