@@ -299,6 +299,18 @@ type AuditCleanupDetail = {
     previewRetentionDays: number;
     requestedEligibleCount: number;
   };
+  reviewNotes: AuditCleanupReviewNote[];
+};
+
+type AuditCleanupReviewNote = {
+  id: string;
+  sourceCleanupId: string;
+  sourceCleanupMonth: string;
+  sourceArchivePreviewToken: string;
+  category: GovernanceNoteCategory;
+  note: string;
+  reviewerId: string | null;
+  createdAt: string;
 };
 
 type AdminActionAuditTaskSnapshot = {
@@ -385,6 +397,8 @@ export function AssistantAdminShell() {
   const [governanceReportDetail, setGovernanceReportDetail] = useState<AdminActionAuditDetail | null>(null);
   const [governanceNoteCategory, setGovernanceNoteCategory] = useState<GovernanceNoteCategory>("review_note");
   const [governanceNoteText, setGovernanceNoteText] = useState("");
+  const [cleanupReviewNoteCategory, setCleanupReviewNoteCategory] = useState<GovernanceNoteCategory>("review_note");
+  const [cleanupReviewNoteText, setCleanupReviewNoteText] = useState("");
   const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
   const [actionAuditLoading, setActionAuditLoading] = useState(false);
@@ -397,6 +411,7 @@ export function AssistantAdminShell() {
   const [auditCleanupDetailLoading, setAuditCleanupDetailLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
+  const [cleanupReviewNoteSaving, setCleanupReviewNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
@@ -829,11 +844,14 @@ export function AssistantAdminShell() {
     if (selectedCleanupId === cleanupId) {
       setSelectedCleanupId(null);
       setAuditCleanupDetail(null);
+      setCleanupReviewNoteText("");
       return;
     }
 
     setSelectedCleanupId(cleanupId);
     setAuditCleanupDetail(null);
+    setCleanupReviewNoteCategory("review_note");
+    setCleanupReviewNoteText("");
     setAuditCleanupDetailLoading(true);
     try {
       const detail = await readJson<AuditCleanupDetail>(
@@ -844,6 +862,43 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Assistant audit cleanup detail failed.");
     } finally {
       setAuditCleanupDetailLoading(false);
+    }
+  }
+
+  async function saveCleanupReviewNote() {
+    if (!selectedCleanupId) {
+      setStatus("Select a cleanup before adding a review note.");
+      return;
+    }
+    if (!cleanupReviewNoteText.trim()) {
+      setStatus("Cleanup review note text is required.");
+      return;
+    }
+
+    setCleanupReviewNoteSaving(true);
+    try {
+      const note = await writeJson<AuditCleanupReviewNote>(
+        `/api/admin/assistant/audit-cleanups/${encodeURIComponent(selectedCleanupId)}/notes?month=${encodeURIComponent(month)}`,
+        {
+          category: cleanupReviewNoteCategory,
+          note: cleanupReviewNoteText.trim(),
+        },
+        "POST",
+      );
+      setAuditCleanupDetail((current) =>
+        current && current.cleanup.id === selectedCleanupId
+          ? {
+              ...current,
+              reviewNotes: [note, ...current.reviewNotes],
+            }
+          : current,
+      );
+      setCleanupReviewNoteText("");
+      setStatus("Cleanup review note saved.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Cleanup review note 저장에 실패했습니다.");
+    } finally {
+      setCleanupReviewNoteSaving(false);
     }
   }
 
@@ -1482,7 +1537,16 @@ export function AssistantAdminShell() {
                     </div>
                   </dl>
                   {selectedCleanupId === cleanup.id ? (
-                    <AuditCleanupDetailPanel detail={auditCleanupDetail} loading={auditCleanupDetailLoading} />
+                    <AuditCleanupDetailPanel
+                      detail={auditCleanupDetail}
+                      loading={auditCleanupDetailLoading}
+                      noteCategory={cleanupReviewNoteCategory}
+                      noteSaving={cleanupReviewNoteSaving}
+                      noteText={cleanupReviewNoteText}
+                      onNoteCategoryChange={setCleanupReviewNoteCategory}
+                      onNoteTextChange={setCleanupReviewNoteText}
+                      onSaveNote={() => void saveCleanupReviewNote()}
+                    />
                   ) : null}
                 </article>
               ))}
@@ -1650,7 +1714,25 @@ function ActionAuditGovernanceDetail({
   );
 }
 
-function AuditCleanupDetailPanel({ detail, loading }: { detail: AuditCleanupDetail | null; loading: boolean }) {
+function AuditCleanupDetailPanel({
+  detail,
+  loading,
+  noteCategory,
+  noteSaving,
+  noteText,
+  onNoteCategoryChange,
+  onNoteTextChange,
+  onSaveNote,
+}: {
+  detail: AuditCleanupDetail | null;
+  loading: boolean;
+  noteCategory: GovernanceNoteCategory;
+  noteSaving: boolean;
+  noteText: string;
+  onNoteCategoryChange: (category: GovernanceNoteCategory) => void;
+  onNoteTextChange: (text: string) => void;
+  onSaveNote: () => void;
+}) {
   if (loading) {
     return <p>Loading cleanup detail...</p>;
   }
@@ -1687,6 +1769,47 @@ function AuditCleanupDetailPanel({ detail, loading }: { detail: AuditCleanupDeta
       <DetailBlock title="Skipped ids">
         <p>{detail.cleanup.skippedIds.length ? detail.cleanup.skippedIds.join(", ") : "-"}</p>
       </DetailBlock>
+      <div className={styles.governanceNotes}>
+        <div className={styles.governanceNoteForm}>
+          <label className={styles.field}>
+            <span>Note category</span>
+            <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
+              {governanceNoteOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span>Cleanup review note</span>
+            <textarea
+              maxLength={1200}
+              onChange={(event) => onNoteTextChange(event.target.value)}
+              placeholder="Append a cleanup review note"
+              rows={3}
+              value={noteText}
+            />
+          </label>
+          <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
+            {noteSaving ? "Saving..." : "Add cleanup note"}
+          </button>
+        </div>
+        <div className={styles.governanceNoteList}>
+          <span>Cleanup review notes</span>
+          {detail.reviewNotes.length ? (
+            detail.reviewNotes.map((note) => (
+              <article key={note.id}>
+                <strong>{governanceNoteLabel(note.category)}</strong>
+                <small>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</small>
+                <p>{note.note}</p>
+              </article>
+            ))
+          ) : (
+            <p>No cleanup review notes have been added.</p>
+          )}
+        </div>
+      </div>
       <DetailBlock title="Raw metadata">
         <pre>{JSON.stringify(detail.rawAuditEvent.metadata, null, 2)}</pre>
       </DetailBlock>

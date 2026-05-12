@@ -110,6 +110,11 @@ type GetAssistantAuditCleanupDetailInput = {
   month?: string | null;
 };
 
+type CreateAssistantAuditCleanupReviewNoteInput = GetAssistantAuditCleanupDetailInput & {
+  category?: unknown;
+  note?: unknown;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -312,6 +317,18 @@ export type AdminAssistantAuditCleanupDetail = {
     previewRetentionDays: number;
     requestedEligibleCount: number;
   };
+  reviewNotes: AssistantAuditCleanupReviewNote[];
+};
+
+export type AssistantAuditCleanupReviewNote = {
+  id: string;
+  sourceCleanupId: string;
+  sourceCleanupMonth: string;
+  sourceArchivePreviewToken: string;
+  category: AssistantActionAuditGovernanceNoteCategory;
+  note: string;
+  reviewerId: string | null;
+  createdAt: string;
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -888,6 +905,12 @@ export async function getAssistantAuditCleanupDetail(
     throw notFound("Assistant audit cleanup record not found.", "ASSISTANT_AUDIT_CLEANUP_NOT_FOUND");
   }
 
+  const reviewNotes = events
+    .map(toCleanupReviewNote)
+    .filter((note): note is AssistantAuditCleanupReviewNote => Boolean(note))
+    .filter((note) => note.sourceCleanupId === cleanup.id)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
   return {
     cleanup,
     rawAuditEvent: {
@@ -904,6 +927,7 @@ export async function getAssistantAuditCleanupDetail(
       previewRetentionDays: cleanup.previewRetentionDays,
       requestedEligibleCount: cleanup.requestedEligibleCount,
     },
+    reviewNotes,
   };
 }
 
@@ -914,6 +938,35 @@ export async function exportAssistantAuditCleanupPackage(input: GetAssistantAudi
     filename: `assistant-audit-cleanup-${detail.cleanup.id}.md`,
     markdown: toCleanupDetailMarkdown(detail),
   };
+}
+
+export async function createAssistantAuditCleanupReviewNote(
+  input: CreateAssistantAuditCleanupReviewNoteInput,
+  user: AuthUser,
+): Promise<AssistantAuditCleanupReviewNote> {
+  const detail = await getAssistantAuditCleanupDetail(input, user);
+  const event = await assistantRepository.createAuditEvent({
+    projectId: detail.cleanup.projectId,
+    profileId: user.id,
+    eventType: "assistant.audit_cleanup_review_note.created",
+    targetType: "assistant_audit_retention_cleanup",
+    targetId: detail.cleanup.id,
+    metadata: {
+      sourceCleanupId: detail.cleanup.id,
+      sourceCleanupMonth: detail.cleanup.createdAt.slice(0, 7),
+      sourceArchivePreviewToken: detail.cleanup.archivePreviewToken,
+      category: normalizeGovernanceNoteCategory(input.category),
+      note: normalizeGovernanceNoteText(input.note),
+      reviewerId: user.id,
+    },
+  });
+
+  const note = toCleanupReviewNote(event);
+  if (!note) {
+    throw badRequest("Cleanup review note could not be normalized.", "ASSISTANT_AUDIT_CLEANUP_REVIEW_NOTE_INVALID");
+  }
+
+  return note;
 }
 
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
@@ -1531,6 +1584,39 @@ function toCleanupHistoryItem(event: {
   };
 }
 
+function toCleanupReviewNote(event: {
+  id: string;
+  eventType: string;
+  targetId: string | null;
+  profileId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}): AssistantAuditCleanupReviewNote | null {
+  if (event.eventType !== "assistant.audit_cleanup_review_note.created") {
+    return null;
+  }
+
+  const sourceCleanupId = normalizeOptionalText(event.metadata.sourceCleanupId) || normalizeOptionalText(event.targetId);
+  const sourceCleanupMonth = normalizeOptionalText(event.metadata.sourceCleanupMonth) || event.createdAt.slice(0, 7);
+  const sourceArchivePreviewToken = normalizeOptionalText(event.metadata.sourceArchivePreviewToken);
+  const category = readGovernanceNoteCategory(event.metadata.category);
+  const note = normalizeOptionalText(event.metadata.note);
+  if (!sourceCleanupId || !sourceArchivePreviewToken || !category || !note) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    sourceCleanupId,
+    sourceCleanupMonth,
+    sourceArchivePreviewToken,
+    category,
+    note,
+    reviewerId: normalizeOptionalText(event.metadata.reviewerId) || event.profileId,
+    createdAt: event.createdAt,
+  };
+}
+
 function normalizeOptionalIsoDate(value: unknown) {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -1781,6 +1867,17 @@ function toCleanupDetailMarkdown(detail: AdminAssistantAuditCleanupDetail) {
     "## Skipped IDs",
     "",
     cleanup.skippedIds.length ? cleanup.skippedIds.map((id) => `- ${id}`).join("\n") : "- None",
+    "",
+    "## Cleanup Review Notes",
+    "",
+    detail.reviewNotes.length
+      ? detail.reviewNotes
+          .map(
+            (note) =>
+              [`### ${note.category}`, "", `- Note id: ${note.id}`, `- Reviewer: ${note.reviewerId ?? "-"}`, `- Created at: ${note.createdAt}`, "", formatMarkdownBlock(note.note)].join("\n"),
+          )
+          .join("\n\n")
+      : "No cleanup review notes have been added.",
     "",
     "## Raw Cleanup Audit Metadata",
     "",
