@@ -78,6 +78,12 @@ type GetAssistantActionAuditGovernanceNoteReportInput = {
   assistantRecordId?: string | null;
 };
 
+type GetAssistantAuditRetentionPreviewInput = {
+  projectId?: string | null;
+  retentionDays?: string | null;
+  limit?: string | null;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -169,6 +175,40 @@ export type AdminAssistantActionAuditGovernanceNoteReportItem = AssistantActionA
   createdTaskLabel: string | null;
   createdTaskTitle: string | null;
   dailyTaskUrl: string;
+};
+
+export type AdminAssistantAuditRetentionMonthCount = {
+  month: string;
+  total: number;
+  eligible: number;
+  actionAuditCount: number;
+  governanceNoteCount: number;
+};
+
+export type AdminAssistantAuditRetentionArchiveItem = {
+  id: string;
+  eventType: string;
+  targetType: string;
+  targetId: string | null;
+  profileId: string | null;
+  createdAt: string;
+  month: string;
+  rawMetadata: Record<string, unknown>;
+  actionAudit: AdminAssistantActionAuditRecord | null;
+  governanceNote: AdminAssistantActionAuditGovernanceNoteReportItem | null;
+};
+
+export type AdminAssistantAuditRetentionPreview = {
+  projectId: string;
+  generatedAt: string;
+  policyRetentionDays: number;
+  previewRetentionDays: number;
+  cutoffAt: string;
+  totalRelevantEvents: number;
+  eligibleCount: number;
+  protectedCount: number;
+  countsByMonth: AdminAssistantAuditRetentionMonthCount[];
+  archiveItems: AdminAssistantAuditRetentionArchiveItem[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -499,6 +539,65 @@ export async function exportAssistantActionAuditGovernanceNoteReport(
   return {
     filename: `assistant-governance-notes-${report.month}.csv`,
     csv: toGovernanceNoteCsv(report.notes),
+  };
+}
+
+export async function getAssistantAuditRetentionPreview(
+  input: GetAssistantAuditRetentionPreviewInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditRetentionPreview> {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const policy = await getStoredOrDefaultPolicy(projectId);
+  const previewRetentionDays = normalizePositiveInteger(input.retentionDays, policy.retentionDays, 0, 3650);
+  const limit = normalizePositiveInteger(input.limit, 500, 1, 500);
+  const generatedAt = new Date();
+  const cutoffAt = new Date(generatedAt.getTime() - previewRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const [events, tasks] = await Promise.all([
+    assistantRepository.listAuditEvents({ projectId, limit }),
+    taskRepository.listActiveTasks(projectId),
+  ]);
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const sourceRecordById = new Map(
+    events
+      .map(toAssistantActionAuditRecord)
+      .filter((record): record is AssistantActionAuditRecord => Boolean(record))
+      .map((record) => [record.id, toAdminActionAuditRecord(record, taskById)]),
+  );
+  const archiveItems = events
+    .map((event) => toRetentionArchiveItem(event, sourceRecordById, taskById))
+    .filter((item): item is AdminAssistantAuditRetentionArchiveItem => Boolean(item));
+  const eligibleItems = archiveItems.filter((item) => item.createdAt < cutoffAt);
+
+  return {
+    projectId,
+    generatedAt: generatedAt.toISOString(),
+    policyRetentionDays: policy.retentionDays,
+    previewRetentionDays,
+    cutoffAt,
+    totalRelevantEvents: archiveItems.length,
+    eligibleCount: eligibleItems.length,
+    protectedCount: archiveItems.length - eligibleItems.length,
+    countsByMonth: buildRetentionMonthCounts(archiveItems, cutoffAt),
+    archiveItems: eligibleItems,
+  };
+}
+
+export async function exportAssistantAuditRetentionArchivePreview(
+  input: GetAssistantAuditRetentionPreviewInput,
+  user: AuthUser,
+) {
+  const preview = await getAssistantAuditRetentionPreview(input, user);
+
+  return {
+    filename: `assistant-audit-retention-archive-preview-${new Date().toISOString().slice(0, 10)}.json`,
+    json: JSON.stringify(
+      {
+        warning: "Read-only archive preview. This export does not delete or mutate assistant audit records.",
+        ...preview,
+      },
+      null,
+      2,
+    ),
   };
 }
 
@@ -1000,6 +1099,75 @@ function toGovernanceNoteReportItem(
     createdTaskTitle: sourceRecord.createdTaskTitle,
     dailyTaskUrl: sourceRecord.dailyTaskUrl,
   };
+}
+
+function toRetentionArchiveItem(
+  event: {
+    id: string;
+    projectId: string | null;
+    eventType: string;
+    targetType: string;
+    targetId: string | null;
+    profileId: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  },
+  sourceRecordById: ReadonlyMap<string, AdminAssistantActionAuditRecord>,
+  taskById: ReadonlyMap<string, TaskRecord>,
+): AdminAssistantAuditRetentionArchiveItem | null {
+  const actionRecord = toAssistantActionAuditRecord(event);
+  if (actionRecord) {
+    return {
+      id: event.id,
+      eventType: event.eventType,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      profileId: event.profileId,
+      createdAt: event.createdAt,
+      month: event.createdAt.slice(0, 7),
+      rawMetadata: event.metadata,
+      actionAudit: toAdminActionAuditRecord(actionRecord, taskById),
+      governanceNote: null,
+    };
+  }
+
+  const note = toGovernanceNote(event);
+  if (note) {
+    return {
+      id: event.id,
+      eventType: event.eventType,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      profileId: event.profileId,
+      createdAt: event.createdAt,
+      month: event.createdAt.slice(0, 7),
+      rawMetadata: event.metadata,
+      actionAudit: null,
+      governanceNote: toGovernanceNoteReportItem(note, sourceRecordById),
+    };
+  }
+
+  return null;
+}
+
+function buildRetentionMonthCounts(items: AdminAssistantAuditRetentionArchiveItem[], cutoffAt: string) {
+  const countsByMonth = new Map<string, AdminAssistantAuditRetentionMonthCount>();
+  for (const item of items) {
+    const current = countsByMonth.get(item.month) ?? {
+      month: item.month,
+      total: 0,
+      eligible: 0,
+      actionAuditCount: 0,
+      governanceNoteCount: 0,
+    };
+    current.total += 1;
+    current.eligible += item.createdAt < cutoffAt ? 1 : 0;
+    current.actionAuditCount += item.actionAudit ? 1 : 0;
+    current.governanceNoteCount += item.eventType === "assistant.governance_note.created" ? 1 : 0;
+    countsByMonth.set(item.month, current);
+  }
+
+  return [...countsByMonth.values()].sort((left, right) => right.month.localeCompare(left.month));
 }
 
 function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory {

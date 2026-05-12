@@ -203,6 +203,27 @@ type GovernanceNoteReportItem = GovernanceNote & {
   dailyTaskUrl: string;
 };
 
+type AuditRetentionMonthCount = {
+  month: string;
+  total: number;
+  eligible: number;
+  actionAuditCount: number;
+  governanceNoteCount: number;
+};
+
+type AuditRetentionPreview = {
+  projectId: string;
+  generatedAt: string;
+  policyRetentionDays: number;
+  previewRetentionDays: number;
+  cutoffAt: string;
+  totalRelevantEvents: number;
+  eligibleCount: number;
+  protectedCount: number;
+  countsByMonth: AuditRetentionMonthCount[];
+  archiveItems: Array<{ id: string; eventType: string; createdAt: string; month: string }>;
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -260,7 +281,9 @@ export function AssistantAdminShell() {
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [actionAudits, setActionAudits] = useState<AdminActionAuditRecord[]>([]);
   const [governanceNoteReport, setGovernanceNoteReport] = useState<GovernanceNoteReportItem[]>([]);
+  const [auditRetentionPreview, setAuditRetentionPreview] = useState<AuditRetentionPreview | null>(null);
   const [month, setMonth] = useState(currentMonth);
+  const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -281,6 +304,7 @@ export function AssistantAdminShell() {
   const [actionAuditDetailLoading, setActionAuditDetailLoading] = useState(false);
   const [governanceNoteReportLoading, setGovernanceNoteReportLoading] = useState(false);
   const [governanceReportDetailLoading, setGovernanceReportDetailLoading] = useState(false);
+  const [auditRetentionLoading, setAuditRetentionLoading] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -332,6 +356,14 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [governanceNoteFilterCategory, governanceNoteRecordId, governanceNoteReviewer, governanceNoteTask, month]);
   const governanceNoteExportUrl = `/api/admin/assistant/governance-notes/export?${governanceNoteReportQuery}`;
+  const auditRetentionQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      retentionDays: String(retentionPreviewDays),
+      limit: "500",
+    });
+    return params.toString();
+  }, [retentionPreviewDays]);
+  const auditRetentionExportUrl = `/api/admin/assistant/audit-retention/export?${auditRetentionQuery}`;
 
   useEffect(() => {
     void refreshProjects();
@@ -352,6 +384,7 @@ export function AssistantAdminShell() {
         }
 
         setPolicy(policyData);
+        setRetentionPreviewDays(policyData.retentionDays);
         setUsage(usageData);
         setAudit(auditData.events);
         setStatus("Assistant 운영 데이터를 불러왔습니다.");
@@ -434,6 +467,32 @@ export function AssistantAdminShell() {
     setSelectedGovernanceReportAuditId(null);
     setGovernanceReportDetail(null);
   }, [governanceNoteReportQuery]);
+
+  useEffect(() => {
+    let active = true;
+    setAuditRetentionLoading(true);
+
+    readJson<AuditRetentionPreview>(`/api/admin/assistant/audit-retention?${auditRetentionQuery}`)
+      .then((data) => {
+        if (active) {
+          setAuditRetentionPreview(data);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuditRetentionPreview(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setAuditRetentionLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auditRetentionQuery]);
 
   async function savePolicy() {
     setSaving(true);
@@ -963,6 +1022,74 @@ export function AssistantAdminShell() {
                   {governanceNoteReportLoading ? "Loading governance notes..." : "No governance notes match the current filters."}
                 </p>
               ) : null}
+            </div>
+          </div>
+
+          <div className={styles.tableBlock}>
+            <div className={styles.actionAuditHeader}>
+              <div>
+                <h3>Audit retention preview</h3>
+                <p>Read-only archive preview for assistant action audits and governance notes before cleanup is allowed.</p>
+              </div>
+              <div className={styles.actionAuditTools}>
+                <span>{auditRetentionLoading ? "Loading" : `${auditRetentionPreview?.eligibleCount ?? 0} eligible`}</span>
+                <a download href={auditRetentionExportUrl}>
+                  Export archive preview
+                </a>
+              </div>
+            </div>
+
+            <div className={styles.filterGrid}>
+              <label className={styles.field}>
+                <span>Preview retention days</span>
+                <input
+                  inputMode="numeric"
+                  min={0}
+                  max={3650}
+                  type="number"
+                  value={retentionPreviewDays}
+                  onChange={(event) => setRetentionPreviewDays(Math.max(0, Math.min(3650, Number(event.target.value || 0))))}
+                />
+              </label>
+              <DetailBlock title="Policy retention">
+                <p>{auditRetentionPreview?.policyRetentionDays ?? policy.retentionDays} days</p>
+              </DetailBlock>
+              <DetailBlock title="Cutoff">
+                <p>{auditRetentionPreview ? formatDate(auditRetentionPreview.cutoffAt) : "-"}</p>
+              </DetailBlock>
+              <DetailBlock title="Relevant events">
+                <p>{auditRetentionPreview?.totalRelevantEvents ?? 0} total / {auditRetentionPreview?.protectedCount ?? 0} protected</p>
+              </DetailBlock>
+            </div>
+
+            <div className={styles.tableScroller}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Total</th>
+                    <th>Eligible</th>
+                    <th>Action audits</th>
+                    <th>Governance notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(auditRetentionPreview?.countsByMonth ?? []).map((count) => (
+                    <tr key={count.month}>
+                      <td>{count.month}</td>
+                      <td>{count.total}</td>
+                      <td>{count.eligible}</td>
+                      <td>{count.actionAuditCount}</td>
+                      <td>{count.governanceNoteCount}</td>
+                    </tr>
+                  ))}
+                  {auditRetentionPreview?.countsByMonth.length === 0 ? (
+                    <tr>
+                      <td colSpan={5}>No assistant audit retention records are available.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
           </div>
 
