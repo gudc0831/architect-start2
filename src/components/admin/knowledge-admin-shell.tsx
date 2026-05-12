@@ -62,6 +62,7 @@ type ApprovalGuardrail = {
 };
 
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
+type CandidateSort = "newest" | "low_confidence";
 
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
@@ -85,6 +86,11 @@ const candidateRiskFilterLabels: Record<CandidateRiskFilter, string> = {
   cleanup_approved: "Cleanup approved",
 };
 
+const candidateSortLabels: Record<CandidateSort, string> = {
+  newest: "Newest first",
+  low_confidence: "Low confidence first",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -93,6 +99,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
   const [riskFilter, setRiskFilter] = useState<CandidateRiskFilter>("all");
+  const [candidateSort, setCandidateSort] = useState<CandidateSort>("newest");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -130,17 +137,23 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         candidate.taskTitle,
         candidate.tags.join(" "),
       ].some((value) => value.toLowerCase().includes(search));
+    }).sort((left, right) => {
+      if (candidateSort === "low_confidence") {
+        return left.confidenceScore - right.confidenceScore || Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+      }
+      return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
     });
-  }, [candidateSearch, candidates, filter, riskFilter]);
+  }, [candidateSearch, candidateSort, candidates, filter, riskFilter]);
   const activeCandidateFilterChips = useMemo(() => {
     const search = candidateSearch.trim();
     return [
       `State: ${filter === "all" ? "All" : stateLabels[filter]}`,
       `Risk: ${candidateRiskFilterLabels[riskFilter]}`,
+      `Sort: ${candidateSortLabels[candidateSort]}`,
       search ? `Search: ${search}` : "Search: none",
       `Showing: ${visibleCandidates.length}/${candidates.length}`,
     ];
-  }, [candidateSearch, candidates.length, filter, riskFilter, visibleCandidates.length]);
+  }, [candidateSearch, candidateSort, candidates.length, filter, riskFilter, visibleCandidates.length]);
   const candidateStateCounts = useMemo(
     () => ({
       all: candidates.length,
@@ -393,6 +406,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               Clear candidate filters
             </button>
           </div>
+          <label className={styles.queueSort}>
+            Sort candidates
+            <select
+              aria-label="Knowledge candidate sort"
+              onChange={(event) => setCandidateSort(event.target.value as CandidateSort)}
+              value={candidateSort}
+            >
+              {(["newest", "low_confidence"] as CandidateSort[]).map((value) => (
+                <option key={value} value={value}>{candidateSortLabels[value]}</option>
+              ))}
+            </select>
+          </label>
           <label className={styles.queueSearch}>
             Search candidates
             <div>

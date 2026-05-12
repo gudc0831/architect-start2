@@ -94,6 +94,7 @@
 }
 
 .queueHeader select,
+.queueSort select,
 .editorHeader select,
 .editor input,
 .editor textarea,
@@ -107,6 +108,7 @@
 }
 
 .queueHeader select,
+.queueSort select,
 .editorHeader select,
 .editor input,
 .footer input {
@@ -195,6 +197,16 @@
 .queueFilterActions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.queueSort {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--theme-border-field);
+  color: var(--theme-text-subtle);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .queueSearch {
