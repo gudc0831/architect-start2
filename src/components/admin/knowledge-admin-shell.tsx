@@ -398,6 +398,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>No evidence kinds</span>
                   )}
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft length counters">
+                  <span>Title {draft.title.trim().length} chars</span>
+                  <span>Summary {draft.summary.trim().length} chars</span>
+                  <span>Body {draft.bodyMarkdown.trim().length} chars</span>
+                  <span>Tags {splitTags(draft.tagsText).length}</span>
+                </div>
                 <label>
                   제목
                   <input
