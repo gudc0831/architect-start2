@@ -417,6 +417,54 @@
   color: var(--theme-text-muted);
 }
 
+.guardrails {
+  display: grid;
+  gap: 0.5rem;
+  border-top: 1px solid var(--theme-border-field);
+  padding-top: 0.75rem;
+}
+
+.guardrails h4 {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.guardrails > div {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.guardrailReady,
+.guardrailWarning {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.guardrailReady strong,
+.guardrailWarning strong {
+  font-size: 0.78rem;
+}
+
+.guardrailReady p,
+.guardrailWarning p {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.guardrailReady strong {
+  color: var(--accent);
+}
+
+.guardrailWarning strong {
+  color: #b45309;
+}
+
 .editor textarea {
   min-height: 5rem;
   resize: vertical;

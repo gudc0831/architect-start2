@@ -55,6 +55,12 @@ type KnowledgeAdminShellProps = {
   initialCandidates: CandidateListItem[];
 };
 
+type ApprovalGuardrail = {
+  label: string;
+  detail: string;
+  tone: "ready" | "warning";
+};
+
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
   pending_review: "검토 중",
@@ -134,6 +140,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     return Array.from(counts.entries());
   }, [detail?.evidence]);
+  const approvalGuardrails = useMemo(
+    () => buildApprovalGuardrails(draftReadiness, detail),
+    [detail, draftReadiness],
+  );
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -446,6 +456,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Body {draft.bodyMarkdown.trim().length} chars</span>
                   <span>Tags {splitTags(draft.tagsText).length}</span>
                 </div>
+                <section className={styles.guardrails} aria-label="Knowledge approval guardrail notes">
+                  <h4>Approval guardrails</h4>
+                  <div>
+                    {approvalGuardrails.map((item) => (
+                      <article
+                        className={item.tone === "ready" ? styles.guardrailReady : styles.guardrailWarning}
+                        key={item.label}
+                      >
+                        <strong>{item.label}</strong>
+                        <p>{item.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
                 <label>
                   제목
                   <input
@@ -590,6 +614,56 @@ function createSourceHandoff(
     `Evidence: ${detail.evidence.length}`,
     `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
   ].join("\n");
+}
+
+function buildApprovalGuardrails(
+  readiness: Array<{ label: string; ready: boolean }>,
+  detail: CandidateDetail | null,
+): ApprovalGuardrail[] {
+  const guardrails: ApprovalGuardrail[] = [];
+  const missing = readiness.filter((item) => !item.ready).map((item) => item.label);
+
+  if (missing.length) {
+    guardrails.push({
+      label: "Missing readiness",
+      detail: `Review ${missing.join(", ")} before approval.`,
+      tone: "warning",
+    });
+  } else {
+    guardrails.push({
+      label: "Draft fields ready",
+      detail: "Required draft fields and evidence are present.",
+      tone: "ready",
+    });
+  }
+
+  if (!detail) {
+    return guardrails;
+  }
+
+  if (detail.confidenceScore < 60) {
+    guardrails.push({
+      label: "Low confidence",
+      detail: `Confidence is ${detail.confidenceScore}%. Confirm evidence before approval.`,
+      tone: "warning",
+    });
+  } else {
+    guardrails.push({
+      label: "Confidence acceptable",
+      detail: `Confidence is ${detail.confidenceScore}%.`,
+      tone: "ready",
+    });
+  }
+
+  if (detail.state !== "candidate" && detail.state !== "pending_review") {
+    guardrails.push({
+      label: "State review",
+      detail: `Candidate is currently ${detail.state}. Confirm this item should be edited again.`,
+      tone: "warning",
+    });
+  }
+
+  return guardrails;
 }
 
 function formatDate(value: string) {
