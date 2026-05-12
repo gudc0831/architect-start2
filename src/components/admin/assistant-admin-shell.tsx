@@ -240,6 +240,32 @@ type AuditRetentionCleanupResult = {
   skippedIds: string[];
 };
 
+type AuditCleanupHistoryItem = {
+  id: string;
+  projectId: string;
+  actorId: string | null;
+  createdAt: string;
+  cutoffAt: string;
+  archivePreviewToken: string;
+  previewRetentionDays: number;
+  requestedEligibleCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  deletedIds: string[];
+  skippedIds: string[];
+};
+
+type AuditCleanupHistoryResponse = {
+  projectId: string;
+  month: string;
+  filters: {
+    actorId: string;
+    cutoffAt: string;
+    archivePreviewToken: string;
+  };
+  cleanups: AuditCleanupHistoryItem[];
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -299,9 +325,13 @@ export function AssistantAdminShell() {
   const [governanceNoteReport, setGovernanceNoteReport] = useState<GovernanceNoteReportItem[]>([]);
   const [auditRetentionPreview, setAuditRetentionPreview] = useState<AuditRetentionPreview | null>(null);
   const [auditRetentionCleanupResult, setAuditRetentionCleanupResult] = useState<AuditRetentionCleanupResult | null>(null);
+  const [auditCleanupHistory, setAuditCleanupHistory] = useState<AuditCleanupHistoryItem[]>([]);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
+  const [cleanupHistoryActorId, setCleanupHistoryActorId] = useState("");
+  const [cleanupHistoryCutoffAt, setCleanupHistoryCutoffAt] = useState("");
+  const [cleanupHistoryToken, setCleanupHistoryToken] = useState("");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -323,6 +353,7 @@ export function AssistantAdminShell() {
   const [governanceNoteReportLoading, setGovernanceNoteReportLoading] = useState(false);
   const [governanceReportDetailLoading, setGovernanceReportDetailLoading] = useState(false);
   const [auditRetentionLoading, setAuditRetentionLoading] = useState(false);
+  const [auditCleanupHistoryLoading, setAuditCleanupHistoryLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -383,6 +414,23 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [retentionPreviewDays]);
   const auditRetentionExportUrl = `/api/admin/assistant/audit-retention/export?${auditRetentionQuery}`;
+  const auditCleanupHistoryQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      limit: "500",
+    });
+    if (cleanupHistoryActorId.trim()) {
+      params.set("actorId", cleanupHistoryActorId.trim());
+    }
+    if (cleanupHistoryCutoffAt.trim()) {
+      params.set("cutoffAt", cleanupHistoryCutoffAt.trim());
+    }
+    if (cleanupHistoryToken.trim()) {
+      params.set("archivePreviewToken", cleanupHistoryToken.trim());
+    }
+    return params.toString();
+  }, [cleanupHistoryActorId, cleanupHistoryCutoffAt, cleanupHistoryToken, month]);
+  const auditCleanupHistoryExportUrl = `/api/admin/assistant/audit-cleanups/export?${auditCleanupHistoryQuery}`;
 
   useEffect(() => {
     void refreshProjects();
@@ -513,6 +561,32 @@ export function AssistantAdminShell() {
       active = false;
     };
   }, [auditRetentionQuery]);
+
+  useEffect(() => {
+    let active = true;
+    setAuditCleanupHistoryLoading(true);
+
+    readJson<AuditCleanupHistoryResponse>(`/api/admin/assistant/audit-cleanups?${auditCleanupHistoryQuery}`)
+      .then((data) => {
+        if (active) {
+          setAuditCleanupHistory(data.cleanups);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuditCleanupHistory([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setAuditCleanupHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auditCleanupHistoryQuery]);
 
   async function savePolicy() {
     setSaving(true);
@@ -663,9 +737,11 @@ export function AssistantAdminShell() {
         readJson<AuditRetentionPreview>(`/api/admin/assistant/audit-retention?${auditRetentionQuery}`),
         readJson<AuditResponse>(`/api/admin/assistant/audit?month=${encodeURIComponent(month)}&limit=100`),
       ]);
+      const cleanupHistoryData = await readJson<AuditCleanupHistoryResponse>(`/api/admin/assistant/audit-cleanups?${auditCleanupHistoryQuery}`);
       setAuditRetentionCleanupResult(result);
       setAuditRetentionPreview(retentionData);
       setAudit(auditData.events);
+      setAuditCleanupHistory(cleanupHistoryData.cleanups);
       setRetentionCleanupConfirmation("");
       setStatus(`Assistant audit cleanup completed: ${result.deletedCount} deleted, ${result.skippedCount} skipped.`);
     } catch (error) {
@@ -1185,6 +1261,85 @@ export function AssistantAdminShell() {
                   ) : null}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div className={styles.tableBlock}>
+            <div className={styles.actionAuditHeader}>
+              <div>
+                <h3>Cleanup history</h3>
+                <p>Executed assistant audit cleanup runs with preview token, cutoff, and deleted/skipped ids.</p>
+              </div>
+              <div className={styles.actionAuditTools}>
+                <span>{auditCleanupHistoryLoading ? "Loading" : `${auditCleanupHistory.length} runs`}</span>
+                <a download href={auditCleanupHistoryExportUrl}>
+                  Export cleanup CSV
+                </a>
+              </div>
+            </div>
+
+            <div className={styles.filterGrid}>
+              <label className={styles.field}>
+                <span>Actor</span>
+                <input
+                  placeholder="actor id"
+                  value={cleanupHistoryActorId}
+                  onChange={(event) => setCleanupHistoryActorId(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Cutoff</span>
+                <input
+                  placeholder="2025-05-12"
+                  value={cleanupHistoryCutoffAt}
+                  onChange={(event) => setCleanupHistoryCutoffAt(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Preview token</span>
+                <input
+                  placeholder="archive preview token"
+                  value={cleanupHistoryToken}
+                  onChange={(event) => setCleanupHistoryToken(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className={styles.actionAuditList}>
+              {auditCleanupHistory.map((cleanup) => (
+                <article className={styles.actionAuditCard} key={cleanup.id}>
+                  <header>
+                    <div>
+                      <strong>{cleanup.deletedCount} deleted / {cleanup.skippedCount} skipped</strong>
+                      <span>{formatDate(cleanup.createdAt)} / actor {cleanup.actorId ?? "-"}</span>
+                    </div>
+                  </header>
+                  <p>Token {cleanup.archivePreviewToken} / cutoff {formatDate(cleanup.cutoffAt)} / retention {cleanup.previewRetentionDays} days</p>
+                  <dl>
+                    <div>
+                      <dt>Cleanup audit</dt>
+                      <dd>{cleanup.id}</dd>
+                    </div>
+                    <div>
+                      <dt>Requested eligible</dt>
+                      <dd>{cleanup.requestedEligibleCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Deleted ids</dt>
+                      <dd>{cleanup.deletedIds.length ? cleanup.deletedIds.join(", ") : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Skipped ids</dt>
+                      <dd>{cleanup.skippedIds.length ? cleanup.skippedIds.join(", ") : "-"}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+              {auditCleanupHistory.length === 0 ? (
+                <p className={styles.empty}>
+                  {auditCleanupHistoryLoading ? "Loading cleanup history..." : "No cleanup history matches the current filters."}
+                </p>
+              ) : null}
             </div>
           </div>
 

@@ -90,6 +90,15 @@ type ExecuteAssistantAuditRetentionCleanupInput = GetAssistantAuditRetentionPrev
   confirmation?: unknown;
 };
 
+type GetAssistantAuditCleanupHistoryInput = {
+  projectId?: string | null;
+  month?: string | null;
+  actorId?: string | null;
+  cutoffAt?: string | null;
+  archivePreviewToken?: string | null;
+  limit?: string | null;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -231,6 +240,32 @@ export type AdminAssistantAuditRetentionCleanupResult = {
   skippedCount: number;
   deletedIds: string[];
   skippedIds: string[];
+};
+
+export type AdminAssistantAuditCleanupHistoryItem = {
+  id: string;
+  projectId: string;
+  actorId: string | null;
+  createdAt: string;
+  cutoffAt: string;
+  archivePreviewToken: string;
+  previewRetentionDays: number;
+  requestedEligibleCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  deletedIds: string[];
+  skippedIds: string[];
+};
+
+export type AdminAssistantAuditCleanupHistoryReport = {
+  projectId: string;
+  month: string;
+  filters: {
+    actorId: string;
+    cutoffAt: string;
+    archivePreviewToken: string;
+  };
+  cleanups: AdminAssistantAuditCleanupHistoryItem[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -679,6 +714,53 @@ export async function executeAssistantAuditRetentionCleanup(
     skippedCount: deletion.skippedIds.length,
     deletedIds: deletion.deletedIds,
     skippedIds: deletion.skippedIds,
+  };
+}
+
+export async function getAssistantAuditCleanupHistory(
+  input: GetAssistantAuditCleanupHistoryInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupHistoryReport> {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const limit = normalizePositiveInteger(input.limit, 250, 1, 500);
+  const actorIdQuery = normalizeOptionalText(input.actorId).toLowerCase();
+  const cutoffAtQuery = normalizeOptionalText(input.cutoffAt).toLowerCase();
+  const archivePreviewTokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const cleanups = events
+    .map(toCleanupHistoryItem)
+    .filter((item): item is AdminAssistantAuditCleanupHistoryItem => Boolean(item))
+    .filter((item) => !actorIdQuery || String(item.actorId ?? "").toLowerCase().includes(actorIdQuery))
+    .filter((item) => !cutoffAtQuery || item.cutoffAt.toLowerCase().includes(cutoffAtQuery))
+    .filter((item) => !archivePreviewTokenQuery || item.archivePreviewToken.toLowerCase().includes(archivePreviewTokenQuery))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit);
+
+  return {
+    projectId,
+    month,
+    filters: {
+      actorId: actorIdQuery,
+      cutoffAt: cutoffAtQuery,
+      archivePreviewToken: archivePreviewTokenQuery,
+    },
+    cleanups,
+  };
+}
+
+export async function exportAssistantAuditCleanupHistory(input: GetAssistantAuditCleanupHistoryInput, user: AuthUser) {
+  const report = await getAssistantAuditCleanupHistory(
+    {
+      ...input,
+      limit: input.limit ?? "500",
+    },
+    user,
+  );
+
+  return {
+    filename: `assistant-audit-cleanups-${report.month}.csv`,
+    csv: toCleanupHistoryCsv(report.cleanups),
   };
 }
 
@@ -1263,6 +1345,40 @@ function buildRetentionArchivePreviewToken(
     .slice(0, 24);
 }
 
+function toCleanupHistoryItem(event: {
+  id: string;
+  projectId: string | null;
+  eventType: string;
+  profileId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}): AdminAssistantAuditCleanupHistoryItem | null {
+  if (event.eventType !== "assistant.audit_retention_cleanup.executed" || !event.projectId) {
+    return null;
+  }
+
+  const archivePreviewToken = normalizeOptionalText(event.metadata.archivePreviewToken);
+  const cutoffAt = normalizeOptionalText(event.metadata.cutoffAt);
+  if (!archivePreviewToken || !cutoffAt) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    projectId: event.projectId,
+    actorId: normalizeOptionalText(event.metadata.actorId) || event.profileId,
+    createdAt: event.createdAt,
+    cutoffAt,
+    archivePreviewToken,
+    previewRetentionDays: normalizeMetadataNumber(event.metadata.previewRetentionDays),
+    requestedEligibleCount: normalizeMetadataNumber(event.metadata.requestedEligibleCount),
+    deletedCount: normalizeMetadataNumber(event.metadata.deletedCount),
+    skippedCount: normalizeMetadataNumber(event.metadata.skippedCount),
+    deletedIds: normalizeStringArray(event.metadata.deletedIds),
+    skippedIds: normalizeStringArray(event.metadata.skippedIds),
+  };
+}
+
 function normalizeOptionalIsoDate(value: unknown) {
   if (typeof value !== "string" || !value.trim()) {
     return null;
@@ -1272,6 +1388,14 @@ function normalizeOptionalIsoDate(value: unknown) {
     throw badRequest("cutoffAt must be a valid ISO date.", "INVALID_CUTOFF_AT");
   }
   return date.toISOString();
+}
+
+function normalizeMetadataNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => normalizeOptionalText(item)).filter(Boolean) : [];
 }
 
 function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory {
@@ -1438,6 +1562,38 @@ function toGovernanceNoteCsv(notes: AdminAssistantActionAuditGovernanceNoteRepor
     note.createdTaskTitle ?? "",
     note.sourceSummaryConclusion ?? "",
     note.note,
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toCleanupHistoryCsv(cleanups: AdminAssistantAuditCleanupHistoryItem[]) {
+  const headers = [
+    "cleanup_audit_id",
+    "created_at",
+    "actor_id",
+    "cutoff_at",
+    "archive_preview_token",
+    "preview_retention_days",
+    "requested_eligible_count",
+    "deleted_count",
+    "skipped_count",
+    "deleted_ids",
+    "skipped_ids",
+  ];
+
+  const rows = cleanups.map((cleanup) => [
+    cleanup.id,
+    cleanup.createdAt,
+    cleanup.actorId ?? "",
+    cleanup.cutoffAt,
+    cleanup.archivePreviewToken,
+    String(cleanup.previewRetentionDays),
+    String(cleanup.requestedEligibleCount),
+    String(cleanup.deletedCount),
+    String(cleanup.skippedCount),
+    cleanup.deletedIds.join("; "),
+    cleanup.skippedIds.join("; "),
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
