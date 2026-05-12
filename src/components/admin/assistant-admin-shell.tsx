@@ -338,7 +338,9 @@ type CleanupReviewNoteReportItem = AuditCleanupReviewNote & {
 type CleanupReviewNoteSummary = {
   projectId: string;
   month: string;
-  filters: CleanupReviewNoteReportResponse["filters"];
+  filters: CleanupReviewNoteReportResponse["filters"] & {
+    coveragePreset: CleanupReviewCoveragePreset;
+  };
   totalNotes: number;
   totalCleanupRuns: number;
   reviewedCleanupRuns: number;
@@ -352,9 +354,11 @@ type CleanupReviewNoteSummary = {
 type CleanupReviewCoverageResponse = {
   projectId: string;
   month: string;
-  filters: CleanupReviewNoteReportResponse["filters"];
+  filters: CleanupReviewNoteSummary["filters"];
   coverage: CleanupReviewCoverageItem[];
 };
+
+type CleanupReviewCoveragePreset = "all" | "reviewed" | "stale_unreviewed";
 
 type CleanupReviewCoverageItem = {
   cleanupId: string;
@@ -390,6 +394,12 @@ const evidenceOptions: Array<{ value: AssistantEvidenceKind; label: string }> = 
   { value: "task", label: "Task 기록" },
   { value: "project_document", label: "프로젝트 문서" },
   { value: "web_or_skill", label: "외부 웹/스킬" },
+];
+
+const cleanupReviewCoveragePresetOptions: Array<{ value: CleanupReviewCoveragePreset; label: string }> = [
+  { value: "all", label: "All cleanup runs" },
+  { value: "reviewed", label: "Reviewed cleanup" },
+  { value: "stale_unreviewed", label: "Stale unreviewed" },
 ];
 
 const actionAuditOptions: Array<{ value: AssistantActionAuditAction | "all"; label: string }> = [
@@ -451,6 +461,7 @@ export function AssistantAdminShell() {
   const [cleanupReviewNoteToken, setCleanupReviewNoteToken] = useState("");
   const [cleanupReviewNoteCleanupId, setCleanupReviewNoteCleanupId] = useState("");
   const [cleanupReviewStaleDays, setCleanupReviewStaleDays] = useState(7);
+  const [cleanupReviewCoveragePreset, setCleanupReviewCoveragePreset] = useState<CleanupReviewCoveragePreset>("all");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -564,6 +575,7 @@ export function AssistantAdminShell() {
       month,
       limit: "250",
       staleDays: String(cleanupReviewStaleDays),
+      coveragePreset: cleanupReviewCoveragePreset,
     });
     if (cleanupReviewNoteFilterCategory !== "all") {
       params.set("category", cleanupReviewNoteFilterCategory);
@@ -578,7 +590,15 @@ export function AssistantAdminShell() {
       params.set("cleanupId", cleanupReviewNoteCleanupId.trim());
     }
     return params.toString();
-  }, [cleanupReviewNoteCleanupId, cleanupReviewNoteFilterCategory, cleanupReviewNoteReviewer, cleanupReviewNoteToken, cleanupReviewStaleDays, month]);
+  }, [
+    cleanupReviewCoveragePreset,
+    cleanupReviewNoteCleanupId,
+    cleanupReviewNoteFilterCategory,
+    cleanupReviewNoteReviewer,
+    cleanupReviewNoteToken,
+    cleanupReviewStaleDays,
+    month,
+  ]);
   const cleanupReviewNoteExportUrl = `/api/admin/assistant/cleanup-review-notes/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
@@ -1731,6 +1751,19 @@ export function AssistantAdminShell() {
                 </select>
               </label>
               <label className={styles.field}>
+                <span>Coverage preset</span>
+                <select
+                  value={cleanupReviewCoveragePreset}
+                  onChange={(event) => setCleanupReviewCoveragePreset(event.target.value as CleanupReviewCoveragePreset)}
+                >
+                  {cleanupReviewCoveragePresetOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
                 <span>Reviewer</span>
                 <input
                   placeholder="reviewer id"
@@ -1772,6 +1805,10 @@ export function AssistantAdminShell() {
               <Metric label="Unreviewed runs" value={cleanupReviewNoteSummary?.unreviewedCleanupRuns ?? 0} />
               <Metric label="Stale unreviewed" value={cleanupReviewNoteSummary?.staleUnreviewedCleanupRuns ?? 0} />
               <Metric label="Total cleanup runs" value={cleanupReviewNoteSummary?.totalCleanupRuns ?? 0} />
+              <Metric
+                label="Coverage preset"
+                value={cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? "All cleanup runs"}
+              />
             </div>
 
             {cleanupReviewNoteSummary ? (

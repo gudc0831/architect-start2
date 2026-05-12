@@ -16,6 +16,7 @@ export async function GET(request: Request) {
         reviewerId: searchParams.get("reviewerId"),
         archivePreviewToken: searchParams.get("archivePreviewToken"),
         cleanupId: searchParams.get("cleanupId"),
+        coveragePreset: searchParams.get("coveragePreset"),
       },
       user,
     );
