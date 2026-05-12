@@ -116,6 +116,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }),
     [candidates],
   );
+  const draftReadiness = useMemo(
+    () => [
+      { label: "Title", ready: Boolean(draft.title.trim()) },
+      { label: "Summary", ready: Boolean(draft.summary.trim()) },
+      { label: "Body", ready: Boolean(draft.bodyMarkdown.trim()) },
+      { label: "Tags", ready: splitTags(draft.tagsText).length > 0 },
+      { label: "Evidence", ready: Boolean(detail?.evidence.length) },
+    ],
+    [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.tagsText, draft.title],
+  );
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -364,6 +374,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
                   />
                 </label>
+                <div className={styles.readinessList} aria-label="Knowledge draft readiness">
+                  {draftReadiness.map((item) => (
+                    <span className={item.ready ? styles.readinessReady : styles.readinessMissing} key={item.label}>
+                      {item.ready ? "Ready" : "Missing"} {item.label}
+                    </span>
+                  ))}
+                </div>
                 <label>
                   요약
                   <textarea
