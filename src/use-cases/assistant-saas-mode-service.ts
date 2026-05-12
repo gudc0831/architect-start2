@@ -1184,6 +1184,39 @@ export async function exportAssistantAuditCleanupReviewCoverageReport(
   };
 }
 
+export async function exportAssistantAuditCleanupReviewCoverageJson(
+  input: GetAssistantAuditCleanupReviewCoverageInput,
+  user: AuthUser,
+) {
+  const [report, summary] = await Promise.all([
+    getAssistantAuditCleanupReviewCoverageReport(input, user),
+    getAssistantAuditCleanupReviewNoteSummary(input, user),
+  ]);
+
+  return {
+    filename: `assistant-cleanup-review-coverage-${report.month}.json`,
+    json: JSON.stringify(
+      {
+        warning: "Read-only cleanup review coverage export. This export does not mutate cleanup notes or cleanup metadata.",
+        projectId: report.projectId,
+        month: report.month,
+        filters: report.filters,
+        summary: {
+          totalNotes: summary.totalNotes,
+          totalCleanupRuns: summary.totalCleanupRuns,
+          reviewedCleanupRuns: summary.reviewedCleanupRuns,
+          unreviewedCleanupRuns: summary.unreviewedCleanupRuns,
+          categoryCounts: summary.categoryCounts,
+          reviewerCounts: summary.reviewerCounts,
+        },
+        coverage: report.coverage,
+      },
+      null,
+      2,
+    ),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
