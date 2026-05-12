@@ -1867,6 +1867,9 @@ export function AssistantAdminShell() {
                       <button onClick={() => void openAuditCleanupDetail(item.cleanupId)} type="button">
                         {selectedCleanupId === item.cleanupId ? "Hide cleanup" : "Review cleanup"}
                       </button>
+                      <button onClick={() => setCleanupReviewNoteToken(item.archivePreviewToken)} type="button">
+                        Focus token
+                      </button>
                       <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(item.cleanupId)}/package?month=${encodeURIComponent(month)}`}>
                         Export package
                       </a>
