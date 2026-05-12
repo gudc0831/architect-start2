@@ -361,6 +361,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <span>{stateLabels[candidate.state]}</span>
                 <strong>{candidate.title}</strong>
                 <small>{candidate.projectName} / {candidate.taskIssueId}</small>
+                <span className={styles.candidateRiskChips}>
+                  <span>Confidence {readConfidenceBand(candidate.confidenceScore)}</span>
+                  <span>{candidate.reviewedAt ? "Reviewed" : "Unreviewed"}</span>
+                  <span>Cleanup {candidate.cleanupState}</span>
+                </span>
               </button>
             )) : (
               <p className={styles.empty}>표시할 후보가 없습니다.</p>

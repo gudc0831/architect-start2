@@ -233,6 +233,24 @@
   white-space: nowrap;
 }
 
+.candidateRiskChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.candidateRiskChips span {
+  padding: 0.2rem 0.38rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 999px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .detail {
   display: grid;
   min-height: 0;
