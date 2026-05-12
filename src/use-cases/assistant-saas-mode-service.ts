@@ -68,6 +68,16 @@ type CreateAssistantActionAuditGovernanceNoteInput = GetAssistantActionAuditDeta
   note?: unknown;
 };
 
+type GetAssistantActionAuditGovernanceNoteReportInput = {
+  projectId?: string | null;
+  month?: string | null;
+  limit?: string | null;
+  category?: string | null;
+  reviewerId?: string | null;
+  task?: string | null;
+  assistantRecordId?: string | null;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -142,6 +152,23 @@ export type AdminAssistantActionAuditDetail = {
     provenance: string[];
   };
   governanceNotes: AssistantActionAuditGovernanceNote[];
+};
+
+export type AdminAssistantActionAuditGovernanceNoteReportItem = AssistantActionAuditGovernanceNote & {
+  sourceAction: AssistantActionAuditAction;
+  sourceAuditCreatedAt: string;
+  sourceAuditActorId: string | null;
+  sourceSummaryConclusion: string | null;
+  sourceTaskId: string;
+  sourceTaskLabel: string | null;
+  sourceTaskTitle: string | null;
+  targetTaskId: string;
+  targetTaskLabel: string | null;
+  targetTaskTitle: string | null;
+  createdTaskId: string | null;
+  createdTaskLabel: string | null;
+  createdTaskTitle: string | null;
+  dailyTaskUrl: string;
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -406,6 +433,72 @@ export async function exportAssistantActionAuditEvidencePackage(input: GetAssist
   return {
     filename: `assistant-action-audit-${detail.audit.id}.md`,
     markdown: toAssistantActionAuditEvidencePackageMarkdown(detail),
+  };
+}
+
+export async function getAssistantActionAuditGovernanceNoteReport(
+  input: GetAssistantActionAuditGovernanceNoteReportInput,
+  user: AuthUser,
+) {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const limit = normalizePositiveInteger(input.limit, 250, 1, 500);
+  const category = normalizeOptionalGovernanceNoteCategory(input.category);
+  const reviewerIdQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
+  const taskQuery = normalizeOptionalText(input.task).toLowerCase();
+  const assistantRecordIdQuery = normalizeOptionalText(input.assistantRecordId).toLowerCase();
+  const [noteEvents, sourceEvents, tasks] = await Promise.all([
+    assistantRepository.listAuditEvents({ projectId, month, limit: 500 }),
+    assistantRepository.listAuditEvents({ projectId, limit: 500 }),
+    taskRepository.listActiveTasks(projectId),
+  ]);
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const sourceRecordById = new Map(
+    sourceEvents
+      .map(toAssistantActionAuditRecord)
+      .filter((record): record is AssistantActionAuditRecord => Boolean(record))
+      .map((record) => [record.id, toAdminActionAuditRecord(record, taskById)]),
+  );
+  const notes = noteEvents
+    .map(toGovernanceNote)
+    .filter((note): note is AssistantActionAuditGovernanceNote => Boolean(note))
+    .map((note) => toGovernanceNoteReportItem(note, sourceRecordById))
+    .filter((item): item is AdminAssistantActionAuditGovernanceNoteReportItem => Boolean(item))
+    .filter((item) => !category || item.category === category)
+    .filter((item) => !reviewerIdQuery || String(item.reviewerId ?? "").toLowerCase().includes(reviewerIdQuery))
+    .filter((item) => !assistantRecordIdQuery || item.sourceAssistantRecordId.toLowerCase().includes(assistantRecordIdQuery))
+    .filter((item) => !taskQuery || governanceNoteReportMatchesTaskQuery(item, taskQuery))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit);
+
+  return {
+    projectId,
+    month,
+    filters: {
+      category,
+      reviewerId: reviewerIdQuery,
+      task: taskQuery,
+      assistantRecordId: assistantRecordIdQuery,
+    },
+    notes,
+  };
+}
+
+export async function exportAssistantActionAuditGovernanceNoteReport(
+  input: GetAssistantActionAuditGovernanceNoteReportInput,
+  user: AuthUser,
+) {
+  const report = await getAssistantActionAuditGovernanceNoteReport(
+    {
+      ...input,
+      limit: input.limit ?? "500",
+    },
+    user,
+  );
+
+  return {
+    filename: `assistant-governance-notes-${report.month}.csv`,
+    csv: toGovernanceNoteCsv(report.notes),
   };
 }
 
@@ -881,6 +974,34 @@ function toGovernanceNote(event: {
   };
 }
 
+function toGovernanceNoteReportItem(
+  note: AssistantActionAuditGovernanceNote,
+  sourceRecordById: ReadonlyMap<string, AdminAssistantActionAuditRecord>,
+): AdminAssistantActionAuditGovernanceNoteReportItem | null {
+  const sourceRecord = sourceRecordById.get(note.sourceAuditId);
+  if (!sourceRecord) {
+    return null;
+  }
+
+  return {
+    ...note,
+    sourceAction: sourceRecord.action,
+    sourceAuditCreatedAt: sourceRecord.createdAt,
+    sourceAuditActorId: sourceRecord.createdBy,
+    sourceSummaryConclusion: sourceRecord.summary?.conclusion ?? null,
+    sourceTaskId: sourceRecord.sourceTaskId,
+    sourceTaskLabel: sourceRecord.sourceTaskLabel,
+    sourceTaskTitle: sourceRecord.sourceTaskTitle,
+    targetTaskId: sourceRecord.targetTaskId,
+    targetTaskLabel: sourceRecord.targetTaskLabel,
+    targetTaskTitle: sourceRecord.targetTaskTitle,
+    createdTaskId: sourceRecord.createdTaskId,
+    createdTaskLabel: sourceRecord.createdTaskLabel,
+    createdTaskTitle: sourceRecord.createdTaskTitle,
+    dailyTaskUrl: sourceRecord.dailyTaskUrl,
+  };
+}
+
 function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory {
   const category = readGovernanceNoteCategory(value);
   if (!category) {
@@ -892,6 +1013,15 @@ function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGo
 
 function readGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory | null {
   return value === "review_note" || value === "risk" || value === "follow_up" || value === "approval_context" ? value : null;
+}
+
+function normalizeOptionalGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory | null {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized || normalized === "all") {
+    return null;
+  }
+
+  return normalizeGovernanceNoteCategory(normalized);
 }
 
 function normalizeGovernanceNoteText(value: unknown) {
@@ -914,6 +1044,22 @@ function actionAuditMatchesTaskQuery(record: AdminAssistantActionAuditRecord, ta
     record.targetTaskTitle,
     record.createdTaskLabel,
     record.createdTaskTitle,
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(taskQuery));
+}
+
+function governanceNoteReportMatchesTaskQuery(item: AdminAssistantActionAuditGovernanceNoteReportItem, taskQuery: string) {
+  return [
+    item.sourceTaskId,
+    item.sourceTaskLabel,
+    item.sourceTaskTitle,
+    item.targetTaskId,
+    item.targetTaskLabel,
+    item.targetTaskTitle,
+    item.createdTaskId,
+    item.createdTaskLabel,
+    item.createdTaskTitle,
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(taskQuery));
@@ -968,6 +1114,58 @@ function toActionAuditCsv(records: AdminAssistantActionAuditRecord[]) {
     record.summary?.followUpAction ?? "",
     record.summary?.tags.join("; ") ?? "",
     record.decisionMarker ?? "",
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toGovernanceNoteCsv(notes: AdminAssistantActionAuditGovernanceNoteReportItem[]) {
+  const headers = [
+    "note_id",
+    "category",
+    "note_created_at",
+    "reviewer_id",
+    "source_audit_id",
+    "source_action",
+    "source_audit_created_at",
+    "source_actor_id",
+    "assistant_record_id",
+    "daily_task_url",
+    "source_task_id",
+    "source_task_label",
+    "source_task_title",
+    "target_task_id",
+    "target_task_label",
+    "target_task_title",
+    "created_task_id",
+    "created_task_label",
+    "created_task_title",
+    "source_summary_conclusion",
+    "note",
+  ];
+
+  const rows = notes.map((note) => [
+    note.id,
+    note.category,
+    note.createdAt,
+    note.reviewerId ?? "",
+    note.sourceAuditId,
+    note.sourceAction,
+    note.sourceAuditCreatedAt,
+    note.sourceAuditActorId ?? "",
+    note.sourceAssistantRecordId,
+    note.dailyTaskUrl,
+    note.sourceTaskId,
+    note.sourceTaskLabel ?? "",
+    note.sourceTaskTitle ?? "",
+    note.targetTaskId,
+    note.targetTaskLabel ?? "",
+    note.targetTaskTitle ?? "",
+    note.createdTaskId ?? "",
+    note.createdTaskLabel ?? "",
+    note.createdTaskTitle ?? "",
+    note.sourceSummaryConclusion ?? "",
+    note.note,
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";

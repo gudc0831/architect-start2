@@ -107,6 +107,18 @@ type ActionAuditResponse = {
   events: AdminActionAuditRecord[];
 };
 
+type GovernanceNoteReportResponse = {
+  projectId: string;
+  month: string;
+  filters: {
+    category: GovernanceNoteCategory | null;
+    reviewerId: string;
+    task: string;
+    assistantRecordId: string;
+  };
+  notes: GovernanceNoteReportItem[];
+};
+
 type AdminActionAuditDetail = {
   audit: AdminActionAuditRecord;
   rawAuditEvent: {
@@ -174,6 +186,23 @@ type GovernanceNote = {
   createdAt: string;
 };
 
+type GovernanceNoteReportItem = GovernanceNote & {
+  sourceAction: AssistantActionAuditAction;
+  sourceAuditCreatedAt: string;
+  sourceAuditActorId: string | null;
+  sourceSummaryConclusion: string | null;
+  sourceTaskId: string;
+  sourceTaskLabel: string | null;
+  sourceTaskTitle: string | null;
+  targetTaskId: string;
+  targetTaskLabel: string | null;
+  targetTaskTitle: string | null;
+  createdTaskId: string | null;
+  createdTaskLabel: string | null;
+  createdTaskTitle: string | null;
+  dailyTaskUrl: string;
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -230,19 +259,28 @@ export function AssistantAdminShell() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [actionAudits, setActionAudits] = useState<AdminActionAuditRecord[]>([]);
+  const [governanceNoteReport, setGovernanceNoteReport] = useState<GovernanceNoteReportItem[]>([]);
   const [month, setMonth] = useState(currentMonth);
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
   const [actionAuditActorId, setActionAuditActorId] = useState("");
+  const [governanceNoteFilterCategory, setGovernanceNoteFilterCategory] = useState<GovernanceNoteCategory | "all">("all");
+  const [governanceNoteReviewer, setGovernanceNoteReviewer] = useState("");
+  const [governanceNoteTask, setGovernanceNoteTask] = useState("");
+  const [governanceNoteRecordId, setGovernanceNoteRecordId] = useState("");
   const [selectedActionAuditId, setSelectedActionAuditId] = useState<string | null>(null);
   const [actionAuditDetail, setActionAuditDetail] = useState<AdminActionAuditDetail | null>(null);
+  const [selectedGovernanceReportAuditId, setSelectedGovernanceReportAuditId] = useState<string | null>(null);
+  const [governanceReportDetail, setGovernanceReportDetail] = useState<AdminActionAuditDetail | null>(null);
   const [governanceNoteCategory, setGovernanceNoteCategory] = useState<GovernanceNoteCategory>("review_note");
   const [governanceNoteText, setGovernanceNoteText] = useState("");
   const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
   const [actionAuditLoading, setActionAuditLoading] = useState(false);
   const [actionAuditDetailLoading, setActionAuditDetailLoading] = useState(false);
+  const [governanceNoteReportLoading, setGovernanceNoteReportLoading] = useState(false);
+  const [governanceReportDetailLoading, setGovernanceReportDetailLoading] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -274,6 +312,26 @@ export function AssistantAdminShell() {
     return params.toString();
   }, [actionAuditAction, actionAuditActorId, actionAuditRecordId, actionAuditTask, month]);
   const actionAuditExportUrl = `/api/admin/assistant/action-audits/export?${actionAuditQuery}`;
+  const governanceNoteReportQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      month,
+      limit: "250",
+    });
+    if (governanceNoteFilterCategory !== "all") {
+      params.set("category", governanceNoteFilterCategory);
+    }
+    if (governanceNoteReviewer.trim()) {
+      params.set("reviewerId", governanceNoteReviewer.trim());
+    }
+    if (governanceNoteTask.trim()) {
+      params.set("task", governanceNoteTask.trim());
+    }
+    if (governanceNoteRecordId.trim()) {
+      params.set("assistantRecordId", governanceNoteRecordId.trim());
+    }
+    return params.toString();
+  }, [governanceNoteFilterCategory, governanceNoteRecordId, governanceNoteReviewer, governanceNoteTask, month]);
+  const governanceNoteExportUrl = `/api/admin/assistant/governance-notes/export?${governanceNoteReportQuery}`;
 
   useEffect(() => {
     void refreshProjects();
@@ -345,6 +403,37 @@ export function AssistantAdminShell() {
     setActionAuditDetail(null);
     setGovernanceNoteText("");
   }, [actionAuditQuery]);
+
+  useEffect(() => {
+    let active = true;
+    setGovernanceNoteReportLoading(true);
+
+    readJson<GovernanceNoteReportResponse>(`/api/admin/assistant/governance-notes?${governanceNoteReportQuery}`)
+      .then((data) => {
+        if (active) {
+          setGovernanceNoteReport(data.notes);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setGovernanceNoteReport([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setGovernanceNoteReportLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [governanceNoteReportQuery]);
+
+  useEffect(() => {
+    setSelectedGovernanceReportAuditId(null);
+    setGovernanceReportDetail(null);
+  }, [governanceNoteReportQuery]);
 
   async function savePolicy() {
     setSaving(true);
@@ -443,6 +532,28 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Governance note 저장에 실패했습니다.");
     } finally {
       setGovernanceNoteSaving(false);
+    }
+  }
+
+  async function openGovernanceReportDetail(auditId: string) {
+    if (selectedGovernanceReportAuditId === auditId) {
+      setSelectedGovernanceReportAuditId(null);
+      setGovernanceReportDetail(null);
+      return;
+    }
+
+    setSelectedGovernanceReportAuditId(auditId);
+    setGovernanceReportDetail(null);
+    setGovernanceReportDetailLoading(true);
+    try {
+      const detail = await readJson<AdminActionAuditDetail>(
+        `/api/admin/assistant/action-audits/${encodeURIComponent(auditId)}?month=${encodeURIComponent(month)}`,
+      );
+      setGovernanceReportDetail(detail);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Assistant action audit ?곸꽭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
+    } finally {
+      setGovernanceReportDetailLoading(false);
     }
   }
 
@@ -743,6 +854,119 @@ export function AssistantAdminShell() {
           </div>
 
           <div className={styles.tableBlock}>
+            <div className={styles.actionAuditHeader}>
+              <div>
+                <h3>Governance note report</h3>
+                <p>Append-only review notes across assistant action audits, filtered for operational review.</p>
+              </div>
+              <div className={styles.actionAuditTools}>
+                <span>{governanceNoteReportLoading ? "Loading" : `${governanceNoteReport.length} notes`}</span>
+                <a download href={governanceNoteExportUrl}>
+                  Export notes CSV
+                </a>
+              </div>
+            </div>
+
+            <div className={styles.filterGrid}>
+              <label className={styles.field}>
+                <span>Category</span>
+                <select
+                  value={governanceNoteFilterCategory}
+                  onChange={(event) => setGovernanceNoteFilterCategory(event.target.value as GovernanceNoteCategory | "all")}
+                >
+                  <option value="all">All categories</option>
+                  {governanceNoteOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Reviewer</span>
+                <input
+                  placeholder="reviewer id"
+                  value={governanceNoteReviewer}
+                  onChange={(event) => setGovernanceNoteReviewer(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Task ID or title</span>
+                <input
+                  placeholder="001, task id, or title"
+                  value={governanceNoteTask}
+                  onChange={(event) => setGovernanceNoteTask(event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Assistant record</span>
+                <input
+                  placeholder="assistant record id"
+                  value={governanceNoteRecordId}
+                  onChange={(event) => setGovernanceNoteRecordId(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className={styles.actionAuditList}>
+              {governanceNoteReport.map((note) => (
+                <article className={styles.actionAuditCard} key={note.id}>
+                  <header>
+                    <div>
+                      <strong>{governanceNoteLabel(note.category)}</strong>
+                      <span>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</span>
+                    </div>
+                    <div className={styles.actionAuditCardActions}>
+                      <button onClick={() => void openGovernanceReportDetail(note.sourceAuditId)} type="button">
+                        {selectedGovernanceReportAuditId === note.sourceAuditId ? "Hide audit" : "Review audit"}
+                      </button>
+                      <a href={note.dailyTaskUrl}>Open daily detail</a>
+                    </div>
+                  </header>
+                  <p>{note.note}</p>
+                  <dl>
+                    <div>
+                      <dt>Source audit</dt>
+                      <dd>{note.sourceAction} / {note.sourceAuditId}</dd>
+                    </div>
+                    <div>
+                      <dt>Assistant record</dt>
+                      <dd>{note.sourceAssistantRecordId}</dd>
+                    </div>
+                    <div>
+                      <dt>Source task</dt>
+                      <dd>{formatTaskReference(note.sourceTaskLabel, note.sourceTaskId, note.sourceTaskTitle)}</dd>
+                    </div>
+                    <div>
+                      <dt>Target task</dt>
+                      <dd>{formatTaskReference(note.targetTaskLabel, note.targetTaskId, note.targetTaskTitle)}</dd>
+                    </div>
+                  </dl>
+                  {selectedGovernanceReportAuditId === note.sourceAuditId ? (
+                    <ActionAuditGovernanceDetail
+                      detail={governanceReportDetail}
+                      loading={governanceReportDetailLoading}
+                      month={month}
+                      noteCategory={governanceNoteCategory}
+                      noteSaving={false}
+                      noteText=""
+                      onNoteCategoryChange={setGovernanceNoteCategory}
+                      onNoteTextChange={() => undefined}
+                      onSaveNote={() => undefined}
+                      showNoteForm={false}
+                    />
+                  ) : null}
+                </article>
+              ))}
+              {governanceNoteReport.length === 0 ? (
+                <p className={styles.empty}>
+                  {governanceNoteReportLoading ? "Loading governance notes..." : "No governance notes match the current filters."}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={styles.tableBlock}>
             <h3>Audit timeline</h3>
             <div className={styles.timeline}>
               {audit.map((event) => (
@@ -771,6 +995,7 @@ function ActionAuditGovernanceDetail({
   onNoteCategoryChange,
   onNoteTextChange,
   onSaveNote,
+  showNoteForm = true,
 }: {
   detail: AdminActionAuditDetail | null;
   loading: boolean;
@@ -781,6 +1006,7 @@ function ActionAuditGovernanceDetail({
   onNoteCategoryChange: (category: GovernanceNoteCategory) => void;
   onNoteTextChange: (text: string) => void;
   onSaveNote: () => void;
+  showNoteForm?: boolean;
 }) {
   if (loading) {
     return <p className={styles.detailLoading}>Loading governance detail...</p>;
@@ -849,31 +1075,33 @@ function ActionAuditGovernanceDetail({
       </div>
 
       <div className={styles.governanceNotes}>
-        <div className={styles.governanceNoteForm}>
-          <label className={styles.field}>
-            <span>Note category</span>
-            <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
-              {governanceNoteOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
-            <span>Governance note</span>
-            <textarea
-              maxLength={1200}
-              onChange={(event) => onNoteTextChange(event.target.value)}
-              placeholder="Append a governance review note"
-              rows={3}
-              value={noteText}
-            />
-          </label>
-          <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
-            {noteSaving ? "Saving..." : "Add note"}
-          </button>
-        </div>
+        {showNoteForm ? (
+          <div className={styles.governanceNoteForm}>
+            <label className={styles.field}>
+              <span>Note category</span>
+              <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
+                {governanceNoteOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.field}>
+              <span>Governance note</span>
+              <textarea
+                maxLength={1200}
+                onChange={(event) => onNoteTextChange(event.target.value)}
+                placeholder="Append a governance review note"
+                rows={3}
+                value={noteText}
+              />
+            </label>
+            <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
+              {noteSaving ? "Saving..." : "Add note"}
+            </button>
+          </div>
+        ) : null}
 
         <div className={styles.governanceNoteList}>
           <span>Governance notes</span>
