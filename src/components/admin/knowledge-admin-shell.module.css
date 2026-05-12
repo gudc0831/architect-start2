@@ -362,6 +362,33 @@
   padding: 0.6rem;
 }
 
+.markdownPreview {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid var(--theme-border-field);
+  padding-top: 0.75rem;
+}
+
+.markdownPreview h4 {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.markdownPreview pre {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

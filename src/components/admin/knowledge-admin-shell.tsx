@@ -404,6 +404,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     onChange={(event) => setDraft((current) => ({ ...current, bodyMarkdown: event.target.value }))}
                   />
                 </label>
+                <section className={styles.markdownPreview} aria-label="Knowledge draft Markdown preview">
+                  <h4>Markdown preview</h4>
+                  <pre>{draft.bodyMarkdown.trim() || "No Markdown body yet."}</pre>
+                </section>
               </section>
 
               <footer className={styles.footer}>
