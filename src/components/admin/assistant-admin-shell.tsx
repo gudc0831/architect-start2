@@ -335,6 +335,18 @@ type CleanupReviewNoteReportItem = AuditCleanupReviewNote & {
   cleanupSkippedCount: number;
 };
 
+type CleanupReviewNoteSummary = {
+  projectId: string;
+  month: string;
+  filters: CleanupReviewNoteReportResponse["filters"];
+  totalNotes: number;
+  totalCleanupRuns: number;
+  reviewedCleanupRuns: number;
+  unreviewedCleanupRuns: number;
+  categoryCounts: Array<{ category: GovernanceNoteCategory; count: number }>;
+  reviewerCounts: Array<{ reviewerId: string | null; count: number }>;
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -398,6 +410,7 @@ export function AssistantAdminShell() {
   const [auditCleanupComparison, setAuditCleanupComparison] = useState<AuditCleanupComparison | null>(null);
   const [auditCleanupDetail, setAuditCleanupDetail] = useState<AuditCleanupDetail | null>(null);
   const [cleanupReviewNoteReport, setCleanupReviewNoteReport] = useState<CleanupReviewNoteReportItem[]>([]);
+  const [cleanupReviewNoteSummary, setCleanupReviewNoteSummary] = useState<CleanupReviewNoteSummary | null>(null);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
@@ -437,6 +450,7 @@ export function AssistantAdminShell() {
   const [auditCleanupComparisonLoading, setAuditCleanupComparisonLoading] = useState(false);
   const [auditCleanupDetailLoading, setAuditCleanupDetailLoading] = useState(false);
   const [cleanupReviewNoteReportLoading, setCleanupReviewNoteReportLoading] = useState(false);
+  const [cleanupReviewNoteSummaryLoading, setCleanupReviewNoteSummaryLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [cleanupReviewNoteSaving, setCleanupReviewNoteSaving] = useState(false);
@@ -654,21 +668,28 @@ export function AssistantAdminShell() {
   useEffect(() => {
     let active = true;
     setCleanupReviewNoteReportLoading(true);
+    setCleanupReviewNoteSummaryLoading(true);
 
-    readJson<CleanupReviewNoteReportResponse>(`/api/admin/assistant/cleanup-review-notes?${cleanupReviewNoteReportQuery}`)
-      .then((data) => {
+    Promise.all([
+      readJson<CleanupReviewNoteReportResponse>(`/api/admin/assistant/cleanup-review-notes?${cleanupReviewNoteReportQuery}`),
+      readJson<CleanupReviewNoteSummary>(`/api/admin/assistant/cleanup-review-notes/summary?${cleanupReviewNoteReportQuery}`),
+    ])
+      .then(([reportData, summaryData]) => {
         if (active) {
-          setCleanupReviewNoteReport(data.notes);
+          setCleanupReviewNoteReport(reportData.notes);
+          setCleanupReviewNoteSummary(summaryData);
         }
       })
       .catch(() => {
         if (active) {
           setCleanupReviewNoteReport([]);
+          setCleanupReviewNoteSummary(null);
         }
       })
       .finally(() => {
         if (active) {
           setCleanupReviewNoteReportLoading(false);
+          setCleanupReviewNoteSummaryLoading(false);
         }
       });
 
@@ -1686,6 +1707,24 @@ export function AssistantAdminShell() {
                 />
               </label>
             </div>
+
+            <div className={styles.filterGrid}>
+              <Metric label="Cleanup notes" value={cleanupReviewNoteSummaryLoading ? "Loading" : cleanupReviewNoteSummary?.totalNotes ?? 0} />
+              <Metric label="Reviewed runs" value={cleanupReviewNoteSummary?.reviewedCleanupRuns ?? 0} />
+              <Metric label="Unreviewed runs" value={cleanupReviewNoteSummary?.unreviewedCleanupRuns ?? 0} />
+              <Metric label="Total cleanup runs" value={cleanupReviewNoteSummary?.totalCleanupRuns ?? 0} />
+            </div>
+
+            {cleanupReviewNoteSummary ? (
+              <div className={styles.filterGrid}>
+                <DetailBlock title="Category counts">
+                  <p>{cleanupReviewNoteSummary.categoryCounts.length ? cleanupReviewNoteSummary.categoryCounts.map((item) => `${governanceNoteLabel(item.category)} ${item.count}`).join(" / ") : "-"}</p>
+                </DetailBlock>
+                <DetailBlock title="Reviewer counts">
+                  <p>{cleanupReviewNoteSummary.reviewerCounts.length ? cleanupReviewNoteSummary.reviewerCounts.map((item) => `${item.reviewerId ?? "-"} ${item.count}`).join(" / ") : "-"}</p>
+                </DetailBlock>
+              </div>
+            ) : null}
 
             <div className={styles.actionAuditList}>
               {cleanupReviewNoteReport.map((note) => (

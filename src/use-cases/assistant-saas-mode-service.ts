@@ -88,6 +88,8 @@ type GetAssistantAuditCleanupReviewNoteReportInput = {
   cleanupId?: string | null;
 };
 
+type GetAssistantAuditCleanupReviewNoteSummaryInput = Omit<GetAssistantAuditCleanupReviewNoteReportInput, "limit">;
+
 type GetAssistantAuditRetentionPreviewInput = {
   projectId?: string | null;
   retentionDays?: string | null;
@@ -361,6 +363,18 @@ export type AdminAssistantAuditCleanupReviewNoteReport = {
     cleanupId: string;
   };
   notes: AdminAssistantAuditCleanupReviewNoteReportItem[];
+};
+
+export type AdminAssistantAuditCleanupReviewNoteSummary = {
+  projectId: string;
+  month: string;
+  filters: AdminAssistantAuditCleanupReviewNoteReport["filters"];
+  totalNotes: number;
+  totalCleanupRuns: number;
+  reviewedCleanupRuns: number;
+  unreviewedCleanupRuns: number;
+  categoryCounts: Array<{ category: AssistantActionAuditGovernanceNoteCategory; count: number }>;
+  reviewerCounts: Array<{ reviewerId: string | null; count: number }>;
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -1054,6 +1068,49 @@ export async function exportAssistantAuditCleanupReviewNoteReport(
   };
 }
 
+export async function getAssistantAuditCleanupReviewNoteSummary(
+  input: GetAssistantAuditCleanupReviewNoteSummaryInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupReviewNoteSummary> {
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const category = normalizeOptionalGovernanceNoteCategory(input.category);
+  const reviewerQuery = normalizeOptionalText(input.reviewerId).toLowerCase();
+  const tokenQuery = normalizeOptionalText(input.archivePreviewToken).toLowerCase();
+  const cleanupIdQuery = normalizeOptionalText(input.cleanupId).toLowerCase();
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const cleanups = events
+    .map(toCleanupHistoryItem)
+    .filter((cleanup): cleanup is AdminAssistantAuditCleanupHistoryItem => Boolean(cleanup))
+    .filter((cleanup) => !tokenQuery || cleanup.archivePreviewToken.toLowerCase().includes(tokenQuery))
+    .filter((cleanup) => !cleanupIdQuery || cleanup.id.toLowerCase().includes(cleanupIdQuery));
+  const cleanupIds = new Set(cleanups.map((cleanup) => cleanup.id));
+  const notes = events
+    .map(toCleanupReviewNote)
+    .filter((note): note is AssistantAuditCleanupReviewNote => Boolean(note))
+    .filter((note) => cleanupIds.has(note.sourceCleanupId))
+    .filter((note) => !category || note.category === category)
+    .filter((note) => !reviewerQuery || (note.reviewerId ?? "").toLowerCase().includes(reviewerQuery));
+  const reviewedCleanupIds = new Set(notes.map((note) => note.sourceCleanupId));
+
+  return {
+    projectId,
+    month,
+    filters: {
+      category,
+      reviewerId: reviewerQuery,
+      archivePreviewToken: tokenQuery,
+      cleanupId: cleanupIdQuery,
+    },
+    totalNotes: notes.length,
+    totalCleanupRuns: cleanups.length,
+    reviewedCleanupRuns: reviewedCleanupIds.size,
+    unreviewedCleanupRuns: cleanups.filter((cleanup) => !reviewedCleanupIds.has(cleanup.id)).length,
+    categoryCounts: countCleanupReviewNotesByCategory(notes),
+    reviewerCounts: countCleanupReviewNotesByReviewer(notes),
+  };
+}
+
 export async function generateAssistantWithSaasApi(input: GenerateAssistantInput, user: AuthUser): Promise<AssistantGenerateResult> {
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
@@ -1721,6 +1778,28 @@ function toCleanupReviewNoteReportItem(
     cleanupDeletedCount: cleanup.deletedCount,
     cleanupSkippedCount: cleanup.skippedCount,
   };
+}
+
+function countCleanupReviewNotesByCategory(notes: AssistantAuditCleanupReviewNote[]) {
+  const counts = new Map<AssistantActionAuditGovernanceNoteCategory, number>();
+  for (const note of notes) {
+    counts.set(note.category, (counts.get(note.category) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((left, right) => right.count - left.count || left.category.localeCompare(right.category));
+}
+
+function countCleanupReviewNotesByReviewer(notes: AssistantAuditCleanupReviewNote[]) {
+  const counts = new Map<string | null, number>();
+  for (const note of notes) {
+    counts.set(note.reviewerId, (counts.get(note.reviewerId) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([reviewerId, count]) => ({ reviewerId, count }))
+    .sort((left, right) => right.count - left.count || (left.reviewerId ?? "").localeCompare(right.reviewerId ?? ""));
 }
 
 function normalizeOptionalIsoDate(value: unknown) {
