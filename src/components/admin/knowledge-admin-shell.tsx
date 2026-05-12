@@ -280,11 +280,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           </div>
           <label className={styles.queueSearch}>
             Search candidates
-            <input
-              onChange={(event) => setCandidateSearch(event.target.value)}
-              placeholder="Title, task, project, tag"
-              value={candidateSearch}
-            />
+            <div>
+              <input
+                onChange={(event) => setCandidateSearch(event.target.value)}
+                placeholder="Title, task, project, tag"
+                value={candidateSearch}
+              />
+              <button disabled={!candidateSearch.trim()} onClick={() => setCandidateSearch("")} type="button">
+                Clear
+              </button>
+            </div>
           </label>
 
           <div className={styles.candidateList}>

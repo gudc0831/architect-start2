@@ -178,6 +178,28 @@
   font-size: 0.82rem;
 }
 
+.queueSearch div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+
+.queueSearch button {
+  min-height: 2.1rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+  color: var(--theme-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.queueSearch button:disabled {
+  opacity: 0.55;
+}
+
 .candidateList {
   display: grid;
   align-content: start;
