@@ -440,6 +440,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyDirtyDraftSummary() {
+    if (!detail) {
+      return;
+    }
+
+    const changedFields = draftDirtyStates.filter((item) => item.dirty).map((item) => item.label);
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge dirty draft summary",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Changed fields: ${changedFields.length}/${draftDirtyStates.length}`,
+          `- Fields: ${changedFields.join(", ") || "none"}`,
+          `- Scope: ${scopeLabels[draft.scope]}`,
+          `- Tags: ${splitTags(draft.tagsText).join(", ") || "none"}`,
+        ].join("\n"),
+      );
+      setStatus("Dirty draft summary copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the dirty-state indicators manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -787,6 +811,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
+                    <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
                     <select
                       aria-label="공개 범위"
                       value={draft.scope}
