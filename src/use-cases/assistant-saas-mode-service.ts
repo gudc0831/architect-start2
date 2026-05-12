@@ -104,6 +104,12 @@ type GetAssistantAuditCleanupComparisonInput = GetAssistantAuditRetentionPreview
   archivePreviewToken?: string | null;
 };
 
+type GetAssistantAuditCleanupDetailInput = {
+  cleanupId?: string | null;
+  projectId?: string | null;
+  month?: string | null;
+};
+
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
 
 export type AssistantActionAuditGovernanceNote = {
@@ -288,6 +294,24 @@ export type AdminAssistantAuditCleanupComparison = {
   previouslyDeletedEligibleIds: string[];
   previouslySkippedEligibleIds: string[];
   stillProtectedCount: number;
+};
+
+export type AdminAssistantAuditCleanupDetail = {
+  cleanup: AdminAssistantAuditCleanupHistoryItem;
+  rawAuditEvent: {
+    id: string;
+    eventType: string;
+    targetType: string;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  };
+  retentionContext: {
+    archivePreviewToken: string;
+    cutoffAt: string;
+    previewRetentionDays: number;
+    requestedEligibleCount: number;
+  };
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -843,6 +867,52 @@ export async function exportAssistantAuditCleanupComparison(input: GetAssistantA
       null,
       2,
     ),
+  };
+}
+
+export async function getAssistantAuditCleanupDetail(
+  input: GetAssistantAuditCleanupDetailInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditCleanupDetail> {
+  const cleanupId = normalizeRequiredText(input.cleanupId, "cleanupId");
+  const projectId = await resolveProjectId(input.projectId, user);
+  const month = normalizeMonth(input.month);
+  const events = await assistantRepository.listAuditEvents({ projectId, month, limit: 500 });
+  const event = events.find((item) => item.id === cleanupId);
+  if (!event) {
+    throw notFound("Assistant audit cleanup record not found.", "ASSISTANT_AUDIT_CLEANUP_NOT_FOUND");
+  }
+
+  const cleanup = toCleanupHistoryItem(event);
+  if (!cleanup) {
+    throw notFound("Assistant audit cleanup record not found.", "ASSISTANT_AUDIT_CLEANUP_NOT_FOUND");
+  }
+
+  return {
+    cleanup,
+    rawAuditEvent: {
+      id: event.id,
+      eventType: event.eventType,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      metadata: event.metadata,
+      createdAt: event.createdAt,
+    },
+    retentionContext: {
+      archivePreviewToken: cleanup.archivePreviewToken,
+      cutoffAt: cleanup.cutoffAt,
+      previewRetentionDays: cleanup.previewRetentionDays,
+      requestedEligibleCount: cleanup.requestedEligibleCount,
+    },
+  };
+}
+
+export async function exportAssistantAuditCleanupPackage(input: GetAssistantAuditCleanupDetailInput, user: AuthUser) {
+  const detail = await getAssistantAuditCleanupDetail(input, user);
+
+  return {
+    filename: `assistant-audit-cleanup-${detail.cleanup.id}.md`,
+    markdown: toCleanupDetailMarkdown(detail),
   };
 }
 
@@ -1679,6 +1749,46 @@ function toCleanupHistoryCsv(cleanups: AdminAssistantAuditCleanupHistoryItem[]) 
   ]);
 
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function toCleanupDetailMarkdown(detail: AdminAssistantAuditCleanupDetail) {
+  const cleanup = detail.cleanup;
+
+  return [
+    "# Assistant Audit Cleanup Evidence Package",
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    `Cleanup audit id: ${cleanup.id}`,
+    `Created at: ${cleanup.createdAt}`,
+    `Actor id: ${cleanup.actorId ?? "-"}`,
+    "",
+    "## Retention Context",
+    "",
+    `- Archive preview token: ${cleanup.archivePreviewToken}`,
+    `- Cutoff: ${cleanup.cutoffAt}`,
+    `- Preview retention days: ${cleanup.previewRetentionDays}`,
+    `- Requested eligible count: ${cleanup.requestedEligibleCount}`,
+    "",
+    "## Cleanup Counts",
+    "",
+    `- Deleted count: ${cleanup.deletedCount}`,
+    `- Skipped count: ${cleanup.skippedCount}`,
+    "",
+    "## Deleted IDs",
+    "",
+    cleanup.deletedIds.length ? cleanup.deletedIds.map((id) => `- ${id}`).join("\n") : "- None",
+    "",
+    "## Skipped IDs",
+    "",
+    cleanup.skippedIds.length ? cleanup.skippedIds.map((id) => `- ${id}`).join("\n") : "- None",
+    "",
+    "## Raw Cleanup Audit Metadata",
+    "",
+    "```json",
+    JSON.stringify(detail.rawAuditEvent.metadata, null, 2),
+    "```",
+    "",
+  ].join("\n");
 }
 
 function formatCsvCell(value: string) {

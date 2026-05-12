@@ -283,6 +283,24 @@ type AuditCleanupComparison = {
   stillProtectedCount: number;
 };
 
+type AuditCleanupDetail = {
+  cleanup: AuditCleanupHistoryItem;
+  rawAuditEvent: {
+    id: string;
+    eventType: string;
+    targetType: string;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  };
+  retentionContext: {
+    archivePreviewToken: string;
+    cutoffAt: string;
+    previewRetentionDays: number;
+    requestedEligibleCount: number;
+  };
+};
+
 type AdminActionAuditTaskSnapshot = {
   id: string;
   label: string;
@@ -344,6 +362,7 @@ export function AssistantAdminShell() {
   const [auditRetentionCleanupResult, setAuditRetentionCleanupResult] = useState<AuditRetentionCleanupResult | null>(null);
   const [auditCleanupHistory, setAuditCleanupHistory] = useState<AuditCleanupHistoryItem[]>([]);
   const [auditCleanupComparison, setAuditCleanupComparison] = useState<AuditCleanupComparison | null>(null);
+  const [auditCleanupDetail, setAuditCleanupDetail] = useState<AuditCleanupDetail | null>(null);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
   const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
@@ -362,6 +381,7 @@ export function AssistantAdminShell() {
   const [selectedActionAuditId, setSelectedActionAuditId] = useState<string | null>(null);
   const [actionAuditDetail, setActionAuditDetail] = useState<AdminActionAuditDetail | null>(null);
   const [selectedGovernanceReportAuditId, setSelectedGovernanceReportAuditId] = useState<string | null>(null);
+  const [selectedCleanupId, setSelectedCleanupId] = useState<string | null>(null);
   const [governanceReportDetail, setGovernanceReportDetail] = useState<AdminActionAuditDetail | null>(null);
   const [governanceNoteCategory, setGovernanceNoteCategory] = useState<GovernanceNoteCategory>("review_note");
   const [governanceNoteText, setGovernanceNoteText] = useState("");
@@ -374,6 +394,7 @@ export function AssistantAdminShell() {
   const [auditRetentionLoading, setAuditRetentionLoading] = useState(false);
   const [auditCleanupHistoryLoading, setAuditCleanupHistoryLoading] = useState(false);
   const [auditCleanupComparisonLoading, setAuditCleanupComparisonLoading] = useState(false);
+  const [auditCleanupDetailLoading, setAuditCleanupDetailLoading] = useState(false);
   const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -801,6 +822,28 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Assistant audit cleanup comparison failed.");
     } finally {
       setAuditCleanupComparisonLoading(false);
+    }
+  }
+
+  async function openAuditCleanupDetail(cleanupId: string) {
+    if (selectedCleanupId === cleanupId) {
+      setSelectedCleanupId(null);
+      setAuditCleanupDetail(null);
+      return;
+    }
+
+    setSelectedCleanupId(cleanupId);
+    setAuditCleanupDetail(null);
+    setAuditCleanupDetailLoading(true);
+    try {
+      const detail = await readJson<AuditCleanupDetail>(
+        `/api/admin/assistant/audit-cleanups/${encodeURIComponent(cleanupId)}?month=${encodeURIComponent(month)}`,
+      );
+      setAuditCleanupDetail(detail);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup detail failed.");
+    } finally {
+      setAuditCleanupDetailLoading(false);
     }
   }
 
@@ -1410,6 +1453,14 @@ export function AssistantAdminShell() {
                       <strong>{cleanup.deletedCount} deleted / {cleanup.skippedCount} skipped</strong>
                       <span>{formatDate(cleanup.createdAt)} / actor {cleanup.actorId ?? "-"}</span>
                     </div>
+                    <div className={styles.actionAuditCardActions}>
+                      <button onClick={() => void openAuditCleanupDetail(cleanup.id)} type="button">
+                        {selectedCleanupId === cleanup.id ? "Hide cleanup" : "Review cleanup"}
+                      </button>
+                      <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(cleanup.id)}/package?month=${encodeURIComponent(month)}`}>
+                        Export package
+                      </a>
+                    </div>
                   </header>
                   <p>Token {cleanup.archivePreviewToken} / cutoff {formatDate(cleanup.cutoffAt)} / retention {cleanup.previewRetentionDays} days</p>
                   <dl>
@@ -1430,6 +1481,9 @@ export function AssistantAdminShell() {
                       <dd>{cleanup.skippedIds.length ? cleanup.skippedIds.join(", ") : "-"}</dd>
                     </div>
                   </dl>
+                  {selectedCleanupId === cleanup.id ? (
+                    <AuditCleanupDetailPanel detail={auditCleanupDetail} loading={auditCleanupDetailLoading} />
+                  ) : null}
                 </article>
               ))}
               {auditCleanupHistory.length === 0 ? (
@@ -1592,6 +1646,50 @@ function ActionAuditGovernanceDetail({
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+function AuditCleanupDetailPanel({ detail, loading }: { detail: AuditCleanupDetail | null; loading: boolean }) {
+  if (loading) {
+    return <p>Loading cleanup detail...</p>;
+  }
+
+  if (!detail) {
+    return <p>Cleanup detail is not available.</p>;
+  }
+
+  return (
+    <section className={styles.governanceDetail}>
+      <div className={styles.governanceHeader}>
+        <div>
+          <h4>Cleanup detail</h4>
+          <p>{detail.rawAuditEvent.eventType} / {detail.rawAuditEvent.targetType}:{detail.rawAuditEvent.targetId ?? "-"}</p>
+        </div>
+      </div>
+      <div className={styles.governanceGrid}>
+        <DetailBlock title="Preview token">
+          <p>{detail.retentionContext.archivePreviewToken}</p>
+        </DetailBlock>
+        <DetailBlock title="Cutoff">
+          <p>{formatDate(detail.retentionContext.cutoffAt)}</p>
+        </DetailBlock>
+        <DetailBlock title="Requested eligible">
+          <p>{detail.retentionContext.requestedEligibleCount}</p>
+        </DetailBlock>
+        <DetailBlock title="Counts">
+          <p>{detail.cleanup.deletedCount} deleted / {detail.cleanup.skippedCount} skipped</p>
+        </DetailBlock>
+      </div>
+      <DetailBlock title="Deleted ids">
+        <p>{detail.cleanup.deletedIds.length ? detail.cleanup.deletedIds.join(", ") : "-"}</p>
+      </DetailBlock>
+      <DetailBlock title="Skipped ids">
+        <p>{detail.cleanup.skippedIds.length ? detail.cleanup.skippedIds.join(", ") : "-"}</p>
+      </DetailBlock>
+      <DetailBlock title="Raw metadata">
+        <pre>{JSON.stringify(detail.rawAuditEvent.metadata, null, 2)}</pre>
+      </DetailBlock>
     </section>
   );
 }
