@@ -59,4 +59,7 @@ export const assistantRepository: AssistantRepository = {
   listAuditEvents(input) {
     return getAssistantRepository().listAuditEvents(input);
   },
+  deleteAuditEventsByIds(input) {
+    return getAssistantRepository().deleteAuditEventsByIds(input);
+  },
 };

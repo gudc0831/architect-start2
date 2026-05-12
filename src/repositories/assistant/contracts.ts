@@ -119,6 +119,16 @@ export type CreateAssistantAuditEventInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type DeleteAssistantAuditEventsByIdsInput = {
+  projectId: string;
+  ids: string[];
+};
+
+export type DeleteAssistantAuditEventsByIdsResult = {
+  deletedIds: string[];
+  skippedIds: string[];
+};
+
 export interface AssistantRepository {
   listRecordsByTask(taskId: string): Promise<AssistantRecord[]>;
   listExternalEvidenceByTask(taskId: string): Promise<ExternalEvidenceRecord[]>;
@@ -138,4 +148,5 @@ export interface AssistantRepository {
   listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
   createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;
   listAuditEvents(input: ListAssistantAuditEventsInput): Promise<AssistantAuditEvent[]>;
+  deleteAuditEventsByIds(input: DeleteAssistantAuditEventsByIdsInput): Promise<DeleteAssistantAuditEventsByIdsResult>;
 }

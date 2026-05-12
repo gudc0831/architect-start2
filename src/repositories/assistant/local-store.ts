@@ -347,6 +347,24 @@ class LocalAssistantRepository implements AssistantRepository {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, input.limit ?? 100);
   }
+
+  async deleteAuditEventsByIds(input: { projectId: string; ids: string[] }) {
+    const store = await readStore();
+    const requestedIds = new Set(input.ids);
+    const deletedIds = store.auditEvents
+      .filter((event) => event.projectId === input.projectId && requestedIds.has(event.id))
+      .map((event) => event.id);
+    const deletedIdSet = new Set(deletedIds);
+    const skippedIds = input.ids.filter((id) => !deletedIdSet.has(id));
+
+    await writeLocalStore(
+      "assistant",
+      { ...store, auditEvents: store.auditEvents.filter((event) => !deletedIdSet.has(event.id)) },
+      { reason: "assistant.audit.delete" },
+    );
+
+    return { deletedIds, skippedIds };
+  }
 }
 
 export const localAssistantRepository = new LocalAssistantRepository();

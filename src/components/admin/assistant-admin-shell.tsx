@@ -217,11 +217,27 @@ type AuditRetentionPreview = {
   policyRetentionDays: number;
   previewRetentionDays: number;
   cutoffAt: string;
+  archivePreviewToken: string;
   totalRelevantEvents: number;
   eligibleCount: number;
   protectedCount: number;
   countsByMonth: AuditRetentionMonthCount[];
   archiveItems: Array<{ id: string; eventType: string; createdAt: string; month: string }>;
+};
+
+type AuditRetentionCleanupResult = {
+  cleanupAuditId: string;
+  projectId: string;
+  executedAt: string;
+  actorId: string | null;
+  previewRetentionDays: number;
+  cutoffAt: string;
+  archivePreviewToken: string;
+  requestedEligibleCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  deletedIds: string[];
+  skippedIds: string[];
 };
 
 type AdminActionAuditTaskSnapshot = {
@@ -282,8 +298,10 @@ export function AssistantAdminShell() {
   const [actionAudits, setActionAudits] = useState<AdminActionAuditRecord[]>([]);
   const [governanceNoteReport, setGovernanceNoteReport] = useState<GovernanceNoteReportItem[]>([]);
   const [auditRetentionPreview, setAuditRetentionPreview] = useState<AuditRetentionPreview | null>(null);
+  const [auditRetentionCleanupResult, setAuditRetentionCleanupResult] = useState<AuditRetentionCleanupResult | null>(null);
   const [month, setMonth] = useState(currentMonth);
   const [retentionPreviewDays, setRetentionPreviewDays] = useState(365);
+  const [retentionCleanupConfirmation, setRetentionCleanupConfirmation] = useState("");
   const [actionAuditAction, setActionAuditAction] = useState<AssistantActionAuditAction | "all">("all");
   const [actionAuditTask, setActionAuditTask] = useState("");
   const [actionAuditRecordId, setActionAuditRecordId] = useState("");
@@ -305,6 +323,7 @@ export function AssistantAdminShell() {
   const [governanceNoteReportLoading, setGovernanceNoteReportLoading] = useState(false);
   const [governanceReportDetailLoading, setGovernanceReportDetailLoading] = useState(false);
   const [auditRetentionLoading, setAuditRetentionLoading] = useState(false);
+  const [auditRetentionCleaning, setAuditRetentionCleaning] = useState(false);
   const [governanceNoteSaving, setGovernanceNoteSaving] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -476,6 +495,7 @@ export function AssistantAdminShell() {
       .then((data) => {
         if (active) {
           setAuditRetentionPreview(data);
+          setAuditRetentionCleanupResult(null);
         }
       })
       .catch(() => {
@@ -613,6 +633,45 @@ export function AssistantAdminShell() {
       setStatus(error instanceof Error ? error.message : "Assistant action audit ?곸꽭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
     } finally {
       setGovernanceReportDetailLoading(false);
+    }
+  }
+
+  async function runAuditRetentionCleanup() {
+    if (!auditRetentionPreview) {
+      setStatus("Audit retention preview is required before cleanup.");
+      return;
+    }
+    if (retentionCleanupConfirmation !== "DELETE_ASSISTANT_AUDIT_EVENTS") {
+      setStatus("Type DELETE_ASSISTANT_AUDIT_EVENTS to confirm cleanup.");
+      return;
+    }
+
+    setAuditRetentionCleaning(true);
+    try {
+      const result = await writeJson<AuditRetentionCleanupResult>(
+        "/api/admin/assistant/audit-retention",
+        {
+          retentionDays: String(retentionPreviewDays),
+          cutoffAt: auditRetentionPreview.cutoffAt,
+          limit: "500",
+          archivePreviewToken: auditRetentionPreview.archivePreviewToken,
+          confirmation: retentionCleanupConfirmation,
+        },
+        "POST",
+      );
+      const [retentionData, auditData] = await Promise.all([
+        readJson<AuditRetentionPreview>(`/api/admin/assistant/audit-retention?${auditRetentionQuery}`),
+        readJson<AuditResponse>(`/api/admin/assistant/audit?month=${encodeURIComponent(month)}&limit=100`),
+      ]);
+      setAuditRetentionCleanupResult(result);
+      setAuditRetentionPreview(retentionData);
+      setAudit(auditData.events);
+      setRetentionCleanupConfirmation("");
+      setStatus(`Assistant audit cleanup completed: ${result.deletedCount} deleted, ${result.skippedCount} skipped.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup failed.");
+    } finally {
+      setAuditRetentionCleaning(false);
     }
   }
 
@@ -1060,6 +1119,42 @@ export function AssistantAdminShell() {
               <DetailBlock title="Relevant events">
                 <p>{auditRetentionPreview?.totalRelevantEvents ?? 0} total / {auditRetentionPreview?.protectedCount ?? 0} protected</p>
               </DetailBlock>
+              <DetailBlock title="Preview token">
+                <p>{auditRetentionPreview?.archivePreviewToken ?? "-"}</p>
+              </DetailBlock>
+            </div>
+
+            <div className={styles.cleanupPanel}>
+              <div>
+                <h4>Guarded cleanup</h4>
+                <p>Requires this preview token and exact confirmation before deleting eligible assistant audit records.</p>
+              </div>
+              <label className={styles.field}>
+                <span>Confirmation</span>
+                <input
+                  value={retentionCleanupConfirmation}
+                  placeholder="DELETE_ASSISTANT_AUDIT_EVENTS"
+                  onChange={(event) => setRetentionCleanupConfirmation(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={
+                  auditRetentionCleaning ||
+                  !auditRetentionPreview ||
+                  auditRetentionPreview.eligibleCount === 0 ||
+                  retentionCleanupConfirmation !== "DELETE_ASSISTANT_AUDIT_EVENTS"
+                }
+                onClick={() => void runAuditRetentionCleanup()}
+              >
+                {auditRetentionCleaning ? "Cleaning" : "Run cleanup"}
+              </button>
+              {auditRetentionCleanupResult ? (
+                <p>
+                  Cleanup audit {auditRetentionCleanupResult.cleanupAuditId}: {auditRetentionCleanupResult.deletedCount} deleted /{" "}
+                  {auditRetentionCleanupResult.skippedCount} skipped.
+                </p>
+              ) : null}
             </div>
 
             <div className={styles.tableScroller}>

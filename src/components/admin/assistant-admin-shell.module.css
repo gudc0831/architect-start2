@@ -302,6 +302,50 @@
   gap: 0.75rem;
 }
 
+.cleanupPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.8fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.cleanupPanel h4,
+.cleanupPanel p {
+  margin: 0;
+}
+
+.cleanupPanel h4 {
+  font-size: 0.92rem;
+}
+
+.cleanupPanel p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.cleanupPanel button {
+  min-height: 38px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 8px;
+  background: var(--theme-surface-primary-button);
+  color: var(--theme-text-inverse);
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cleanupPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .actionAuditList {
   display: grid;
   gap: 0.65rem;
@@ -632,6 +676,7 @@
   .formGrid,
   .metricGrid,
   .filterGrid,
+  .cleanupPanel,
   .actionAuditCard dl {
     grid-template-columns: 1fr;
   }
@@ -660,6 +705,7 @@
   }
 
   .actionAuditTools a,
+  .cleanupPanel button,
   .actionAuditCardActions,
   .actionAuditCardActions a,
   .actionAuditCardActions button {

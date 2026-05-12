@@ -11,6 +11,7 @@ export async function GET(request: Request) {
       {
         projectId: searchParams.get("projectId"),
         retentionDays: searchParams.get("retentionDays"),
+        cutoffAt: searchParams.get("cutoffAt"),
         limit: searchParams.get("limit"),
       },
       user,

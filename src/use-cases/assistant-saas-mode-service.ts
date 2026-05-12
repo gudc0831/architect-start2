@@ -81,7 +81,13 @@ type GetAssistantActionAuditGovernanceNoteReportInput = {
 type GetAssistantAuditRetentionPreviewInput = {
   projectId?: string | null;
   retentionDays?: string | null;
+  cutoffAt?: string | null;
   limit?: string | null;
+};
+
+type ExecuteAssistantAuditRetentionCleanupInput = GetAssistantAuditRetentionPreviewInput & {
+  archivePreviewToken?: unknown;
+  confirmation?: unknown;
 };
 
 export type AssistantActionAuditGovernanceNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
@@ -204,11 +210,27 @@ export type AdminAssistantAuditRetentionPreview = {
   policyRetentionDays: number;
   previewRetentionDays: number;
   cutoffAt: string;
+  archivePreviewToken: string;
   totalRelevantEvents: number;
   eligibleCount: number;
   protectedCount: number;
   countsByMonth: AdminAssistantAuditRetentionMonthCount[];
   archiveItems: AdminAssistantAuditRetentionArchiveItem[];
+};
+
+export type AdminAssistantAuditRetentionCleanupResult = {
+  cleanupAuditId: string;
+  projectId: string;
+  executedAt: string;
+  actorId: string | null;
+  previewRetentionDays: number;
+  cutoffAt: string;
+  archivePreviewToken: string;
+  requestedEligibleCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  deletedIds: string[];
+  skippedIds: string[];
 };
 
 export async function getAssistantRunPolicy(input: { projectId?: string | null }, user: AuthUser) {
@@ -551,7 +573,9 @@ export async function getAssistantAuditRetentionPreview(
   const previewRetentionDays = normalizePositiveInteger(input.retentionDays, policy.retentionDays, 0, 3650);
   const limit = normalizePositiveInteger(input.limit, 500, 1, 500);
   const generatedAt = new Date();
-  const cutoffAt = new Date(generatedAt.getTime() - previewRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const cutoffAt =
+    normalizeOptionalIsoDate(input.cutoffAt) ??
+    new Date(generatedAt.getTime() - previewRetentionDays * 24 * 60 * 60 * 1000).toISOString();
   const [events, tasks] = await Promise.all([
     assistantRepository.listAuditEvents({ projectId, limit }),
     taskRepository.listActiveTasks(projectId),
@@ -567,6 +591,7 @@ export async function getAssistantAuditRetentionPreview(
     .map((event) => toRetentionArchiveItem(event, sourceRecordById, taskById))
     .filter((item): item is AdminAssistantAuditRetentionArchiveItem => Boolean(item));
   const eligibleItems = archiveItems.filter((item) => item.createdAt < cutoffAt);
+  const archivePreviewToken = buildRetentionArchivePreviewToken(projectId, cutoffAt, eligibleItems);
 
   return {
     projectId,
@@ -574,6 +599,7 @@ export async function getAssistantAuditRetentionPreview(
     policyRetentionDays: policy.retentionDays,
     previewRetentionDays,
     cutoffAt,
+    archivePreviewToken,
     totalRelevantEvents: archiveItems.length,
     eligibleCount: eligibleItems.length,
     protectedCount: archiveItems.length - eligibleItems.length,
@@ -598,6 +624,61 @@ export async function exportAssistantAuditRetentionArchivePreview(
       null,
       2,
     ),
+  };
+}
+
+export async function executeAssistantAuditRetentionCleanup(
+  input: ExecuteAssistantAuditRetentionCleanupInput,
+  user: AuthUser,
+): Promise<AdminAssistantAuditRetentionCleanupResult> {
+  const archivePreviewToken = normalizeRequiredText(input.archivePreviewToken, "archivePreviewToken");
+  const confirmation = normalizeRequiredText(input.confirmation, "confirmation");
+  if (confirmation !== "DELETE_ASSISTANT_AUDIT_EVENTS") {
+    throw badRequest("Cleanup confirmation text does not match.", "ASSISTANT_AUDIT_CLEANUP_CONFIRMATION_REQUIRED");
+  }
+
+  const preview = await getAssistantAuditRetentionPreview(input, user);
+  if (archivePreviewToken !== preview.archivePreviewToken) {
+    throw badRequest("Archive preview token does not match the current retention cutoff.", "ASSISTANT_AUDIT_CLEANUP_TOKEN_MISMATCH");
+  }
+
+  const requestedIds = preview.archiveItems.map((item) => item.id);
+  const deletion = requestedIds.length
+    ? await assistantRepository.deleteAuditEventsByIds({ projectId: preview.projectId, ids: requestedIds })
+    : { deletedIds: [], skippedIds: [] };
+  const cleanupAudit = await assistantRepository.createAuditEvent({
+    projectId: preview.projectId,
+    profileId: user.id,
+    eventType: "assistant.audit_retention_cleanup.executed",
+    targetType: "assistant_audit_retention_cleanup",
+    targetId: null,
+    metadata: {
+      archivePreviewToken,
+      cutoffAt: preview.cutoffAt,
+      actorId: user.id,
+      previewRetentionDays: preview.previewRetentionDays,
+      requestedEligibleCount: requestedIds.length,
+      deletedCount: deletion.deletedIds.length,
+      skippedCount: deletion.skippedIds.length,
+      deletedIds: deletion.deletedIds,
+      skippedIds: deletion.skippedIds,
+      countsByMonth: preview.countsByMonth,
+    },
+  });
+
+  return {
+    cleanupAuditId: cleanupAudit.id,
+    projectId: preview.projectId,
+    executedAt: cleanupAudit.createdAt,
+    actorId: user.id,
+    previewRetentionDays: preview.previewRetentionDays,
+    cutoffAt: preview.cutoffAt,
+    archivePreviewToken,
+    requestedEligibleCount: requestedIds.length,
+    deletedCount: deletion.deletedIds.length,
+    skippedCount: deletion.skippedIds.length,
+    deletedIds: deletion.deletedIds,
+    skippedIds: deletion.skippedIds,
   };
 }
 
@@ -1168,6 +1249,29 @@ function buildRetentionMonthCounts(items: AdminAssistantAuditRetentionArchiveIte
   }
 
   return [...countsByMonth.values()].sort((left, right) => right.month.localeCompare(left.month));
+}
+
+function buildRetentionArchivePreviewToken(
+  projectId: string,
+  cutoffAt: string,
+  eligibleItems: AdminAssistantAuditRetentionArchiveItem[],
+) {
+  const eligibleIds = eligibleItems.map((item) => item.id).sort();
+  return createHash("sha256")
+    .update(JSON.stringify({ projectId, cutoffAt, eligibleIds }))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function normalizeOptionalIsoDate(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw badRequest("cutoffAt must be a valid ISO date.", "INVALID_CUTOFF_AT");
+  }
+  return date.toISOString();
 }
 
 function normalizeGovernanceNoteCategory(value: unknown): AssistantActionAuditGovernanceNoteCategory {

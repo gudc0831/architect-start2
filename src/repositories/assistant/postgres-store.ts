@@ -131,6 +131,7 @@ const assistantPrisma = prisma as typeof prisma & {
   assistantAuditEvent: {
     create: (...args: unknown[]) => Promise<PrismaAssistantAuditEvent>;
     findMany: (...args: unknown[]) => Promise<PrismaAssistantAuditEvent[]>;
+    deleteMany: (...args: unknown[]) => Promise<{ count: number }>;
   };
 };
 
@@ -542,6 +543,30 @@ class PostgresAssistantRepository implements AssistantRepository {
     });
 
     return events.map(toAuditEvent);
+  }
+
+  async deleteAuditEventsByIds(input: { projectId: string; ids: string[] }) {
+    const existingEvents = await assistantPrisma.assistantAuditEvent.findMany({
+      where: {
+        projectId: input.projectId,
+        id: { in: input.ids },
+      },
+      select: { id: true },
+    });
+    const deletedIds = existingEvents.map((event: { id: string }) => event.id);
+    const deletedIdSet = new Set(deletedIds);
+    const skippedIds = input.ids.filter((id) => !deletedIdSet.has(id));
+
+    if (deletedIds.length > 0) {
+      await assistantPrisma.assistantAuditEvent.deleteMany({
+        where: {
+          projectId: input.projectId,
+          id: { in: deletedIds },
+        },
+      });
+    }
+
+    return { deletedIds, skippedIds };
   }
 }
 
