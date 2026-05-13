@@ -95,6 +95,31 @@ export type KnowledgeExportSyncAudit = {
   createdBy: string | null;
 };
 
+export type KnowledgeSyncTargetConfig = {
+  target: KnowledgeExportSyncTarget;
+  label: string;
+  enabled: boolean;
+  dryRunOnly: boolean;
+  adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
+  notes: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  auditId: string | null;
+};
+
+export type KnowledgeProviderPreview = {
+  id: string;
+  createdAt: string;
+  auditId: string;
+  target: KnowledgeExportSyncTarget;
+  status: "dry_run_preview";
+  destination: string;
+  packageName: string;
+  operations: string[];
+  warnings: string[];
+  createdBy: string | null;
+};
+
 type KnowledgeExportSyncAuditInput = {
   action?: unknown;
   target?: unknown;
@@ -106,9 +131,26 @@ type KnowledgeExportSyncAuditInput = {
   dryRunWarnings?: unknown;
 };
 
+type KnowledgeSyncTargetConfigInput = {
+  target?: unknown;
+  enabled?: unknown;
+  dryRunOnly?: unknown;
+  notes?: unknown;
+};
+
+type KnowledgeProviderPreviewInput = {
+  auditId?: unknown;
+  confirmation?: unknown;
+};
+
 const knowledgeExportSyncEventType = "knowledge_export_sync";
 const knowledgeExportSyncTargetType = "approved_wiki_export_package";
+const knowledgeSyncTargetConfigEventType = "knowledge_sync_target_config";
+const knowledgeSyncTargetConfigTargetType = "knowledge_sync_target";
+const knowledgeProviderPreviewEventType = "knowledge_sync_provider_preview";
+const knowledgeProviderPreviewTargetType = "knowledge_sync_provider_preview";
 const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
+const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 
 export async function listKnowledgeCandidates(): Promise<KnowledgeCandidateListItem[]> {
   const records = await assistantRepository.listKnowledgeCandidateRecords();
@@ -193,7 +235,7 @@ export async function createKnowledgeExportSyncAudit(
   const readiness = buildKnowledgeExportReadiness(includedItems, target, format);
   const readinessWarnings = readiness.filter((item) => !item.ready).map((item) => `${item.label}: ${item.detail}`);
   const dryRunWarnings = [...new Set([...requestedWarnings, ...readinessWarnings])].slice(0, 20);
-  const provider = readKnowledgeExportProviderState(target);
+  const provider = await readKnowledgeExportProviderState(target);
   const readyCount = readiness.filter((item) => item.ready).length;
   const status = resolveKnowledgeExportSyncAuditStatus({
     action,
@@ -237,6 +279,82 @@ export async function createKnowledgeExportSyncAudit(
     throw badRequest("Knowledge export sync audit could not be normalized.", "KNOWLEDGE_EXPORT_AUDIT_INVALID");
   }
   return audit;
+}
+
+export async function listKnowledgeSyncTargetConfigs(): Promise<KnowledgeSyncTargetConfig[]> {
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [knowledgeSyncTargetConfigEventType],
+    targetType: knowledgeSyncTargetConfigTargetType,
+    limit: 200,
+  });
+  return readKnowledgeSyncTargetConfigs(events);
+}
+
+export async function updateKnowledgeSyncTargetConfig(
+  input: KnowledgeSyncTargetConfigInput,
+  user: AuthUser,
+): Promise<KnowledgeSyncTargetConfig> {
+  const target = normalizeKnowledgeExportSyncTarget(input.target);
+  const event = await assistantRepository.createAuditEvent({
+    projectId: null,
+    profileId: user.id,
+    eventType: knowledgeSyncTargetConfigEventType,
+    targetType: knowledgeSyncTargetConfigTargetType,
+    targetId: null,
+    metadata: {
+      knowledgeSyncTargetConfigVersion: 1,
+      target,
+      enabled: input.enabled === true,
+      dryRunOnly: input.dryRunOnly !== false,
+      notes: normalizeOptionalText(input.notes).slice(0, 500),
+      updatedBy: user.id,
+    },
+  });
+  const [config] = readKnowledgeSyncTargetConfigs([event]);
+  return config;
+}
+
+export async function createKnowledgeProviderPreview(
+  input: KnowledgeProviderPreviewInput,
+  user: AuthUser,
+): Promise<KnowledgeProviderPreview> {
+  const auditId = normalizeRequiredText(input.auditId, "auditId");
+  const confirmation = normalizeOptionalText(input.confirmation);
+  if (confirmation !== knowledgeProviderPreviewConfirmationText) {
+    throw badRequest("Provider preview confirmation is required.", "KNOWLEDGE_PROVIDER_PREVIEW_CONFIRMATION_REQUIRED");
+  }
+  const audits = await listKnowledgeExportSyncAudits();
+  const audit = audits.find((item) => item.id === auditId);
+  if (!audit) {
+    throw badRequest("Knowledge export audit id was not found.", "KNOWLEDGE_EXPORT_AUDIT_NOT_FOUND");
+  }
+  if (audit.status !== "provider_ready") {
+    throw badRequest("Provider preview requires a provider-ready export audit.", "KNOWLEDGE_PROVIDER_PREVIEW_AUDIT_NOT_READY");
+  }
+  const configs = await listKnowledgeSyncTargetConfigs();
+  const config = configs.find((item) => item.target === audit.target);
+  if (!config?.enabled) {
+    throw badRequest("Knowledge sync target is not enabled.", "KNOWLEDGE_SYNC_TARGET_DISABLED");
+  }
+
+  const preview = buildKnowledgeProviderPreview(audit, config, user.id);
+  const event = await assistantRepository.createAuditEvent({
+    projectId: audit.projectId,
+    profileId: user.id,
+    eventType: knowledgeProviderPreviewEventType,
+    targetType: knowledgeProviderPreviewTargetType,
+    targetId: null,
+    metadata: {
+      knowledgeProviderPreviewVersion: 1,
+      ...preview,
+    },
+  });
+
+  return {
+    ...preview,
+    id: event.id,
+    createdAt: event.createdAt,
+  };
 }
 
 async function toCandidateDetail(record: AssistantRecord): Promise<KnowledgeCandidateDetail> {
@@ -480,7 +598,9 @@ function buildKnowledgeExportReadiness(
   ];
 }
 
-function readKnowledgeExportProviderState(target: KnowledgeExportSyncTarget) {
+async function readKnowledgeExportProviderState(target: KnowledgeExportSyncTarget) {
+  const configs = await listKnowledgeSyncTargetConfigs();
+  const config = configs.find((item) => item.target === target);
   const enabledTargets = new Set(
     (process.env.KNOWLEDGE_SYNC_ENABLED_TARGETS ?? "")
       .split(",")
@@ -489,8 +609,8 @@ function readKnowledgeExportProviderState(target: KnowledgeExportSyncTarget) {
   );
   const executionEnabled = process.env.KNOWLEDGE_SYNC_EXECUTION_ENABLED === "true";
   return {
-    configured: enabledTargets.has(target),
-    executionEnabled,
+    configured: config?.enabled === true || enabledTargets.has(target),
+    executionEnabled: config?.enabled === true && !config.dryRunOnly ? true : executionEnabled && enabledTargets.has(target),
   };
 }
 
@@ -580,4 +700,113 @@ function toKnowledgeExportSyncAudit(event: AssistantAuditEvent): KnowledgeExport
 
 function readNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): KnowledgeSyncTargetConfig[] {
+  const latestByTarget = new Map<KnowledgeExportSyncTarget, AssistantAuditEvent>();
+  for (const event of events) {
+    if (event.eventType !== knowledgeSyncTargetConfigEventType || event.targetType !== knowledgeSyncTargetConfigTargetType) {
+      continue;
+    }
+    const target = normalizeKnowledgeExportSyncTarget(event.metadata.target);
+    const previous = latestByTarget.get(target);
+    if (!previous || event.createdAt > previous.createdAt) {
+      latestByTarget.set(target, event);
+    }
+  }
+
+  return (["portable_archive", "obsidian", "notion", "assistant_retrieval"] as KnowledgeExportSyncTarget[])
+    .map((target) => {
+      const event = latestByTarget.get(target);
+      const metadata = event?.metadata ?? {};
+      return {
+        target,
+        label: readKnowledgeSyncTargetLabel(target),
+        enabled: metadata.enabled === true,
+        dryRunOnly: metadata.dryRunOnly !== false,
+        adapter: readKnowledgeSyncAdapter(target),
+        notes: normalizeOptionalText(metadata.notes),
+        updatedAt: event?.createdAt ?? null,
+        updatedBy: normalizeOptionalText(metadata.updatedBy) || (event?.profileId ?? null),
+        auditId: event?.id ?? null,
+      };
+    });
+}
+
+function readKnowledgeSyncTargetLabel(target: KnowledgeExportSyncTarget) {
+  if (target === "obsidian") {
+    return "Obsidian vault";
+  }
+  if (target === "notion") {
+    return "Notion import";
+  }
+  if (target === "assistant_retrieval") {
+    return "Assistant retrieval";
+  }
+  return "Portable archive";
+}
+
+function readKnowledgeSyncAdapter(target: KnowledgeExportSyncTarget): KnowledgeSyncTargetConfig["adapter"] {
+  if (target === "obsidian") {
+    return "markdown_files";
+  }
+  if (target === "notion") {
+    return "notion_blocks";
+  }
+  if (target === "assistant_retrieval") {
+    return "retrieval_index";
+  }
+  return "portable_archive";
+}
+
+function buildKnowledgeProviderPreview(
+  audit: KnowledgeExportSyncAudit,
+  config: KnowledgeSyncTargetConfig,
+  actorId: string,
+): KnowledgeProviderPreview {
+  return {
+    id: `pending:${audit.id}`,
+    createdAt: new Date().toISOString(),
+    auditId: audit.id,
+    target: audit.target,
+    status: "dry_run_preview",
+    destination: config.label,
+    packageName: audit.packageName,
+    operations: readKnowledgeProviderOperations(audit, config),
+    warnings: [
+      "Provider adapter is dry-run only in this slice; no external write is executed.",
+      ...(config.dryRunOnly ? ["Target is configured as dry-run only."] : []),
+      ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
+    ],
+    createdBy: actorId,
+  };
+}
+
+function readKnowledgeProviderOperations(audit: KnowledgeExportSyncAudit, config: KnowledgeSyncTargetConfig) {
+  if (config.adapter === "markdown_files") {
+    return [
+      `Create ${audit.itemCount} Markdown file(s) from ${audit.packageName}.`,
+      "Preserve source lineage as YAML frontmatter.",
+      "Map WIKI tags to Obsidian tags.",
+    ];
+  }
+  if (config.adapter === "notion_blocks") {
+    return [
+      `Create ${audit.itemCount} Notion page draft(s).`,
+      "Map title, summary, tags, scope, and source references to import properties.",
+      "Keep Markdown body as a block conversion preview.",
+    ];
+  }
+  if (config.adapter === "retrieval_index") {
+    return [
+      `Stage ${audit.itemCount} approved WIKI item(s) for retrieval indexing.`,
+      "Preserve source task, project, tags, and publication scope.",
+      "Generate index metadata without writing to a live retrieval backend.",
+    ];
+  }
+  return [
+    `Prepare ${audit.packageName} as a portable archive artifact.`,
+    "Include package metadata, source lineage, and readiness status.",
+    "Keep archive delivery in dry-run preview mode.",
+  ];
 }

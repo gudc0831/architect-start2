@@ -151,6 +151,31 @@ type ApprovedSyncRun = {
   createdBy?: string | null;
 };
 
+type ApprovedSyncTargetConfig = {
+  target: ApprovedSyncTarget;
+  label: string;
+  enabled: boolean;
+  dryRunOnly: boolean;
+  adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
+  notes: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  auditId: string | null;
+};
+
+type ApprovedProviderPreview = {
+  id: string;
+  createdAt: string;
+  auditId: string;
+  target: ApprovedSyncTarget;
+  status: "dry_run_preview";
+  destination: string;
+  packageName: string;
+  operations: string[];
+  warnings: string[];
+  createdBy: string | null;
+};
+
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
   pending_review: "검토 중",
@@ -221,6 +246,7 @@ const approvedSyncTargetLabels: Record<ApprovedSyncTarget, string> = {
 };
 
 const approvedSyncConfirmationText = "SYNC_APPROVED_WIKI";
+const approvedProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const approvedSyncHistoryStorageKey = "architect.approvedWikiSyncHistory.v1";
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
@@ -252,6 +278,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedSyncTarget, setApprovedSyncTarget] = useState<ApprovedSyncTarget>("portable_archive");
   const [approvedSyncConfirmation, setApprovedSyncConfirmation] = useState("");
   const [approvedSyncHistory, setApprovedSyncHistory] = useState<ApprovedSyncRun[]>(() => readApprovedSyncHistory());
+  const [approvedSyncTargetConfigs, setApprovedSyncTargetConfigs] = useState<ApprovedSyncTargetConfig[]>([]);
+  const [approvedSyncTargetEnabled, setApprovedSyncTargetEnabled] = useState(false);
+  const [approvedSyncTargetDryRunOnly, setApprovedSyncTargetDryRunOnly] = useState(true);
+  const [approvedSyncTargetNotes, setApprovedSyncTargetNotes] = useState("");
+  const [approvedProviderPreviewConfirmation, setApprovedProviderPreviewConfirmation] = useState("");
+  const [approvedProviderPreview, setApprovedProviderPreview] = useState<ApprovedProviderPreview | null>(null);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -693,6 +725,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedExportReadyCount === approvedExportReadiness.length &&
     approvedSyncConfirmation.trim() === approvedSyncConfirmationText;
   const latestApprovedSyncRun = approvedSyncHistory[0] ?? null;
+  const selectedApprovedSyncTargetConfig = approvedSyncTargetConfigs.find((item) => item.target === approvedSyncTarget) ?? null;
+  const providerPreviewAudit = approvedSyncHistory.find(
+    (item) => item.target === approvedSyncTarget && item.status === "provider_ready",
+  ) ?? null;
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -727,6 +763,39 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    readJson<ApprovedSyncTargetConfig[]>("/api/admin/knowledge/sync-targets")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setApprovedSyncTargetConfigs(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Approved WIKI sync target config could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedApprovedSyncTargetConfig) {
+      setApprovedSyncTargetEnabled(false);
+      setApprovedSyncTargetDryRunOnly(true);
+      setApprovedSyncTargetNotes("");
+      return;
+    }
+    setApprovedSyncTargetEnabled(selectedApprovedSyncTargetConfig.enabled);
+    setApprovedSyncTargetDryRunOnly(selectedApprovedSyncTargetConfig.dryRunOnly);
+    setApprovedSyncTargetNotes(selectedApprovedSyncTargetConfig.notes);
+  }, [selectedApprovedSyncTargetConfig]);
 
   useEffect(() => {
     let active = true;
@@ -1529,6 +1598,59 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   function clearApprovedSyncHistory() {
     setApprovedSyncHistory([]);
     setStatus("Approved WIKI sync history cleared from the local view. Server audit history remains append-only.");
+  }
+
+  async function saveApprovedSyncTargetConfig() {
+    try {
+      const config = await writeJson<ApprovedSyncTargetConfig>(
+        "/api/admin/knowledge/sync-targets",
+        {
+          target: approvedSyncTarget,
+          enabled: approvedSyncTargetEnabled,
+          dryRunOnly: approvedSyncTargetDryRunOnly,
+          notes: approvedSyncTargetNotes,
+        },
+      );
+      setApprovedSyncTargetConfigs((current) => [
+        config,
+        ...current.filter((item) => item.target !== config.target),
+      ]);
+      setStatus(`Approved WIKI sync target config saved for ${config.label}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approved WIKI sync target config could not be saved.");
+    }
+  }
+
+  async function createApprovedProviderPreview() {
+    if (!providerPreviewAudit) {
+      setStatus("Create a provider-ready sync audit before requesting a provider preview.");
+      return;
+    }
+    try {
+      const preview = await writeJson<ApprovedProviderPreview>(
+        "/api/admin/knowledge/provider-previews",
+        {
+          auditId: providerPreviewAudit.id,
+          confirmation: approvedProviderPreviewConfirmation,
+        },
+      );
+      setApprovedProviderPreview(preview);
+      setStatus("Approved WIKI provider dry-run preview created.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approved WIKI provider preview could not be created.");
+    }
+  }
+
+  async function copyApprovedProviderPreview() {
+    if (!approvedProviderPreview) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(createApprovedProviderPreviewReport(approvedProviderPreview));
+      setStatus("Approved WIKI provider preview copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the provider preview manually.");
+    }
   }
 
   return (
@@ -2444,6 +2566,84 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </article>
                   )) : <p className={styles.empty}>No server sync audit history has been recorded yet.</p>}
                 </div>
+                <section className={styles.syncTargetPanel} aria-label="Approved WIKI provider target configuration">
+                  <div className={styles.exportHeader}>
+                    <div>
+                      <p>Provider target</p>
+                      <h4>Configuration and dry-run adapter</h4>
+                    </div>
+                    <div className={styles.editorTools}>
+                      <button onClick={saveApprovedSyncTargetConfig} type="button">
+                        Save target config
+                      </button>
+                      <button disabled={!providerPreviewAudit} onClick={createApprovedProviderPreview} type="button">
+                        Create provider preview
+                      </button>
+                      <button disabled={!approvedProviderPreview} onClick={copyApprovedProviderPreview} type="button">
+                        Copy provider preview
+                      </button>
+                    </div>
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Approved WIKI sync target config summary">
+                    <span>{selectedApprovedSyncTargetConfig?.label ?? approvedSyncTargetLabels[approvedSyncTarget]}</span>
+                    <span>{approvedSyncTargetEnabled ? "Target enabled" : "Target disabled"}</span>
+                    <span>{approvedSyncTargetDryRunOnly ? "Dry-run only" : "Execution allowed"}</span>
+                    <span>Adapter {selectedApprovedSyncTargetConfig?.adapter ?? "pending"}</span>
+                    <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
+                  </div>
+                  <div className={styles.syncTargetControls}>
+                    <label>
+                      <input
+                        checked={approvedSyncTargetEnabled}
+                        onChange={(event) => setApprovedSyncTargetEnabled(event.target.checked)}
+                        type="checkbox"
+                      />
+                      Target enabled
+                    </label>
+                    <label>
+                      <input
+                        checked={approvedSyncTargetDryRunOnly}
+                        onChange={(event) => setApprovedSyncTargetDryRunOnly(event.target.checked)}
+                        type="checkbox"
+                      />
+                      Dry-run only
+                    </label>
+                    <label>
+                      Provider preview confirmation
+                      <input
+                        aria-label="Approved WIKI provider preview confirmation"
+                        onChange={(event) => setApprovedProviderPreviewConfirmation(event.target.value)}
+                        placeholder={approvedProviderPreviewConfirmationText}
+                        value={approvedProviderPreviewConfirmation}
+                      />
+                    </label>
+                    <label>
+                      Target notes
+                      <input
+                        aria-label="Approved WIKI sync target notes"
+                        onChange={(event) => setApprovedSyncTargetNotes(event.target.value)}
+                        placeholder="Optional provider target notes"
+                        value={approvedSyncTargetNotes}
+                      />
+                    </label>
+                  </div>
+                  {approvedProviderPreview ? (
+                    <div className={styles.providerPreview} aria-label="Approved WIKI provider preview">
+                      <strong>{approvedProviderPreview.destination} / {approvedProviderPreview.status}</strong>
+                      <p>{approvedProviderPreview.packageName}</p>
+                      <div>
+                        {approvedProviderPreview.operations.map((operation) => (
+                          <span key={operation}>{operation}</span>
+                        ))}
+                      </div>
+                      <div>
+                        {approvedProviderPreview.warnings.map((warning) => (
+                          <span key={warning}>{warning}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
               </section>
             </section>
 
@@ -3487,6 +3687,26 @@ function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
         ...(run.dryRunWarnings.length ? run.dryRunWarnings.map((warning) => `- ${warning}`) : ["- none"]),
       ].join("\n"))
       : ["- No guarded sync history has been recorded locally."]),
+  ].join("\n");
+}
+
+function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
+  return [
+    "# Approved WIKI provider preview",
+    `- Preview id: ${preview.id}`,
+    `- Export audit id: ${preview.auditId}`,
+    `- Target: ${approvedSyncTargetLabels[preview.target]}`,
+    `- Destination: ${preview.destination}`,
+    `- Status: ${preview.status}`,
+    `- Package: ${preview.packageName}`,
+    `- Created: ${preview.createdAt}`,
+    `- Created by: ${preview.createdBy ?? "unknown"}`,
+    "",
+    "## Operations",
+    ...preview.operations.map((operation) => `- ${operation}`),
+    "",
+    "## Warnings",
+    ...(preview.warnings.length ? preview.warnings.map((warning) => `- ${warning}`) : ["- none"]),
   ].join("\n");
 }
 
