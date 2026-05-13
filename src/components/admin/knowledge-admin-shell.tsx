@@ -125,15 +125,18 @@ type ApprovedSort = "newest" | "title" | "source_count";
 type ApprovedExportFormat = "json" | "markdown";
 type ApprovedExportScope = "visible" | "selected";
 type ApprovedSyncTarget = "portable_archive" | "obsidian" | "notion" | "assistant_retrieval";
-type ApprovedSyncRunStatus = "dry_run" | "blocked" | "simulated";
+type ApprovedSyncRunStatus = "dry_run" | "blocked" | "simulated" | "provider_blocked" | "provider_ready";
+type ApprovedSyncAction = "dry_run" | "execute";
 
 type ApprovedSyncRun = {
   id: string;
   createdAt: string;
   status: ApprovedSyncRunStatus;
+  action?: ApprovedSyncAction;
   target: ApprovedSyncTarget;
   format: ApprovedExportFormat;
   scope: ApprovedExportScope;
+  itemIds?: string[];
   itemCount: number;
   readyCount: number;
   readinessCount: number;
@@ -142,6 +145,10 @@ type ApprovedSyncRun = {
   confirmation: string;
   packageName: string;
   dryRunWarnings: string[];
+  providerConfigured?: boolean;
+  providerExecutionEnabled?: boolean;
+  projectId?: string | null;
+  createdBy?: string | null;
 };
 
 const stateLabels: Record<CandidateState, string> = {
@@ -699,6 +706,27 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   useEffect(() => {
     writeApprovedSyncHistory(approvedSyncHistory);
   }, [approvedSyncHistory]);
+
+  useEffect(() => {
+    let active = true;
+    readJson<ApprovedSyncRun[]>("/api/admin/knowledge/export-audits")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setApprovedSyncHistory(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Approved WIKI sync history could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1433,43 +1461,60 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setStatus(`Approved WIKI ${approvedExportFormatLabels[approvedExportFormat]} downloaded.`);
   }
 
-  function recordApprovedSyncDryRun() {
-    const run = createApprovedSyncRun({
-      status: "dry_run",
-      target: approvedSyncTarget,
-      format: approvedExportFormat,
-      scope: approvedExportScope,
-      items: approvedExportItems,
-      stats: approvedExportStats,
-      readiness: approvedExportReadiness,
-      confirmation: approvedSyncConfirmation,
-      packageName: approvedSyncPackageName,
-      dryRunWarnings: approvedSyncDryRunWarnings,
-    });
-    setApprovedSyncHistory((current) => [run, ...current].slice(0, 20));
-    setStatus("Approved WIKI sync dry-run recorded locally.");
+  async function recordApprovedSyncDryRun() {
+    try {
+      const run = await writeJson<ApprovedSyncRun>(
+        "/api/admin/knowledge/export-audits",
+        createApprovedSyncAuditPayload(
+          "dry_run",
+          approvedSyncTarget,
+          approvedExportFormat,
+          approvedExportScope,
+          approvedExportItems,
+          approvedSyncPackageName,
+          approvedSyncConfirmation,
+          approvedSyncDryRunWarnings,
+        ),
+      );
+      setApprovedSyncHistory((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
+      setStatus("Approved WIKI sync dry-run persisted to server audit history.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approved WIKI sync dry-run could not be persisted.");
+    }
   }
 
-  function runGuardedApprovedSync() {
-    const statusKind: ApprovedSyncRunStatus = approvedSyncCanRun ? "simulated" : "blocked";
-    const run = createApprovedSyncRun({
-      status: statusKind,
-      target: approvedSyncTarget,
-      format: approvedExportFormat,
-      scope: approvedExportScope,
-      items: approvedExportItems,
-      stats: approvedExportStats,
-      readiness: approvedExportReadiness,
-      confirmation: approvedSyncConfirmation,
-      packageName: approvedSyncPackageName,
-      dryRunWarnings: approvedSyncDryRunWarnings,
-    });
-    setApprovedSyncHistory((current) => [run, ...current].slice(0, 20));
-    setStatus(
-      approvedSyncCanRun
-        ? "Approved WIKI guarded sync simulated and recorded locally."
-        : "Approved WIKI guarded sync blocked and recorded locally.",
-    );
+  async function runGuardedApprovedSync() {
+    try {
+      const run = await writeJson<ApprovedSyncRun>(
+        "/api/admin/knowledge/export-audits",
+        createApprovedSyncAuditPayload(
+          "execute",
+          approvedSyncTarget,
+          approvedExportFormat,
+          approvedExportScope,
+          approvedExportItems,
+          approvedSyncPackageName,
+          approvedSyncConfirmation,
+          approvedSyncDryRunWarnings,
+        ),
+      );
+      setApprovedSyncHistory((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
+      if (run.status === "provider_ready") {
+        setStatus("Approved WIKI provider sync passed server guard and is ready for configured provider execution.");
+        return;
+      }
+      if (run.status === "provider_blocked") {
+        setStatus("Approved WIKI sync audit persisted; provider execution is blocked until target configuration is enabled.");
+        return;
+      }
+      setStatus(
+        run.status === "blocked"
+          ? "Approved WIKI guarded sync blocked and persisted to server audit history."
+          : "Approved WIKI guarded sync audit persisted.",
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approved WIKI guarded sync could not be persisted.");
+    }
   }
 
   async function copyApprovedSyncHistoryReport() {
@@ -1483,7 +1528,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
   function clearApprovedSyncHistory() {
     setApprovedSyncHistory([]);
-    setStatus("Approved WIKI local sync history cleared.");
+    setStatus("Approved WIKI sync history cleared from the local view. Server audit history remains append-only.");
   }
 
   return (
@@ -2349,7 +2394,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <div className={styles.exportHeader}>
                   <div>
                     <p>Guarded execution</p>
-                    <h4>Dry-run and local sync history</h4>
+                    <h4>Dry-run and server audit history</h4>
                   </div>
                   <div className={styles.editorTools}>
                     <button disabled={!approvedExportItems.length} onClick={recordApprovedSyncDryRun} type="button">
@@ -2368,7 +2413,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </div>
                 <div className={styles.sourceChips} aria-label="Approved WIKI guarded sync summary">
                   <span>Confirmation {approvedSyncConfirmation.trim() === approvedSyncConfirmationText ? "matched" : "required"}</span>
-                  <span>History {approvedSyncHistory.length}</span>
+                  <span>Server audit {approvedSyncHistory.length}</span>
                   <span>Last {latestApprovedSyncRun ? latestApprovedSyncRun.status : "none"}</span>
                   <span>{approvedSyncCanRun ? "Guard open" : "Guard closed"}</span>
                 </div>
@@ -2395,8 +2440,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       <span>{run.itemCount} items</span>
                       <span>{run.sourceReferences} source refs</span>
                       <span>{run.unsourced} unsourced</span>
+                      <span>{run.providerConfigured ? "provider configured" : "provider blocked"}</span>
                     </article>
-                  )) : <p className={styles.empty}>No sync dry-run history has been recorded locally.</p>}
+                  )) : <p className={styles.empty}>No server sync audit history has been recorded yet.</p>}
                 </div>
               </section>
             </section>
@@ -3393,6 +3439,28 @@ function createApprovedSyncRun({
   };
 }
 
+function createApprovedSyncAuditPayload(
+  action: ApprovedSyncAction,
+  target: ApprovedSyncTarget,
+  format: ApprovedExportFormat,
+  scope: ApprovedExportScope,
+  items: ApprovedKnowledgeItem[],
+  packageName: string,
+  confirmation: string,
+  dryRunWarnings: string[],
+) {
+  return {
+    action,
+    target,
+    format,
+    scope,
+    itemIds: items.map((item) => item.id),
+    packageName,
+    confirmation,
+    dryRunWarnings,
+  };
+}
+
 function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
   return [
     "# Approved WIKI guarded sync history",
@@ -3412,6 +3480,8 @@ function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
         `- Source references: ${run.sourceReferences}`,
         `- Unsourced: ${run.unsourced}`,
         `- Confirmation: ${run.confirmation}`,
+        `- Provider configured: ${run.providerConfigured ? "yes" : "no"}`,
+        `- Provider execution enabled: ${run.providerExecutionEnabled ? "yes" : "no"}`,
         "",
         "### Dry-run warnings",
         ...(run.dryRunWarnings.length ? run.dryRunWarnings.map((warning) => `- ${warning}`) : ["- none"]),
@@ -3457,7 +3527,11 @@ function isApprovedSyncRun(value: unknown): value is ApprovedSyncRun {
   const run = value as Partial<ApprovedSyncRun>;
   return typeof run.id === "string" &&
     typeof run.createdAt === "string" &&
-    (run.status === "dry_run" || run.status === "blocked" || run.status === "simulated") &&
+    (run.status === "dry_run" ||
+      run.status === "blocked" ||
+      run.status === "simulated" ||
+      run.status === "provider_blocked" ||
+      run.status === "provider_ready") &&
     (run.target === "portable_archive" || run.target === "obsidian" || run.target === "notion" || run.target === "assistant_retrieval") &&
     (run.format === "json" || run.format === "markdown") &&
     (run.scope === "visible" || run.scope === "selected") &&

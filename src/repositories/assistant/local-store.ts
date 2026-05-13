@@ -342,8 +342,15 @@ class LocalAssistantRepository implements AssistantRepository {
 
   async listAuditEvents(input: ListAssistantAuditEventsInput) {
     const store = await readStore();
+    const eventTypes = input.eventTypes ? new Set(input.eventTypes) : null;
     return store.auditEvents
-      .filter((event) => event.projectId === input.projectId && (!input.month || event.createdAt.startsWith(`${input.month}-`)))
+      .filter((event) => {
+        const projectMatches = input.projectId ? event.projectId === input.projectId : true;
+        const monthMatches = !input.month || event.createdAt.startsWith(`${input.month}-`);
+        const eventTypeMatches = eventTypes ? eventTypes.has(event.eventType) : true;
+        const targetTypeMatches = input.targetType ? event.targetType === input.targetType : true;
+        return projectMatches && monthMatches && eventTypeMatches && targetTypeMatches;
+      })
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, input.limit ?? 100);
   }

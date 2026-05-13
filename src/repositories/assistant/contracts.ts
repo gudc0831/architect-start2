@@ -105,9 +105,11 @@ export type ListAssistantUsageEventsInput = {
 };
 
 export type ListAssistantAuditEventsInput = {
-  projectId: string;
+  projectId?: string | null;
   month?: string;
   limit?: number;
+  eventTypes?: string[];
+  targetType?: string;
 };
 
 export type CreateAssistantAuditEventInput = {

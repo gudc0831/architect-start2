@@ -535,8 +535,10 @@ class PostgresAssistantRepository implements AssistantRepository {
     const createdAt = buildMonthRange(input.month);
     const events = await assistantPrisma.assistantAuditEvent.findMany({
       where: {
-        projectId: input.projectId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
         ...(createdAt ? { createdAt } : {}),
+        ...(input.eventTypes?.length ? { eventType: { in: input.eventTypes } } : {}),
+        ...(input.targetType ? { targetType: input.targetType } : {}),
       },
       orderBy: { createdAt: "desc" },
       take: input.limit ?? 100,

@@ -1,9 +1,11 @@
+import type { AuthUser } from "@/domains/auth/types";
 import type {
   ApprovedKnowledgeItem,
   AssistantRecord,
   AssistantWorkSummaryDraft,
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
+import type { AssistantAuditEvent } from "@/domains/assistant/saas-api-mode";
 import type { TaskRecord } from "@/domains/task/types";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
@@ -64,6 +66,50 @@ type ReviewKnowledgeCandidateInput =
       rejectionReason: unknown;
     };
 
+export type KnowledgeExportSyncTarget = "portable_archive" | "obsidian" | "notion" | "assistant_retrieval";
+export type KnowledgeExportSyncFormat = "json" | "markdown";
+export type KnowledgeExportSyncScope = "visible" | "selected";
+export type KnowledgeExportSyncAuditAction = "dry_run" | "execute";
+export type KnowledgeExportSyncAuditStatus = "dry_run" | "blocked" | "provider_blocked" | "provider_ready";
+
+export type KnowledgeExportSyncAudit = {
+  id: string;
+  createdAt: string;
+  status: KnowledgeExportSyncAuditStatus;
+  action: KnowledgeExportSyncAuditAction;
+  target: KnowledgeExportSyncTarget;
+  format: KnowledgeExportSyncFormat;
+  scope: KnowledgeExportSyncScope;
+  itemIds: string[];
+  itemCount: number;
+  readyCount: number;
+  readinessCount: number;
+  sourceReferences: number;
+  unsourced: number;
+  confirmation: "matched" | "missing_or_mismatch";
+  packageName: string;
+  dryRunWarnings: string[];
+  providerConfigured: boolean;
+  providerExecutionEnabled: boolean;
+  projectId: string | null;
+  createdBy: string | null;
+};
+
+type KnowledgeExportSyncAuditInput = {
+  action?: unknown;
+  target?: unknown;
+  format?: unknown;
+  scope?: unknown;
+  itemIds?: unknown;
+  packageName?: unknown;
+  confirmation?: unknown;
+  dryRunWarnings?: unknown;
+};
+
+const knowledgeExportSyncEventType = "knowledge_export_sync";
+const knowledgeExportSyncTargetType = "approved_wiki_export_package";
+const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
+
 export async function listKnowledgeCandidates(): Promise<KnowledgeCandidateListItem[]> {
   const records = await assistantRepository.listKnowledgeCandidateRecords();
   return Promise.all(records.map(async (record) => toCandidateListItem(record)));
@@ -112,6 +158,85 @@ export async function listApprovedKnowledgeItems(): Promise<ApprovedKnowledgeIte
   return records
     .map((record) => record.metadata.approvedKnowledgeItem)
     .filter((item): item is ApprovedKnowledgeItem => Boolean(item));
+}
+
+export async function listKnowledgeExportSyncAudits(): Promise<KnowledgeExportSyncAudit[]> {
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [knowledgeExportSyncEventType],
+    targetType: knowledgeExportSyncTargetType,
+    limit: 50,
+  });
+  return events.map(toKnowledgeExportSyncAudit).filter((item): item is KnowledgeExportSyncAudit => Boolean(item));
+}
+
+export async function createKnowledgeExportSyncAudit(
+  input: KnowledgeExportSyncAuditInput,
+  user: AuthUser,
+): Promise<KnowledgeExportSyncAudit> {
+  const action = normalizeKnowledgeExportSyncAction(input.action);
+  const target = normalizeKnowledgeExportSyncTarget(input.target);
+  const format = normalizeKnowledgeExportSyncFormat(input.format);
+  const scope = normalizeKnowledgeExportSyncScope(input.scope);
+  const itemIds = normalizeItemIds(input.itemIds);
+  const packageName = normalizeOptionalText(input.packageName) || createKnowledgeExportPackageName(target, scope, itemIds.length, format);
+  const requestedWarnings = normalizeStringArray(input.dryRunWarnings, 12);
+  const confirmation = normalizeOptionalText(input.confirmation);
+  const confirmationState = confirmation === knowledgeExportSyncConfirmationText ? "matched" : "missing_or_mismatch";
+  const approvedItems = await listApprovedKnowledgeItems();
+  const approvedItemsById = new Map(approvedItems.map((item) => [item.id, item]));
+  const items = itemIds.map((id) => approvedItemsById.get(id));
+  if (items.some((item) => !item)) {
+    throw badRequest("Only approved WIKI item ids can be included in export sync audit records.", "KNOWLEDGE_EXPORT_UNAPPROVED_ITEM");
+  }
+  const includedItems = items.filter((item): item is ApprovedKnowledgeItem => Boolean(item));
+  const stats = readKnowledgeExportStats(includedItems);
+  const readiness = buildKnowledgeExportReadiness(includedItems, target, format);
+  const readinessWarnings = readiness.filter((item) => !item.ready).map((item) => `${item.label}: ${item.detail}`);
+  const dryRunWarnings = [...new Set([...requestedWarnings, ...readinessWarnings])].slice(0, 20);
+  const provider = readKnowledgeExportProviderState(target);
+  const readyCount = readiness.filter((item) => item.ready).length;
+  const status = resolveKnowledgeExportSyncAuditStatus({
+    action,
+    confirmationState,
+    readyCount,
+    readinessCount: readiness.length,
+    providerConfigured: provider.configured,
+    providerExecutionEnabled: provider.executionEnabled,
+  });
+  const projectId = resolveKnowledgeExportAuditProjectId(includedItems);
+  const event = await assistantRepository.createAuditEvent({
+    projectId,
+    profileId: user.id,
+    eventType: knowledgeExportSyncEventType,
+    targetType: knowledgeExportSyncTargetType,
+    targetId: includedItems.length === 1 ? includedItems[0].id : null,
+    metadata: {
+      knowledgeExportSyncAuditVersion: 1,
+      action,
+      status,
+      target,
+      format,
+      scope,
+      itemIds,
+      itemCount: includedItems.length,
+      readyCount,
+      readinessCount: readiness.length,
+      readiness,
+      sourceReferences: stats.sourceReferences,
+      unsourced: stats.unsourced,
+      confirmation: confirmationState,
+      packageName,
+      dryRunWarnings,
+      providerConfigured: provider.configured,
+      providerExecutionEnabled: provider.executionEnabled,
+      createdBy: user.id,
+    },
+  });
+  const audit = toKnowledgeExportSyncAudit(event);
+  if (!audit) {
+    throw badRequest("Knowledge export sync audit could not be normalized.", "KNOWLEDGE_EXPORT_AUDIT_INVALID");
+  }
+  return audit;
 }
 
 async function toCandidateDetail(record: AssistantRecord): Promise<KnowledgeCandidateDetail> {
@@ -246,4 +371,213 @@ function normalizeRequiredText(value: unknown, fieldName: string) {
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeKnowledgeExportSyncAction(value: unknown): KnowledgeExportSyncAuditAction {
+  return value === "execute" ? "execute" : "dry_run";
+}
+
+function normalizeKnowledgeExportSyncTarget(value: unknown): KnowledgeExportSyncTarget {
+  return value === "obsidian" ||
+    value === "notion" ||
+    value === "assistant_retrieval" ||
+    value === "portable_archive"
+    ? value
+    : "portable_archive";
+}
+
+function normalizeKnowledgeExportSyncFormat(value: unknown): KnowledgeExportSyncFormat {
+  return value === "markdown" ? "markdown" : "json";
+}
+
+function normalizeKnowledgeExportSyncScope(value: unknown): KnowledgeExportSyncScope {
+  return value === "selected" ? "selected" : "visible";
+}
+
+function normalizeItemIds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(value.map((item) => normalizeText(item)).filter(Boolean))].slice(0, 250);
+}
+
+function normalizeStringArray(value: unknown, limit: number) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => normalizeText(item)).filter(Boolean).slice(0, limit);
+}
+
+function readKnowledgeExportStats(items: ApprovedKnowledgeItem[]) {
+  let sourced = 0;
+  let sourceReferences = 0;
+  let bodyChars = 0;
+  const tags = new Set<string>();
+  for (const item of items) {
+    if (item.sourceReferences.length) {
+      sourced += 1;
+    }
+    sourceReferences += item.sourceReferences.length;
+    bodyChars += item.bodyMarkdown.trim().length;
+    for (const tag of item.tags) {
+      tags.add(tag);
+    }
+  }
+  return {
+    items: items.length,
+    sourced,
+    unsourced: items.length - sourced,
+    sourceReferences,
+    tags: tags.size,
+    bodyChars,
+  };
+}
+
+function buildKnowledgeExportReadiness(
+  items: ApprovedKnowledgeItem[],
+  target: KnowledgeExportSyncTarget,
+  format: KnowledgeExportSyncFormat,
+) {
+  const stats = readKnowledgeExportStats(items);
+  return [
+    {
+      label: "Export scope",
+      detail: items.length
+        ? `${items.length} approved WIKI item(s) are included in the ${format} package.`
+        : "No approved WIKI items are included in the export scope.",
+      ready: items.length > 0,
+    },
+    {
+      label: "Source lineage",
+      detail: stats.unsourced
+        ? `${stats.unsourced}/${stats.items} item(s) have no source references.`
+        : `${stats.sourced}/${stats.items} item(s) include source references.`,
+      ready: stats.items > 0 && stats.unsourced === 0,
+    },
+    {
+      label: "Tag coverage",
+      detail: stats.tags
+        ? `${stats.tags} unique tag(s) are available for sync grouping.`
+        : "No tags are available for sync grouping.",
+      ready: stats.tags > 0,
+    },
+    {
+      label: "Body content",
+      detail: stats.bodyChars
+        ? `${stats.bodyChars} total Markdown character(s) are available.`
+        : "Export scope has no Markdown body content.",
+      ready: stats.bodyChars > 0,
+    },
+    {
+      label: "Target profile",
+      detail: `${target} target requested with ${format} package format.`,
+      ready: true,
+    },
+  ];
+}
+
+function readKnowledgeExportProviderState(target: KnowledgeExportSyncTarget) {
+  const enabledTargets = new Set(
+    (process.env.KNOWLEDGE_SYNC_ENABLED_TARGETS ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+  const executionEnabled = process.env.KNOWLEDGE_SYNC_EXECUTION_ENABLED === "true";
+  return {
+    configured: enabledTargets.has(target),
+    executionEnabled,
+  };
+}
+
+function resolveKnowledgeExportSyncAuditStatus(input: {
+  action: KnowledgeExportSyncAuditAction;
+  confirmationState: KnowledgeExportSyncAudit["confirmation"];
+  readyCount: number;
+  readinessCount: number;
+  providerConfigured: boolean;
+  providerExecutionEnabled: boolean;
+}): KnowledgeExportSyncAuditStatus {
+  if (input.action === "dry_run") {
+    return "dry_run";
+  }
+  if (input.confirmationState !== "matched" || input.readyCount !== input.readinessCount) {
+    return "blocked";
+  }
+  if (!input.providerConfigured || !input.providerExecutionEnabled) {
+    return "provider_blocked";
+  }
+  return "provider_ready";
+}
+
+function resolveKnowledgeExportAuditProjectId(items: ApprovedKnowledgeItem[]) {
+  if (!items.length) {
+    return null;
+  }
+  const projectIds = new Set(items.map((item) => item.sourceProjectId).filter(Boolean));
+  return projectIds.size === 1 ? [...projectIds][0] : null;
+}
+
+function createKnowledgeExportPackageName(
+  target: KnowledgeExportSyncTarget,
+  scope: KnowledgeExportSyncScope,
+  itemCount: number,
+  format: KnowledgeExportSyncFormat,
+) {
+  const extension = format === "json" ? "json" : "md";
+  return `approved-wiki-${target}-${scope}-${itemCount}.${extension}`;
+}
+
+function toKnowledgeExportSyncAudit(event: AssistantAuditEvent): KnowledgeExportSyncAudit | null {
+  if (event.eventType !== knowledgeExportSyncEventType || event.targetType !== knowledgeExportSyncTargetType) {
+    return null;
+  }
+  const metadata = event.metadata;
+  const action = normalizeKnowledgeExportSyncAction(metadata.action);
+  const target = normalizeKnowledgeExportSyncTarget(metadata.target);
+  const format = normalizeKnowledgeExportSyncFormat(metadata.format);
+  const scope = normalizeKnowledgeExportSyncScope(metadata.scope);
+  const itemIds = normalizeItemIds(metadata.itemIds);
+  const itemCount = readNumber(metadata.itemCount, itemIds.length);
+  const readinessCount = readNumber(metadata.readinessCount, 0);
+  const readyCount = readNumber(metadata.readyCount, 0);
+  const statusValue = normalizeOptionalText(metadata.status);
+  const status: KnowledgeExportSyncAuditStatus =
+    statusValue === "blocked" ||
+    statusValue === "provider_blocked" ||
+    statusValue === "provider_ready" ||
+    statusValue === "dry_run"
+      ? statusValue
+      : "blocked";
+
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    status,
+    action,
+    target,
+    format,
+    scope,
+    itemIds,
+    itemCount,
+    readyCount,
+    readinessCount,
+    sourceReferences: readNumber(metadata.sourceReferences, 0),
+    unsourced: readNumber(metadata.unsourced, 0),
+    confirmation: metadata.confirmation === "matched" ? "matched" : "missing_or_mismatch",
+    packageName: normalizeOptionalText(metadata.packageName) || createKnowledgeExportPackageName(target, scope, itemCount, format),
+    dryRunWarnings: normalizeStringArray(metadata.dryRunWarnings, 20),
+    providerConfigured: metadata.providerConfigured === true,
+    providerExecutionEnabled: metadata.providerExecutionEnabled === true,
+    projectId: event.projectId,
+    createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
+  };
+}
+
+function readNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
