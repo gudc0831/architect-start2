@@ -122,6 +122,9 @@ type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
 type EvidencePriorityFilter = "all" | "high" | "normal" | "low";
 type ApprovedSourceFilter = "all" | "sourced" | "unsourced";
 type ApprovedSort = "newest" | "title" | "source_count";
+type ApprovedExportFormat = "json" | "markdown";
+type ApprovedExportScope = "visible" | "selected";
+type ApprovedSyncTarget = "portable_archive" | "obsidian" | "notion" | "assistant_retrieval";
 
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
@@ -175,6 +178,23 @@ const approvedSortLabels: Record<ApprovedSort, string> = {
   source_count: "Most source refs",
 };
 
+const approvedExportFormatLabels: Record<ApprovedExportFormat, string> = {
+  json: "JSON package",
+  markdown: "Markdown package",
+};
+
+const approvedExportScopeLabels: Record<ApprovedExportScope, string> = {
+  visible: "Visible items",
+  selected: "Selected item",
+};
+
+const approvedSyncTargetLabels: Record<ApprovedSyncTarget, string> = {
+  portable_archive: "Portable archive",
+  obsidian: "Obsidian vault",
+  notion: "Notion import",
+  assistant_retrieval: "Assistant retrieval",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -199,6 +219,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedSort, setApprovedSort] = useState<ApprovedSort>("newest");
   const [selectedApprovedId, setSelectedApprovedId] = useState("");
   const [approvedPreviewCompact, setApprovedPreviewCompact] = useState(true);
+  const [approvedExportFormat, setApprovedExportFormat] = useState<ApprovedExportFormat>("json");
+  const [approvedExportScope, setApprovedExportScope] = useState<ApprovedExportScope>("visible");
+  const [approvedSyncTarget, setApprovedSyncTarget] = useState<ApprovedSyncTarget>("portable_archive");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -600,6 +623,26 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedTagFilter,
     visibleApprovedItems.length,
   ]);
+  const approvedExportItems = useMemo(
+    () => approvedExportScope === "selected"
+      ? selectedApprovedItem ? [selectedApprovedItem] : []
+      : visibleApprovedItems,
+    [approvedExportScope, selectedApprovedItem, visibleApprovedItems],
+  );
+  const approvedExportStats = useMemo(
+    () => readApprovedExportStats(approvedExportItems),
+    [approvedExportItems],
+  );
+  const approvedExportReadiness = useMemo(
+    () => buildApprovedExportReadiness(
+      approvedExportItems,
+      approvedExportFormat,
+      approvedSyncTarget,
+      activeApprovedFilterChips,
+    ),
+    [activeApprovedFilterChips, approvedExportFormat, approvedExportItems, approvedSyncTarget],
+  );
+  const approvedExportReadyCount = approvedExportReadiness.filter((item) => item.ready).length;
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -1290,6 +1333,58 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     } catch {
       setStatus("Clipboard copy failed. Review the approved WIKI list manually.");
     }
+  }
+
+  async function copyApprovedSyncManifest() {
+    try {
+      await navigator.clipboard.writeText(
+        createApprovedSyncManifest(
+          approvedExportItems,
+          activeApprovedFilterChips,
+          approvedExportReadiness,
+          approvedSyncTarget,
+          approvedExportFormat,
+        ),
+      );
+      setStatus("Approved WIKI sync manifest copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the export readiness panel manually.");
+    }
+  }
+
+  async function copyApprovedExportChecklist() {
+    try {
+      await navigator.clipboard.writeText(
+        createApprovedExportChecklist(
+          approvedExportItems,
+          approvedExportReadiness,
+          approvedExportStats,
+          approvedSyncTarget,
+          approvedExportFormat,
+        ),
+      );
+      setStatus("Approved WIKI export checklist copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the export checklist manually.");
+    }
+  }
+
+  function downloadApprovedExport() {
+    const content = approvedExportFormat === "json"
+      ? JSON.stringify(
+        createApprovedExportPayload(approvedExportItems, activeApprovedFilterChips, approvedSyncTarget, approvedExportStats),
+        null,
+        2,
+      )
+      : createApprovedExportMarkdown(approvedExportItems, activeApprovedFilterChips, approvedSyncTarget, approvedExportStats);
+    const extension = approvedExportFormat === "json" ? "json" : "md";
+    const mimeType = approvedExportFormat === "json" ? "application/json" : "text/markdown";
+    downloadTextFile(
+      `approved-wiki-${approvedSyncTarget}-${approvedExportScope}-${approvedExportItems.length}.${extension}`,
+      content,
+      mimeType,
+    );
+    setStatus(`Approved WIKI ${approvedExportFormatLabels[approvedExportFormat]} downloaded.`);
   }
 
   return (
@@ -2067,6 +2162,92 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </button>
             </div>
 
+            <section className={styles.exportPanel} aria-label="Approved WIKI export sync readiness">
+              <div className={styles.exportHeader}>
+                <div>
+                  <p>Export / Sync</p>
+                  <h4>Approved package readiness</h4>
+                </div>
+                <div className={styles.editorTools}>
+                  <button disabled={!approvedExportItems.length} onClick={copyApprovedSyncManifest} type="button">
+                    Copy sync manifest
+                  </button>
+                  <button disabled={!approvedExportItems.length} onClick={copyApprovedExportChecklist} type="button">
+                    Copy export checklist
+                  </button>
+                  <button disabled={!approvedExportItems.length} onClick={downloadApprovedExport} type="button">
+                    Download package
+                  </button>
+                </div>
+              </div>
+              <div className={styles.approvedToolbar}>
+                <label>
+                  Export scope
+                  <select
+                    aria-label="Approved WIKI export scope"
+                    onChange={(event) => setApprovedExportScope(event.target.value as ApprovedExportScope)}
+                    value={approvedExportScope}
+                  >
+                    {(["visible", "selected"] as ApprovedExportScope[]).map((value) => (
+                      <option key={value} value={value}>{approvedExportScopeLabels[value]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Package format
+                  <select
+                    aria-label="Approved WIKI export format"
+                    onChange={(event) => setApprovedExportFormat(event.target.value as ApprovedExportFormat)}
+                    value={approvedExportFormat}
+                  >
+                    {(["json", "markdown"] as ApprovedExportFormat[]).map((value) => (
+                      <option key={value} value={value}>{approvedExportFormatLabels[value]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Sync target
+                  <select
+                    aria-label="Approved WIKI sync target"
+                    onChange={(event) => setApprovedSyncTarget(event.target.value as ApprovedSyncTarget)}
+                    value={approvedSyncTarget}
+                  >
+                    {(["portable_archive", "obsidian", "notion", "assistant_retrieval"] as ApprovedSyncTarget[]).map((value) => (
+                      <option key={value} value={value}>{approvedSyncTargetLabels[value]}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className={styles.sourceChips} aria-label="Approved WIKI export stats">
+                <span>Items {approvedExportItems.length}</span>
+                <span>Sourced {approvedExportStats.sourced}</span>
+                <span>Unsourced {approvedExportStats.unsourced}</span>
+                <span>Tags {approvedExportStats.tags}</span>
+                <span>Body {approvedExportStats.bodyChars} chars</span>
+                <span>Format {approvedExportFormatLabels[approvedExportFormat]}</span>
+                <span>Target {approvedSyncTargetLabels[approvedSyncTarget]}</span>
+              </div>
+              <section className={styles.guardrails} aria-label="Approved WIKI export readiness checks">
+                <h4>Export readiness checks</h4>
+                <div>
+                  {approvedExportReadiness.map((item) => (
+                    <article
+                      className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                      key={item.label}
+                    >
+                      <strong>{item.label}</strong>
+                      <p>{item.detail}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+              <div className={styles.sourceChips} aria-label="Approved WIKI export readiness summary">
+                <span>Readiness {approvedExportReadyCount}/{approvedExportReadiness.length}</span>
+                <span>{approvedExportReadyCount === approvedExportReadiness.length ? "Ready to export" : "Review before sync"}</span>
+                <span>File approved-wiki-{approvedSyncTarget}-{approvedExportScope}-{approvedExportItems.length}.{approvedExportFormat === "json" ? "json" : "md"}</span>
+              </div>
+            </section>
+
             <div className={styles.approvedGrid}>
               <div className={styles.approvedList} aria-label="Approved WIKI visible items">
                 {visibleApprovedItems.length ? visibleApprovedItems.map((item) => (
@@ -2784,6 +2965,232 @@ function createApprovedIndexPackage(items: ApprovedKnowledgeItem[], filterChips:
       ].join("\n"))
       : ["- No approved WIKI items in the current filter scope."]),
   ].join("\n");
+}
+
+function readApprovedExportStats(items: ApprovedKnowledgeItem[]) {
+  const tags = new Set<string>();
+  let sourced = 0;
+  let bodyChars = 0;
+  let sourceReferences = 0;
+  for (const item of items) {
+    if (item.sourceReferences.length) {
+      sourced += 1;
+    }
+    sourceReferences += item.sourceReferences.length;
+    bodyChars += item.bodyMarkdown.trim().length;
+    for (const tag of item.tags) {
+      tags.add(tag);
+    }
+  }
+
+  return {
+    items: items.length,
+    sourced,
+    unsourced: items.length - sourced,
+    sourceReferences,
+    tags: tags.size,
+    bodyChars,
+  };
+}
+
+function buildApprovedExportReadiness(
+  items: ApprovedKnowledgeItem[],
+  format: ApprovedExportFormat,
+  target: ApprovedSyncTarget,
+  filterChips: string[],
+): ReviewChecklistItem[] {
+  const stats = readApprovedExportStats(items);
+  return [
+    {
+      label: "Export scope",
+      detail: items.length
+        ? `${items.length} approved WIKI item(s) are included in the ${approvedExportFormatLabels[format]}.`
+        : "No approved WIKI items are included in the current export scope.",
+      ready: items.length > 0,
+    },
+    {
+      label: "Filter manifest",
+      detail: `${filterChips.length} active filter chip(s) will be included so the export can be reproduced.`,
+      ready: filterChips.length > 0,
+    },
+    {
+      label: "Source lineage",
+      detail: stats.unsourced
+        ? `${stats.unsourced}/${stats.items} item(s) have no source references.`
+        : `${stats.sourced}/${stats.items} item(s) include source references.`,
+      ready: stats.items > 0 && stats.unsourced === 0,
+    },
+    {
+      label: "Tag coverage",
+      detail: stats.tags
+        ? `${stats.tags} unique tag(s) are available for sync grouping.`
+        : "No tags are available for sync grouping.",
+      ready: stats.tags > 0,
+    },
+    {
+      label: "Body content",
+      detail: stats.bodyChars
+        ? `${stats.bodyChars} total Markdown character(s) are available.`
+        : "Export scope has no Markdown body content.",
+      ready: stats.bodyChars > 0,
+    },
+    {
+      label: "Target profile",
+      detail: readApprovedSyncTargetGuidance(target, format),
+      ready: true,
+    },
+  ];
+}
+
+function createApprovedExportPayload(
+  items: ApprovedKnowledgeItem[],
+  filterChips: string[],
+  target: ApprovedSyncTarget,
+  stats: ReturnType<typeof readApprovedExportStats>,
+) {
+  return {
+    packageType: "approved_wiki_export",
+    generatedAt: new Date().toISOString(),
+    syncTarget: target,
+    filterScope: filterChips,
+    stats,
+    items: items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      bodyMarkdown: item.bodyMarkdown,
+      tags: item.tags,
+      scope: item.scope,
+      approvedBy: item.approvedBy,
+      approvedAt: item.approvedAt,
+      sourceRecordId: item.sourceRecordId,
+      sourceTaskId: item.sourceTaskId,
+      sourceProjectId: item.sourceProjectId,
+      sourceReferences: item.sourceReferences,
+    })),
+  };
+}
+
+function createApprovedExportMarkdown(
+  items: ApprovedKnowledgeItem[],
+  filterChips: string[],
+  target: ApprovedSyncTarget,
+  stats: ReturnType<typeof readApprovedExportStats>,
+) {
+  return [
+    "# Approved WIKI export",
+    `- Generated: ${new Date().toISOString()}`,
+    `- Sync target: ${approvedSyncTargetLabels[target]}`,
+    `- Items: ${stats.items}`,
+    `- Source references: ${stats.sourceReferences}`,
+    `- Unique tags: ${stats.tags}`,
+    `- Body characters: ${stats.bodyChars}`,
+    "",
+    "## Filter scope",
+    ...filterChips.map((chip) => `- ${chip}`),
+    "",
+    ...items.flatMap((item) => [
+      `## ${item.title}`,
+      `- ID: ${item.id}`,
+      `- Scope: ${item.scope}`,
+      `- Approved: ${item.approvedAt} by ${item.approvedBy}`,
+      `- Source record: ${item.sourceRecordId}`,
+      `- Source task: ${item.sourceTaskId}`,
+      `- Source project: ${item.sourceProjectId}`,
+      `- Tags: ${item.tags.join(", ") || "none"}`,
+      `- Source references: ${item.sourceReferences.length}`,
+      "",
+      item.summary || "No summary.",
+      "",
+      item.bodyMarkdown.trim() || "No approved Markdown body.",
+      "",
+      "### Sources",
+      ...(item.sourceReferences.length
+        ? item.sourceReferences.map((reference) => `- ${reference.kind} / priority ${reference.priority}: ${reference.title}${reference.sourceUrl ? ` (${reference.sourceUrl})` : ""}`)
+        : ["- No source references attached."]),
+      "",
+    ]),
+  ].join("\n");
+}
+
+function createApprovedSyncManifest(
+  items: ApprovedKnowledgeItem[],
+  filterChips: string[],
+  readiness: ReviewChecklistItem[],
+  target: ApprovedSyncTarget,
+  format: ApprovedExportFormat,
+) {
+  const readyCount = readiness.filter((item) => item.ready).length;
+  return [
+    "# Approved WIKI sync manifest",
+    `- Target: ${approvedSyncTargetLabels[target]}`,
+    `- Format: ${approvedExportFormatLabels[format]}`,
+    `- Items: ${items.length}`,
+    `- Readiness: ${readyCount}/${readiness.length}`,
+    "",
+    "## Filter scope",
+    ...filterChips.map((chip) => `- ${chip}`),
+    "",
+    "## Readiness",
+    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "",
+    "## Item manifest",
+    ...(items.length
+      ? items.map((item) => `- ${item.title} (${item.id}) / ${item.scope} / ${item.tags.join(", ") || "no tags"}`)
+      : ["- No approved WIKI items selected for sync."]),
+  ].join("\n");
+}
+
+function createApprovedExportChecklist(
+  items: ApprovedKnowledgeItem[],
+  readiness: ReviewChecklistItem[],
+  stats: ReturnType<typeof readApprovedExportStats>,
+  target: ApprovedSyncTarget,
+  format: ApprovedExportFormat,
+) {
+  return [
+    "# Approved WIKI export checklist",
+    `- Target: ${approvedSyncTargetLabels[target]}`,
+    `- Format: ${approvedExportFormatLabels[format]}`,
+    `- Items: ${stats.items}`,
+    `- Source references: ${stats.sourceReferences}`,
+    `- Unique tags: ${stats.tags}`,
+    "",
+    "## Checks",
+    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "",
+    "## Included items",
+    ...(items.length
+      ? items.map((item) => `- ${item.title} (${item.id})`)
+      : ["- No items included"]),
+  ].join("\n");
+}
+
+function readApprovedSyncTargetGuidance(target: ApprovedSyncTarget, format: ApprovedExportFormat) {
+  if (target === "obsidian") {
+    return format === "markdown"
+      ? "Markdown package is ready for Obsidian-style vault import."
+      : "JSON package preserves metadata; convert bodyMarkdown to files before Obsidian import.";
+  }
+  if (target === "notion") {
+    return "Package includes title, summary, tags, scope, Markdown body, and lineage for Notion import mapping.";
+  }
+  if (target === "assistant_retrieval") {
+    return "Package preserves tags, scope, source lineage, and source references for retrieval indexing.";
+  }
+  return "Portable archive keeps a stable metadata and Markdown package for later sync tooling.";
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function readChecklistStatus(

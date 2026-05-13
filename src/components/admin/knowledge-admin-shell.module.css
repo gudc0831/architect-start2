@@ -613,6 +613,37 @@
   line-height: 1.5;
 }
 
+.exportPanel {
+  display: grid;
+  gap: 0.7rem;
+  border-top: 1px solid var(--theme-border-field);
+  padding-top: 0.8rem;
+}
+
+.exportHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.exportHeader p,
+.exportHeader h4 {
+  margin: 0;
+}
+
+.exportHeader p {
+  color: var(--theme-text-subtle);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.exportHeader h4 {
+  font-size: 0.9rem;
+}
+
 .readinessList {
   display: flex;
   flex-wrap: wrap;
@@ -821,6 +852,10 @@
     border-top: 1px solid var(--theme-border-field);
     padding-left: 0;
     padding-top: 0.85rem;
+  }
+
+  .exportHeader {
+    display: grid;
   }
 
   .queue {
