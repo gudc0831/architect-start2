@@ -386,6 +386,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => buildRejectionReasonPresets(approvalGuardrails),
     [approvalGuardrails],
   );
+  const approvalPackageSections = 4;
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -632,6 +633,29 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval blockers copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the approval submit guardrails manually.");
+    }
+  }
+
+  async function copyApprovalPackage() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        createApprovalPackage(
+          detail,
+          draft,
+          approvalGuardrails,
+          approvalRiskGroups,
+          draftReadiness,
+          evidenceKindCounts,
+          reviewStatus,
+        ),
+      );
+      setStatus("Approval package copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approval package context manually.");
     }
   }
 
@@ -1462,6 +1486,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>{guardrailWarningCount ? "Resolve before approval" : "Ready to approve"}</span>
                   <span>Warning groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge approval package summary">
+                  <span>Package sections {approvalPackageSections}</span>
+                  <span>Draft {draft.bodyMarkdown.trim().length} chars</span>
+                  <span>Evidence {detail.evidence.length}</span>
+                </div>
                 <div className={styles.queueQuickFilters} aria-label="Knowledge rejection reason presets">
                   {rejectionReasonPresets.map((preset) => (
                     <button
@@ -1488,6 +1517,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   />
                 </label>
                 <div className={styles.actions}>
+                  <button onClick={copyApprovalPackage} type="button">
+                    Copy approval package
+                  </button>
                   <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
                     Copy approval blockers
                   </button>
@@ -1772,6 +1804,53 @@ function createApprovalBlockerHandoff(
     ...(warnings.length
       ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
       : ["- No active approval blockers"]),
+  ].join("\n");
+}
+
+function createApprovalPackage(
+  detail: CandidateDetail,
+  draft: ReturnType<typeof createDraftFromDetail>,
+  guardrails: ApprovalGuardrail[],
+  riskGroups: ApprovalRiskGroup[],
+  readiness: Array<{ label: string; ready: boolean }>,
+  evidenceKindCounts: Array<[string, number]>,
+  reviewStatus: ApprovalGuardrail,
+) {
+  const warnings = guardrails.filter((item) => item.tone === "warning");
+  return [
+    "# Knowledge approval package",
+    `- Candidate: ${detail.title} (${detail.id})`,
+    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- Project: ${detail.projectName}`,
+    `- Review status: ${reviewStatus.label}`,
+    `- Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `- Readiness: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
+    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    `- Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "",
+    "## Draft",
+    `- Title: ${draft.title}`,
+    `- Summary: ${draft.summary}`,
+    `- Scope: ${scopeLabels[draft.scope]}`,
+    `- Tags: ${draft.tagsText || "none"}`,
+    "",
+    draft.bodyMarkdown.trim() || "No Markdown body.",
+    "",
+    "## Decision",
+    warnings.length
+      ? "- Decision context: Blocker review"
+      : "- Decision context: Approve-ready review",
+    `- Rejection reason draft: ${draft.rejectionReason.trim() || "none"}`,
+    "",
+    "## Blockers",
+    ...(warnings.length
+      ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
+      : ["- No active approval blockers"]),
+    "",
+    "## Evidence",
+    ...(detail.evidence.length
+      ? detail.evidence.map((item) => `- ${item.kind} / priority ${item.priority}: ${item.title}${item.sourceUrl ? ` (${item.sourceUrl})` : ""}`)
+      : ["- No evidence rows"]),
   ].join("\n");
 }
 
