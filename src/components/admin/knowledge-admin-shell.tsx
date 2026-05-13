@@ -76,6 +76,12 @@ type RejectionReasonPreset = {
   reason: string;
 };
 
+type ReviewChecklistItem = {
+  label: string;
+  detail: string;
+  ready: boolean;
+};
+
 type MarkdownHeading = {
   level: number;
   line: number;
@@ -380,13 +386,88 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   );
   const approvalRiskWarningGroupCount = approvalRiskGroups.filter((group) => group.warningCount > 0).length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
-  const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
-  const approvalDecisionMode = readApprovalDecisionMode(guardrailWarningCount, approvalRiskWarningGroupCount);
+  const reviewStatus = useMemo(
+    () => readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length),
+    [draftReadiness.length, guardrailWarningCount, readyReadinessCount],
+  );
+  const approvalDecisionMode = useMemo(
+    () => readApprovalDecisionMode(guardrailWarningCount, approvalRiskWarningGroupCount),
+    [approvalRiskWarningGroupCount, guardrailWarningCount],
+  );
   const rejectionReasonPresets = useMemo(
     () => buildRejectionReasonPresets(approvalGuardrails),
     [approvalGuardrails],
   );
   const approvalPackageSections = 4;
+  const approvalPackageQuality = useMemo(
+    () => buildApprovalPackageQuality(
+      detail,
+      draft,
+      approvalGuardrails,
+      approvalRiskGroups,
+      draftReadiness,
+      evidenceKindCounts,
+      evidenceSourceCoverage,
+      reviewStatus,
+    ),
+    [
+      approvalGuardrails,
+      approvalRiskGroups,
+      detail,
+      draft,
+      draftReadiness,
+      evidenceKindCounts,
+      evidenceSourceCoverage,
+      reviewStatus,
+    ],
+  );
+  const approvalPackageQualityReadyCount = approvalPackageQuality.filter((item) => item.ready).length;
+  const approvalPackageQualityMissingCount = approvalPackageQuality.length - approvalPackageQualityReadyCount;
+  const approvalPackageQualityStatus = useMemo(
+    () => readChecklistStatus(
+      approvalPackageQualityReadyCount,
+      approvalPackageQuality.length,
+      "Package quality complete",
+      "Package quality review needed",
+    ),
+    [approvalPackageQuality.length, approvalPackageQualityReadyCount],
+  );
+  const finalReviewNextAction = useMemo(
+    () => readFinalReviewNextAction(
+      approvalPackageQualityStatus,
+      guardrailWarningCount,
+      draft.rejectionReason,
+    ),
+    [approvalPackageQualityStatus, draft.rejectionReason, guardrailWarningCount],
+  );
+  const finalReviewChecklist = useMemo(
+    () => buildFinalReviewChecklist(
+      detail,
+      approvalPackageQualityStatus,
+      guardrailWarningCount,
+      approvalRiskWarningGroupCount,
+      draft.rejectionReason,
+      finalReviewNextAction,
+    ),
+    [
+      approvalPackageQualityStatus,
+      approvalRiskWarningGroupCount,
+      detail,
+      draft.rejectionReason,
+      finalReviewNextAction,
+      guardrailWarningCount,
+    ],
+  );
+  const finalReviewReadyCount = finalReviewChecklist.filter((item) => item.ready).length;
+  const finalReviewStatus = useMemo(
+    () => readChecklistStatus(
+      finalReviewReadyCount,
+      finalReviewChecklist.length,
+      "Final closeout ready",
+      "Final closeout needs review",
+    ),
+    [finalReviewChecklist.length, finalReviewReadyCount],
+  );
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -656,6 +737,43 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval package copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the approval package context manually.");
+    }
+  }
+
+  async function copyApprovalPackageQuality() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        createApprovalPackageQualityReport(detail, approvalPackageQuality, approvalPackageQualityStatus),
+      );
+      setStatus("Approval package quality copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the package quality checks manually.");
+    }
+  }
+
+  async function copyFinalReviewCloseout() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        createFinalReviewCloseout(
+          detail,
+          approvalPackageQuality,
+          approvalPackageQualityStatus,
+          finalReviewChecklist,
+          finalReviewStatus,
+          finalReviewNextAction,
+        ),
+      );
+      setStatus("Final review closeout copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the final closeout checks manually.");
     }
   }
 
@@ -1398,6 +1516,34 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ))}
                   </div>
                 </section>
+                <section className={styles.guardrails} aria-label="Knowledge approval package quality checks">
+                  <h4>Approval package quality</h4>
+                  <div>
+                    {approvalPackageQuality.map((item) => (
+                      <article
+                        className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                        key={item.label}
+                      >
+                        <strong>{item.label}</strong>
+                        <p>{item.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+                <section className={styles.guardrails} aria-label="Knowledge final review closeout checklist">
+                  <h4>Final review closeout</h4>
+                  <div>
+                    {finalReviewChecklist.map((item) => (
+                      <article
+                        className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                        key={item.label}
+                      >
+                        <strong>{item.label}</strong>
+                        <p>{item.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
                 <label>
                   제목
                   <input
@@ -1491,6 +1637,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Draft {draft.bodyMarkdown.trim().length} chars</span>
                   <span>Evidence {detail.evidence.length}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge approval package quality summary">
+                  <span>Package quality {approvalPackageQualityReadyCount}/{approvalPackageQuality.length}</span>
+                  <span>{approvalPackageQualityStatus.label}</span>
+                  <span>Missing {approvalPackageQualityMissingCount}</span>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge final review closeout summary">
+                  <span>Final closeout {finalReviewReadyCount}/{finalReviewChecklist.length}</span>
+                  <span>{finalReviewStatus.label}</span>
+                  <span>{finalReviewNextAction}</span>
+                </div>
                 <div className={styles.queueQuickFilters} aria-label="Knowledge rejection reason presets">
                   {rejectionReasonPresets.map((preset) => (
                     <button
@@ -1519,6 +1675,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <div className={styles.actions}>
                   <button onClick={copyApprovalPackage} type="button">
                     Copy approval package
+                  </button>
+                  <button onClick={copyApprovalPackageQuality} type="button">
+                    Copy package quality
+                  </button>
+                  <button onClick={copyFinalReviewCloseout} type="button">
+                    Copy final closeout
                   </button>
                   <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
                     Copy approval blockers
@@ -1852,6 +2014,202 @@ function createApprovalPackage(
       ? detail.evidence.map((item) => `- ${item.kind} / priority ${item.priority}: ${item.title}${item.sourceUrl ? ` (${item.sourceUrl})` : ""}`)
       : ["- No evidence rows"]),
   ].join("\n");
+}
+
+function buildApprovalPackageQuality(
+  detail: CandidateDetail | null,
+  draft: ReturnType<typeof createDraftFromDetail>,
+  guardrails: ApprovalGuardrail[],
+  riskGroups: ApprovalRiskGroup[],
+  readiness: Array<{ label: string; ready: boolean }>,
+  evidenceKindCounts: Array<[string, number]>,
+  evidenceSourceCoverage: { sourced: number; unsourced: number; total: number },
+  reviewStatus: ApprovalGuardrail,
+): ReviewChecklistItem[] {
+  if (!detail) {
+    return [
+      {
+        label: "Candidate loaded",
+        detail: "Select a candidate before building an approval package.",
+        ready: false,
+      },
+    ];
+  }
+
+  const draftFieldReadiness = readiness.filter((item) => item.label !== "Evidence");
+  const missingDraftFields = draftFieldReadiness.filter((item) => !item.ready).map((item) => item.label);
+  const warningCount = guardrails.filter((item) => item.tone === "warning").length;
+
+  return [
+    {
+      label: "Draft section",
+      detail: missingDraftFields.length
+        ? `Missing draft fields before handoff: ${missingDraftFields.join(", ")}.`
+        : `Draft section includes title, summary, body, scope, and tags (${draft.tagsText || "none"}).`,
+      ready: !missingDraftFields.length,
+    },
+    {
+      label: "Decision section",
+      detail: reviewStatus.tone === "ready"
+        ? `${reviewStatus.label}: ${reviewStatus.detail}`
+        : `${reviewStatus.label}: ${reviewStatus.detail} Capture the decision path before final approval.`,
+      ready: reviewStatus.tone === "ready",
+    },
+    {
+      label: "Blocker section",
+      detail: warningCount
+        ? `${warningCount} blocker warnings are included for explicit reviewer handling.`
+        : "No active blockers; the package records a clear blocker state.",
+      ready: Boolean(guardrails.length && riskGroups.length),
+    },
+    {
+      label: "Evidence section",
+      detail: detail.evidence.length
+        ? `${detail.evidence.length} evidence rows included; kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}.`
+        : "No evidence rows are available for this package.",
+      ready: detail.evidence.length > 0,
+    },
+    {
+      label: "Source coverage",
+      detail: evidenceSourceCoverage.unsourced
+        ? `${evidenceSourceCoverage.unsourced}/${evidenceSourceCoverage.total} evidence rows have no source URL. Confirm whether the excerpt is sufficient.`
+        : `All ${evidenceSourceCoverage.total} evidence rows include source URLs.`,
+      ready: evidenceSourceCoverage.total > 0 && evidenceSourceCoverage.unsourced === 0,
+    },
+    {
+      label: "Risk group coverage",
+      detail: `${riskGroups.length} approval risk groups are represented in the package review.`,
+      ready: riskGroups.length >= 5,
+    },
+  ];
+}
+
+function createApprovalPackageQualityReport(
+  detail: CandidateDetail,
+  quality: ReviewChecklistItem[],
+  status: ApprovalGuardrail,
+) {
+  const readyCount = quality.filter((item) => item.ready).length;
+  return [
+    "# Knowledge approval package quality",
+    `- Candidate: ${detail.title} (${detail.id})`,
+    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- Package status: ${status.label}`,
+    `- Ready checks: ${readyCount}/${quality.length}`,
+    `- Missing checks: ${quality.length - readyCount}`,
+    "",
+    "## Quality checks",
+    ...quality.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+  ].join("\n");
+}
+
+function buildFinalReviewChecklist(
+  detail: CandidateDetail | null,
+  packageStatus: ApprovalGuardrail,
+  warningCount: number,
+  warningGroupCount: number,
+  rejectionReason: string,
+  nextAction: string,
+): ReviewChecklistItem[] {
+  const reason = rejectionReason.trim();
+  return [
+    {
+      label: "Candidate context",
+      detail: detail
+        ? `${detail.taskIssueId} / ${detail.projectName} is loaded for final review.`
+        : "No candidate is loaded.",
+      ready: Boolean(detail),
+    },
+    {
+      label: "Package quality",
+      detail: packageStatus.detail,
+      ready: packageStatus.tone === "ready",
+    },
+    {
+      label: "Blocker decision path",
+      detail: warningCount
+        ? `${warningCount} warnings across ${warningGroupCount} groups. ${reason ? "Rejection reason is drafted." : "Resolve warnings or draft a rejection reason."}`
+        : "No active blocker warnings remain.",
+      ready: warningCount === 0 || Boolean(reason),
+    },
+    {
+      label: "Evidence handoff",
+      detail: detail?.evidence.length
+        ? `${detail.evidence.length} evidence rows are available for final handoff.`
+        : "Evidence is missing from the final handoff.",
+      ready: Boolean(detail?.evidence.length),
+    },
+    {
+      label: "Next action",
+      detail: nextAction,
+      ready: true,
+    },
+  ];
+}
+
+function createFinalReviewCloseout(
+  detail: CandidateDetail,
+  packageQuality: ReviewChecklistItem[],
+  packageStatus: ApprovalGuardrail,
+  finalChecklist: ReviewChecklistItem[],
+  finalStatus: ApprovalGuardrail,
+  nextAction: string,
+) {
+  const packageReadyCount = packageQuality.filter((item) => item.ready).length;
+  const finalReadyCount = finalChecklist.filter((item) => item.ready).length;
+  return [
+    "# Knowledge final review closeout",
+    `- Candidate: ${detail.title} (${detail.id})`,
+    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- Project: ${detail.projectName}`,
+    `- Package quality: ${packageStatus.label} (${packageReadyCount}/${packageQuality.length})`,
+    `- Final closeout: ${finalStatus.label} (${finalReadyCount}/${finalChecklist.length})`,
+    `- Next action: ${nextAction}`,
+    "",
+    "## Package quality checks",
+    ...packageQuality.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "",
+    "## Final checklist",
+    ...finalChecklist.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+  ].join("\n");
+}
+
+function readChecklistStatus(
+  readyCount: number,
+  totalCount: number,
+  readyLabel: string,
+  warningLabel: string,
+): ApprovalGuardrail {
+  if (totalCount > 0 && readyCount === totalCount) {
+    return {
+      label: readyLabel,
+      detail: `${readyCount}/${totalCount} checks are ready.`,
+      tone: "ready",
+    };
+  }
+
+  return {
+    label: warningLabel,
+    detail: `${readyCount}/${totalCount} checks are ready; review ${Math.max(totalCount - readyCount, 0)} item(s).`,
+    tone: "warning",
+  };
+}
+
+function readFinalReviewNextAction(
+  packageStatus: ApprovalGuardrail,
+  warningCount: number,
+  rejectionReason: string,
+) {
+  if (packageStatus.tone === "warning") {
+    return "Review package quality before final action";
+  }
+  if (warningCount > 0 && !rejectionReason.trim()) {
+    return "Resolve blockers or draft rejection reason";
+  }
+  if (warningCount > 0) {
+    return "Reject or resolve blockers before approval";
+  }
+  return "Ready for WIKI approval";
 }
 
 function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
