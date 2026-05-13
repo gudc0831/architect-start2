@@ -474,6 +474,32 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyMarkdownOutline() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge Markdown outline",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Headings: ${markdownOutline.length}`,
+          "",
+          ...(
+            markdownOutline.length
+              ? markdownOutline.map((heading) => `- H${heading.level} L${heading.line}: ${heading.text}`)
+              : ["- No Markdown headings"]
+          ),
+        ].join("\n"),
+      );
+      setStatus("Markdown outline copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the Markdown outline manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -819,6 +845,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button disabled={!draft.bodyMarkdown.trim()} onClick={copyDraftMarkdown} type="button">
                       Copy Markdown
                     </button>
+                    <button onClick={copyMarkdownOutline} type="button">Copy Markdown outline</button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
