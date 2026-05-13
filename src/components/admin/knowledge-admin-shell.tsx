@@ -159,8 +159,17 @@ type ApprovedSyncTargetConfig = {
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
   credentialRef: string | null;
   credentialStatus: "not_required" | "missing" | "configured";
-  credentialSource: "not_required" | "target_config" | "server_env" | "missing";
+  credentialSource: "not_required" | "target_config" | "server_env" | "secret_manager" | "missing";
   credentialScope: ApprovedSyncTarget;
+  credentialStore: "none" | "target_config" | "server_env" | "secret_manager" | "missing";
+  credentialLastValidatedAt: string | null;
+  credentialRotationDueAt: string | null;
+  rollbackPlanRef: string | null;
+  rollbackPlanStatus: "not_required" | "configured" | "missing";
+  reconciliationPlanRef: string | null;
+  reconciliationPlanStatus: "not_required" | "configured" | "missing";
+  remoteWriteReady: boolean;
+  remoteWriteBlockers: string[];
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -2658,7 +2667,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>Credential {selectedApprovedSyncTargetConfig?.credentialStatus ?? "not saved"}</span>
                     <span>Source {selectedApprovedSyncTargetConfig?.credentialSource ?? "not saved"}</span>
                     <span>Scope {selectedApprovedSyncTargetConfig?.credentialScope ?? approvedSyncTarget}</span>
+                    <span>Store {selectedApprovedSyncTargetConfig?.credentialStore ?? "not saved"}</span>
+                    <span>{selectedApprovedSyncTargetConfig?.remoteWriteReady ? "Remote write ready" : "Remote write blocked"}</span>
+                    <span>Rollback {selectedApprovedSyncTargetConfig?.rollbackPlanStatus ?? "not saved"}</span>
+                    <span>Reconcile {selectedApprovedSyncTargetConfig?.reconciliationPlanStatus ?? "not saved"}</span>
                     <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
+                  </div>
+                  <div className={styles.syncWarnings} aria-label="Approved WIKI remote write blockers">
+                    {selectedApprovedSyncTargetConfig?.credentialLastValidatedAt ? (
+                      <span>Credential validated {formatDate(selectedApprovedSyncTargetConfig.credentialLastValidatedAt)}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.credentialRotationDueAt ? (
+                      <span>Rotation due {formatDate(selectedApprovedSyncTargetConfig.credentialRotationDueAt)}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.rollbackPlanRef ? (
+                      <span>Rollback {selectedApprovedSyncTargetConfig.rollbackPlanRef}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.reconciliationPlanRef ? (
+                      <span>Reconciliation {selectedApprovedSyncTargetConfig.reconciliationPlanRef}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.remoteWriteBlockers.length
+                      ? selectedApprovedSyncTargetConfig.remoteWriteBlockers.map((blocker) => (
+                        <span key={blocker}>{blocker}</span>
+                      ))
+                      : <span>Remote write prerequisites are ready, but live provider writes remain disabled.</span>}
                   </div>
                   <div className={styles.syncTargetControls}>
                     <label>

@@ -104,8 +104,17 @@ export type KnowledgeSyncTargetConfig = {
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
   credentialRef: string | null;
   credentialStatus: "not_required" | "missing" | "configured";
-  credentialSource: "not_required" | "target_config" | "server_env" | "missing";
+  credentialSource: "not_required" | "target_config" | "server_env" | "secret_manager" | "missing";
   credentialScope: KnowledgeExportSyncTarget;
+  credentialStore: "none" | "target_config" | "server_env" | "secret_manager" | "missing";
+  credentialLastValidatedAt: string | null;
+  credentialRotationDueAt: string | null;
+  rollbackPlanRef: string | null;
+  rollbackPlanStatus: "not_required" | "configured" | "missing";
+  reconciliationPlanRef: string | null;
+  reconciliationPlanStatus: "not_required" | "configured" | "missing";
+  remoteWriteReady: boolean;
+  remoteWriteBlockers: string[];
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -183,6 +192,7 @@ const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const knowledgeProviderPreviewFreshnessMs = 24 * 60 * 60 * 1000;
+const knowledgeCredentialRegistryEnvName = "KNOWLEDGE_SYNC_CREDENTIAL_REGISTRY_JSON";
 const knowledgeCredentialEnvByTarget: Partial<Record<KnowledgeExportSyncTarget, string>> = {
   obsidian: "KNOWLEDGE_SYNC_OBSIDIAN_CREDENTIAL_REF",
   notion: "KNOWLEDGE_SYNC_NOTION_CREDENTIAL_REF",
@@ -851,12 +861,21 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
     }
   }
 
+  const credentialRegistry = readKnowledgeCredentialRegistry();
   return (["portable_archive", "obsidian", "notion", "assistant_retrieval"] as KnowledgeExportSyncTarget[])
     .map((target) => {
       const event = latestByTarget.get(target);
       const metadata = event?.metadata ?? {};
       const configuredCredentialRef = normalizeOptionalText(metadata.credentialRef) || null;
-      const credential = readKnowledgeSyncCredentialState(target, configuredCredentialRef);
+      const registryEntry = credentialRegistry[target] ?? null;
+      const credential = readKnowledgeSyncCredentialState(target, configuredCredentialRef, registryEntry);
+      const remoteWrite = readKnowledgeRemoteWriteReadiness({
+        target,
+        enabled: metadata.enabled === true,
+        dryRunOnly: metadata.dryRunOnly !== false,
+        credential,
+        registryEntry,
+      });
       return {
         target,
         label: readKnowledgeSyncTargetLabel(target),
@@ -867,6 +886,15 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
         credentialStatus: credential.status,
         credentialSource: credential.source,
         credentialScope: target,
+        credentialStore: credential.store,
+        credentialLastValidatedAt: credential.lastValidatedAt,
+        credentialRotationDueAt: credential.rotationDueAt,
+        rollbackPlanRef: remoteWrite.rollbackPlanRef,
+        rollbackPlanStatus: remoteWrite.rollbackPlanStatus,
+        reconciliationPlanRef: remoteWrite.reconciliationPlanRef,
+        reconciliationPlanStatus: remoteWrite.reconciliationPlanStatus,
+        remoteWriteReady: remoteWrite.ready,
+        remoteWriteBlockers: remoteWrite.blockers,
         notes: normalizeOptionalText(metadata.notes),
         updatedAt: event?.createdAt ?? null,
         updatedBy: normalizeOptionalText(metadata.updatedBy) || (event?.profileId ?? null),
@@ -901,20 +929,94 @@ function readKnowledgeSyncAdapter(target: KnowledgeExportSyncTarget): KnowledgeS
   return "portable_archive";
 }
 
-function readKnowledgeSyncCredentialState(target: KnowledgeExportSyncTarget, credentialRef: string | null) {
+type KnowledgeCredentialRegistryEntry = {
+  credentialRef: string | null;
+  store: "secret_manager" | "server_env";
+  lastValidatedAt: string | null;
+  rotationDueAt: string | null;
+  rollbackPlanRef: string | null;
+  reconciliationPlanRef: string | null;
+};
+
+type KnowledgeCredentialState = {
+  ref: string | null;
+  status: KnowledgeSyncTargetConfig["credentialStatus"];
+  source: KnowledgeSyncTargetConfig["credentialSource"];
+  store: KnowledgeSyncTargetConfig["credentialStore"];
+  lastValidatedAt: string | null;
+  rotationDueAt: string | null;
+};
+
+function readKnowledgeCredentialRegistry(): Partial<Record<KnowledgeExportSyncTarget, KnowledgeCredentialRegistryEntry>> {
+  const raw = normalizeOptionalText(process.env[knowledgeCredentialRegistryEnvName]);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const registry: Partial<Record<KnowledgeExportSyncTarget, KnowledgeCredentialRegistryEntry>> = {};
+    for (const target of ["obsidian", "notion", "assistant_retrieval"] as KnowledgeExportSyncTarget[]) {
+      const entry = (parsed as Record<string, unknown>)[target];
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+      const record = entry as Record<string, unknown>;
+      const credentialRef = normalizeRegistryCredentialRef(record.credentialRef);
+      if (!credentialRef) {
+        continue;
+      }
+      registry[target] = {
+        credentialRef,
+        store: record.store === "server_env" ? "server_env" : "secret_manager",
+        lastValidatedAt: normalizeIsoDate(record.lastValidatedAt),
+        rotationDueAt: normalizeIsoDate(record.rotationDueAt),
+        rollbackPlanRef: normalizeCredentialControlRef(record.rollbackPlanRef),
+        reconciliationPlanRef: normalizeCredentialControlRef(record.reconciliationPlanRef),
+      };
+    }
+    return registry;
+  } catch {
+    return {};
+  }
+}
+
+function readKnowledgeSyncCredentialState(
+  target: KnowledgeExportSyncTarget,
+  credentialRef: string | null,
+  registryEntry: KnowledgeCredentialRegistryEntry | null,
+): KnowledgeCredentialState {
   if (target === "portable_archive") {
     return {
       ref: null,
       status: "not_required",
       source: "not_required",
-    } as const;
+      store: "none",
+      lastValidatedAt: null,
+      rotationDueAt: null,
+    };
+  }
+  if (registryEntry) {
+    return {
+      ref: registryEntry.credentialRef,
+      status: "configured",
+      source: registryEntry.store === "secret_manager" ? "secret_manager" : "server_env",
+      store: registryEntry.store,
+      lastValidatedAt: registryEntry.lastValidatedAt,
+      rotationDueAt: registryEntry.rotationDueAt,
+    };
   }
   if (credentialRef) {
     return {
       ref: credentialRef,
       status: "configured",
       source: "target_config",
-    } as const;
+      store: "target_config",
+      lastValidatedAt: null,
+      rotationDueAt: null,
+    };
   }
   const envName = knowledgeCredentialEnvByTarget[target];
   const envRef = envName && normalizeOptionalText(process.env[envName]) ? `env:${envName}` : null;
@@ -923,13 +1025,94 @@ function readKnowledgeSyncCredentialState(target: KnowledgeExportSyncTarget, cre
       ref: envRef,
       status: "configured",
       source: "server_env",
-    } as const;
+      store: "server_env",
+      lastValidatedAt: null,
+      rotationDueAt: null,
+    };
   }
   return {
     ref: null,
     status: "missing",
     source: "missing",
-  } as const;
+    store: "missing",
+    lastValidatedAt: null,
+    rotationDueAt: null,
+  };
+}
+
+function readKnowledgeRemoteWriteReadiness(input: {
+  target: KnowledgeExportSyncTarget;
+  enabled: boolean;
+  dryRunOnly: boolean;
+  credential: KnowledgeCredentialState;
+  registryEntry: KnowledgeCredentialRegistryEntry | null;
+}) {
+  if (input.target === "portable_archive") {
+    return {
+      ready: false,
+      blockers: ["Portable archive does not require remote provider writes."],
+      rollbackPlanRef: null,
+      rollbackPlanStatus: "not_required" as const,
+      reconciliationPlanRef: null,
+      reconciliationPlanStatus: "not_required" as const,
+    };
+  }
+
+  const rollbackPlanRef = input.registryEntry?.rollbackPlanRef ?? null;
+  const reconciliationPlanRef = input.registryEntry?.reconciliationPlanRef ?? null;
+  const blockers = [
+    ...(!input.enabled ? ["Target is disabled."] : []),
+    ...(input.dryRunOnly ? ["Target is configured as dry-run only."] : []),
+    ...(input.credential.status === "missing" ? ["Credential reference is missing."] : []),
+    ...(input.credential.store !== "secret_manager" ? ["Secret-manager credential registry entry is missing."] : []),
+    ...(!rollbackPlanRef ? ["Rollback plan reference is missing."] : []),
+    ...(!reconciliationPlanRef ? ["Reconciliation plan reference is missing."] : []),
+  ];
+
+  return {
+    ready: blockers.length === 0,
+    blockers,
+    rollbackPlanRef,
+    rollbackPlanStatus: rollbackPlanRef ? "configured" as const : "missing" as const,
+    reconciliationPlanRef,
+    reconciliationPlanStatus: reconciliationPlanRef ? "configured" as const : "missing" as const,
+  };
+}
+
+function normalizeRegistryCredentialRef(value: unknown) {
+  const text = normalizeOptionalText(value);
+  if (!text || looksLikeSecretMaterial(text)) {
+    return null;
+  }
+  return text.slice(0, 200);
+}
+
+function normalizeCredentialControlRef(value: unknown) {
+  const text = normalizeOptionalText(value);
+  if (!text || looksLikeSecretMaterial(text)) {
+    return null;
+  }
+  return text.slice(0, 200);
+}
+
+function looksLikeSecretMaterial(value: string) {
+  const lowered = value.toLowerCase();
+  return (
+    lowered.startsWith("sk-") ||
+    lowered.includes("token=") ||
+    lowered.includes("bearer ") ||
+    lowered.includes("api_key=") ||
+    value.length > 180
+  );
+}
+
+function normalizeIsoDate(value: unknown) {
+  const text = normalizeOptionalText(value);
+  if (!text) {
+    return null;
+  }
+  const timestamp = Date.parse(text);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
 function buildKnowledgeProviderPreview(
@@ -952,6 +1135,9 @@ function buildKnowledgeProviderPreview(
       ...(config.credentialStatus === "missing" ? ["Target is missing a server-side credential reference."] : []),
       ...(config.credentialSource === "server_env" ? ["Credential readiness is satisfied by a server environment reference."] : []),
       ...(config.credentialSource === "target_config" ? ["Credential readiness uses an opaque target configuration reference."] : []),
+      ...(config.credentialSource === "secret_manager" ? ["Credential readiness is satisfied by a server-side secret-manager registry entry."] : []),
+      ...(config.remoteWriteReady ? ["Remote write deployment readiness checks pass, but live external writes remain disabled."] : []),
+      ...config.remoteWriteBlockers.map((blocker) => `Remote write blocked: ${blocker}`),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     createdBy: actorId,
@@ -998,6 +1184,8 @@ function buildKnowledgeProviderExecution(
     adapter: config.adapter,
     credentialSource: config.credentialSource,
     credentialScope: config.credentialScope,
+    credentialStore: config.credentialStore,
+    remoteWriteReady: config.remoteWriteReady,
     artifactType: artifact.type,
   };
   return {
@@ -1017,6 +1205,9 @@ function buildKnowledgeProviderExecution(
       artifact.warning,
       ...(config.credentialSource === "server_env" ? ["Credential reference was resolved from server environment metadata."] : []),
       ...(config.credentialSource === "target_config" ? ["Credential reference was resolved from opaque target configuration metadata."] : []),
+      ...(config.credentialSource === "secret_manager" ? ["Credential reference was resolved from server-side secret-manager registry metadata."] : []),
+      ...(config.remoteWriteReady ? ["Remote write readiness passed; live external writes are still disabled in this slice."] : []),
+      ...config.remoteWriteBlockers.map((blocker) => `Remote write remains blocked: ${blocker}`),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     createdBy: actorId,
