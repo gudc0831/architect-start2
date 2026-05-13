@@ -71,6 +71,11 @@ type ApprovalRiskGroup = {
 
 type ApprovalRiskFilter = ApprovalRiskGroup["key"] | "all";
 
+type RejectionReasonPreset = {
+  label: string;
+  reason: string;
+};
+
 type MarkdownHeading = {
   level: number;
   line: number;
@@ -377,6 +382,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
   const approvalDecisionMode = readApprovalDecisionMode(guardrailWarningCount, approvalRiskWarningGroupCount);
+  const rejectionReasonPresets = useMemo(
+    () => buildRejectionReasonPresets(approvalGuardrails),
+    [approvalGuardrails],
+  );
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -436,6 +445,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     setDraft(createDraftFromDetail(detail));
     setStatus("Draft restored from selected candidate.");
+  }
+
+  function applyRejectionReasonPreset(preset: RejectionReasonPreset) {
+    setDraft((current) => ({
+      ...current,
+      rejectionReason: preset.reason,
+    }));
+    setStatus(`Rejection reason preset applied: ${preset.label}`);
   }
 
   async function copyDraftMarkdown() {
@@ -574,6 +591,34 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval decision note copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the approval decision context manually.");
+    }
+  }
+
+  async function copyRejectionReason() {
+    if (!detail) {
+      return;
+    }
+
+    const reason = draft.rejectionReason.trim();
+    if (!reason) {
+      setStatus("No rejection reason to copy.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge rejection reason",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Review status: ${reviewStatus.label}`,
+          "",
+          reason,
+        ].join("\n"),
+      );
+      setStatus("Rejection reason copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the rejection reason manually.");
     }
   }
 
@@ -1399,6 +1444,23 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </section>
 
               <footer className={styles.footer}>
+                <div className={styles.queueQuickFilters} aria-label="Knowledge rejection reason presets">
+                  {rejectionReasonPresets.map((preset) => (
+                    <button
+                      className={styles.queueQuickFilter}
+                      key={preset.label}
+                      onClick={() => applyRejectionReasonPreset(preset)}
+                      type="button"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge rejection reason draft status">
+                  <span>Reason presets {rejectionReasonPresets.length}</span>
+                  <span>Reason {draft.rejectionReason.trim() ? "filled" : "empty"}</span>
+                  <span>{draft.rejectionReason.trim().length} chars</span>
+                </div>
                 <label>
                   반려 사유
                   <input
@@ -1408,6 +1470,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   />
                 </label>
                 <div className={styles.actions}>
+                  <button disabled={!draft.rejectionReason.trim()} onClick={copyRejectionReason} type="button">
+                    Copy rejection reason
+                  </button>
                   <button disabled={busy} onClick={rejectCandidate} type="button">반려</button>
                   <button disabled={busy} onClick={approveCandidate} type="button">WIKI 지식 승인</button>
                 </div>
@@ -1644,6 +1709,23 @@ function createApprovalDecisionNote(
     "## Risk groups",
     ...riskGroups.map((group) => `- ${group.label}: ${group.warningCount} warnings, ${group.readyCount} ready notes`),
   ].join("\n");
+}
+
+function buildRejectionReasonPresets(guardrails: ApprovalGuardrail[]): RejectionReasonPreset[] {
+  const warnings = guardrails.filter((item) => item.tone === "warning");
+  if (!warnings.length) {
+    return [
+      {
+        label: "Manual review reason",
+        reason: "No active approval guardrail blockers are present. Add a manual rejection reason before rejecting.",
+      },
+    ];
+  }
+
+  return warnings.slice(0, 5).map((item) => ({
+    label: item.label,
+    reason: `Reject until resolved: ${item.label}. ${item.detail}`,
+  }));
 }
 
 function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
