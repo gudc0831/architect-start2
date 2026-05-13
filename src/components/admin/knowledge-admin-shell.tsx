@@ -67,6 +67,13 @@ type MarkdownHeading = {
   text: string;
 };
 
+type MarkdownStructureSummary = {
+  headings: number;
+  paragraphs: number;
+  listItems: number;
+  lines: number;
+};
+
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
 type CandidateSort = "newest" | "low_confidence";
 type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
@@ -301,8 +308,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     };
   }, [visibleEvidence]);
   const approvalGuardrails = useMemo(
-    () => buildApprovalGuardrails(draftReadiness, detail, draftDirtyStates, markdownOutline, draft.bodyMarkdown),
-    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline],
+    () => buildApprovalGuardrails(
+      draftReadiness,
+      detail,
+      draftDirtyStates,
+      markdownOutline,
+      markdownStructureSummary,
+      draft.bodyMarkdown,
+    ),
+    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline, markdownStructureSummary],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
@@ -1097,7 +1111,7 @@ function readMarkdownOutline(markdown: string): MarkdownHeading[] {
   }).slice(0, 12);
 }
 
-function readMarkdownStructureSummary(markdown: string) {
+function readMarkdownStructureSummary(markdown: string): MarkdownStructureSummary {
   const lines = markdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const headings = lines.filter((line) => /^#{1,6}\s+/.test(line)).length;
   const listItems = lines.filter((line) => /^([-*+]|\d+\.)\s+/.test(line)).length;
@@ -1168,6 +1182,7 @@ function buildApprovalGuardrails(
   detail: CandidateDetail | null,
   draftDirtyStates: Array<{ label: string; dirty: boolean }>,
   markdownOutline: MarkdownHeading[],
+  markdownStructureSummary: MarkdownStructureSummary,
   bodyMarkdown: string,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
@@ -1202,6 +1217,20 @@ function buildApprovalGuardrails(
       guardrails.push({
         label: "Markdown headings missing",
         detail: "Draft body has Markdown content but no headings. Confirm structure before approval.",
+        tone: "warning",
+      });
+    }
+
+    if (markdownStructureSummary.listItems) {
+      guardrails.push({
+        label: "Markdown list structure present",
+        detail: `${markdownStructureSummary.listItems} Markdown list items are present.`,
+        tone: "ready",
+      });
+    } else {
+      guardrails.push({
+        label: "Markdown list structure missing",
+        detail: "Draft body has no Markdown list items. Confirm action or context extraction before approval.",
         tone: "warning",
       });
     }
