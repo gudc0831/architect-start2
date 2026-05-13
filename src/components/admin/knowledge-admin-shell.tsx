@@ -528,7 +528,23 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           `- Active risk group: ${activeLabel}`,
           `- Showing: ${visibleApprovalRiskGroups.length}/${approvalRiskGroups.length}`,
           "",
-          ...visibleApprovalRiskGroups.map((group) => `- ${group.label}: ${group.warningCount} warnings, ${group.readyCount} ready notes`),
+          ...visibleApprovalRiskGroups.flatMap((group) => [
+            `## ${group.label}`,
+            `- Warnings: ${group.warningCount}`,
+            `- Ready: ${group.readyCount}`,
+            ...(
+              group.warningCount
+                ? group.items
+                  .filter((item) => item.tone === "warning")
+                  .map((item) => `- Warning: ${item.label} - ${item.detail}`)
+                : [`- No ${group.label.toLowerCase()} warnings in the current draft.`]
+            ),
+            ...group.items
+              .filter((item) => item.tone === "ready")
+              .slice(0, 4)
+              .map((item) => `- Ready: ${item.label}`),
+            "",
+          ]),
         ].join("\n"),
       );
       setStatus("Approval risk filter handoff copied.");
@@ -1233,6 +1249,24 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       >
                         <strong>{group.label}</strong>
                         <p>{group.warningCount} warnings / {group.readyCount} ready notes</p>
+                        {group.warningCount ? (
+                          <ul>
+                            {group.items.filter((item) => item.tone === "warning").map((item) => (
+                              <li key={item.label}>{item.label}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>No {group.label.toLowerCase()} warnings in the current draft.</p>
+                        )}
+                        {group.readyCount ? (
+                          <p>
+                            Ready: {group.items
+                              .filter((item) => item.tone === "ready")
+                              .map((item) => item.label)
+                              .slice(0, 4)
+                              .join(", ")}
+                          </p>
+                        ) : null}
                       </article>
                     ))}
                   </div>
