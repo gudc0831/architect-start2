@@ -61,6 +61,14 @@ type ApprovalGuardrail = {
   tone: "ready" | "warning";
 };
 
+type ApprovalRiskGroup = {
+  key: "scope" | "metadata" | "structure" | "evidence" | "state";
+  label: string;
+  readyCount: number;
+  warningCount: number;
+  items: ApprovalGuardrail[];
+};
+
 type MarkdownHeading = {
   level: number;
   line: number;
@@ -352,6 +360,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
+  const approvalRiskGroups = useMemo(
+    () => readApprovalRiskGroups(approvalGuardrails),
+    [approvalGuardrails],
+  );
+  const approvalRiskWarningGroupCount = approvalRiskGroups.filter((group) => group.warningCount > 0).length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
   const hasCustomCandidateFilters =
@@ -454,6 +467,38 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval checklist copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the guardrails manually.");
+    }
+  }
+
+  async function copyApprovalRiskSummary() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge approval risk summary",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Warning groups: ${approvalRiskWarningGroupCount}/${approvalRiskGroups.length}`,
+          `- Warnings: ${guardrailWarningCount}`,
+          "",
+          ...approvalRiskGroups.flatMap((group) => [
+            `## ${group.label}`,
+            `- Warnings: ${group.warningCount}`,
+            `- Ready: ${group.readyCount}`,
+            ...group.items
+              .filter((item) => item.tone === "warning")
+              .map((item) => `- ${item.label}: ${item.detail}`),
+            group.warningCount ? "" : "- No warnings",
+            "",
+          ]),
+        ].join("\n"),
+      );
+      setStatus("Approval risk summary copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approval risk summary manually.");
     }
   }
 
@@ -1003,6 +1048,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button onClick={copyScopeHandoff} type="button">Copy scope handoff</button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
+                    <button onClick={copyApprovalRiskSummary} type="button">Copy risk summary</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
                     <select
                       aria-label="공개 범위"
@@ -1098,9 +1144,31 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge guardrail summary">
                   <span>Guardrails {guardrailWarningCount} warnings</span>
+                  <span>Risk groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
                   <span>Readiness {readyReadinessCount}/{draftReadiness.length}</span>
                   <span>Confidence {detail ? readConfidenceBand(detail.confidenceScore) : "unknown"}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge approval risk summary">
+                  {approvalRiskGroups.map((group) => (
+                    <span key={group.key}>
+                      {group.label} {group.warningCount} warnings
+                    </span>
+                  ))}
+                </div>
+                <section className={styles.guardrails} aria-label="Knowledge approval risk groups">
+                  <h4>Approval risk groups</h4>
+                  <div>
+                    {approvalRiskGroups.map((group) => (
+                      <article
+                        className={group.warningCount ? styles.guardrailWarning : styles.guardrailReady}
+                        key={group.key}
+                      >
+                        <strong>{group.label}</strong>
+                        <p>{group.warningCount} warnings / {group.readyCount} ready notes</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
                 <section className={styles.guardrails} aria-label="Knowledge approval guardrail notes">
                   <h4>Approval guardrails</h4>
                   <div>
@@ -1393,6 +1461,43 @@ function createApprovalChecklist(
     "Guardrails",
     ...guardrails.map((item) => `- ${item.tone}: ${item.label} - ${item.detail}`),
   ].join("\n");
+}
+
+function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
+  const groups: ApprovalRiskGroup[] = [
+    { key: "scope", label: "Scope", readyCount: 0, warningCount: 0, items: [] },
+    { key: "metadata", label: "Metadata", readyCount: 0, warningCount: 0, items: [] },
+    { key: "structure", label: "Structure", readyCount: 0, warningCount: 0, items: [] },
+    { key: "evidence", label: "Evidence", readyCount: 0, warningCount: 0, items: [] },
+    { key: "state", label: "State", readyCount: 0, warningCount: 0, items: [] },
+  ];
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+  for (const guardrail of guardrails) {
+    const group = groupByKey.get(readApprovalRiskGroupKey(guardrail.label)) ?? groups[1];
+    group.items.push(guardrail);
+    if (guardrail.tone === "warning") {
+      group.warningCount += 1;
+    } else {
+      group.readyCount += 1;
+    }
+  }
+  return groups;
+}
+
+function readApprovalRiskGroupKey(label: string): ApprovalRiskGroup["key"] {
+  if (label.includes("scope") || label.includes("Scope")) {
+    return "scope";
+  }
+  if (label.includes("Markdown")) {
+    return "structure";
+  }
+  if (label.includes("evidence") || label.includes("Evidence") || label.includes("priority")) {
+    return "evidence";
+  }
+  if (label.includes("confidence") || label.includes("Confidence") || label.includes("State")) {
+    return "state";
+  }
+  return "metadata";
 }
 
 function buildApprovalGuardrails(
