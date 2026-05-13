@@ -170,10 +170,30 @@ type ApprovedSyncTargetConfig = {
   reconciliationPlanStatus: "not_required" | "configured" | "missing";
   remoteWriteReady: boolean;
   remoteWriteBlockers: string[];
+  inventoryManifest: ApprovedProviderInventoryManifest | null;
+  inventoryEntryCount: number;
+  inventoryImportedAt: string | null;
+  inventoryWarnings: string[];
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
   auditId: string | null;
+};
+
+type ApprovedProviderInventoryManifest = {
+  target: ApprovedSyncTarget;
+  importedAt: string;
+  entries: ApprovedProviderInventoryEntry[];
+  warnings: string[];
+};
+
+type ApprovedProviderInventoryEntry = {
+  path: string;
+  itemId: string | null;
+  sourceTaskId: string | null;
+  contentDigest: string | null;
+  updatedAt: string | null;
+  managedBy: "approved_wiki" | null;
 };
 
 type ApprovedProviderPreview = {
@@ -339,6 +359,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedSyncTargetEnabled, setApprovedSyncTargetEnabled] = useState(false);
   const [approvedSyncTargetDryRunOnly, setApprovedSyncTargetDryRunOnly] = useState(true);
   const [approvedSyncTargetCredentialRef, setApprovedSyncTargetCredentialRef] = useState("");
+  const [approvedSyncTargetInventoryManifest, setApprovedSyncTargetInventoryManifest] = useState("");
   const [approvedSyncTargetNotes, setApprovedSyncTargetNotes] = useState("");
   const [approvedProviderPreviewConfirmation, setApprovedProviderPreviewConfirmation] = useState("");
   const [approvedProviderPreview, setApprovedProviderPreview] = useState<ApprovedProviderPreview | null>(null);
@@ -850,12 +871,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setApprovedSyncTargetEnabled(false);
       setApprovedSyncTargetDryRunOnly(true);
       setApprovedSyncTargetCredentialRef("");
+      setApprovedSyncTargetInventoryManifest("");
       setApprovedSyncTargetNotes("");
       return;
     }
     setApprovedSyncTargetEnabled(selectedApprovedSyncTargetConfig.enabled);
     setApprovedSyncTargetDryRunOnly(selectedApprovedSyncTargetConfig.dryRunOnly);
     setApprovedSyncTargetCredentialRef(selectedApprovedSyncTargetConfig.credentialRef ?? "");
+    setApprovedSyncTargetInventoryManifest(
+      selectedApprovedSyncTargetConfig.inventoryManifest
+        ? JSON.stringify(selectedApprovedSyncTargetConfig.inventoryManifest, null, 2)
+        : "",
+    );
     setApprovedSyncTargetNotes(selectedApprovedSyncTargetConfig.notes);
   }, [selectedApprovedSyncTargetConfig]);
 
@@ -1671,6 +1698,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           enabled: approvedSyncTargetEnabled,
           dryRunOnly: approvedSyncTargetDryRunOnly,
           credentialRef: approvedSyncTargetCredentialRef,
+          inventoryManifest: approvedSyncTargetInventoryManifest,
           notes: approvedSyncTargetNotes,
         },
       );
@@ -2697,6 +2725,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>{selectedApprovedSyncTargetConfig?.remoteWriteReady ? "Remote write ready" : "Remote write blocked"}</span>
                     <span>Rollback {selectedApprovedSyncTargetConfig?.rollbackPlanStatus ?? "not saved"}</span>
                     <span>Reconcile {selectedApprovedSyncTargetConfig?.reconciliationPlanStatus ?? "not saved"}</span>
+                    <span>Inventory {selectedApprovedSyncTargetConfig?.inventoryEntryCount ?? 0}</span>
                     <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
                   </div>
                   <div className={styles.syncWarnings} aria-label="Approved WIKI remote write blockers">
@@ -2712,6 +2741,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     {selectedApprovedSyncTargetConfig?.reconciliationPlanRef ? (
                       <span>Reconciliation {selectedApprovedSyncTargetConfig.reconciliationPlanRef}</span>
                     ) : null}
+                    {selectedApprovedSyncTargetConfig?.inventoryImportedAt ? (
+                      <span>Inventory imported {formatDate(selectedApprovedSyncTargetConfig.inventoryImportedAt)}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.inventoryWarnings.map((warning) => (
+                      <span key={warning}>{warning}</span>
+                    ))}
                     {selectedApprovedSyncTargetConfig?.remoteWriteBlockers.length
                       ? selectedApprovedSyncTargetConfig.remoteWriteBlockers.map((blocker) => (
                         <span key={blocker}>{blocker}</span>
@@ -2769,6 +2804,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         onChange={(event) => setApprovedSyncTargetNotes(event.target.value)}
                         placeholder="Optional provider target notes"
                         value={approvedSyncTargetNotes}
+                      />
+                    </label>
+                    <label>
+                      Obsidian inventory manifest
+                      <textarea
+                        aria-label="Approved WIKI Obsidian inventory manifest"
+                        onChange={(event) => setApprovedSyncTargetInventoryManifest(event.target.value)}
+                        placeholder='{"entries":[{"path":"approved-wiki/example.md","contentDigest":"...","managedBy":"approved_wiki"}]}'
+                        value={approvedSyncTargetInventoryManifest}
                       />
                     </label>
                   </div>

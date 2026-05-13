@@ -115,6 +115,10 @@ export type KnowledgeSyncTargetConfig = {
   reconciliationPlanStatus: "not_required" | "configured" | "missing";
   remoteWriteReady: boolean;
   remoteWriteBlockers: string[];
+  inventoryManifest: KnowledgeProviderInventoryManifest | null;
+  inventoryEntryCount: number;
+  inventoryImportedAt: string | null;
+  inventoryWarnings: string[];
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -136,6 +140,22 @@ export type KnowledgeProviderPreview = {
 };
 
 export type KnowledgeProviderReconciliationIntent = "create" | "update" | "delete" | "noop";
+
+export type KnowledgeProviderInventoryEntry = {
+  path: string;
+  itemId: string | null;
+  sourceTaskId: string | null;
+  contentDigest: string | null;
+  updatedAt: string | null;
+  managedBy: "approved_wiki" | null;
+};
+
+export type KnowledgeProviderInventoryManifest = {
+  target: KnowledgeExportSyncTarget;
+  importedAt: string;
+  entries: KnowledgeProviderInventoryEntry[];
+  warnings: string[];
+};
 
 export type KnowledgeProviderReconciliationOperation = {
   itemId: string;
@@ -195,6 +215,7 @@ type KnowledgeSyncTargetConfigInput = {
   enabled?: unknown;
   dryRunOnly?: unknown;
   credentialRef?: unknown;
+  inventoryManifest?: unknown;
   notes?: unknown;
 };
 
@@ -371,6 +392,7 @@ export async function updateKnowledgeSyncTargetConfig(
 ): Promise<KnowledgeSyncTargetConfig> {
   const target = normalizeKnowledgeExportSyncTarget(input.target);
   const credentialRef = normalizeCredentialRef(input.credentialRef);
+  const inventoryManifest = normalizeKnowledgeProviderInventoryManifest(input.inventoryManifest, target);
   const event = await assistantRepository.createAuditEvent({
     projectId: null,
     profileId: user.id,
@@ -383,6 +405,7 @@ export async function updateKnowledgeSyncTargetConfig(
       enabled: input.enabled === true,
       dryRunOnly: input.dryRunOnly !== false,
       credentialRef,
+      inventoryManifest,
       notes: normalizeOptionalText(input.notes).slice(0, 500),
       updatedBy: user.id,
     },
@@ -896,6 +919,7 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
       const event = latestByTarget.get(target);
       const metadata = event?.metadata ?? {};
       const configuredCredentialRef = normalizeOptionalText(metadata.credentialRef) || null;
+      const inventoryManifest = normalizeKnowledgeProviderInventoryManifest(metadata.inventoryManifest, target);
       const registryEntry = credentialRegistry[target] ?? null;
       const credential = readKnowledgeSyncCredentialState(target, configuredCredentialRef, registryEntry);
       const remoteWrite = readKnowledgeRemoteWriteReadiness({
@@ -924,6 +948,10 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
         reconciliationPlanStatus: remoteWrite.reconciliationPlanStatus,
         remoteWriteReady: remoteWrite.ready,
         remoteWriteBlockers: remoteWrite.blockers,
+        inventoryManifest,
+        inventoryEntryCount: inventoryManifest?.entries.length ?? 0,
+        inventoryImportedAt: inventoryManifest?.importedAt ?? null,
+        inventoryWarnings: inventoryManifest?.warnings ?? [],
         notes: normalizeOptionalText(metadata.notes),
         updatedAt: event?.createdAt ?? null,
         updatedBy: normalizeOptionalText(metadata.updatedBy) || (event?.profileId ?? null),
@@ -1186,11 +1214,14 @@ function buildKnowledgeProviderReconciliationPackage(
     return null;
   }
   const itemById = new Map(approvedItems.map((item) => [item.id, item]));
-  const operations = audit.itemIds.map((itemId) => {
+  const inventoryByPath = new Map((config.inventoryManifest?.entries ?? []).map((entry) => [entry.path, entry]));
+  const plannedPaths = new Set<string>();
+  const plannedOperations = audit.itemIds.map((itemId) => {
     const item = itemById.get(itemId) ?? null;
     const title = item?.title || `Approved WIKI ${itemId.slice(0, 8)}`;
     const sourceTaskId = item?.sourceTaskId || "unknown";
     const path = `approved-wiki/${slugifyObsidianPath(title)}-${itemId.slice(0, 8)}.md`;
+    plannedPaths.add(path);
     const contentDigest = createHash("sha256")
       .update(JSON.stringify({
         itemId,
@@ -1201,31 +1232,52 @@ function buildKnowledgeProviderReconciliationPackage(
         scope: item?.scope ?? null,
       }))
       .digest("hex");
+    const inventoryEntry = inventoryByPath.get(path) ?? null;
+    const intent: KnowledgeProviderReconciliationIntent = !inventoryEntry
+      ? "create"
+      : inventoryEntry.contentDigest === contentDigest
+        ? "noop"
+        : "update";
     return {
       itemId,
       sourceTaskId,
       title,
       path,
-      intent: "create" as const,
+      intent,
       contentDigest,
     };
   });
+  const deleteOperations = (config.inventoryManifest?.entries ?? [])
+    .filter((entry) => entry.managedBy === "approved_wiki" && !plannedPaths.has(entry.path))
+    .map((entry) => ({
+      itemId: entry.itemId ?? `inventory:${createHash("sha256").update(entry.path).digest("hex").slice(0, 12)}`,
+      sourceTaskId: entry.sourceTaskId ?? "remote_inventory",
+      title: entry.path.replace(/^approved-wiki\//, "").replace(/\.md$/i, ""),
+      path: entry.path,
+      intent: "delete" as const,
+      contentDigest: entry.contentDigest ?? "",
+    }));
+  const operations = [...plannedOperations, ...deleteOperations];
+  const summary = {
+    total: operations.length,
+    create: operations.filter((operation) => operation.intent === "create").length,
+    update: operations.filter((operation) => operation.intent === "update").length,
+    delete: operations.filter((operation) => operation.intent === "delete").length,
+    noop: operations.filter((operation) => operation.intent === "noop").length,
+  };
   return {
     packageName: audit.packageName.replace(/\.(json|md)$/i, ".obsidian-reconciliation.json"),
     generatedAt: new Date().toISOString(),
     target: audit.target,
-    summary: {
-      total: operations.length,
-      create: operations.length,
-      update: 0,
-      delete: 0,
-      noop: 0,
-    },
+    summary,
     operations,
     warnings: [
       "Obsidian reconciliation is dry-run only; no vault files are written.",
-      "Remote Obsidian inventory is not connected yet, so all selected WIKI items are planned as create intents.",
-      ...(operations.length !== audit.itemIds.length ? ["Some approved WIKI items could not be resolved for reconciliation."] : []),
+      ...(config.inventoryManifest
+        ? ["Remote Obsidian inventory manifest is sanitized metadata only; file contents are not stored."]
+        : ["Remote Obsidian inventory is not connected yet, so all selected WIKI items are planned as create intents."]),
+      ...config.inventoryWarnings,
+      ...(plannedOperations.length !== audit.itemIds.length ? ["Some approved WIKI items could not be resolved for reconciliation."] : []),
     ],
   };
 }
@@ -1316,6 +1368,107 @@ function normalizeKnowledgeProviderReconciliationOperation(value: unknown): Know
 
 function normalizeKnowledgeProviderReconciliationIntent(value: unknown): KnowledgeProviderReconciliationIntent {
   return value === "update" || value === "delete" || value === "noop" ? value : "create";
+}
+
+function normalizeKnowledgeProviderInventoryManifest(
+  value: unknown,
+  target: KnowledgeExportSyncTarget,
+): KnowledgeProviderInventoryManifest | null {
+  if (target !== "obsidian") {
+    return null;
+  }
+  const parsed = parseInventoryManifestInput(value);
+  if (!parsed) {
+    return null;
+  }
+  const record = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : { entries: parsed };
+  const rawEntries = Array.isArray(record.entries)
+    ? record.entries
+    : Array.isArray(record.files)
+      ? record.files
+      : [];
+  const warnings = new Set<string>(normalizeStringArray(record.warnings, 20));
+  const entries = rawEntries
+    .map((entry) => normalizeKnowledgeProviderInventoryEntry(entry, warnings))
+    .filter((entry): entry is KnowledgeProviderInventoryEntry => Boolean(entry))
+    .slice(0, 500);
+  if (rawEntries.length > entries.length) {
+    warnings.add("Some inventory entries were ignored because they were missing a safe Markdown path.");
+  }
+  if (rawEntries.length > 500) {
+    warnings.add("Inventory manifest was truncated to 500 entries.");
+  }
+  return {
+    target: "obsidian",
+    importedAt: normalizeIsoDate(record.importedAt) ?? new Date().toISOString(),
+    entries,
+    warnings: [...warnings].slice(0, 20),
+  };
+}
+
+function parseInventoryManifestInput(value: unknown): unknown | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) {
+      return null;
+    }
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return {
+        entries: [],
+        warnings: ["Inventory manifest JSON could not be parsed."],
+      };
+    }
+  }
+  if (!value) {
+    return null;
+  }
+  return value;
+}
+
+function normalizeKnowledgeProviderInventoryEntry(
+  value: unknown,
+  warnings: Set<string>,
+): KnowledgeProviderInventoryEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if ("content" in record || "body" in record || "bodyMarkdown" in record || "text" in record) {
+    warnings.add("Inventory file contents were ignored; only metadata is stored.");
+  }
+  const path = normalizeInventoryPath(record.path);
+  if (!path) {
+    return null;
+  }
+  const contentDigest = normalizeInventoryDigest(record.contentDigest) ?? normalizeInventoryDigest(record.digest);
+  const itemId = normalizeOptionalText(record.itemId || record.sourceItemId).slice(0, 160) || null;
+  const sourceTaskId = normalizeOptionalText(record.sourceTaskId).slice(0, 160) || null;
+  const managedBy = record.managedBy === "approved_wiki" || path.startsWith("approved-wiki/") ? "approved_wiki" : null;
+  return {
+    path,
+    itemId,
+    sourceTaskId,
+    contentDigest,
+    updatedAt: normalizeIsoDate(record.updatedAt),
+    managedBy,
+  };
+}
+
+function normalizeInventoryPath(value: unknown) {
+  const path = normalizeOptionalText(value).replace(/\\/g, "/").replace(/^\/+/, "").slice(0, 220);
+  if (!path || path.includes("..") || !path.toLowerCase().endsWith(".md")) {
+    return null;
+  }
+  return path;
+}
+
+function normalizeInventoryDigest(value: unknown) {
+  const text = normalizeOptionalText(value).toLowerCase();
+  return /^[a-f0-9]{64}$/.test(text) ? text : null;
 }
 
 function isFreshProviderPreview(createdAt: string) {

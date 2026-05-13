@@ -850,7 +850,8 @@
 }
 
 .syncTargetControls input[type="text"],
-.syncTargetControls input:not([type]) {
+.syncTargetControls input:not([type]),
+.syncTargetControls textarea {
   min-height: 2.2rem;
   padding: 0 0.65rem;
   border: 1px solid var(--theme-border-field-strong);
@@ -859,6 +860,12 @@
   color: var(--theme-text-primary);
   font: inherit;
   font-size: 0.82rem;
+}
+
+.syncTargetControls textarea {
+  min-height: 5.5rem;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
 }
 
 .providerPreview {
