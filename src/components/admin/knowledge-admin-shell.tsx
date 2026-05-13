@@ -74,6 +74,12 @@ type MarkdownStructureSummary = {
   lines: number;
 };
 
+type MarkdownWikiLink = {
+  line: number;
+  target: string;
+  label: string;
+};
+
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
 type CandidateSort = "newest" | "low_confidence";
 type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
@@ -249,6 +255,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => readMarkdownStructureSummary(draft.bodyMarkdown),
     [draft.bodyMarkdown],
   );
+  const markdownWikiLinks = useMemo(
+    () => readMarkdownWikiLinks(draft.bodyMarkdown),
+    [draft.bodyMarkdown],
+  );
   const evidenceKindCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of detail?.evidence ?? []) {
@@ -314,9 +324,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       draftDirtyStates,
       markdownOutline,
       markdownStructureSummary,
+      markdownWikiLinks,
       draft.bodyMarkdown,
     ),
-    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline, markdownStructureSummary],
+    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline, markdownStructureSummary, markdownWikiLinks],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
@@ -515,6 +526,55 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Markdown outline copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the Markdown outline manually.");
+    }
+  }
+
+  async function copyMarkdownStructureSummary() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge Markdown structure summary",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Headings: ${markdownStructureSummary.headings}`,
+          `- Paragraphs: ${markdownStructureSummary.paragraphs}`,
+          `- List items: ${markdownStructureSummary.listItems}`,
+          `- Non-empty lines: ${markdownStructureSummary.lines}`,
+        ].join("\n"),
+      );
+      setStatus("Markdown structure summary copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the Markdown structure summary manually.");
+    }
+  }
+
+  async function copyMarkdownWikiLinks() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge Markdown WIKI links",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- WIKI links: ${markdownWikiLinks.length}`,
+          "",
+          ...(
+            markdownWikiLinks.length
+              ? markdownWikiLinks.map((link) => `- L${link.line}: [[${link.target}]]${link.label !== link.target ? ` as ${link.label}` : ""}`)
+              : ["- No Markdown WIKI links"]
+          ),
+        ].join("\n"),
+      );
+      setStatus("Markdown WIKI links copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the Markdown WIKI link preview manually.");
     }
   }
 
@@ -864,6 +924,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       Copy Markdown
                     </button>
                     <button onClick={copyMarkdownOutline} type="button">Copy Markdown outline</button>
+                    <button onClick={copyMarkdownStructureSummary} type="button">Copy Markdown structure</button>
+                    <button onClick={copyMarkdownWikiLinks} type="button">Copy WIKI links</button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
@@ -1032,6 +1094,17 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>List items {markdownStructureSummary.listItems}</span>
                   <span>Lines {markdownStructureSummary.lines}</span>
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge Markdown WIKI link preview">
+                  {markdownWikiLinks.length ? (
+                    markdownWikiLinks.map((link) => (
+                      <span key={`${link.line}-${link.target}-${link.label}`}>
+                        L{link.line}: [[{link.target}]]
+                      </span>
+                    ))
+                  ) : (
+                    <span>No Markdown WIKI links</span>
+                  )}
+                </div>
               </section>
 
               <footer className={styles.footer}>
@@ -1124,6 +1197,25 @@ function readMarkdownStructureSummary(markdown: string): MarkdownStructureSummar
   };
 }
 
+function readMarkdownWikiLinks(markdown: string): MarkdownWikiLink[] {
+  return markdown.split(/\r?\n/).flatMap((line, index) => {
+    const links: MarkdownWikiLink[] = [];
+    for (const match of line.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+      const raw = match[1].trim();
+      if (!raw) {
+        continue;
+      }
+      const [target, label] = raw.split("|").map((item) => item.trim());
+      links.push({
+        line: index + 1,
+        target,
+        label: label || target,
+      });
+    }
+    return links;
+  }).slice(0, 12);
+}
+
 function createDraftFromDetail(detail: CandidateDetail) {
   return {
     title: detail.wikiDraft.title,
@@ -1183,6 +1275,7 @@ function buildApprovalGuardrails(
   draftDirtyStates: Array<{ label: string; dirty: boolean }>,
   markdownOutline: MarkdownHeading[],
   markdownStructureSummary: MarkdownStructureSummary,
+  markdownWikiLinks: MarkdownWikiLink[],
   bodyMarkdown: string,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
@@ -1231,6 +1324,20 @@ function buildApprovalGuardrails(
       guardrails.push({
         label: "Markdown list structure missing",
         detail: "Draft body has no Markdown list items. Confirm action or context extraction before approval.",
+        tone: "warning",
+      });
+    }
+
+    if (markdownWikiLinks.length) {
+      guardrails.push({
+        label: "Markdown WIKI links present",
+        detail: `${markdownWikiLinks.length} Markdown WIKI links are present.`,
+        tone: "ready",
+      });
+    } else {
+      guardrails.push({
+        label: "Markdown WIKI links missing",
+        detail: "Draft body has no [[WIKI links]]. Confirm whether this item should connect to existing knowledge.",
         tone: "warning",
       });
     }
