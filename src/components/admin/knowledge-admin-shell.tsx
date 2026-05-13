@@ -69,6 +69,8 @@ type ApprovalRiskGroup = {
   items: ApprovalGuardrail[];
 };
 
+type ApprovalRiskFilter = ApprovalRiskGroup["key"] | "all";
+
 type MarkdownHeading = {
   level: number;
   line: number;
@@ -145,6 +147,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [candidateQueueCompact, setCandidateQueueCompact] = useState(false);
   const [evidenceSourceFilter, setEvidenceSourceFilter] = useState<EvidenceSourceFilter>("all");
   const [evidencePriorityFilter, setEvidencePriorityFilter] = useState<EvidencePriorityFilter>("all");
+  const [approvalRiskFilter, setApprovalRiskFilter] = useState<ApprovalRiskFilter>("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
   const [draft, setDraft] = useState({
@@ -364,6 +367,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => readApprovalRiskGroups(approvalGuardrails),
     [approvalGuardrails],
   );
+  const visibleApprovalRiskGroups = useMemo(
+    () => approvalRiskFilter === "all"
+      ? approvalRiskGroups
+      : approvalRiskGroups.filter((group) => group.key === approvalRiskFilter),
+    [approvalRiskFilter, approvalRiskGroups],
+  );
   const approvalRiskWarningGroupCount = approvalRiskGroups.filter((group) => group.warningCount > 0).length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
@@ -499,6 +508,32 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval risk summary copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the approval risk summary manually.");
+    }
+  }
+
+  async function copyApprovalRiskFilterHandoff() {
+    if (!detail) {
+      return;
+    }
+
+    const activeLabel = approvalRiskFilter === "all"
+      ? "All risk groups"
+      : approvalRiskGroups.find((group) => group.key === approvalRiskFilter)?.label ?? approvalRiskFilter;
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge approval risk filter handoff",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Active risk group: ${activeLabel}`,
+          `- Showing: ${visibleApprovalRiskGroups.length}/${approvalRiskGroups.length}`,
+          "",
+          ...visibleApprovalRiskGroups.map((group) => `- ${group.label}: ${group.warningCount} warnings, ${group.readyCount} ready notes`),
+        ].join("\n"),
+      );
+      setStatus("Approval risk filter handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the active risk filter chips manually.");
     }
   }
 
@@ -765,6 +800,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   function clearEvidenceFilters() {
     setEvidenceSourceFilter("all");
     setEvidencePriorityFilter("all");
+  }
+
+  function clearApprovalRiskFilter() {
+    setApprovalRiskFilter("all");
   }
 
   return (
@@ -1155,10 +1194,39 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </span>
                   ))}
                 </div>
+                <div className={styles.queueQuickFilters} aria-label="Knowledge approval risk filter shortcuts">
+                  {(["all", "scope", "metadata", "structure", "evidence", "state"] as ApprovalRiskFilter[]).map((value) => (
+                    <button
+                      className={approvalRiskFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
+                      key={value}
+                      onClick={() => setApprovalRiskFilter(value)}
+                      type="button"
+                    >
+                      {value === "all" ? "All risk groups" : approvalRiskGroups.find((group) => group.key === value)?.label ?? value}
+                    </button>
+                  ))}
+                  <button
+                    className={styles.queueQuickFilter}
+                    disabled={approvalRiskFilter === "all"}
+                    onClick={clearApprovalRiskFilter}
+                    type="button"
+                  >
+                    Clear risk group
+                  </button>
+                  <button className={styles.queueQuickFilter} onClick={copyApprovalRiskFilterHandoff} type="button">
+                    Copy risk filter
+                  </button>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge active approval risk filter chips">
+                  <span>
+                    Risk group {approvalRiskFilter === "all" ? "All risk groups" : approvalRiskGroups.find((group) => group.key === approvalRiskFilter)?.label ?? approvalRiskFilter}
+                  </span>
+                  <span>Showing {visibleApprovalRiskGroups.length}/{approvalRiskGroups.length}</span>
+                </div>
                 <section className={styles.guardrails} aria-label="Knowledge approval risk groups">
                   <h4>Approval risk groups</h4>
                   <div>
-                    {approvalRiskGroups.map((group) => (
+                    {visibleApprovalRiskGroups.map((group) => (
                       <article
                         className={group.warningCount ? styles.guardrailWarning : styles.guardrailReady}
                         key={group.key}
