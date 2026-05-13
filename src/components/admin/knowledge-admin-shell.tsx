@@ -15,6 +15,21 @@ type Evidence = {
   sourceUrl?: string;
 };
 
+type ApprovedKnowledgeItem = {
+  id: string;
+  title: string;
+  summary: string;
+  bodyMarkdown: string;
+  tags: string[];
+  scope: Scope;
+  sourceRecordId: string;
+  sourceTaskId: string;
+  sourceProjectId: string;
+  sourceReferences: Evidence[];
+  approvedBy: string;
+  approvedAt: string;
+};
+
 type CandidateListItem = {
   id: string;
   state: CandidateState;
@@ -48,7 +63,7 @@ type CandidateDetail = CandidateListItem & {
     reviewedAt: string;
     rejectionReason?: string;
   } | null;
-  approvedKnowledgeItem: unknown | null;
+  approvedKnowledgeItem: ApprovedKnowledgeItem | null;
 };
 
 type KnowledgeAdminShellProps = {
@@ -105,6 +120,8 @@ type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_ap
 type CandidateSort = "newest" | "low_confidence";
 type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
 type EvidencePriorityFilter = "all" | "high" | "normal" | "low";
+type ApprovedSourceFilter = "all" | "sourced" | "unsourced";
+type ApprovedSort = "newest" | "title" | "source_count";
 
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
@@ -146,6 +163,18 @@ const evidencePriorityFilterLabels: Record<EvidencePriorityFilter, string> = {
   low: "Low priority",
 };
 
+const approvedSourceFilterLabels: Record<ApprovedSourceFilter, string> = {
+  all: "All source states",
+  sourced: "Has source refs",
+  unsourced: "No source refs",
+};
+
+const approvedSortLabels: Record<ApprovedSort, string> = {
+  newest: "Newest approved",
+  title: "Title A-Z",
+  source_count: "Most source refs",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -161,6 +190,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvalRiskFilter, setApprovalRiskFilter] = useState<ApprovalRiskFilter>("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [previewCompact, setPreviewCompact] = useState(false);
+  const [approvedItems, setApprovedItems] = useState<ApprovedKnowledgeItem[]>([]);
+  const [approvedItemsLoaded, setApprovedItemsLoaded] = useState(false);
+  const [approvedSearch, setApprovedSearch] = useState("");
+  const [approvedScopeFilter, setApprovedScopeFilter] = useState<Scope | "all">("all");
+  const [approvedTagFilter, setApprovedTagFilter] = useState("all");
+  const [approvedSourceFilter, setApprovedSourceFilter] = useState<ApprovedSourceFilter>("all");
+  const [approvedSort, setApprovedSort] = useState<ApprovedSort>("newest");
+  const [selectedApprovedId, setSelectedApprovedId] = useState("");
+  const [approvedPreviewCompact, setApprovedPreviewCompact] = useState(true);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -468,6 +506,100 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ),
     [finalReviewChecklist.length, finalReviewReadyCount],
   );
+  const approvedTagOptions = useMemo(
+    () => Array.from(new Set(approvedItems.flatMap((item) => item.tags))).sort((left, right) => left.localeCompare(right)),
+    [approvedItems],
+  );
+  const approvedScopeCounts = useMemo(() => {
+    const counts: Record<Scope, number> = {
+      admin_only: 0,
+      organization: 0,
+      project_members: 0,
+      project: 0,
+    };
+    for (const item of approvedItems) {
+      counts[item.scope] += 1;
+    }
+    return counts;
+  }, [approvedItems]);
+  const visibleApprovedItems = useMemo(() => {
+    const search = approvedSearch.trim().toLowerCase();
+    return approvedItems
+      .filter((item) => {
+        const scopeMatches = approvedScopeFilter === "all" || item.scope === approvedScopeFilter;
+        if (!scopeMatches) {
+          return false;
+        }
+        const tagMatches = approvedTagFilter === "all" || item.tags.includes(approvedTagFilter);
+        if (!tagMatches) {
+          return false;
+        }
+        const sourceMatches =
+          approvedSourceFilter === "all" ||
+          (approvedSourceFilter === "sourced" && item.sourceReferences.length > 0) ||
+          (approvedSourceFilter === "unsourced" && item.sourceReferences.length === 0);
+        if (!sourceMatches) {
+          return false;
+        }
+        if (!search) {
+          return true;
+        }
+        return [
+          item.title,
+          item.summary,
+          item.bodyMarkdown,
+          item.sourceRecordId,
+          item.sourceTaskId,
+          item.sourceProjectId,
+          item.tags.join(" "),
+        ].some((value) => value.toLowerCase().includes(search));
+      })
+      .sort((left, right) => {
+        if (approvedSort === "title") {
+          return left.title.localeCompare(right.title);
+        }
+        if (approvedSort === "source_count") {
+          return right.sourceReferences.length - left.sourceReferences.length || Date.parse(right.approvedAt) - Date.parse(left.approvedAt);
+        }
+        return Date.parse(right.approvedAt) - Date.parse(left.approvedAt);
+      });
+  }, [approvedItems, approvedScopeFilter, approvedSearch, approvedSort, approvedSourceFilter, approvedTagFilter]);
+  const selectedApprovedItem = useMemo(
+    () => approvedItems.find((item) => item.id === selectedApprovedId) ?? visibleApprovedItems[0] ?? null,
+    [approvedItems, selectedApprovedId, visibleApprovedItems],
+  );
+  const approvedSourceCoverage = useMemo(() => {
+    const sourced = approvedItems.filter((item) => item.sourceReferences.length > 0).length;
+    return {
+      sourced,
+      unsourced: approvedItems.length - sourced,
+      total: approvedItems.length,
+    };
+  }, [approvedItems]);
+  const approvedQualityChecks = useMemo(
+    () => selectedApprovedItem ? buildApprovedItemQuality(selectedApprovedItem) : [],
+    [selectedApprovedItem],
+  );
+  const approvedQualityReadyCount = approvedQualityChecks.filter((item) => item.ready).length;
+  const activeApprovedFilterChips = useMemo(() => {
+    const search = approvedSearch.trim();
+    return [
+      `Scope: ${approvedScopeFilter === "all" ? "All scopes" : scopeLabels[approvedScopeFilter]}`,
+      `Tag: ${approvedTagFilter}`,
+      `Source: ${approvedSourceFilterLabels[approvedSourceFilter]}`,
+      `Sort: ${approvedSortLabels[approvedSort]}`,
+      search ? `Search: ${search}` : "Search: none",
+      `Showing: ${visibleApprovedItems.length}/${approvedItems.length}`,
+    ];
+  }, [
+    approvedItems.length,
+    approvedScopeFilter,
+    approvedSearch,
+    approvedSort,
+    approvedSourceFilter,
+    approvedTagFilter,
+    visibleApprovedItems.length,
+  ]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -477,6 +609,38 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setSelectedId(visibleCandidates[0].id);
     }
   }, [selectedId, visibleCandidates]);
+
+  useEffect(() => {
+    let active = true;
+    readJson<ApprovedKnowledgeItem[]>("/api/admin/knowledge/items")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setApprovedItems(data);
+        setApprovedItemsLoaded(true);
+        if (data[0]) {
+          setSelectedApprovedId(data[0].id);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setApprovedItemsLoaded(true);
+        setStatus(error instanceof Error ? error.message : "Approved WIKI items could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedApprovedId && visibleApprovedItems[0]) {
+      setSelectedApprovedId(visibleApprovedItems[0].id);
+    }
+  }, [selectedApprovedId, visibleApprovedItems]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -518,6 +682,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     const data = await readJson<CandidateListItem[]>("/api/admin/knowledge/candidates");
     setCandidates(data);
     setSelectedId(nextSelectedId);
+  }
+
+  async function refreshApprovedItems() {
+    try {
+      const data = await readJson<ApprovedKnowledgeItem[]>("/api/admin/knowledge/items");
+      setApprovedItems(data);
+      setApprovedItemsLoaded(true);
+      if (!selectedApprovedId && data[0]) {
+        setSelectedApprovedId(data[0].id);
+      }
+    } catch (error) {
+      setApprovedItemsLoaded(true);
+      setStatus(error instanceof Error ? error.message : "Approved WIKI items could not be loaded.");
+    }
   }
 
   function resetDraft() {
@@ -988,6 +1166,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       });
       setDetail(data);
       await refreshCandidates(data.id);
+      await refreshApprovedItems();
       setStatus("승인된 지식으로 저장했습니다.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "승인에 실패했습니다.");
@@ -1044,6 +1223,73 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
   function clearApprovalRiskFilter() {
     setApprovalRiskFilter("all");
+  }
+
+  function clearApprovedFilters() {
+    setApprovedSearch("");
+    setApprovedScopeFilter("all");
+    setApprovedTagFilter("all");
+    setApprovedSourceFilter("all");
+    setApprovedSort("newest");
+  }
+
+  async function copyApprovedMarkdown() {
+    if (!selectedApprovedItem) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(selectedApprovedItem.bodyMarkdown);
+      setStatus("Approved WIKI Markdown copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approved Markdown preview manually.");
+    }
+  }
+
+  async function copyApprovedItemHandoff() {
+    if (!selectedApprovedItem) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createApprovedItemHandoff(selectedApprovedItem, approvedQualityChecks));
+      setStatus("Approved WIKI item handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approved WIKI detail manually.");
+    }
+  }
+
+  async function copyApprovedSearchHandoff() {
+    try {
+      await navigator.clipboard.writeText(
+        createApprovedSearchHandoff(visibleApprovedItems, activeApprovedFilterChips, approvedSourceCoverage),
+      );
+      setStatus("Approved WIKI search handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approved WIKI filters manually.");
+    }
+  }
+
+  async function copyApprovedSourcePackage() {
+    if (!selectedApprovedItem) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createApprovedSourcePackage(selectedApprovedItem));
+      setStatus("Approved WIKI source package copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the source references manually.");
+    }
+  }
+
+  async function copyApprovedIndexPackage() {
+    try {
+      await navigator.clipboard.writeText(createApprovedIndexPackage(visibleApprovedItems, activeApprovedFilterChips));
+      setStatus("Approved WIKI index package copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approved WIKI list manually.");
+    }
   }
 
   return (
@@ -1703,6 +1949,239 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           ) : (
             <p className={styles.empty}>선택된 후보가 없습니다.</p>
           )}
+
+          <section className={styles.editor} aria-label="Approved WIKI knowledge readback">
+            <div className={styles.editorHeader}>
+              <div>
+                <p>Approved WIKI</p>
+                <h3>Approved item readback</h3>
+              </div>
+              <div className={styles.editorTools}>
+                <button onClick={refreshApprovedItems} type="button">Refresh approved</button>
+                <button disabled={!selectedApprovedItem} onClick={copyApprovedMarkdown} type="button">
+                  Copy approved Markdown
+                </button>
+                <button disabled={!selectedApprovedItem} onClick={copyApprovedItemHandoff} type="button">
+                  Copy item handoff
+                </button>
+                <button onClick={copyApprovedSearchHandoff} type="button">Copy search handoff</button>
+                <button disabled={!selectedApprovedItem} onClick={copyApprovedSourcePackage} type="button">
+                  Copy source package
+                </button>
+                <button onClick={copyApprovedIndexPackage} type="button">Copy index package</button>
+              </div>
+            </div>
+
+            <div className={styles.sourceChips} aria-label="Approved WIKI summary counts">
+              <span>Total {approvedItems.length}</span>
+              <span>Visible {visibleApprovedItems.length}</span>
+              <span>Sourced {approvedSourceCoverage.sourced}</span>
+              <span>Unsourced {approvedSourceCoverage.unsourced}</span>
+              <span>Tags {approvedTagOptions.length}</span>
+              <span>{approvedItemsLoaded ? "Loaded" : "Loading"}</span>
+            </div>
+            <div className={styles.sourceChips} aria-label="Approved WIKI scope counts">
+              <span>Admin only {approvedScopeCounts.admin_only}</span>
+              <span>Organization {approvedScopeCounts.organization}</span>
+              <span>Project members {approvedScopeCounts.project_members}</span>
+              <span>Project {approvedScopeCounts.project}</span>
+            </div>
+            <div className={styles.queueFilterSummary} aria-label="Approved WIKI active filter chips">
+              {activeApprovedFilterChips.map((chip) => (
+                <span key={chip}>{chip}</span>
+              ))}
+            </div>
+
+            <div className={styles.approvedToolbar}>
+              <label>
+                Search approved
+                <input
+                  onChange={(event) => setApprovedSearch(event.target.value)}
+                  placeholder="Title, body, tag, source id"
+                  value={approvedSearch}
+                />
+              </label>
+              <label>
+                Scope
+                <select
+                  aria-label="Approved WIKI scope filter"
+                  onChange={(event) => setApprovedScopeFilter(event.target.value as Scope | "all")}
+                  value={approvedScopeFilter}
+                >
+                  <option value="all">All scopes</option>
+                  {Object.entries(scopeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Tag
+                <select
+                  aria-label="Approved WIKI tag filter"
+                  onChange={(event) => setApprovedTagFilter(event.target.value)}
+                  value={approvedTagFilter}
+                >
+                  <option value="all">All tags</option>
+                  {approvedTagOptions.map((tag) => (
+                    <option key={tag} value={tag}>{tag}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Source
+                <select
+                  aria-label="Approved WIKI source filter"
+                  onChange={(event) => setApprovedSourceFilter(event.target.value as ApprovedSourceFilter)}
+                  value={approvedSourceFilter}
+                >
+                  {(["all", "sourced", "unsourced"] as ApprovedSourceFilter[]).map((value) => (
+                    <option key={value} value={value}>{approvedSourceFilterLabels[value]}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Sort
+                <select
+                  aria-label="Approved WIKI sort"
+                  onChange={(event) => setApprovedSort(event.target.value as ApprovedSort)}
+                  value={approvedSort}
+                >
+                  {(["newest", "title", "source_count"] as ApprovedSort[]).map((value) => (
+                    <option key={value} value={value}>{approvedSortLabels[value]}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className={styles.queueQuickFilter}
+                disabled={
+                  !approvedSearch.trim() &&
+                  approvedScopeFilter === "all" &&
+                  approvedTagFilter === "all" &&
+                  approvedSourceFilter === "all" &&
+                  approvedSort === "newest"
+                }
+                onClick={clearApprovedFilters}
+                type="button"
+              >
+                Clear approved filters
+              </button>
+            </div>
+
+            <div className={styles.approvedGrid}>
+              <div className={styles.approvedList} aria-label="Approved WIKI visible items">
+                {visibleApprovedItems.length ? visibleApprovedItems.map((item) => (
+                  <button
+                    className={selectedApprovedItem?.id === item.id ? styles.candidateActive : styles.candidate}
+                    key={item.id}
+                    onClick={() => setSelectedApprovedId(item.id)}
+                    type="button"
+                  >
+                    <span>{scopeLabels[item.scope]}</span>
+                    <strong>{item.title}</strong>
+                    <small>{formatDate(item.approvedAt)} / {item.sourceReferences.length} source refs</small>
+                    <span className={styles.candidateRiskChips}>
+                      <span>Tags {item.tags.length}</span>
+                      <span>Record {item.sourceRecordId.slice(0, 8)}</span>
+                      <span>Task {item.sourceTaskId.slice(0, 8)}</span>
+                    </span>
+                  </button>
+                )) : (
+                  <p className={styles.empty}>
+                    {approvedItemsLoaded
+                      ? "No approved WIKI items match the current filters."
+                      : "Approved WIKI items are loading."}
+                  </p>
+                )}
+              </div>
+
+              <div className={styles.approvedDetail}>
+                {selectedApprovedItem ? (
+                  <>
+                    <div>
+                      <p>Selected approved item</p>
+                      <h4>{selectedApprovedItem.title}</h4>
+                    </div>
+                    <p>{selectedApprovedItem.summary}</p>
+                    <dl className={styles.meta}>
+                      <div>
+                        <dt>Scope</dt>
+                        <dd>{scopeLabels[selectedApprovedItem.scope]}</dd>
+                      </div>
+                      <div>
+                        <dt>Approved</dt>
+                        <dd>{formatDate(selectedApprovedItem.approvedAt)} by {selectedApprovedItem.approvedBy}</dd>
+                      </div>
+                      <div>
+                        <dt>Source</dt>
+                        <dd>{selectedApprovedItem.sourceRecordId}</dd>
+                      </div>
+                      <div>
+                        <dt>Task</dt>
+                        <dd>{selectedApprovedItem.sourceTaskId}</dd>
+                      </div>
+                    </dl>
+                    <div className={styles.sourceChips} aria-label="Approved WIKI selected tags">
+                      {selectedApprovedItem.tags.length ? selectedApprovedItem.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      )) : <span>No tags</span>}
+                    </div>
+                    <section className={styles.guardrails} aria-label="Approved WIKI quality checks">
+                      <h4>Approved item quality</h4>
+                      <div>
+                        {approvedQualityChecks.map((item) => (
+                          <article
+                            className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                            key={item.label}
+                          >
+                            <strong>{item.label}</strong>
+                            <p>{item.detail}</p>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                    <div className={styles.sourceChips} aria-label="Approved WIKI quality summary">
+                      <span>Quality {approvedQualityReadyCount}/{approvedQualityChecks.length}</span>
+                      <span>Sources {selectedApprovedItem.sourceReferences.length}</span>
+                      <span>Body {selectedApprovedItem.bodyMarkdown.trim().length} chars</span>
+                    </div>
+                    <section
+                      className={[
+                        styles.markdownPreview,
+                        approvedPreviewCompact ? styles.markdownPreviewCompact : "",
+                      ].filter(Boolean).join(" ")}
+                      aria-label="Approved WIKI Markdown preview"
+                    >
+                      <div className={styles.markdownPreviewHeader}>
+                        <h4>Approved Markdown</h4>
+                        <button onClick={() => setApprovedPreviewCompact((current) => !current)} type="button">
+                          {approvedPreviewCompact ? "Expanded preview" : "Compact preview"}
+                        </button>
+                      </div>
+                      <pre>{selectedApprovedItem.bodyMarkdown.trim() || "No approved Markdown body."}</pre>
+                    </section>
+                    <section className={styles.guardrails} aria-label="Approved WIKI source references">
+                      <h4>Source references</h4>
+                      <div>
+                        {selectedApprovedItem.sourceReferences.length ? selectedApprovedItem.sourceReferences.map((reference) => (
+                          <article className={styles.guardrailReady} key={reference.id}>
+                            <strong>{reference.kind} / priority {reference.priority}: {reference.title}</strong>
+                            <p>{reference.sourceUrl ?? "No source URL"} - {reference.excerpt}</p>
+                          </article>
+                        )) : (
+                          <article className={styles.guardrailWarning}>
+                            <strong>No source references</strong>
+                            <p>This approved item can still be read, but retrieval handoff should flag missing source references.</p>
+                          </article>
+                        )}
+                      </div>
+                    </section>
+                  </>
+                ) : (
+                  <p className={styles.empty}>Approve a Knowledge candidate to populate this readback surface.</p>
+                )}
+              </div>
+            </div>
+          </section>
         </main>
       </div>
       <p className={styles.status}>{status}</p>
@@ -2171,6 +2650,139 @@ function createFinalReviewCloseout(
     "",
     "## Final checklist",
     ...finalChecklist.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+  ].join("\n");
+}
+
+function buildApprovedItemQuality(item: ApprovedKnowledgeItem): ReviewChecklistItem[] {
+  return [
+    {
+      label: "Metadata",
+      detail: item.title && item.summary
+        ? "Title and summary are available for readback."
+        : "Title or summary is missing from the approved item.",
+      ready: Boolean(item.title && item.summary),
+    },
+    {
+      label: "Markdown body",
+      detail: item.bodyMarkdown.trim()
+        ? `${item.bodyMarkdown.trim().length} Markdown characters are available.`
+        : "Approved Markdown body is empty.",
+      ready: Boolean(item.bodyMarkdown.trim()),
+    },
+    {
+      label: "Tags",
+      detail: item.tags.length
+        ? `${item.tags.length} tags are available for search and retrieval grouping.`
+        : "No tags are available for this approved item.",
+      ready: item.tags.length > 0,
+    },
+    {
+      label: "Publication scope",
+      detail: `Approved publication scope is ${scopeLabels[item.scope]}.`,
+      ready: Boolean(item.scope),
+    },
+    {
+      label: "Source lineage",
+      detail: item.sourceRecordId && item.sourceTaskId
+        ? `Source record ${item.sourceRecordId} and task ${item.sourceTaskId} are linked.`
+        : "Source record or source task id is missing.",
+      ready: Boolean(item.sourceRecordId && item.sourceTaskId),
+    },
+    {
+      label: "Source references",
+      detail: item.sourceReferences.length
+        ? `${item.sourceReferences.length} source reference rows are attached.`
+        : "No source references are attached; retrieval handoff should flag this item.",
+      ready: item.sourceReferences.length > 0,
+    },
+  ];
+}
+
+function createApprovedItemHandoff(item: ApprovedKnowledgeItem, quality: ReviewChecklistItem[]) {
+  const readyCount = quality.filter((check) => check.ready).length;
+  return [
+    "# Approved WIKI item handoff",
+    `- Item: ${item.title} (${item.id})`,
+    `- Scope: ${scopeLabels[item.scope]}`,
+    `- Approved: ${item.approvedAt} by ${item.approvedBy}`,
+    `- Source record: ${item.sourceRecordId}`,
+    `- Source task: ${item.sourceTaskId}`,
+    `- Source project: ${item.sourceProjectId}`,
+    `- Tags: ${item.tags.join(", ") || "none"}`,
+    `- Source references: ${item.sourceReferences.length}`,
+    `- Quality: ${readyCount}/${quality.length}`,
+    "",
+    "## Summary",
+    item.summary || "No summary.",
+    "",
+    "## Quality checks",
+    ...quality.map((check) => `- ${check.ready ? "Ready" : "Review"}: ${check.label} - ${check.detail}`),
+    "",
+    "## Markdown",
+    item.bodyMarkdown.trim() || "No approved Markdown body.",
+  ].join("\n");
+}
+
+function createApprovedSearchHandoff(
+  items: ApprovedKnowledgeItem[],
+  filterChips: string[],
+  sourceCoverage: { sourced: number; unsourced: number; total: number },
+) {
+  return [
+    "# Approved WIKI search handoff",
+    `- Visible items: ${items.length}`,
+    `- Source coverage: ${sourceCoverage.sourced}/${sourceCoverage.total} sourced, ${sourceCoverage.unsourced} unsourced`,
+    "",
+    "## Filters",
+    ...filterChips.map((chip) => `- ${chip}`),
+    "",
+    "## Visible items",
+    ...(items.length
+      ? items.map((item) => `- ${item.title} (${item.id}) / scope ${item.scope} / tags ${item.tags.join(", ") || "none"}`)
+      : ["- No approved WIKI items in the current filter scope."]),
+  ].join("\n");
+}
+
+function createApprovedSourcePackage(item: ApprovedKnowledgeItem) {
+  return [
+    "# Approved WIKI source package",
+    `- Item: ${item.title} (${item.id})`,
+    `- Source record: ${item.sourceRecordId}`,
+    `- Source task: ${item.sourceTaskId}`,
+    `- Source project: ${item.sourceProjectId}`,
+    `- References: ${item.sourceReferences.length}`,
+    "",
+    ...(item.sourceReferences.length
+      ? item.sourceReferences.map((reference) => [
+        `## ${reference.title}`,
+        `- Kind: ${reference.kind}`,
+        `- Priority: ${reference.priority}`,
+        `- Source URL: ${reference.sourceUrl ?? "none"}`,
+        `- Excerpt: ${reference.excerpt || "none"}`,
+        "",
+      ].join("\n"))
+      : ["- No source references attached."]),
+  ].join("\n");
+}
+
+function createApprovedIndexPackage(items: ApprovedKnowledgeItem[], filterChips: string[]) {
+  return [
+    "# Approved WIKI index package",
+    `- Items: ${items.length}`,
+    "",
+    "## Filter scope",
+    ...filterChips.map((chip) => `- ${chip}`),
+    "",
+    "## Index",
+    ...(items.length
+      ? items.map((item) => [
+        `- ${item.title} (${item.id})`,
+        `  - Scope: ${item.scope}`,
+        `  - Approved: ${item.approvedAt}`,
+        `  - Tags: ${item.tags.join(", ") || "none"}`,
+        `  - Source refs: ${item.sourceReferences.length}`,
+      ].join("\n"))
+      : ["- No approved WIKI items in the current filter scope."]),
   ].join("\n");
 }
 
