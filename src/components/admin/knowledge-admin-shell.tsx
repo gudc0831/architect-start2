@@ -186,7 +186,32 @@ type ApprovedProviderPreview = {
   packageName: string;
   operations: string[];
   warnings: string[];
+  reconciliationPackage: ApprovedProviderReconciliationPackage | null;
   createdBy: string | null;
+};
+
+type ApprovedProviderReconciliationOperation = {
+  itemId: string;
+  sourceTaskId: string;
+  title: string;
+  path: string;
+  intent: "create" | "update" | "delete" | "noop";
+  contentDigest: string;
+};
+
+type ApprovedProviderReconciliationPackage = {
+  packageName: string;
+  generatedAt: string;
+  target: ApprovedSyncTarget;
+  summary: {
+    total: number;
+    create: number;
+    update: number;
+    delete: number;
+    noop: number;
+  };
+  operations: ApprovedProviderReconciliationOperation[];
+  warnings: string[];
 };
 
 type ApprovedProviderExecution = {
@@ -203,6 +228,7 @@ type ApprovedProviderExecution = {
   itemCount: number;
   contentDigest: string;
   warnings: string[];
+  reconciliationPackage: ApprovedProviderReconciliationPackage | null;
   createdBy: string | null;
 };
 
@@ -2760,6 +2786,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <span key={warning}>{warning}</span>
                         ))}
                       </div>
+                      {approvedProviderPreview.reconciliationPackage ? (
+                        <ProviderReconciliationPackageView packageData={approvedProviderPreview.reconciliationPackage} />
+                      ) : null}
                     </div>
                   ) : null}
                   {approvedProviderExecution ? (
@@ -2776,6 +2805,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <span key={warning}>{warning}</span>
                         ))}
                       </div>
+                      {approvedProviderExecution.reconciliationPackage ? (
+                        <ProviderReconciliationPackageView packageData={approvedProviderExecution.reconciliationPackage} />
+                      ) : null}
                     </div>
                   ) : null}
                 </section>
@@ -3825,6 +3857,33 @@ function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
   ].join("\n");
 }
 
+function ProviderReconciliationPackageView({ packageData }: { packageData: ApprovedProviderReconciliationPackage }) {
+  return (
+    <section aria-label="Approved WIKI provider reconciliation package">
+      <strong>{packageData.packageName}</strong>
+      <div>
+        <span>{packageData.summary.total} path(s)</span>
+        <span>Create {packageData.summary.create}</span>
+        <span>Update {packageData.summary.update}</span>
+        <span>Delete {packageData.summary.delete}</span>
+        <span>Noop {packageData.summary.noop}</span>
+      </div>
+      <div>
+        {packageData.operations.slice(0, 8).map((operation) => (
+          <span key={`${operation.intent}:${operation.path}`}>
+            {operation.intent} {operation.path} / {operation.itemId.slice(0, 8)}
+          </span>
+        ))}
+      </div>
+      <div>
+        {packageData.warnings.map((warning) => (
+          <span key={warning}>{warning}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
   return [
     "# Approved WIKI provider preview",
@@ -3842,6 +3901,8 @@ function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
     "",
     "## Warnings",
     ...(preview.warnings.length ? preview.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "",
+    ...formatApprovedProviderReconciliationPackage(preview.reconciliationPackage),
   ].join("\n");
 }
 
@@ -3864,7 +3925,34 @@ function createApprovedProviderExecutionReport(execution: ApprovedProviderExecut
     "",
     "## Warnings",
     ...(execution.warnings.length ? execution.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "",
+    ...formatApprovedProviderReconciliationPackage(execution.reconciliationPackage),
   ].join("\n");
+}
+
+function formatApprovedProviderReconciliationPackage(packageData: ApprovedProviderReconciliationPackage | null) {
+  if (!packageData) {
+    return ["## Reconciliation package", "- none"];
+  }
+  return [
+    "## Reconciliation package",
+    `- Package: ${packageData.packageName}`,
+    `- Generated: ${packageData.generatedAt}`,
+    `- Target: ${approvedSyncTargetLabels[packageData.target]}`,
+    `- Total: ${packageData.summary.total}`,
+    `- Create: ${packageData.summary.create}`,
+    `- Update: ${packageData.summary.update}`,
+    `- Delete: ${packageData.summary.delete}`,
+    `- Noop: ${packageData.summary.noop}`,
+    "",
+    "### Operations",
+    ...(packageData.operations.length
+      ? packageData.operations.map((operation) => `- ${operation.intent} ${operation.path} (${operation.itemId}, task ${operation.sourceTaskId}, digest ${operation.contentDigest.slice(0, 16)})`)
+      : ["- none"]),
+    "",
+    "### Reconciliation warnings",
+    ...(packageData.warnings.length ? packageData.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+  ];
 }
 
 function readApprovedSyncHistory(): ApprovedSyncRun[] {

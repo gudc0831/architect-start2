@@ -131,7 +131,34 @@ export type KnowledgeProviderPreview = {
   packageName: string;
   operations: string[];
   warnings: string[];
+  reconciliationPackage: KnowledgeProviderReconciliationPackage | null;
   createdBy: string | null;
+};
+
+export type KnowledgeProviderReconciliationIntent = "create" | "update" | "delete" | "noop";
+
+export type KnowledgeProviderReconciliationOperation = {
+  itemId: string;
+  sourceTaskId: string;
+  title: string;
+  path: string;
+  intent: KnowledgeProviderReconciliationIntent;
+  contentDigest: string;
+};
+
+export type KnowledgeProviderReconciliationPackage = {
+  packageName: string;
+  generatedAt: string;
+  target: KnowledgeExportSyncTarget;
+  summary: {
+    total: number;
+    create: number;
+    update: number;
+    delete: number;
+    noop: number;
+  };
+  operations: KnowledgeProviderReconciliationOperation[];
+  warnings: string[];
 };
 
 export type KnowledgeProviderExecution = {
@@ -148,6 +175,7 @@ export type KnowledgeProviderExecution = {
   itemCount: number;
   contentDigest: string;
   warnings: string[];
+  reconciliationPackage: KnowledgeProviderReconciliationPackage | null;
   createdBy: string | null;
 };
 
@@ -398,7 +426,8 @@ export async function createKnowledgeProviderPreview(
     throw badRequest("Knowledge sync target is not enabled.", "KNOWLEDGE_SYNC_TARGET_DISABLED");
   }
 
-  const preview = buildKnowledgeProviderPreview(audit, config, user.id);
+  const approvedItems = await listApprovedKnowledgeItems();
+  const preview = buildKnowledgeProviderPreview(audit, config, approvedItems, user.id);
   const event = await assistantRepository.createAuditEvent({
     projectId: audit.projectId,
     profileId: user.id,
@@ -1118,8 +1147,10 @@ function normalizeIsoDate(value: unknown) {
 function buildKnowledgeProviderPreview(
   audit: KnowledgeExportSyncAudit,
   config: KnowledgeSyncTargetConfig,
+  approvedItems: ApprovedKnowledgeItem[],
   actorId: string,
 ): KnowledgeProviderPreview {
+  const reconciliationPackage = buildKnowledgeProviderReconciliationPackage(audit, config, approvedItems);
   return {
     id: `pending:${audit.id}`,
     createdAt: new Date().toISOString(),
@@ -1138,10 +1169,75 @@ function buildKnowledgeProviderPreview(
       ...(config.credentialSource === "secret_manager" ? ["Credential readiness is satisfied by a server-side secret-manager registry entry."] : []),
       ...(config.remoteWriteReady ? ["Remote write deployment readiness checks pass, but live external writes remain disabled."] : []),
       ...config.remoteWriteBlockers.map((blocker) => `Remote write blocked: ${blocker}`),
+      ...(reconciliationPackage ? reconciliationPackage.warnings : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
+    reconciliationPackage,
     createdBy: actorId,
   };
+}
+
+function buildKnowledgeProviderReconciliationPackage(
+  audit: KnowledgeExportSyncAudit,
+  config: KnowledgeSyncTargetConfig,
+  approvedItems: ApprovedKnowledgeItem[],
+): KnowledgeProviderReconciliationPackage | null {
+  if (config.adapter !== "markdown_files") {
+    return null;
+  }
+  const itemById = new Map(approvedItems.map((item) => [item.id, item]));
+  const operations = audit.itemIds.map((itemId) => {
+    const item = itemById.get(itemId) ?? null;
+    const title = item?.title || `Approved WIKI ${itemId.slice(0, 8)}`;
+    const sourceTaskId = item?.sourceTaskId || "unknown";
+    const path = `approved-wiki/${slugifyObsidianPath(title)}-${itemId.slice(0, 8)}.md`;
+    const contentDigest = createHash("sha256")
+      .update(JSON.stringify({
+        itemId,
+        title,
+        sourceTaskId,
+        bodyMarkdown: item?.bodyMarkdown ?? "",
+        tags: item?.tags ?? [],
+        scope: item?.scope ?? null,
+      }))
+      .digest("hex");
+    return {
+      itemId,
+      sourceTaskId,
+      title,
+      path,
+      intent: "create" as const,
+      contentDigest,
+    };
+  });
+  return {
+    packageName: audit.packageName.replace(/\.(json|md)$/i, ".obsidian-reconciliation.json"),
+    generatedAt: new Date().toISOString(),
+    target: audit.target,
+    summary: {
+      total: operations.length,
+      create: operations.length,
+      update: 0,
+      delete: 0,
+      noop: 0,
+    },
+    operations,
+    warnings: [
+      "Obsidian reconciliation is dry-run only; no vault files are written.",
+      "Remote Obsidian inventory is not connected yet, so all selected WIKI items are planned as create intents.",
+      ...(operations.length !== audit.itemIds.length ? ["Some approved WIKI items could not be resolved for reconciliation."] : []),
+    ],
+  };
+}
+
+function slugifyObsidianPath(value: string) {
+  const slug = value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "approved-wiki";
 }
 
 function toKnowledgeProviderPreview(event: AssistantAuditEvent): KnowledgeProviderPreview | null {
@@ -1159,8 +1255,67 @@ function toKnowledgeProviderPreview(event: AssistantAuditEvent): KnowledgeProvid
     packageName: normalizeOptionalText(metadata.packageName),
     operations: normalizeStringArray(metadata.operations, 20),
     warnings: normalizeStringArray(metadata.warnings, 20),
+    reconciliationPackage: normalizeKnowledgeProviderReconciliationPackage(metadata.reconciliationPackage),
     createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
   };
+}
+
+function normalizeKnowledgeProviderReconciliationPackage(value: unknown): KnowledgeProviderReconciliationPackage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const target = normalizeKnowledgeExportSyncTarget(record.target);
+  if (target !== "obsidian") {
+    return null;
+  }
+  const operations = Array.isArray(record.operations)
+    ? record.operations
+      .map(normalizeKnowledgeProviderReconciliationOperation)
+      .filter((item): item is KnowledgeProviderReconciliationOperation => Boolean(item))
+      .slice(0, 250)
+    : [];
+  const summaryRecord = record.summary && typeof record.summary === "object" && !Array.isArray(record.summary)
+    ? record.summary as Record<string, unknown>
+    : {};
+  return {
+    packageName: normalizeOptionalText(record.packageName),
+    generatedAt: normalizeIsoDate(record.generatedAt) ?? new Date(0).toISOString(),
+    target,
+    summary: {
+      total: readNumber(summaryRecord.total, operations.length),
+      create: readNumber(summaryRecord.create, operations.filter((item) => item.intent === "create").length),
+      update: readNumber(summaryRecord.update, operations.filter((item) => item.intent === "update").length),
+      delete: readNumber(summaryRecord.delete, operations.filter((item) => item.intent === "delete").length),
+      noop: readNumber(summaryRecord.noop, operations.filter((item) => item.intent === "noop").length),
+    },
+    operations,
+    warnings: normalizeStringArray(record.warnings, 20),
+  };
+}
+
+function normalizeKnowledgeProviderReconciliationOperation(value: unknown): KnowledgeProviderReconciliationOperation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const itemId = normalizeOptionalText(record.itemId);
+  const path = normalizeOptionalText(record.path);
+  if (!itemId || !path) {
+    return null;
+  }
+  return {
+    itemId,
+    sourceTaskId: normalizeOptionalText(record.sourceTaskId) || "unknown",
+    title: normalizeOptionalText(record.title) || itemId,
+    path,
+    intent: normalizeKnowledgeProviderReconciliationIntent(record.intent),
+    contentDigest: normalizeOptionalText(record.contentDigest),
+  };
+}
+
+function normalizeKnowledgeProviderReconciliationIntent(value: unknown): KnowledgeProviderReconciliationIntent {
+  return value === "update" || value === "delete" || value === "noop" ? value : "create";
 }
 
 function isFreshProviderPreview(createdAt: string) {
@@ -1175,6 +1330,7 @@ function buildKnowledgeProviderExecution(
   actorId: string,
 ): KnowledgeProviderExecution {
   const artifact = buildKnowledgeProviderExecutionArtifact(audit, config);
+  const reconciliationPackage = preview.reconciliationPackage;
   const digestInput = {
     previewId: preview.id,
     auditId: audit.id,
@@ -1187,6 +1343,7 @@ function buildKnowledgeProviderExecution(
     credentialStore: config.credentialStore,
     remoteWriteReady: config.remoteWriteReady,
     artifactType: artifact.type,
+    reconciliationPackage,
   };
   return {
     id: `pending:${preview.id}`,
@@ -1208,8 +1365,10 @@ function buildKnowledgeProviderExecution(
       ...(config.credentialSource === "secret_manager" ? ["Credential reference was resolved from server-side secret-manager registry metadata."] : []),
       ...(config.remoteWriteReady ? ["Remote write readiness passed; live external writes are still disabled in this slice."] : []),
       ...config.remoteWriteBlockers.map((blocker) => `Remote write remains blocked: ${blocker}`),
+      ...(reconciliationPackage ? ["Reconciliation package was copied from the approved provider preview; no external files were written."] : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
+    reconciliationPackage,
     createdBy: actorId,
   };
 }
@@ -1252,6 +1411,7 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
     itemCount: readNumber(metadata.itemCount, 0),
     contentDigest: normalizeOptionalText(metadata.contentDigest),
     warnings: normalizeStringArray(metadata.warnings, 20),
+    reconciliationPackage: normalizeKnowledgeProviderReconciliationPackage(metadata.reconciliationPackage),
     createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
   };
 }
