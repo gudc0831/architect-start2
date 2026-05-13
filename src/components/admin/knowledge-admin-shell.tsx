@@ -297,8 +297,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     };
   }, [visibleEvidence]);
   const approvalGuardrails = useMemo(
-    () => buildApprovalGuardrails(draftReadiness, detail, draftDirtyStates),
-    [detail, draftDirtyStates, draftReadiness],
+    () => buildApprovalGuardrails(draftReadiness, detail, draftDirtyStates, markdownOutline, draft.bodyMarkdown),
+    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
@@ -1144,6 +1144,8 @@ function buildApprovalGuardrails(
   readiness: Array<{ label: string; ready: boolean }>,
   detail: CandidateDetail | null,
   draftDirtyStates: Array<{ label: string; dirty: boolean }>,
+  markdownOutline: MarkdownHeading[],
+  bodyMarkdown: string,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
   const missing = readiness.filter((item) => !item.ready).map((item) => item.label);
@@ -1164,6 +1166,22 @@ function buildApprovalGuardrails(
 
   if (!detail) {
     return guardrails;
+  }
+
+  if (bodyMarkdown.trim()) {
+    if (markdownOutline.length) {
+      guardrails.push({
+        label: "Markdown outline present",
+        detail: `${markdownOutline.length} Markdown headings are present.`,
+        tone: "ready",
+      });
+    } else {
+      guardrails.push({
+        label: "Markdown headings missing",
+        detail: "Draft body has Markdown content but no headings. Confirm structure before approval.",
+        tone: "warning",
+      });
+    }
   }
 
   const changedDraftFields = draftDirtyStates.filter((item) => item.dirty).map((item) => item.label);
