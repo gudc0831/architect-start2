@@ -200,6 +200,7 @@ export type KnowledgeProviderLiveWritePreflight = {
 
 export type KnowledgeProviderExecution = {
   id: string;
+  projectId: string | null;
   createdAt: string;
   previewId: string;
   auditId: string;
@@ -215,6 +216,7 @@ export type KnowledgeProviderExecution = {
   reconciliationPackage: KnowledgeProviderReconciliationPackage | null;
   liveWritePreflight: KnowledgeProviderLiveWritePreflight | null;
   packageReview: KnowledgeProviderExecutionPackageReview;
+  packageReviewNotes: KnowledgeProviderExecutionPackageReviewNote[];
   createdBy: string | null;
 };
 
@@ -227,6 +229,69 @@ export type KnowledgeProviderExecutionPackageReview = {
   localDownloadTracked: false;
   retentionLabel: "server_audit_retained";
   retentionNote: string;
+  reviewNoteCount: number;
+  latestReviewNoteAt: string | null;
+};
+
+export type KnowledgeProviderExecutionPackageReviewNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
+
+export type KnowledgeProviderExecutionPackageReviewNote = {
+  id: string;
+  createdAt: string;
+  executionId: string;
+  packageDigest: string;
+  category: KnowledgeProviderExecutionPackageReviewNoteCategory;
+  note: string;
+  reviewerId: string | null;
+};
+
+export type KnowledgeProviderExecutionPackageReviewCoverageStatus = "reviewed" | "unreviewed" | "stale_unreviewed";
+
+export type KnowledgeProviderExecutionPackageReviewNoteReportItem = KnowledgeProviderExecutionPackageReviewNote & {
+  executionCreatedAt: string;
+  target: KnowledgeExportSyncTarget;
+  status: KnowledgeProviderExecution["status"];
+  artifactType: KnowledgeProviderExecution["artifactType"];
+  packageFilename: string;
+};
+
+export type KnowledgeProviderExecutionPackageReviewCoverageItem = {
+  executionId: string;
+  executionCreatedAt: string;
+  target: KnowledgeExportSyncTarget;
+  status: KnowledgeProviderExecution["status"];
+  artifactType: KnowledgeProviderExecution["artifactType"];
+  packageDigest: string;
+  packageFilename: string;
+  noteCount: number;
+  latestReviewNoteAt: string | null;
+  reviewerIds: string[];
+  coverageStatus: KnowledgeProviderExecutionPackageReviewCoverageStatus;
+  staleDays: number;
+  isStale: boolean;
+};
+
+export type KnowledgeProviderExecutionPackageReviewNoteReport = {
+  generatedAt: string;
+  filters: {
+    category: KnowledgeProviderExecutionPackageReviewNoteCategory | "all";
+    reviewerId: string | null;
+    packageDigest: string | null;
+    executionId: string | null;
+    coveragePreset: "all" | "reviewed" | "unreviewed" | "stale_unreviewed";
+    staleDays: number;
+  };
+  summary: {
+    packageCount: number;
+    reviewedCount: number;
+    unreviewedCount: number;
+    staleUnreviewedCount: number;
+    noteCount: number;
+    reviewerCounts: { reviewerId: string | null; count: number }[];
+    categoryCounts: { category: KnowledgeProviderExecutionPackageReviewNoteCategory; count: number }[];
+  };
+  notes: KnowledgeProviderExecutionPackageReviewNoteReportItem[];
+  coverage: KnowledgeProviderExecutionPackageReviewCoverageItem[];
 };
 
 export type KnowledgeProviderExecutionPackage = {
@@ -245,6 +310,12 @@ export type KnowledgeProviderExecutionPackage = {
     packageDigest: string;
     credentialExcluded: true;
     externalWritesPerformed: false;
+  };
+  packageReviewContext: {
+    packageDigest: string;
+    reviewNoteCount: number;
+    latestReviewNoteAt: string | null;
+    notes: KnowledgeProviderExecutionPackageReviewNote[];
   };
   rollbackEvidence: {
     rollbackPlanRef: string | null;
@@ -292,6 +363,22 @@ type KnowledgeProviderExecutionInput = {
   confirmation?: unknown;
 };
 
+type KnowledgeProviderExecutionPackageReviewNoteInput = {
+  executionId?: unknown;
+  packageDigest?: unknown;
+  category?: unknown;
+  note?: unknown;
+};
+
+type KnowledgeProviderExecutionPackageReviewNoteReportInput = {
+  category?: unknown;
+  reviewerId?: unknown;
+  packageDigest?: unknown;
+  executionId?: unknown;
+  coveragePreset?: unknown;
+  staleDays?: unknown;
+};
+
 const knowledgeExportSyncEventType = "knowledge_export_sync";
 const knowledgeExportSyncTargetType = "approved_wiki_export_package";
 const knowledgeSyncTargetConfigEventType = "knowledge_sync_target_config";
@@ -300,6 +387,8 @@ const knowledgeProviderPreviewEventType = "knowledge_sync_provider_preview";
 const knowledgeProviderPreviewTargetType = "knowledge_sync_provider_preview";
 const knowledgeProviderExecutionEventType = "knowledge_sync_provider_execution";
 const knowledgeProviderExecutionTargetType = "knowledge_sync_provider_execution";
+const knowledgeProviderExecutionPackageReviewNoteEventType = "knowledge_sync_provider_execution_package_review_note";
+const knowledgeProviderExecutionPackageReviewNoteTargetType = "knowledge_sync_provider_execution_package";
 const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
@@ -535,12 +624,138 @@ export async function createKnowledgeProviderPreview(
 }
 
 export async function listKnowledgeProviderExecutions(): Promise<KnowledgeProviderExecution[]> {
-  const events = await assistantRepository.listAuditEvents({
-    eventTypes: [knowledgeProviderExecutionEventType],
-    targetType: knowledgeProviderExecutionTargetType,
-    limit: 50,
+  const [executionEvents, noteEvents] = await Promise.all([
+    assistantRepository.listAuditEvents({
+      eventTypes: [knowledgeProviderExecutionEventType],
+      targetType: knowledgeProviderExecutionTargetType,
+      limit: 50,
+    }),
+    assistantRepository.listAuditEvents({
+      eventTypes: [knowledgeProviderExecutionPackageReviewNoteEventType],
+      targetType: knowledgeProviderExecutionPackageReviewNoteTargetType,
+      limit: 500,
+    }),
+  ]);
+  const notesByExecutionId = groupProviderExecutionPackageReviewNotes(noteEvents);
+  return executionEvents
+    .map((event) => toKnowledgeProviderExecution(event, notesByExecutionId.get(event.id) ?? []))
+    .filter((item): item is KnowledgeProviderExecution => Boolean(item));
+}
+
+export async function createKnowledgeProviderExecutionPackageReviewNote(
+  input: KnowledgeProviderExecutionPackageReviewNoteInput,
+  user: AuthUser,
+): Promise<KnowledgeProviderExecutionPackageReviewNote> {
+  const executionId = normalizeRequiredText(input.executionId, "executionId");
+  const executions = await listKnowledgeProviderExecutions();
+  const execution = executions.find((item) => item.id === executionId);
+  if (!execution) {
+    throw badRequest("Knowledge provider execution id was not found.", "KNOWLEDGE_PROVIDER_EXECUTION_NOT_FOUND");
+  }
+
+  const packageDigest = normalizeOptionalText(input.packageDigest);
+  if (packageDigest && packageDigest !== execution.packageReview.packageDigest) {
+    throw badRequest("Provider execution package digest does not match the retained package digest.", "KNOWLEDGE_PROVIDER_EXECUTION_PACKAGE_DIGEST_MISMATCH");
+  }
+
+  const event = await assistantRepository.createAuditEvent({
+    projectId: execution.projectId,
+    profileId: user.id,
+    eventType: knowledgeProviderExecutionPackageReviewNoteEventType,
+    targetType: knowledgeProviderExecutionPackageReviewNoteTargetType,
+    targetId: execution.id,
+    metadata: {
+      knowledgeProviderExecutionPackageReviewNoteVersion: 1,
+      executionId: execution.id,
+      packageDigest: execution.packageReview.packageDigest,
+      category: normalizeProviderExecutionPackageReviewNoteCategory(input.category),
+      note: normalizeProviderExecutionPackageReviewNoteText(input.note),
+      reviewerId: user.id,
+    },
   });
-  return events.map(toKnowledgeProviderExecution).filter((item): item is KnowledgeProviderExecution => Boolean(item));
+
+  const note = toKnowledgeProviderExecutionPackageReviewNote(event);
+  if (!note) {
+    throw badRequest("Provider execution package review note could not be normalized.", "KNOWLEDGE_PROVIDER_EXECUTION_PACKAGE_REVIEW_NOTE_INVALID");
+  }
+
+  return note;
+}
+
+export async function getKnowledgeProviderExecutionPackageReviewNoteReport(
+  input: KnowledgeProviderExecutionPackageReviewNoteReportInput,
+): Promise<KnowledgeProviderExecutionPackageReviewNoteReport> {
+  const category = normalizeOptionalProviderExecutionPackageReviewNoteCategory(input.category);
+  const reviewerId = normalizeOptionalText(input.reviewerId).toLowerCase();
+  const packageDigest = normalizeOptionalText(input.packageDigest).toLowerCase();
+  const executionId = normalizeOptionalText(input.executionId).toLowerCase();
+  const coveragePreset = normalizeProviderExecutionPackageReviewCoveragePreset(input.coveragePreset);
+  const staleDays = normalizePositiveInteger(input.staleDays, 7, 0, 365);
+  const executions = await listKnowledgeProviderExecutions();
+  const coverage = executions
+    .map((execution) => toProviderExecutionPackageReviewCoverageItem(execution, staleDays))
+    .filter((item) => matchesProviderExecutionPackageCoveragePreset(item, coveragePreset))
+    .filter((item) => !packageDigest || item.packageDigest.toLowerCase().includes(packageDigest))
+    .filter((item) => !executionId || item.executionId.toLowerCase().includes(executionId));
+  const visibleExecutionIds = new Set(coverage.map((item) => item.executionId));
+  const notes = executions
+    .flatMap((execution) => execution.packageReviewNotes.map((note) => toProviderExecutionPackageReviewNoteReportItem(note, execution)))
+    .filter((note) => visibleExecutionIds.has(note.executionId))
+    .filter((note) => !category || note.category === category)
+    .filter((note) => !reviewerId || (note.reviewerId ?? "").toLowerCase().includes(reviewerId))
+    .filter((note) => !packageDigest || note.packageDigest.toLowerCase().includes(packageDigest))
+    .filter((note) => !executionId || note.executionId.toLowerCase().includes(executionId));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    filters: {
+      category: category ?? "all",
+      reviewerId: reviewerId || null,
+      packageDigest: packageDigest || null,
+      executionId: executionId || null,
+      coveragePreset,
+      staleDays,
+    },
+    summary: summarizeProviderExecutionPackageReview(executions, staleDays),
+    notes,
+    coverage,
+  };
+}
+
+export async function exportKnowledgeProviderExecutionPackageReviewNoteCsv(
+  input: KnowledgeProviderExecutionPackageReviewNoteReportInput,
+): Promise<{ filename: string; csv: string }> {
+  const report = await getKnowledgeProviderExecutionPackageReviewNoteReport(input);
+  const header = [
+    "note_id",
+    "created_at",
+    "execution_id",
+    "package_digest",
+    "category",
+    "reviewer_id",
+    "target",
+    "status",
+    "artifact_type",
+    "package_filename",
+    "note",
+  ];
+  const rows = report.notes.map((note) => [
+    note.id,
+    note.createdAt,
+    note.executionId,
+    note.packageDigest,
+    note.category,
+    note.reviewerId ?? "",
+    note.target,
+    note.status,
+    note.artifactType,
+    note.packageFilename,
+    note.note,
+  ]);
+  return {
+    filename: `provider-execution-package-review-notes-${report.generatedAt.slice(0, 10)}.csv`,
+    csv: [header, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\n"),
+  };
 }
 
 export async function createKnowledgeProviderExecution(
@@ -578,7 +793,7 @@ export async function createKnowledgeProviderExecution(
   }
 
   const execution = buildKnowledgeProviderExecution(preview, audit, config, user.id);
-  const { packageReview: _packageReview, ...executionMetadata } = execution;
+  const { packageReview: _packageReview, packageReviewNotes: _packageReviewNotes, ...executionMetadata } = execution;
   const event = await assistantRepository.createAuditEvent({
     projectId: audit.projectId,
     profileId: user.id,
@@ -649,6 +864,12 @@ function buildKnowledgeProviderExecutionPackage(
       credentialExcluded: true,
       externalWritesPerformed: false,
     },
+    packageReviewContext: {
+      packageDigest: execution.packageReview.packageDigest,
+      reviewNoteCount: execution.packageReview.reviewNoteCount,
+      latestReviewNoteAt: execution.packageReview.latestReviewNoteAt,
+      notes: execution.packageReviewNotes,
+    },
     rollbackEvidence: {
       rollbackPlanRef: preflight?.rollbackPlanRef ?? null,
       reconciliationPlanRef: preflight?.reconciliationPlanRef ?? null,
@@ -675,6 +896,7 @@ function createKnowledgeProviderExecutionPackageReview(input: {
   artifactType: KnowledgeProviderExecution["artifactType"];
   contentDigest: string;
   liveWritePreflight: KnowledgeProviderLiveWritePreflight | null;
+  packageReviewNotes?: KnowledgeProviderExecutionPackageReviewNote[];
 }): KnowledgeProviderExecutionPackageReview {
   const packageDigest = createHash("sha256")
     .update(JSON.stringify({
@@ -702,6 +924,8 @@ function createKnowledgeProviderExecutionPackageReview(input: {
     localDownloadTracked: false,
     retentionLabel: "server_audit_retained",
     retentionNote: "Package availability is derived from retained append-only provider execution audit metadata; local browser downloads are not tracked here.",
+    reviewNoteCount: input.packageReviewNotes?.length ?? 0,
+    latestReviewNoteAt: input.packageReviewNotes?.[0]?.createdAt ?? null,
   };
 }
 
@@ -899,6 +1123,34 @@ function normalizeStringArray(value: unknown, limit: number) {
     return [];
   }
   return value.map((item) => normalizeText(item)).filter(Boolean).slice(0, limit);
+}
+
+function normalizeProviderExecutionPackageReviewNoteCategory(value: unknown): KnowledgeProviderExecutionPackageReviewNoteCategory {
+  return value === "risk" || value === "follow_up" || value === "approval_context" ? value : "review_note";
+}
+
+function normalizeOptionalProviderExecutionPackageReviewNoteCategory(value: unknown): KnowledgeProviderExecutionPackageReviewNoteCategory | null {
+  return value === "review_note" || value === "risk" || value === "follow_up" || value === "approval_context" ? value : null;
+}
+
+function normalizeProviderExecutionPackageReviewNoteText(value: unknown) {
+  const text = normalizeText(value).slice(0, 4000);
+  if (!text) {
+    throw badRequest("Provider execution package review note is required.", "KNOWLEDGE_PROVIDER_EXECUTION_PACKAGE_REVIEW_NOTE_REQUIRED");
+  }
+  return text;
+}
+
+function normalizeProviderExecutionPackageReviewCoveragePreset(value: unknown): KnowledgeProviderExecutionPackageReviewNoteReport["filters"]["coveragePreset"] {
+  return value === "reviewed" || value === "unreviewed" || value === "stale_unreviewed" ? value : "all";
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = typeof value === "number" ? value : Number.parseInt(normalizeOptionalText(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
 function readKnowledgeExportStats(items: ApprovedKnowledgeItem[]) {
@@ -1685,6 +1937,7 @@ function buildKnowledgeProviderExecution(
   };
   return {
     id: `pending:${preview.id}`,
+    projectId: audit.projectId,
     createdAt: new Date().toISOString(),
     previewId: preview.id,
     auditId: audit.id,
@@ -1728,6 +1981,7 @@ function buildKnowledgeProviderExecution(
       contentDigest: createHash("sha256").update(JSON.stringify(digestInput)).digest("hex"),
       liveWritePreflight,
     }),
+    packageReviewNotes: [],
     createdBy: actorId,
   };
 }
@@ -1796,7 +2050,10 @@ function buildKnowledgeProviderExecutionArtifact(
   };
 }
 
-function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProviderExecution | null {
+function toKnowledgeProviderExecution(
+  event: AssistantAuditEvent,
+  packageReviewNotes: KnowledgeProviderExecutionPackageReviewNote[] = [],
+): KnowledgeProviderExecution | null {
   if (event.eventType !== knowledgeProviderExecutionEventType || event.targetType !== knowledgeProviderExecutionTargetType) {
     return null;
   }
@@ -1805,6 +2062,7 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
   const liveWritePreflight = normalizeKnowledgeProviderLiveWritePreflight(metadata.liveWritePreflight);
   const execution = {
     id: event.id,
+    projectId: event.projectId,
     createdAt: event.createdAt,
     previewId: normalizeOptionalText(metadata.previewId),
     auditId: normalizeOptionalText(metadata.auditId),
@@ -1823,8 +2081,137 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
   };
   return {
     ...execution,
-    packageReview: createKnowledgeProviderExecutionPackageReview(execution),
+    packageReview: createKnowledgeProviderExecutionPackageReview({
+      ...execution,
+      packageReviewNotes,
+    }),
+    packageReviewNotes,
   };
+}
+
+function groupProviderExecutionPackageReviewNotes(events: AssistantAuditEvent[]) {
+  const notesByExecutionId = new Map<string, KnowledgeProviderExecutionPackageReviewNote[]>();
+  for (const event of events) {
+    const note = toKnowledgeProviderExecutionPackageReviewNote(event);
+    if (!note) {
+      continue;
+    }
+    const current = notesByExecutionId.get(note.executionId) ?? [];
+    current.push(note);
+    notesByExecutionId.set(note.executionId, current);
+  }
+  for (const notes of notesByExecutionId.values()) {
+    notes.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+  return notesByExecutionId;
+}
+
+function toKnowledgeProviderExecutionPackageReviewNote(event: AssistantAuditEvent): KnowledgeProviderExecutionPackageReviewNote | null {
+  if (
+    event.eventType !== knowledgeProviderExecutionPackageReviewNoteEventType ||
+    event.targetType !== knowledgeProviderExecutionPackageReviewNoteTargetType
+  ) {
+    return null;
+  }
+  const metadata = event.metadata;
+  const executionId = normalizeOptionalText(metadata.executionId || event.targetId);
+  const packageDigest = normalizeOptionalText(metadata.packageDigest);
+  const note = normalizeOptionalText(metadata.note);
+  if (!executionId || !packageDigest || !note) {
+    return null;
+  }
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    executionId,
+    packageDigest,
+    category: normalizeProviderExecutionPackageReviewNoteCategory(metadata.category),
+    note,
+    reviewerId: normalizeOptionalText(metadata.reviewerId) || event.profileId,
+  };
+}
+
+function toProviderExecutionPackageReviewNoteReportItem(
+  note: KnowledgeProviderExecutionPackageReviewNote,
+  execution: KnowledgeProviderExecution,
+): KnowledgeProviderExecutionPackageReviewNoteReportItem {
+  return {
+    ...note,
+    executionCreatedAt: execution.createdAt,
+    target: execution.target,
+    status: execution.status,
+    artifactType: execution.artifactType,
+    packageFilename: execution.packageReview.filename,
+  };
+}
+
+function toProviderExecutionPackageReviewCoverageItem(
+  execution: KnowledgeProviderExecution,
+  staleDays: number,
+): KnowledgeProviderExecutionPackageReviewCoverageItem {
+  const createdAt = Date.parse(execution.createdAt);
+  const staleAt = Number.isFinite(createdAt) ? createdAt + staleDays * 24 * 60 * 60 * 1000 : Number.POSITIVE_INFINITY;
+  const isStale = execution.packageReviewNotes.length === 0 && Date.now() >= staleAt;
+  const reviewerIds = [...new Set(execution.packageReviewNotes.map((note) => note.reviewerId).filter((item): item is string => Boolean(item)))];
+  return {
+    executionId: execution.id,
+    executionCreatedAt: execution.createdAt,
+    target: execution.target,
+    status: execution.status,
+    artifactType: execution.artifactType,
+    packageDigest: execution.packageReview.packageDigest,
+    packageFilename: execution.packageReview.filename,
+    noteCount: execution.packageReviewNotes.length,
+    latestReviewNoteAt: execution.packageReview.latestReviewNoteAt,
+    reviewerIds,
+    coverageStatus: execution.packageReviewNotes.length ? "reviewed" : isStale ? "stale_unreviewed" : "unreviewed",
+    staleDays,
+    isStale,
+  };
+}
+
+function matchesProviderExecutionPackageCoveragePreset(
+  item: KnowledgeProviderExecutionPackageReviewCoverageItem,
+  preset: KnowledgeProviderExecutionPackageReviewNoteReport["filters"]["coveragePreset"],
+) {
+  return preset === "all" || item.coverageStatus === preset || (preset === "unreviewed" && item.noteCount === 0);
+}
+
+function summarizeProviderExecutionPackageReview(
+  executions: KnowledgeProviderExecution[],
+  staleDays: number,
+): KnowledgeProviderExecutionPackageReviewNoteReport["summary"] {
+  const coverage = executions.map((execution) => toProviderExecutionPackageReviewCoverageItem(execution, staleDays));
+  const notes = executions.flatMap((execution) => execution.packageReviewNotes);
+  const reviewerCountMap = new Map<string, { reviewerId: string | null; count: number }>();
+  const categoryCountMap = new Map<KnowledgeProviderExecutionPackageReviewNoteCategory, number>();
+  for (const note of notes) {
+    const reviewerKey = note.reviewerId ?? "";
+    const reviewerCount = reviewerCountMap.get(reviewerKey) ?? { reviewerId: note.reviewerId, count: 0 };
+    reviewerCount.count += 1;
+    reviewerCountMap.set(reviewerKey, reviewerCount);
+    categoryCountMap.set(note.category, (categoryCountMap.get(note.category) ?? 0) + 1);
+  }
+  return {
+    packageCount: executions.length,
+    reviewedCount: coverage.filter((item) => item.noteCount > 0).length,
+    unreviewedCount: coverage.filter((item) => item.noteCount === 0).length,
+    staleUnreviewedCount: coverage.filter((item) => item.coverageStatus === "stale_unreviewed").length,
+    noteCount: notes.length,
+    reviewerCounts: [...reviewerCountMap.values()].sort((left, right) => right.count - left.count),
+    categoryCounts: (["review_note", "risk", "follow_up", "approval_context"] as KnowledgeProviderExecutionPackageReviewNoteCategory[]).map((category) => ({
+      category,
+      count: categoryCountMap.get(category) ?? 0,
+    })),
+  };
+}
+
+function formatCsvCell(value: string) {
+  const safeValue = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  if (/[",\r\n]/.test(safeValue)) {
+    return `"${safeValue.replace(/"/g, '""')}"`;
+  }
+  return safeValue;
 }
 
 function normalizeKnowledgeProviderExecutionStatus(value: unknown): KnowledgeProviderExecution["status"] {

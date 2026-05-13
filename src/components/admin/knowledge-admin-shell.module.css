@@ -542,7 +542,7 @@
 
 .approvedToolbar {
   display: grid;
-  grid-template-columns: minmax(14rem, 2fr) repeat(4, minmax(8rem, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 0.6rem;
   align-items: end;
 }
@@ -658,7 +658,8 @@
   gap: 0.4rem;
 }
 
-.sourceChips span {
+.sourceChips span,
+.sourceChips button {
   padding: 0.28rem 0.5rem;
   border: 1px solid var(--theme-border-field);
   border-radius: 999px;
@@ -666,6 +667,10 @@
   color: var(--theme-text-muted);
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.sourceChips button {
+  cursor: pointer;
 }
 
 .readinessReady,
@@ -901,6 +906,81 @@
   color: var(--theme-text-muted);
   font-size: 0.74rem;
   font-weight: 800;
+}
+
+.providerPreview .reviewNoteForm {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.35fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.reviewNoteForm label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--theme-text-subtle);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.reviewNoteForm select,
+.reviewNoteForm textarea {
+  border: 1px solid var(--theme-border-field-strong);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.reviewNoteForm select {
+  min-height: 2.2rem;
+  padding: 0 0.65rem;
+}
+
+.reviewNoteForm textarea {
+  min-height: 4rem;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+}
+
+.reviewNoteForm button {
+  min-height: 2.2rem;
+}
+
+.reviewNoteForm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.providerPreview .reviewNotes {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.providerReviewReport {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reviewNotes article {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+}
+
+.reviewNotes strong {
+  font-size: 0.78rem;
+}
+
+.reviewNotes p {
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .editor textarea {

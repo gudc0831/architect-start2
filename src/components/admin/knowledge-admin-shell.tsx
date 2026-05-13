@@ -253,6 +253,7 @@ type ApprovedProviderLiveWritePreflight = {
 
 type ApprovedProviderExecution = {
   id: string;
+  projectId: string | null;
   createdAt: string;
   previewId: string;
   auditId: string;
@@ -268,6 +269,7 @@ type ApprovedProviderExecution = {
   reconciliationPackage: ApprovedProviderReconciliationPackage | null;
   liveWritePreflight: ApprovedProviderLiveWritePreflight | null;
   packageReview: ApprovedProviderExecutionPackageReview;
+  packageReviewNotes: ApprovedProviderExecutionPackageReviewNote[];
   createdBy: string | null;
 };
 
@@ -280,6 +282,65 @@ type ApprovedProviderExecutionPackageReview = {
   localDownloadTracked: false;
   retentionLabel: "server_audit_retained";
   retentionNote: string;
+  reviewNoteCount: number;
+  latestReviewNoteAt: string | null;
+};
+
+type ProviderExecutionPackageReviewNoteCategory = "review_note" | "risk" | "follow_up" | "approval_context";
+
+type ApprovedProviderExecutionPackageReviewNote = {
+  id: string;
+  createdAt: string;
+  executionId: string;
+  packageDigest: string;
+  category: ProviderExecutionPackageReviewNoteCategory;
+  note: string;
+  reviewerId: string | null;
+};
+
+type ProviderExecutionPackageReviewCoveragePreset = "all" | "reviewed" | "unreviewed" | "stale_unreviewed";
+
+type ProviderExecutionPackageReviewNoteReport = {
+  generatedAt: string;
+  filters: {
+    category: ProviderExecutionPackageReviewNoteCategory | "all";
+    reviewerId: string | null;
+    packageDigest: string | null;
+    executionId: string | null;
+    coveragePreset: ProviderExecutionPackageReviewCoveragePreset;
+    staleDays: number;
+  };
+  summary: {
+    packageCount: number;
+    reviewedCount: number;
+    unreviewedCount: number;
+    staleUnreviewedCount: number;
+    noteCount: number;
+    reviewerCounts: { reviewerId: string | null; count: number }[];
+    categoryCounts: { category: ProviderExecutionPackageReviewNoteCategory; count: number }[];
+  };
+  notes: (ApprovedProviderExecutionPackageReviewNote & {
+    executionCreatedAt: string;
+    target: ApprovedSyncTarget;
+    status: ApprovedProviderExecution["status"];
+    artifactType: ApprovedProviderExecution["artifactType"];
+    packageFilename: string;
+  })[];
+  coverage: {
+    executionId: string;
+    executionCreatedAt: string;
+    target: ApprovedSyncTarget;
+    status: ApprovedProviderExecution["status"];
+    artifactType: ApprovedProviderExecution["artifactType"];
+    packageDigest: string;
+    packageFilename: string;
+    noteCount: number;
+    latestReviewNoteAt: string | null;
+    reviewerIds: string[];
+    coverageStatus: "reviewed" | "unreviewed" | "stale_unreviewed";
+    staleDays: number;
+    isStale: boolean;
+  }[];
 };
 
 const stateLabels: Record<CandidateState, string> = {
@@ -355,6 +416,12 @@ const approvedSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const approvedProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const approvedProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const approvedSyncHistoryStorageKey = "architect.approvedWikiSyncHistory.v1";
+const providerExecutionPackageReviewNoteCategories: { value: ProviderExecutionPackageReviewNoteCategory; label: string }[] = [
+  { value: "review_note", label: "Review note" },
+  { value: "risk", label: "Risk" },
+  { value: "follow_up", label: "Follow-up" },
+  { value: "approval_context", label: "Approval context" },
+];
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
@@ -400,6 +467,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderExecutionStatusFilter, setApprovedProviderExecutionStatusFilter] = useState<ApprovedProviderExecution["status"] | "all">("all");
   const [approvedProviderExecutionArtifactFilter, setApprovedProviderExecutionArtifactFilter] = useState<ApprovedProviderExecution["artifactType"] | "all">("all");
   const [approvedProviderExecutionDigestFilter, setApprovedProviderExecutionDigestFilter] = useState("");
+  const [approvedProviderExecutionReviewNoteCategory, setApprovedProviderExecutionReviewNoteCategory] =
+    useState<ProviderExecutionPackageReviewNoteCategory>("review_note");
+  const [approvedProviderExecutionReviewNoteText, setApprovedProviderExecutionReviewNoteText] = useState("");
+  const [approvedProviderExecutionReviewNoteSaving, setApprovedProviderExecutionReviewNoteSaving] = useState(false);
+  const [approvedProviderExecutionReviewReport, setApprovedProviderExecutionReviewReport] =
+    useState<ProviderExecutionPackageReviewNoteReport | null>(null);
+  const [approvedProviderExecutionReviewCategoryFilter, setApprovedProviderExecutionReviewCategoryFilter] =
+    useState<ProviderExecutionPackageReviewNoteCategory | "all">("all");
+  const [approvedProviderExecutionReviewCoveragePreset, setApprovedProviderExecutionReviewCoveragePreset] =
+    useState<ProviderExecutionPackageReviewCoveragePreset>("all");
+  const [approvedProviderExecutionReviewReviewerFilter, setApprovedProviderExecutionReviewReviewerFilter] = useState("");
+  const [approvedProviderExecutionReviewStaleDays, setApprovedProviderExecutionReviewStaleDays] = useState(7);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -861,6 +940,31 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedProviderExecutionTargetFilter,
     approvedProviderExecutions,
   ]);
+  const providerExecutionPackageReviewReportQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    if (approvedProviderExecutionReviewCategoryFilter !== "all") {
+      params.set("category", approvedProviderExecutionReviewCategoryFilter);
+    }
+    if (approvedProviderExecutionReviewReviewerFilter.trim()) {
+      params.set("reviewerId", approvedProviderExecutionReviewReviewerFilter.trim());
+    }
+    if (approvedProviderExecutionDigestFilter.trim()) {
+      params.set("packageDigest", approvedProviderExecutionDigestFilter.trim());
+    }
+    if (approvedProviderExecution?.id) {
+      params.set("executionId", approvedProviderExecution.id);
+    }
+    params.set("coveragePreset", approvedProviderExecutionReviewCoveragePreset);
+    params.set("staleDays", String(approvedProviderExecutionReviewStaleDays));
+    return params.toString();
+  }, [
+    approvedProviderExecution?.id,
+    approvedProviderExecutionDigestFilter,
+    approvedProviderExecutionReviewCategoryFilter,
+    approvedProviderExecutionReviewCoveragePreset,
+    approvedProviderExecutionReviewReviewerFilter,
+    approvedProviderExecutionReviewStaleDays,
+  ]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -940,6 +1044,29 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    readJson<ProviderExecutionPackageReviewNoteReport>(
+      `/api/admin/knowledge/provider-execution-package-review-notes?${providerExecutionPackageReviewReportQuery}`,
+    )
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setApprovedProviderExecutionReviewReport(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Provider execution package review report could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [providerExecutionPackageReviewReportQuery]);
 
   useEffect(() => {
     if (!selectedApprovedSyncTargetConfig) {
@@ -1875,6 +2002,69 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus(`Approved WIKI provider execution package downloaded (${attachment.digest.slice(0, 12)} digest).`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Provider execution package could not be downloaded.");
+    }
+  }
+
+  async function saveApprovedProviderExecutionPackageReviewNote() {
+    if (!approvedProviderExecution) {
+      setStatus("Select a provider execution package before adding a review note.");
+      return;
+    }
+    if (!approvedProviderExecutionReviewNoteText.trim()) {
+      setStatus("Provider execution package review note text is required.");
+      return;
+    }
+
+    setApprovedProviderExecutionReviewNoteSaving(true);
+    try {
+      const note = await writeJson<ApprovedProviderExecutionPackageReviewNote>(
+        `/api/admin/knowledge/provider-executions/${encodeURIComponent(approvedProviderExecution.id)}/notes`,
+        {
+          category: approvedProviderExecutionReviewNoteCategory,
+          note: approvedProviderExecutionReviewNoteText.trim(),
+          packageDigest: approvedProviderExecution.packageReview.packageDigest,
+        },
+      );
+      const applyNote = (execution: ApprovedProviderExecution): ApprovedProviderExecution =>
+        execution.id === note.executionId
+          ? {
+              ...execution,
+              packageReview: {
+                ...execution.packageReview,
+                reviewNoteCount: execution.packageReview.reviewNoteCount + 1,
+                latestReviewNoteAt: note.createdAt,
+              },
+              packageReviewNotes: [note, ...execution.packageReviewNotes],
+            }
+          : execution;
+      setApprovedProviderExecution((current) => (current ? applyNote(current) : current));
+      setApprovedProviderExecutions((current) => current.map(applyNote));
+      setApprovedProviderExecutionReviewNoteText("");
+      setStatus("Provider execution package review note saved.");
+      readJson<ProviderExecutionPackageReviewNoteReport>(
+        `/api/admin/knowledge/provider-execution-package-review-notes?${providerExecutionPackageReviewReportQuery}`,
+      )
+        .then(setApprovedProviderExecutionReviewReport)
+        .catch(() => undefined);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Provider execution package review note could not be saved.");
+    } finally {
+      setApprovedProviderExecutionReviewNoteSaving(false);
+    }
+  }
+
+  function downloadApprovedProviderExecutionPackageReviewNotesCsv() {
+    const url = `/api/admin/knowledge/provider-execution-package-review-notes/export?${providerExecutionPackageReviewReportQuery}`;
+    window.location.href = url;
+    setStatus("Provider execution package review-note CSV export started.");
+  }
+
+  async function copyApprovedProviderExecutionPackageReviewHandoff() {
+    try {
+      await navigator.clipboard.writeText(createProviderExecutionPackageReviewHandoff(approvedProviderExecutionReviewReport));
+      setStatus("Provider execution package review handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review package filters manually.");
     }
   }
 
@@ -2967,6 +3157,51 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       {approvedProviderExecution.liveWritePreflight ? (
                         <ProviderLiveWritePreflightView preflight={approvedProviderExecution.liveWritePreflight} />
                       ) : null}
+                      <div className={styles.sourceChips} aria-label="Approved WIKI provider execution package review note summary">
+                        <span>Review notes {approvedProviderExecution.packageReview.reviewNoteCount}</span>
+                        <span>{approvedProviderExecution.packageReview.latestReviewNoteAt ? `Latest ${formatDate(approvedProviderExecution.packageReview.latestReviewNoteAt)}` : "No notes yet"}</span>
+                        <span>{approvedProviderExecution.packageReview.packageDigest.slice(0, 16)} package digest</span>
+                      </div>
+                      <div className={styles.reviewNoteForm} aria-label="Approved WIKI provider execution package review note form">
+                        <label>
+                          Category
+                          <select
+                            aria-label="Provider execution package review note category"
+                            onChange={(event) => setApprovedProviderExecutionReviewNoteCategory(event.target.value as ProviderExecutionPackageReviewNoteCategory)}
+                            value={approvedProviderExecutionReviewNoteCategory}
+                          >
+                            {providerExecutionPackageReviewNoteCategories.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Review note
+                          <textarea
+                            aria-label="Provider execution package review note text"
+                            onChange={(event) => setApprovedProviderExecutionReviewNoteText(event.target.value)}
+                            placeholder="Append package review context without changing immutable package evidence"
+                            value={approvedProviderExecutionReviewNoteText}
+                          />
+                        </label>
+                        <button
+                          disabled={approvedProviderExecutionReviewNoteSaving || !approvedProviderExecutionReviewNoteText.trim()}
+                          onClick={saveApprovedProviderExecutionPackageReviewNote}
+                          type="button"
+                        >
+                          {approvedProviderExecutionReviewNoteSaving ? "Saving..." : "Add review note"}
+                        </button>
+                      </div>
+                      <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package review notes">
+                        {approvedProviderExecution.packageReviewNotes.length ? approvedProviderExecution.packageReviewNotes.map((note) => (
+                          <article key={note.id}>
+                            <strong>{providerExecutionPackageReviewNoteCategories.find((option) => option.value === note.category)?.label ?? note.category}</strong>
+                            <p>{note.note}</p>
+                            <span>{formatDate(note.createdAt)} / {note.reviewerId ?? "unknown reviewer"}</span>
+                            <span>{note.packageDigest.slice(0, 16)} package digest</span>
+                          </article>
+                        )) : <p className={styles.empty}>No package review notes have been added.</p>}
+                      </div>
                     </div>
                   ) : null}
                   <section className={styles.providerPreview} aria-label="Approved WIKI provider execution package history">
@@ -3025,7 +3260,90 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           value={approvedProviderExecutionDigestFilter}
                         />
                       </label>
+                      <label>
+                        Review
+                        <select
+                          aria-label="Provider execution package review coverage filter"
+                          onChange={(event) => setApprovedProviderExecutionReviewCoveragePreset(event.target.value as ProviderExecutionPackageReviewCoveragePreset)}
+                          value={approvedProviderExecutionReviewCoveragePreset}
+                        >
+                          <option value="all">All review states</option>
+                          <option value="reviewed">Reviewed</option>
+                          <option value="unreviewed">Unreviewed</option>
+                          <option value="stale_unreviewed">Stale unreviewed</option>
+                        </select>
+                      </label>
+                      <label>
+                        Reviewer
+                        <input
+                          aria-label="Provider execution package review reviewer filter"
+                          onChange={(event) => setApprovedProviderExecutionReviewReviewerFilter(event.target.value)}
+                          placeholder="reviewer id"
+                          value={approvedProviderExecutionReviewReviewerFilter}
+                        />
+                      </label>
+                      <label>
+                        Note type
+                        <select
+                          aria-label="Provider execution package review note category filter"
+                          onChange={(event) => setApprovedProviderExecutionReviewCategoryFilter(event.target.value as ProviderExecutionPackageReviewNoteCategory | "all")}
+                          value={approvedProviderExecutionReviewCategoryFilter}
+                        >
+                          <option value="all">All note types</option>
+                          {providerExecutionPackageReviewNoteCategories.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Stale days
+                        <input
+                          aria-label="Provider execution package review stale days"
+                          min={0}
+                          max={365}
+                          onChange={(event) => setApprovedProviderExecutionReviewStaleDays(Number.parseInt(event.target.value, 10) || 0)}
+                          type="number"
+                          value={approvedProviderExecutionReviewStaleDays}
+                        />
+                      </label>
+                      <button onClick={downloadApprovedProviderExecutionPackageReviewNotesCsv} type="button">
+                        Export notes CSV
+                      </button>
+                      <button onClick={copyApprovedProviderExecutionPackageReviewHandoff} type="button">
+                        Copy review handoff
+                      </button>
                     </div>
+                    {approvedProviderExecutionReviewReport ? (
+                      <div className={styles.providerReviewReport} aria-label="Approved WIKI provider execution package review report">
+                        <div className={styles.sourceChips}>
+                          <span>Reviewed {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
+                          <span>Unreviewed {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
+                          <span>Stale {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
+                          <span>Notes {approvedProviderExecutionReviewReport.summary.noteCount}</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package reviewer quick filters">
+                          {approvedProviderExecutionReviewReport.summary.reviewerCounts.length ? approvedProviderExecutionReviewReport.summary.reviewerCounts.slice(0, 4).map((item) => (
+                            <button
+                              key={item.reviewerId ?? "unknown"}
+                              onClick={() => setApprovedProviderExecutionReviewReviewerFilter(item.reviewerId ?? "")}
+                              type="button"
+                            >
+                              {item.reviewerId ?? "unknown"} ({item.count})
+                            </button>
+                          )) : <span>No reviewers yet</span>}
+                        </div>
+                        <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package coverage rows">
+                          {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (
+                            <article key={item.executionId}>
+                              <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
+                              <p>{item.packageFilename}</p>
+                              <span>{item.noteCount} note(s)</span>
+                              <span>{item.latestReviewNoteAt ? `latest ${formatDate(item.latestReviewNoteAt)}` : `stale threshold ${item.staleDays} day(s)`}</span>
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className={styles.syncHistory} aria-label="Approved WIKI provider execution package rows">
                       {visibleApprovedProviderExecutions.length ? visibleApprovedProviderExecutions.slice(0, 8).map((execution) => (
                         <article key={execution.id}>
@@ -3037,6 +3355,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <span>{execution.packageReview.retentionLabel}</span>
                           <span>{execution.packageReview.immutable ? "immutable evidence" : "mutable evidence"}</span>
                           <span>{execution.packageReview.localDownloadTracked ? "local download tracked" : "local download separate"}</span>
+                          <span>{execution.packageReview.reviewNoteCount} review note(s)</span>
+                          <span>{execution.packageReview.latestReviewNoteAt ? `latest ${formatDate(execution.packageReview.latestReviewNoteAt)}` : "unreviewed package"}</span>
                           <button onClick={() => setApprovedProviderExecution(execution)} type="button">
                             Review package
                           </button>
@@ -4224,6 +4544,35 @@ function createApprovedProviderExecutionReport(execution: ApprovedProviderExecut
     ...formatApprovedProviderReconciliationPackage(execution.reconciliationPackage),
     "",
     ...formatApprovedProviderLiveWritePreflight(execution.liveWritePreflight),
+  ].join("\n");
+}
+
+function createProviderExecutionPackageReviewHandoff(report: ProviderExecutionPackageReviewNoteReport | null) {
+  if (!report) {
+    return "Provider execution package review report is not loaded.";
+  }
+  return [
+    "# Provider execution package review handoff",
+    `- Generated: ${report.generatedAt}`,
+    `- Coverage preset: ${report.filters.coveragePreset}`,
+    `- Stale days: ${report.filters.staleDays}`,
+    `- Category: ${report.filters.category}`,
+    `- Reviewer: ${report.filters.reviewerId ?? "all"}`,
+    `- Package digest: ${report.filters.packageDigest ?? "all"}`,
+    `- Execution id: ${report.filters.executionId ?? "all"}`,
+    `- Packages: ${report.summary.packageCount}`,
+    `- Reviewed: ${report.summary.reviewedCount}`,
+    `- Unreviewed: ${report.summary.unreviewedCount}`,
+    `- Stale unreviewed: ${report.summary.staleUnreviewedCount}`,
+    `- Notes: ${report.summary.noteCount}`,
+    "",
+    "## Reviewer counts",
+    ...(report.summary.reviewerCounts.length
+      ? report.summary.reviewerCounts.map((item) => `- ${item.reviewerId ?? "unknown"}: ${item.count}`)
+      : ["- none"]),
+    "",
+    "## Coverage",
+    ...(report.coverage.slice(0, 10).map((item) => `- ${item.coverageStatus}: ${item.executionId} (${item.noteCount} note(s), ${item.packageDigest.slice(0, 16)} digest)`)),
   ].join("\n");
 }
 
