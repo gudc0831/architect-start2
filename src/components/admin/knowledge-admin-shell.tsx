@@ -622,6 +622,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovalBlockers() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createApprovalBlockerHandoff(detail, approvalGuardrails, approvalRiskGroups));
+      setStatus("Approval blockers copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approval submit guardrails manually.");
+    }
+  }
+
   async function copyCandidateFilterHandoff() {
     try {
       await navigator.clipboard.writeText(
@@ -1444,6 +1457,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </section>
 
               <footer className={styles.footer}>
+                <div className={styles.sourceChips} aria-label="Knowledge approval submit guardrails">
+                  <span>Approval blockers {guardrailWarningCount}</span>
+                  <span>{guardrailWarningCount ? "Resolve before approval" : "Ready to approve"}</span>
+                  <span>Warning groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
+                </div>
                 <div className={styles.queueQuickFilters} aria-label="Knowledge rejection reason presets">
                   {rejectionReasonPresets.map((preset) => (
                     <button
@@ -1470,11 +1488,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   />
                 </label>
                 <div className={styles.actions}>
+                  <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
+                    Copy approval blockers
+                  </button>
                   <button disabled={!draft.rejectionReason.trim()} onClick={copyRejectionReason} type="button">
                     Copy rejection reason
                   </button>
                   <button disabled={busy} onClick={rejectCandidate} type="button">반려</button>
-                  <button disabled={busy} onClick={approveCandidate} type="button">WIKI 지식 승인</button>
+                  <button
+                    disabled={busy}
+                    onClick={approveCandidate}
+                    title={guardrailWarningCount ? `${guardrailWarningCount} active guardrail warning(s) remain` : "No active guardrail warnings"}
+                    type="button"
+                  >
+                    WIKI 지식 승인
+                  </button>
                 </div>
               </footer>
             </>
@@ -1726,6 +1754,25 @@ function buildRejectionReasonPresets(guardrails: ApprovalGuardrail[]): Rejection
     label: item.label,
     reason: `Reject until resolved: ${item.label}. ${item.detail}`,
   }));
+}
+
+function createApprovalBlockerHandoff(
+  detail: CandidateDetail,
+  guardrails: ApprovalGuardrail[],
+  riskGroups: ApprovalRiskGroup[],
+) {
+  const warnings = guardrails.filter((item) => item.tone === "warning");
+  return [
+    "# Knowledge approval blockers",
+    `- Candidate: ${detail.title} (${detail.id})`,
+    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- Warning count: ${warnings.length}`,
+    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    "",
+    ...(warnings.length
+      ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
+      : ["- No active approval blockers"]),
+  ].join("\n");
 }
 
 function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
