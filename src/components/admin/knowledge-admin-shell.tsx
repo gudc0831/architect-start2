@@ -267,7 +267,19 @@ type ApprovedProviderExecution = {
   warnings: string[];
   reconciliationPackage: ApprovedProviderReconciliationPackage | null;
   liveWritePreflight: ApprovedProviderLiveWritePreflight | null;
+  packageReview: ApprovedProviderExecutionPackageReview;
   createdBy: string | null;
+};
+
+type ApprovedProviderExecutionPackageReview = {
+  available: true;
+  filename: string;
+  packageDigest: string;
+  source: "append_only_audit";
+  immutable: true;
+  localDownloadTracked: false;
+  retentionLabel: "server_audit_retained";
+  retentionNote: string;
 };
 
 const stateLabels: Record<CandidateState, string> = {
@@ -383,6 +395,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderPreview, setApprovedProviderPreview] = useState<ApprovedProviderPreview | null>(null);
   const [approvedProviderExecutionConfirmation, setApprovedProviderExecutionConfirmation] = useState("");
   const [approvedProviderExecution, setApprovedProviderExecution] = useState<ApprovedProviderExecution | null>(null);
+  const [approvedProviderExecutions, setApprovedProviderExecutions] = useState<ApprovedProviderExecution[]>([]);
+  const [approvedProviderExecutionTargetFilter, setApprovedProviderExecutionTargetFilter] = useState<ApprovedSyncTarget | "all">("all");
+  const [approvedProviderExecutionStatusFilter, setApprovedProviderExecutionStatusFilter] = useState<ApprovedProviderExecution["status"] | "all">("all");
+  const [approvedProviderExecutionArtifactFilter, setApprovedProviderExecutionArtifactFilter] = useState<ApprovedProviderExecution["artifactType"] | "all">("all");
+  const [approvedProviderExecutionDigestFilter, setApprovedProviderExecutionDigestFilter] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -828,6 +845,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const providerPreviewAudit = approvedSyncHistory.find(
     (item) => item.target === approvedSyncTarget && item.status === "provider_ready",
   ) ?? null;
+  const visibleApprovedProviderExecutions = useMemo(() => {
+    const digestSearch = approvedProviderExecutionDigestFilter.trim().toLowerCase();
+    return approvedProviderExecutions.filter((execution) => {
+      const targetMatches = approvedProviderExecutionTargetFilter === "all" || execution.target === approvedProviderExecutionTargetFilter;
+      const statusMatches = approvedProviderExecutionStatusFilter === "all" || execution.status === approvedProviderExecutionStatusFilter;
+      const artifactMatches = approvedProviderExecutionArtifactFilter === "all" || execution.artifactType === approvedProviderExecutionArtifactFilter;
+      const digestMatches = !digestSearch || execution.packageReview.packageDigest.toLowerCase().includes(digestSearch);
+      return targetMatches && statusMatches && artifactMatches && digestMatches;
+    });
+  }, [
+    approvedProviderExecutionArtifactFilter,
+    approvedProviderExecutionDigestFilter,
+    approvedProviderExecutionStatusFilter,
+    approvedProviderExecutionTargetFilter,
+    approvedProviderExecutions,
+  ]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -877,6 +910,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           return;
         }
         setStatus(error instanceof Error ? error.message : "Approved WIKI sync target config could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    readJson<ApprovedProviderExecution[]>("/api/admin/knowledge/provider-executions")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setApprovedProviderExecutions(data);
+        if (data[0]) {
+          setApprovedProviderExecution(data[0]);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Provider execution package history could not be loaded.");
       });
 
     return () => {
@@ -1776,6 +1833,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         },
       );
       setApprovedProviderExecution(execution);
+      setApprovedProviderExecutions((current) => [execution, ...current.filter((item) => item.id !== execution.id)].slice(0, 50));
       setStatus("Approved WIKI provider adapter execution recorded to server audit history.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Approved WIKI provider execution could not be recorded.");
@@ -2911,6 +2969,81 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       ) : null}
                     </div>
                   ) : null}
+                  <section className={styles.providerPreview} aria-label="Approved WIKI provider execution package history">
+                    <strong>Execution package review history</strong>
+                    <div className={styles.sourceChips} aria-label="Approved WIKI provider execution package history summary">
+                      <span>Packages {approvedProviderExecutions.length}</span>
+                      <span>Visible {visibleApprovedProviderExecutions.length}</span>
+                      <span>Source append-only audit</span>
+                      <span>Local downloads not tracked</span>
+                    </div>
+                    <div className={styles.approvedToolbar} aria-label="Approved WIKI provider execution package history filters">
+                      <label>
+                        Target
+                        <select
+                          aria-label="Provider execution package target filter"
+                          onChange={(event) => setApprovedProviderExecutionTargetFilter(event.target.value as ApprovedSyncTarget | "all")}
+                          value={approvedProviderExecutionTargetFilter}
+                        >
+                          <option value="all">All targets</option>
+                          {(["portable_archive", "obsidian", "notion", "assistant_retrieval"] as ApprovedSyncTarget[]).map((target) => (
+                            <option key={target} value={target}>{approvedSyncTargetLabels[target]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Status
+                        <select
+                          aria-label="Provider execution package status filter"
+                          onChange={(event) => setApprovedProviderExecutionStatusFilter(event.target.value as ApprovedProviderExecution["status"] | "all")}
+                          value={approvedProviderExecutionStatusFilter}
+                        >
+                          <option value="all">All statuses</option>
+                          <option value="executed">executed</option>
+                          <option value="preflight_recorded">preflight_recorded</option>
+                        </select>
+                      </label>
+                      <label>
+                        Artifact
+                        <select
+                          aria-label="Provider execution package artifact filter"
+                          onChange={(event) => setApprovedProviderExecutionArtifactFilter(event.target.value as ApprovedProviderExecution["artifactType"] | "all")}
+                          value={approvedProviderExecutionArtifactFilter}
+                        >
+                          <option value="all">All artifacts</option>
+                          <option value="portable_archive_manifest">portable_archive_manifest</option>
+                          <option value="obsidian_markdown_manifest">obsidian_markdown_manifest</option>
+                          <option value="obsidian_live_write_preflight">obsidian_live_write_preflight</option>
+                        </select>
+                      </label>
+                      <label>
+                        Digest
+                        <input
+                          aria-label="Provider execution package digest filter"
+                          onChange={(event) => setApprovedProviderExecutionDigestFilter(event.target.value)}
+                          placeholder="package digest prefix"
+                          value={approvedProviderExecutionDigestFilter}
+                        />
+                      </label>
+                    </div>
+                    <div className={styles.syncHistory} aria-label="Approved WIKI provider execution package rows">
+                      {visibleApprovedProviderExecutions.length ? visibleApprovedProviderExecutions.slice(0, 8).map((execution) => (
+                        <article key={execution.id}>
+                          <strong>{execution.status} / {approvedSyncTargetLabels[execution.target]}</strong>
+                          <p>{formatDate(execution.createdAt)} / {execution.packageReview.filename}</p>
+                          <span>{execution.artifactType}</span>
+                          <span>{execution.packageReview.packageDigest.slice(0, 16)} package digest</span>
+                          <span>{execution.packageReview.available ? "package available" : "package unavailable"}</span>
+                          <span>{execution.packageReview.retentionLabel}</span>
+                          <span>{execution.packageReview.immutable ? "immutable evidence" : "mutable evidence"}</span>
+                          <span>{execution.packageReview.localDownloadTracked ? "local download tracked" : "local download separate"}</span>
+                          <button onClick={() => setApprovedProviderExecution(execution)} type="button">
+                            Review package
+                          </button>
+                        </article>
+                      )) : <p className={styles.empty}>No provider execution packages match the current filters.</p>}
+                    </div>
+                  </section>
                 </section>
               </section>
             </section>

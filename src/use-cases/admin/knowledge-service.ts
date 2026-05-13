@@ -214,7 +214,19 @@ export type KnowledgeProviderExecution = {
   warnings: string[];
   reconciliationPackage: KnowledgeProviderReconciliationPackage | null;
   liveWritePreflight: KnowledgeProviderLiveWritePreflight | null;
+  packageReview: KnowledgeProviderExecutionPackageReview;
   createdBy: string | null;
+};
+
+export type KnowledgeProviderExecutionPackageReview = {
+  available: true;
+  filename: string;
+  packageDigest: string;
+  source: "append_only_audit";
+  immutable: true;
+  localDownloadTracked: false;
+  retentionLabel: "server_audit_retained";
+  retentionNote: string;
 };
 
 export type KnowledgeProviderExecutionPackage = {
@@ -566,6 +578,7 @@ export async function createKnowledgeProviderExecution(
   }
 
   const execution = buildKnowledgeProviderExecution(preview, audit, config, user.id);
+  const { packageReview: _packageReview, ...executionMetadata } = execution;
   const event = await assistantRepository.createAuditEvent({
     projectId: audit.projectId,
     profileId: user.id,
@@ -574,15 +587,15 @@ export async function createKnowledgeProviderExecution(
     targetId: audit.itemCount === 1 ? audit.itemIds[0] : null,
     metadata: {
       knowledgeProviderExecutionVersion: 1,
-      ...execution,
+      ...executionMetadata,
     },
   });
 
-  return {
-    ...execution,
-    id: event.id,
-    createdAt: event.createdAt,
-  };
+  const normalized = toKnowledgeProviderExecution(event);
+  if (!normalized) {
+    throw badRequest("Knowledge provider execution could not be normalized.", "KNOWLEDGE_PROVIDER_EXECUTION_INVALID");
+  }
+  return normalized;
 }
 
 export async function exportKnowledgeProviderExecutionPackage(
@@ -604,21 +617,12 @@ export async function exportKnowledgeProviderExecutionPackage(
   const exportAudit = audits.find((item) => item.id === execution.auditId) ?? null;
   const providerPreview = previews.find((item) => item.id === execution.previewId) ?? null;
   const packageData = buildKnowledgeProviderExecutionPackage(execution, exportAudit, providerPreview);
-  const json = JSON.stringify(packageData, null, 2);
-  const digest = createHash("sha256").update(json).digest("hex");
-  const finalizedPackage = {
-    ...packageData,
-    providerEvidence: {
-      ...packageData.providerEvidence,
-      packageDigest: digest,
-    },
-  };
-  const finalizedJson = JSON.stringify(finalizedPackage, null, 2);
+  const finalizedJson = JSON.stringify(packageData, null, 2);
   return {
-    filename: createKnowledgeProviderExecutionPackageFilename(execution),
+    filename: execution.packageReview.filename,
     json: finalizedJson,
-    digest,
-    packageData: finalizedPackage,
+    digest: execution.packageReview.packageDigest,
+    packageData,
   };
 }
 
@@ -641,7 +645,7 @@ function buildKnowledgeProviderExecutionPackage(
       artifactName: execution.artifactName,
       artifactType: execution.artifactType,
       executionDigest: execution.contentDigest,
-      packageDigest: "",
+      packageDigest: execution.packageReview.packageDigest,
       credentialExcluded: true,
       externalWritesPerformed: false,
     },
@@ -660,7 +664,48 @@ function buildKnowledgeProviderExecutionPackage(
   };
 }
 
-function createKnowledgeProviderExecutionPackageFilename(execution: KnowledgeProviderExecution) {
+function createKnowledgeProviderExecutionPackageReview(input: {
+  id: string;
+  createdAt: string;
+  previewId: string;
+  auditId: string;
+  target: KnowledgeExportSyncTarget;
+  status: KnowledgeProviderExecution["status"];
+  artifactName: string;
+  artifactType: KnowledgeProviderExecution["artifactType"];
+  contentDigest: string;
+  liveWritePreflight: KnowledgeProviderLiveWritePreflight | null;
+}): KnowledgeProviderExecutionPackageReview {
+  const packageDigest = createHash("sha256")
+    .update(JSON.stringify({
+      executionId: input.id,
+      createdAt: input.createdAt,
+      previewId: input.previewId,
+      auditId: input.auditId,
+      target: input.target,
+      status: input.status,
+      artifactName: input.artifactName,
+      artifactType: input.artifactType,
+      executionDigest: input.contentDigest,
+      rollbackPlanRef: input.liveWritePreflight?.rollbackPlanRef ?? null,
+      reconciliationPlanRef: input.liveWritePreflight?.reconciliationPlanRef ?? null,
+      operationCount: input.liveWritePreflight?.operationCount ?? null,
+      blockerCount: input.liveWritePreflight?.blockers.length ?? null,
+    }))
+    .digest("hex");
+  return {
+    available: true,
+    filename: createKnowledgeProviderExecutionPackageFilename(input),
+    packageDigest,
+    source: "append_only_audit",
+    immutable: true,
+    localDownloadTracked: false,
+    retentionLabel: "server_audit_retained",
+    retentionNote: "Package availability is derived from retained append-only provider execution audit metadata; local browser downloads are not tracked here.",
+  };
+}
+
+function createKnowledgeProviderExecutionPackageFilename(execution: { id: string }) {
   const safeId = execution.id.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 80) || "execution";
   return `approved-wiki-provider-execution-${safeId}.json`;
 }
@@ -1671,6 +1716,18 @@ function buildKnowledgeProviderExecution(
     ],
     reconciliationPackage,
     liveWritePreflight,
+    packageReview: createKnowledgeProviderExecutionPackageReview({
+      id: `pending:${preview.id}`,
+      createdAt: new Date(0).toISOString(),
+      previewId: preview.id,
+      auditId: audit.id,
+      target: audit.target,
+      status: liveWritePreflight ? "preflight_recorded" : "executed",
+      artifactName: artifact.name,
+      artifactType: artifact.type,
+      contentDigest: createHash("sha256").update(JSON.stringify(digestInput)).digest("hex"),
+      liveWritePreflight,
+    }),
     createdBy: actorId,
   };
 }
@@ -1745,7 +1802,8 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
   }
   const metadata = event.metadata;
   const target = normalizeKnowledgeExportSyncTarget(metadata.target);
-  return {
+  const liveWritePreflight = normalizeKnowledgeProviderLiveWritePreflight(metadata.liveWritePreflight);
+  const execution = {
     id: event.id,
     createdAt: event.createdAt,
     previewId: normalizeOptionalText(metadata.previewId),
@@ -1760,8 +1818,12 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
     contentDigest: normalizeOptionalText(metadata.contentDigest),
     warnings: normalizeStringArray(metadata.warnings, 20),
     reconciliationPackage: normalizeKnowledgeProviderReconciliationPackage(metadata.reconciliationPackage),
-    liveWritePreflight: normalizeKnowledgeProviderLiveWritePreflight(metadata.liveWritePreflight),
+    liveWritePreflight,
     createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
+  };
+  return {
+    ...execution,
+    packageReview: createKnowledgeProviderExecutionPackageReview(execution),
   };
 }
 
