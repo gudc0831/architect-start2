@@ -3,14 +3,14 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireRole } from "@/lib/auth/require-user";
 import {
-  createKnowledgeProviderPreview,
-  listKnowledgeProviderPreviews,
+  createKnowledgeProviderExecution,
+  listKnowledgeProviderExecutions,
 } from "@/use-cases/admin/knowledge-service";
 
 export async function GET() {
   try {
     await requireRole("admin");
-    const data = await listKnowledgeProviderPreviews();
+    const data = await listKnowledgeProviderExecutions();
     return NextResponse.json({ data });
   } catch (error) {
     return handleRouteError(error);
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     assertRequestIntegrity(request);
     const user = await requireRole("admin");
     const body = await request.json().catch(() => ({}));
-    const data = await createKnowledgeProviderPreview(
+    const data = await createKnowledgeProviderExecution(
       isRecord(body) ? body : {},
       user,
     );

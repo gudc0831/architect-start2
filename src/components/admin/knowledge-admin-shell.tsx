@@ -157,6 +157,8 @@ type ApprovedSyncTargetConfig = {
   enabled: boolean;
   dryRunOnly: boolean;
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
+  credentialRef: string | null;
+  credentialStatus: "not_required" | "missing" | "configured";
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -172,6 +174,23 @@ type ApprovedProviderPreview = {
   destination: string;
   packageName: string;
   operations: string[];
+  warnings: string[];
+  createdBy: string | null;
+};
+
+type ApprovedProviderExecution = {
+  id: string;
+  createdAt: string;
+  previewId: string;
+  auditId: string;
+  target: ApprovedSyncTarget;
+  status: "executed";
+  destination: string;
+  packageName: string;
+  artifactName: string;
+  artifactType: "portable_archive_manifest";
+  itemCount: number;
+  contentDigest: string;
   warnings: string[];
   createdBy: string | null;
 };
@@ -247,6 +266,7 @@ const approvedSyncTargetLabels: Record<ApprovedSyncTarget, string> = {
 
 const approvedSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const approvedProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
+const approvedProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const approvedSyncHistoryStorageKey = "architect.approvedWikiSyncHistory.v1";
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
@@ -281,9 +301,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedSyncTargetConfigs, setApprovedSyncTargetConfigs] = useState<ApprovedSyncTargetConfig[]>([]);
   const [approvedSyncTargetEnabled, setApprovedSyncTargetEnabled] = useState(false);
   const [approvedSyncTargetDryRunOnly, setApprovedSyncTargetDryRunOnly] = useState(true);
+  const [approvedSyncTargetCredentialRef, setApprovedSyncTargetCredentialRef] = useState("");
   const [approvedSyncTargetNotes, setApprovedSyncTargetNotes] = useState("");
   const [approvedProviderPreviewConfirmation, setApprovedProviderPreviewConfirmation] = useState("");
   const [approvedProviderPreview, setApprovedProviderPreview] = useState<ApprovedProviderPreview | null>(null);
+  const [approvedProviderExecutionConfirmation, setApprovedProviderExecutionConfirmation] = useState("");
+  const [approvedProviderExecution, setApprovedProviderExecution] = useState<ApprovedProviderExecution | null>(null);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -789,11 +812,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     if (!selectedApprovedSyncTargetConfig) {
       setApprovedSyncTargetEnabled(false);
       setApprovedSyncTargetDryRunOnly(true);
+      setApprovedSyncTargetCredentialRef("");
       setApprovedSyncTargetNotes("");
       return;
     }
     setApprovedSyncTargetEnabled(selectedApprovedSyncTargetConfig.enabled);
     setApprovedSyncTargetDryRunOnly(selectedApprovedSyncTargetConfig.dryRunOnly);
+    setApprovedSyncTargetCredentialRef(selectedApprovedSyncTargetConfig.credentialRef ?? "");
     setApprovedSyncTargetNotes(selectedApprovedSyncTargetConfig.notes);
   }, [selectedApprovedSyncTargetConfig]);
 
@@ -1608,6 +1633,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           target: approvedSyncTarget,
           enabled: approvedSyncTargetEnabled,
           dryRunOnly: approvedSyncTargetDryRunOnly,
+          credentialRef: approvedSyncTargetCredentialRef,
           notes: approvedSyncTargetNotes,
         },
       );
@@ -1650,6 +1676,38 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approved WIKI provider preview copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the provider preview manually.");
+    }
+  }
+
+  async function executeApprovedProviderAdapter() {
+    if (!approvedProviderPreview) {
+      setStatus("Create a fresh provider preview before guarded execution.");
+      return;
+    }
+    try {
+      const execution = await writeJson<ApprovedProviderExecution>(
+        "/api/admin/knowledge/provider-executions",
+        {
+          previewId: approvedProviderPreview.id,
+          confirmation: approvedProviderExecutionConfirmation,
+        },
+      );
+      setApprovedProviderExecution(execution);
+      setStatus("Approved WIKI portable archive execution recorded to server audit history.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Approved WIKI provider execution could not be recorded.");
+    }
+  }
+
+  async function copyApprovedProviderExecution() {
+    if (!approvedProviderExecution) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(createApprovedProviderExecutionReport(approvedProviderExecution));
+      setStatus("Approved WIKI provider execution report copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the provider execution manually.");
     }
   }
 
@@ -2582,6 +2640,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       <button disabled={!approvedProviderPreview} onClick={copyApprovedProviderPreview} type="button">
                         Copy provider preview
                       </button>
+                      <button disabled={!approvedProviderPreview} onClick={executeApprovedProviderAdapter} type="button">
+                        Execute archive
+                      </button>
+                      <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecution} type="button">
+                        Copy execution
+                      </button>
                     </div>
                   </div>
                   <div className={styles.sourceChips} aria-label="Approved WIKI sync target config summary">
@@ -2589,6 +2653,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>{approvedSyncTargetEnabled ? "Target enabled" : "Target disabled"}</span>
                     <span>{approvedSyncTargetDryRunOnly ? "Dry-run only" : "Execution allowed"}</span>
                     <span>Adapter {selectedApprovedSyncTargetConfig?.adapter ?? "pending"}</span>
+                    <span>Credential {selectedApprovedSyncTargetConfig?.credentialStatus ?? "not saved"}</span>
                     <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
                   </div>
                   <div className={styles.syncTargetControls}>
@@ -2609,12 +2674,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       Dry-run only
                     </label>
                     <label>
+                      Credential reference
+                      <input
+                        aria-label="Approved WIKI sync target credential reference"
+                        onChange={(event) => setApprovedSyncTargetCredentialRef(event.target.value)}
+                        placeholder="server secret reference only"
+                        value={approvedSyncTargetCredentialRef}
+                      />
+                    </label>
+                    <label>
                       Provider preview confirmation
                       <input
                         aria-label="Approved WIKI provider preview confirmation"
                         onChange={(event) => setApprovedProviderPreviewConfirmation(event.target.value)}
                         placeholder={approvedProviderPreviewConfirmationText}
                         value={approvedProviderPreviewConfirmation}
+                      />
+                    </label>
+                    <label>
+                      Provider execution confirmation
+                      <input
+                        aria-label="Approved WIKI provider execution confirmation"
+                        onChange={(event) => setApprovedProviderExecutionConfirmation(event.target.value)}
+                        placeholder={approvedProviderExecutionConfirmationText}
+                        value={approvedProviderExecutionConfirmation}
                       />
                     </label>
                     <label>
@@ -2638,6 +2721,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </div>
                       <div>
                         {approvedProviderPreview.warnings.map((warning) => (
+                          <span key={warning}>{warning}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {approvedProviderExecution ? (
+                    <div className={styles.providerPreview} aria-label="Approved WIKI provider execution">
+                      <strong>{approvedProviderExecution.destination} / {approvedProviderExecution.status}</strong>
+                      <p>{approvedProviderExecution.artifactName}</p>
+                      <div>
+                        <span>{approvedProviderExecution.itemCount} item(s)</span>
+                        <span>{approvedProviderExecution.artifactType}</span>
+                        <span>{approvedProviderExecution.contentDigest.slice(0, 16)} digest</span>
+                      </div>
+                      <div>
+                        {approvedProviderExecution.warnings.map((warning) => (
                           <span key={warning}>{warning}</span>
                         ))}
                       </div>
@@ -3707,6 +3806,28 @@ function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
     "",
     "## Warnings",
     ...(preview.warnings.length ? preview.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+  ].join("\n");
+}
+
+function createApprovedProviderExecutionReport(execution: ApprovedProviderExecution) {
+  return [
+    "# Approved WIKI provider execution",
+    `- Execution id: ${execution.id}`,
+    `- Preview id: ${execution.previewId}`,
+    `- Export audit id: ${execution.auditId}`,
+    `- Target: ${approvedSyncTargetLabels[execution.target]}`,
+    `- Destination: ${execution.destination}`,
+    `- Status: ${execution.status}`,
+    `- Package: ${execution.packageName}`,
+    `- Artifact: ${execution.artifactName}`,
+    `- Artifact type: ${execution.artifactType}`,
+    `- Items: ${execution.itemCount}`,
+    `- Digest: ${execution.contentDigest}`,
+    `- Created: ${execution.createdAt}`,
+    `- Created by: ${execution.createdBy ?? "unknown"}`,
+    "",
+    "## Warnings",
+    ...(execution.warnings.length ? execution.warnings.map((warning) => `- ${warning}`) : ["- none"]),
   ].join("\n");
 }
 

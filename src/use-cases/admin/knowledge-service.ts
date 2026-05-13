@@ -11,6 +11,7 @@ import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
 import { adminRepository } from "@/repositories/admin";
 import { taskRepository } from "@/repositories";
+import { createHash } from "node:crypto";
 
 export type KnowledgeCandidateListItem = {
   id: string;
@@ -101,6 +102,8 @@ export type KnowledgeSyncTargetConfig = {
   enabled: boolean;
   dryRunOnly: boolean;
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
+  credentialRef: string | null;
+  credentialStatus: "not_required" | "missing" | "configured";
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -120,6 +123,23 @@ export type KnowledgeProviderPreview = {
   createdBy: string | null;
 };
 
+export type KnowledgeProviderExecution = {
+  id: string;
+  createdAt: string;
+  previewId: string;
+  auditId: string;
+  target: KnowledgeExportSyncTarget;
+  status: "executed";
+  destination: string;
+  packageName: string;
+  artifactName: string;
+  artifactType: "portable_archive_manifest";
+  itemCount: number;
+  contentDigest: string;
+  warnings: string[];
+  createdBy: string | null;
+};
+
 type KnowledgeExportSyncAuditInput = {
   action?: unknown;
   target?: unknown;
@@ -135,11 +155,17 @@ type KnowledgeSyncTargetConfigInput = {
   target?: unknown;
   enabled?: unknown;
   dryRunOnly?: unknown;
+  credentialRef?: unknown;
   notes?: unknown;
 };
 
 type KnowledgeProviderPreviewInput = {
   auditId?: unknown;
+  confirmation?: unknown;
+};
+
+type KnowledgeProviderExecutionInput = {
+  previewId?: unknown;
   confirmation?: unknown;
 };
 
@@ -149,8 +175,12 @@ const knowledgeSyncTargetConfigEventType = "knowledge_sync_target_config";
 const knowledgeSyncTargetConfigTargetType = "knowledge_sync_target";
 const knowledgeProviderPreviewEventType = "knowledge_sync_provider_preview";
 const knowledgeProviderPreviewTargetType = "knowledge_sync_provider_preview";
+const knowledgeProviderExecutionEventType = "knowledge_sync_provider_execution";
+const knowledgeProviderExecutionTargetType = "knowledge_sync_provider_execution";
 const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
+const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
+const knowledgeProviderPreviewFreshnessMs = 24 * 60 * 60 * 1000;
 
 export async function listKnowledgeCandidates(): Promise<KnowledgeCandidateListItem[]> {
   const records = await assistantRepository.listKnowledgeCandidateRecords();
@@ -295,6 +325,7 @@ export async function updateKnowledgeSyncTargetConfig(
   user: AuthUser,
 ): Promise<KnowledgeSyncTargetConfig> {
   const target = normalizeKnowledgeExportSyncTarget(input.target);
+  const credentialRef = normalizeCredentialRef(input.credentialRef);
   const event = await assistantRepository.createAuditEvent({
     projectId: null,
     profileId: user.id,
@@ -306,12 +337,22 @@ export async function updateKnowledgeSyncTargetConfig(
       target,
       enabled: input.enabled === true,
       dryRunOnly: input.dryRunOnly !== false,
+      credentialRef,
       notes: normalizeOptionalText(input.notes).slice(0, 500),
       updatedBy: user.id,
     },
   });
   const [config] = readKnowledgeSyncTargetConfigs([event]);
   return config;
+}
+
+export async function listKnowledgeProviderPreviews(): Promise<KnowledgeProviderPreview[]> {
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [knowledgeProviderPreviewEventType],
+    targetType: knowledgeProviderPreviewTargetType,
+    limit: 50,
+  });
+  return events.map(toKnowledgeProviderPreview).filter((item): item is KnowledgeProviderPreview => Boolean(item));
 }
 
 export async function createKnowledgeProviderPreview(
@@ -352,6 +393,69 @@ export async function createKnowledgeProviderPreview(
 
   return {
     ...preview,
+    id: event.id,
+    createdAt: event.createdAt,
+  };
+}
+
+export async function listKnowledgeProviderExecutions(): Promise<KnowledgeProviderExecution[]> {
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [knowledgeProviderExecutionEventType],
+    targetType: knowledgeProviderExecutionTargetType,
+    limit: 50,
+  });
+  return events.map(toKnowledgeProviderExecution).filter((item): item is KnowledgeProviderExecution => Boolean(item));
+}
+
+export async function createKnowledgeProviderExecution(
+  input: KnowledgeProviderExecutionInput,
+  user: AuthUser,
+): Promise<KnowledgeProviderExecution> {
+  const previewId = normalizeRequiredText(input.previewId, "previewId");
+  const confirmation = normalizeOptionalText(input.confirmation);
+  if (confirmation !== knowledgeProviderExecutionConfirmationText) {
+    throw badRequest("Provider execution confirmation is required.", "KNOWLEDGE_PROVIDER_EXECUTION_CONFIRMATION_REQUIRED");
+  }
+
+  const previews = await listKnowledgeProviderPreviews();
+  const preview = previews.find((item) => item.id === previewId);
+  if (!preview) {
+    throw badRequest("Knowledge provider preview id was not found.", "KNOWLEDGE_PROVIDER_PREVIEW_NOT_FOUND");
+  }
+  if (!isFreshProviderPreview(preview.createdAt)) {
+    throw badRequest("Provider execution requires a fresh dry-run preview from the last 24 hours.", "KNOWLEDGE_PROVIDER_PREVIEW_STALE");
+  }
+
+  const audits = await listKnowledgeExportSyncAudits();
+  const audit = audits.find((item) => item.id === preview.auditId);
+  if (!audit || audit.status !== "provider_ready") {
+    throw badRequest("Provider execution requires a provider-ready export audit.", "KNOWLEDGE_PROVIDER_EXECUTION_AUDIT_NOT_READY");
+  }
+
+  const configs = await listKnowledgeSyncTargetConfigs();
+  const config = configs.find((item) => item.target === preview.target);
+  if (!config?.enabled || config.dryRunOnly || config.credentialStatus === "missing") {
+    throw badRequest("Knowledge sync target is not enabled for guarded execution.", "KNOWLEDGE_SYNC_TARGET_EXECUTION_BLOCKED");
+  }
+  if (preview.target !== "portable_archive") {
+    throw badRequest("Only the portable archive execution adapter is enabled in this slice.", "KNOWLEDGE_PROVIDER_ADAPTER_NOT_ENABLED");
+  }
+
+  const execution = buildKnowledgeProviderExecution(preview, audit, config, user.id);
+  const event = await assistantRepository.createAuditEvent({
+    projectId: audit.projectId,
+    profileId: user.id,
+    eventType: knowledgeProviderExecutionEventType,
+    targetType: knowledgeProviderExecutionTargetType,
+    targetId: audit.itemCount === 1 ? audit.itemIds[0] : null,
+    metadata: {
+      knowledgeProviderExecutionVersion: 1,
+      ...execution,
+    },
+  });
+
+  return {
+    ...execution,
     id: event.id,
     createdAt: event.createdAt,
   };
@@ -495,6 +599,24 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeCredentialRef(value: unknown) {
+  const text = normalizeOptionalText(value).slice(0, 160);
+  if (!text) {
+    return null;
+  }
+  const lowered = text.toLowerCase();
+  if (
+    lowered.startsWith("sk-") ||
+    lowered.includes("secret") ||
+    lowered.includes("token=") ||
+    lowered.includes("bearer ") ||
+    text.length > 120
+  ) {
+    throw badRequest("Credential references must not include raw secrets.", "KNOWLEDGE_SYNC_CREDENTIAL_SECRET_REJECTED");
+  }
+  return text;
+}
+
 function normalizeKnowledgeExportSyncAction(value: unknown): KnowledgeExportSyncAuditAction {
   return value === "execute" ? "execute" : "dry_run";
 }
@@ -608,9 +730,13 @@ async function readKnowledgeExportProviderState(target: KnowledgeExportSyncTarge
       .filter(Boolean),
   );
   const executionEnabled = process.env.KNOWLEDGE_SYNC_EXECUTION_ENABLED === "true";
+  const credentialReady = !config || config.credentialStatus !== "missing";
   return {
-    configured: config?.enabled === true || enabledTargets.has(target),
-    executionEnabled: config?.enabled === true && !config.dryRunOnly ? true : executionEnabled && enabledTargets.has(target),
+    configured: (config?.enabled === true && credentialReady) || enabledTargets.has(target),
+    executionEnabled:
+      config?.enabled === true && !config.dryRunOnly && credentialReady
+        ? true
+        : executionEnabled && enabledTargets.has(target),
   };
 }
 
@@ -719,12 +845,15 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
     .map((target) => {
       const event = latestByTarget.get(target);
       const metadata = event?.metadata ?? {};
+      const credentialRef = normalizeOptionalText(metadata.credentialRef) || null;
       return {
         target,
         label: readKnowledgeSyncTargetLabel(target),
         enabled: metadata.enabled === true,
         dryRunOnly: metadata.dryRunOnly !== false,
         adapter: readKnowledgeSyncAdapter(target),
+        credentialRef,
+        credentialStatus: readKnowledgeSyncCredentialStatus(target, credentialRef),
         notes: normalizeOptionalText(metadata.notes),
         updatedAt: event?.createdAt ?? null,
         updatedBy: normalizeOptionalText(metadata.updatedBy) || (event?.profileId ?? null),
@@ -759,6 +888,16 @@ function readKnowledgeSyncAdapter(target: KnowledgeExportSyncTarget): KnowledgeS
   return "portable_archive";
 }
 
+function readKnowledgeSyncCredentialStatus(
+  target: KnowledgeExportSyncTarget,
+  credentialRef: string | null,
+): KnowledgeSyncTargetConfig["credentialStatus"] {
+  if (target === "portable_archive") {
+    return "not_required";
+  }
+  return credentialRef ? "configured" : "missing";
+}
+
 function buildKnowledgeProviderPreview(
   audit: KnowledgeExportSyncAudit,
   config: KnowledgeSyncTargetConfig,
@@ -776,9 +915,94 @@ function buildKnowledgeProviderPreview(
     warnings: [
       "Provider adapter is dry-run only in this slice; no external write is executed.",
       ...(config.dryRunOnly ? ["Target is configured as dry-run only."] : []),
+      ...(config.credentialStatus === "missing" ? ["Target is missing a server-side credential reference."] : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     createdBy: actorId,
+  };
+}
+
+function toKnowledgeProviderPreview(event: AssistantAuditEvent): KnowledgeProviderPreview | null {
+  if (event.eventType !== knowledgeProviderPreviewEventType || event.targetType !== knowledgeProviderPreviewTargetType) {
+    return null;
+  }
+  const metadata = event.metadata;
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    auditId: normalizeOptionalText(metadata.auditId),
+    target: normalizeKnowledgeExportSyncTarget(metadata.target),
+    status: "dry_run_preview",
+    destination: normalizeOptionalText(metadata.destination),
+    packageName: normalizeOptionalText(metadata.packageName),
+    operations: normalizeStringArray(metadata.operations, 20),
+    warnings: normalizeStringArray(metadata.warnings, 20),
+    createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
+  };
+}
+
+function isFreshProviderPreview(createdAt: string) {
+  const created = Date.parse(createdAt);
+  return Number.isFinite(created) && Date.now() - created <= knowledgeProviderPreviewFreshnessMs;
+}
+
+function buildKnowledgeProviderExecution(
+  preview: KnowledgeProviderPreview,
+  audit: KnowledgeExportSyncAudit,
+  config: KnowledgeSyncTargetConfig,
+  actorId: string,
+): KnowledgeProviderExecution {
+  const artifactName = audit.packageName.replace(/\.(json|md)$/i, ".manifest.json");
+  const digestInput = {
+    previewId: preview.id,
+    auditId: audit.id,
+    target: audit.target,
+    packageName: audit.packageName,
+    itemIds: audit.itemIds,
+    adapter: config.adapter,
+  };
+  return {
+    id: `pending:${preview.id}`,
+    createdAt: new Date().toISOString(),
+    previewId: preview.id,
+    auditId: audit.id,
+    target: audit.target,
+    status: "executed",
+    destination: config.label,
+    packageName: audit.packageName,
+    artifactName,
+    artifactType: "portable_archive_manifest",
+    itemCount: audit.itemCount,
+    contentDigest: createHash("sha256").update(JSON.stringify(digestInput)).digest("hex"),
+    warnings: [
+      "Portable archive execution wrote only an append-only server audit artifact in this slice.",
+      ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
+    ],
+    createdBy: actorId,
+  };
+}
+
+function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProviderExecution | null {
+  if (event.eventType !== knowledgeProviderExecutionEventType || event.targetType !== knowledgeProviderExecutionTargetType) {
+    return null;
+  }
+  const metadata = event.metadata;
+  const target = normalizeKnowledgeExportSyncTarget(metadata.target);
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    previewId: normalizeOptionalText(metadata.previewId),
+    auditId: normalizeOptionalText(metadata.auditId),
+    target,
+    status: "executed",
+    destination: normalizeOptionalText(metadata.destination) || readKnowledgeSyncTargetLabel(target),
+    packageName: normalizeOptionalText(metadata.packageName),
+    artifactName: normalizeOptionalText(metadata.artifactName),
+    artifactType: "portable_archive_manifest",
+    itemCount: readNumber(metadata.itemCount, 0),
+    contentDigest: normalizeOptionalText(metadata.contentDigest),
+    warnings: normalizeStringArray(metadata.warnings, 20),
+    createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
   };
 }
 
