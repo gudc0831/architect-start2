@@ -969,6 +969,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     Boolean(approvedProviderExecutionDigestFilter.trim()) ||
     approvedProviderExecutionReviewCategoryFilter !== "all" ||
     Boolean(approvedProviderExecutionReviewReviewerFilter.trim());
+  const providerExecutionPackageReviewHandoffPreview = useMemo(
+    () => createProviderExecutionPackageReviewHandoff(approvedProviderExecutionReviewReport),
+    [approvedProviderExecutionReviewReport],
+  );
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -3346,6 +3350,72 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </button>
                       ) : (
                         <span>No shortcut filters active</span>
+                      )}
+                    </div>
+                    <div className={styles.handoffPreview} aria-label="Provider execution package review handoff preview">
+                      <div className={styles.handoffPreviewHeader}>
+                        <strong>Active review handoff preview</strong>
+                        <span>Read-only preview before copy</span>
+                      </div>
+                      {approvedProviderExecutionReviewReport ? (
+                        <>
+                          <div className={styles.sourceChips} aria-label="Provider execution package review handoff active filters">
+                            <span>Coverage {approvedProviderExecutionReviewReport.filters.coveragePreset}</span>
+                            <span>Stale days {approvedProviderExecutionReviewReport.filters.staleDays}</span>
+                            <span>
+                              Note type{" "}
+                              {approvedProviderExecutionReviewReport.filters.category === "all"
+                                ? "all"
+                                : getProviderExecutionPackageReviewNoteCategoryLabel(approvedProviderExecutionReviewReport.filters.category)}
+                            </span>
+                            <span>Reviewer {approvedProviderExecutionReviewReport.filters.reviewerId ?? "all"}</span>
+                            <span>Digest {approvedProviderExecutionReviewReport.filters.packageDigest?.slice(0, 16) ?? "all"}</span>
+                          </div>
+                          <div className={styles.sourceChips} aria-label="Provider execution package review handoff summary counts">
+                            <span>Packages {approvedProviderExecutionReviewReport.summary.packageCount}</span>
+                            <span>Reviewed {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
+                            <span>Unreviewed {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
+                            <span>Stale {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
+                            <span>Notes {approvedProviderExecutionReviewReport.summary.noteCount}</span>
+                          </div>
+                          <div className={styles.handoffPreviewGrid}>
+                            <div aria-label="Provider execution package review handoff reviewer counts">
+                              <strong>Reviewer counts</strong>
+                              {approvedProviderExecutionReviewReport.summary.reviewerCounts.length ? (
+                                approvedProviderExecutionReviewReport.summary.reviewerCounts.slice(0, 4).map((item) => (
+                                  <span key={item.reviewerId ?? "unknown"}>{item.reviewerId ?? "unknown"}: {item.count}</span>
+                                ))
+                              ) : (
+                                <span>none</span>
+                              )}
+                            </div>
+                            <div aria-label="Provider execution package review handoff category counts">
+                              <strong>Note category counts</strong>
+                              {approvedProviderExecutionReviewReport.summary.categoryCounts.length ? (
+                                approvedProviderExecutionReviewReport.summary.categoryCounts.map((item) => (
+                                  <span key={item.category}>{getProviderExecutionPackageReviewNoteCategoryLabel(item.category)}: {item.count}</span>
+                                ))
+                              ) : (
+                                <span>none</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className={styles.reviewNotes} aria-label="Provider execution package review handoff coverage preview">
+                            {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (
+                              <article key={item.executionId}>
+                                <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
+                                <p>{item.packageFilename}</p>
+                                <span>{item.noteCount} note(s)</span>
+                                <span>{item.packageDigest.slice(0, 16)} digest</span>
+                              </article>
+                            ))}
+                          </div>
+                          <pre aria-label="Provider execution package review handoff markdown preview">
+                            {providerExecutionPackageReviewHandoffPreview}
+                          </pre>
+                        </>
+                      ) : (
+                        <p>Provider execution package review report is not loaded.</p>
                       )}
                     </div>
                     {approvedProviderExecutionReviewReport ? (

@@ -1,0 +1,4 @@
+Req: Implement Slice 382 provider execution package review active filter handoff preview before copy.
+Diff: Added a read-only Admin Knowledge handoff preview for provider execution package reviews, showing active filters, summary counts, reviewer/category counts, coverage rows, and generated Markdown before clipboard copy. Updated `사용자 가이드.md`.
+Why: Reviewers need to inspect the exact handoff payload before copying it into external review channels, without persisting saved views or mutating package evidence.
+Verify/Time: Passed `npm run typecheck`, `npm run lint` with 7 pre-existing React hook warnings, direct `tsx` provider review report validation, `npm run build`, and Browser UI validation on local auth-stub `next start -p 3001` for desktop/mobile handoff preview rendering. Known unrelated local `/api/project/changes` Prisma EACCES polling errors appeared during browser verification | 2026-05-14 08:48 KST.
