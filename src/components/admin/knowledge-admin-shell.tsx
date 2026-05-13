@@ -221,8 +221,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     [candidates, selectedId],
   );
   const selectedCandidateIndex = visibleCandidates.findIndex((candidate) => candidate.id === selectedId);
+  const originalDraft = useMemo(() => (detail ? createDraftFromDetail(detail) : null), [detail]);
   const draftTags = useMemo(() => splitTags(draft.tagsText), [draft.tagsText]);
   const duplicateDraftTags = useMemo(() => readDuplicateTags(draftTags), [draftTags]);
+  const scopeReview = useMemo(
+    () => readScopeReview(draft.scope, originalDraft?.scope ?? null),
+    [draft.scope, originalDraft?.scope],
+  );
   const draftReadiness = useMemo(
     () => [
       { label: "Title", ready: Boolean(draft.title.trim()) },
@@ -234,20 +239,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.title, draftTags.length],
   );
   const draftDirtyStates = useMemo(() => {
-    if (!detail) {
+    if (!originalDraft) {
       return [];
     }
 
-    const original = createDraftFromDetail(detail);
     return [
-      { label: "Title", dirty: draft.title !== original.title },
-      { label: "Summary", dirty: draft.summary !== original.summary },
-      { label: "Body", dirty: draft.bodyMarkdown !== original.bodyMarkdown },
-      { label: "Tags", dirty: draftTags.join("|") !== splitTags(original.tagsText).join("|") },
-      { label: "Scope", dirty: draft.scope !== original.scope },
-      { label: "Rejection reason", dirty: draft.rejectionReason.trim() !== original.rejectionReason.trim() },
+      { label: "Title", dirty: draft.title !== originalDraft.title },
+      { label: "Summary", dirty: draft.summary !== originalDraft.summary },
+      { label: "Body", dirty: draft.bodyMarkdown !== originalDraft.bodyMarkdown },
+      { label: "Tags", dirty: draftTags.join("|") !== splitTags(originalDraft.tagsText).join("|") },
+      { label: "Scope", dirty: draft.scope !== originalDraft.scope },
+      { label: "Rejection reason", dirty: draft.rejectionReason.trim() !== originalDraft.rejectionReason.trim() },
     ];
-  }, [detail, draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.title, draftTags]);
+  }, [draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.title, draftTags, originalDraft]);
   const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
   const markdownOutline = useMemo(
     () => readMarkdownOutline(draft.bodyMarkdown),
@@ -329,6 +333,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       markdownWikiLinks,
       draftTags,
       duplicateDraftTags,
+      draft.scope,
+      originalDraft?.scope ?? null,
       draft.bodyMarkdown,
     ),
     [
@@ -341,6 +347,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       markdownWikiLinks,
       draftTags,
       duplicateDraftTags,
+      draft.scope,
+      originalDraft?.scope,
     ],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
@@ -616,6 +624,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Draft tag handoff copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the draft tag preview manually.");
+    }
+  }
+
+  async function copyScopeHandoff() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge publication scope handoff",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Current scope: ${scopeLabels[draft.scope]}`,
+          `- Original scope: ${originalDraft ? scopeLabels[originalDraft.scope] : "unknown"}`,
+          `- Scope changed: ${scopeReview.changed ? "yes" : "no"}`,
+          `- Scope review: ${scopeReview.label}`,
+          `- Review note: ${scopeReview.detail}`,
+        ].join("\n"),
+      );
+      setStatus("Publication scope handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the publication scope preview manually.");
     }
   }
 
@@ -968,6 +1000,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button onClick={copyMarkdownStructureSummary} type="button">Copy Markdown structure</button>
                     <button onClick={copyMarkdownWikiLinks} type="button">Copy WIKI links</button>
                     <button onClick={copyDraftTagHandoff} type="button">Copy draft tags</button>
+                    <button onClick={copyScopeHandoff} type="button">Copy scope handoff</button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
@@ -1016,6 +1049,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Cleanup {detail.cleanupState}</span>
                   <span>Confidence {detail.confidenceScore}%</span>
                   <span>Review {detail.review?.status ?? "pending"}</span>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge publication scope preview">
+                  <span>Current scope {scopeLabels[draft.scope]}</span>
+                  <span>{scopeReview.label}</span>
+                  <span>{scopeReview.changed ? "Scope changed" : "Scope unchanged"}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge evidence kind rollup">
                   {evidenceKindCounts.length ? (
@@ -1234,6 +1272,29 @@ function readDuplicateTags(tags: string[]) {
   return Array.from(duplicates);
 }
 
+function readScopeReview(scope: Scope, originalScope: Scope | null) {
+  const changed = Boolean(originalScope && originalScope !== scope);
+  if (scope === "organization") {
+    return {
+      label: "Organization-wide scope",
+      detail: "This draft will be visible at organization scope. Confirm it is reusable beyond one project.",
+      changed,
+    };
+  }
+  if (scope === "admin_only") {
+    return {
+      label: "Admin-only scope",
+      detail: "This draft remains limited to admins until it is ready for broader publication.",
+      changed,
+    };
+  }
+  return {
+    label: "Restricted scope",
+    detail: "This draft is limited to project or project-member scope.",
+    changed,
+  };
+}
+
 function readMarkdownOutline(markdown: string): MarkdownHeading[] {
   return markdown.split(/\r?\n/).flatMap((line, index) => {
     const match = /^(#{1,6})\s+(.+?)\s*#*$/.exec(line.trim());
@@ -1343,6 +1404,8 @@ function buildApprovalGuardrails(
   markdownWikiLinks: MarkdownWikiLink[],
   draftTags: string[],
   duplicateDraftTags: string[],
+  draftScope: Scope,
+  originalScope: Scope | null,
   bodyMarkdown: string,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
@@ -1364,6 +1427,34 @@ function buildApprovalGuardrails(
 
   if (!detail) {
     return guardrails;
+  }
+
+  if (draftScope === "organization") {
+    guardrails.push({
+      label: "Organization scope review",
+      detail: "Publication scope is organization-wide. Confirm this knowledge should be shared across the organization.",
+      tone: "warning",
+    });
+  } else {
+    guardrails.push({
+      label: "Restricted scope selected",
+      detail: `Publication scope is ${scopeLabels[draftScope]}.`,
+      tone: "ready",
+    });
+  }
+
+  if (originalScope && originalScope !== draftScope) {
+    guardrails.push({
+      label: "Publication scope changed",
+      detail: `Scope changed from ${scopeLabels[originalScope]} to ${scopeLabels[draftScope]}. Confirm the new audience before approval.`,
+      tone: "warning",
+    });
+  } else if (originalScope) {
+    guardrails.push({
+      label: "Publication scope unchanged",
+      detail: `Scope remains ${scopeLabels[draftScope]}.`,
+      tone: "ready",
+    });
   }
 
   if (draftTags.length >= 2) {
