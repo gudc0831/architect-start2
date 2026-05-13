@@ -170,6 +170,8 @@ type ApprovedSyncTargetConfig = {
   reconciliationPlanStatus: "not_required" | "configured" | "missing";
   remoteWriteReady: boolean;
   remoteWriteBlockers: string[];
+  liveWriteFeatureFlag: string | null;
+  liveWriteFeatureFlagEnabled: boolean;
   inventoryManifest: ApprovedProviderInventoryManifest | null;
   inventoryEntryCount: number;
   inventoryImportedAt: string | null;
@@ -234,21 +236,37 @@ type ApprovedProviderReconciliationPackage = {
   warnings: string[];
 };
 
+type ApprovedProviderLiveWritePreflight = {
+  target: "obsidian";
+  generatedAt: string;
+  featureFlag: string;
+  featureFlagEnabled: boolean;
+  mutationReady: boolean;
+  rollbackPlanRef: string | null;
+  reconciliationPlanRef: string | null;
+  summary: ApprovedProviderReconciliationPackage["summary"];
+  operationCount: number;
+  operations: ApprovedProviderReconciliationOperation[];
+  blockers: string[];
+  warnings: string[];
+};
+
 type ApprovedProviderExecution = {
   id: string;
   createdAt: string;
   previewId: string;
   auditId: string;
   target: ApprovedSyncTarget;
-  status: "executed";
+  status: "executed" | "preflight_recorded";
   destination: string;
   packageName: string;
   artifactName: string;
-  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest";
+  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest" | "obsidian_live_write_preflight";
   itemCount: number;
   contentDigest: string;
   warnings: string[];
   reconciliationPackage: ApprovedProviderReconciliationPackage | null;
+  liveWritePreflight: ApprovedProviderLiveWritePreflight | null;
   createdBy: string | null;
 };
 
@@ -2723,6 +2741,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>Scope {selectedApprovedSyncTargetConfig?.credentialScope ?? approvedSyncTarget}</span>
                     <span>Store {selectedApprovedSyncTargetConfig?.credentialStore ?? "not saved"}</span>
                     <span>{selectedApprovedSyncTargetConfig?.remoteWriteReady ? "Remote write ready" : "Remote write blocked"}</span>
+                    <span>Live flag {selectedApprovedSyncTargetConfig?.liveWriteFeatureFlagEnabled ? "enabled" : "disabled"}</span>
                     <span>Rollback {selectedApprovedSyncTargetConfig?.rollbackPlanStatus ?? "not saved"}</span>
                     <span>Reconcile {selectedApprovedSyncTargetConfig?.reconciliationPlanStatus ?? "not saved"}</span>
                     <span>Inventory {selectedApprovedSyncTargetConfig?.inventoryEntryCount ?? 0}</span>
@@ -2740,6 +2759,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.reconciliationPlanRef ? (
                       <span>Reconciliation {selectedApprovedSyncTargetConfig.reconciliationPlanRef}</span>
+                    ) : null}
+                    {selectedApprovedSyncTargetConfig?.liveWriteFeatureFlag ? (
+                      <span>{selectedApprovedSyncTargetConfig.liveWriteFeatureFlag} {selectedApprovedSyncTargetConfig.liveWriteFeatureFlagEnabled ? "enabled" : "disabled"}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.inventoryImportedAt ? (
                       <span>Inventory imported {formatDate(selectedApprovedSyncTargetConfig.inventoryImportedAt)}</span>
@@ -2851,6 +2873,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </div>
                       {approvedProviderExecution.reconciliationPackage ? (
                         <ProviderReconciliationPackageView packageData={approvedProviderExecution.reconciliationPackage} />
+                      ) : null}
+                      {approvedProviderExecution.liveWritePreflight ? (
+                        <ProviderLiveWritePreflightView preflight={approvedProviderExecution.liveWritePreflight} />
                       ) : null}
                     </div>
                   ) : null}
@@ -3928,6 +3953,43 @@ function ProviderReconciliationPackageView({ packageData }: { packageData: Appro
   );
 }
 
+function ProviderLiveWritePreflightView({ preflight }: { preflight: ApprovedProviderLiveWritePreflight }) {
+  return (
+    <section aria-label="Approved WIKI Obsidian live-write preflight">
+      <strong>Obsidian live-write preflight</strong>
+      <div>
+        <span>{preflight.featureFlag} {preflight.featureFlagEnabled ? "enabled" : "disabled"}</span>
+        <span>{preflight.mutationReady ? "Mutation ready" : "Mutation blocked"}</span>
+        <span>{preflight.operationCount} mutation(s)</span>
+        <span>Create {preflight.summary.create}</span>
+        <span>Update {preflight.summary.update}</span>
+        <span>Delete {preflight.summary.delete}</span>
+      </div>
+      <div>
+        <span>Rollback {preflight.rollbackPlanRef ?? "missing"}</span>
+        <span>Reconciliation {preflight.reconciliationPlanRef ?? "missing"}</span>
+      </div>
+      <div>
+        {preflight.operations.slice(0, 8).map((operation) => (
+          <span key={`${operation.intent}:${operation.path}`}>
+            {operation.intent} {operation.path} / {operation.itemId.slice(0, 8)}
+          </span>
+        ))}
+      </div>
+      <div>
+        {preflight.blockers.length ? preflight.blockers.map((blocker) => (
+          <span key={blocker}>{blocker}</span>
+        )) : <span>No preflight blockers.</span>}
+      </div>
+      <div>
+        {preflight.warnings.map((warning) => (
+          <span key={warning}>{warning}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
   return [
     "# Approved WIKI provider preview",
@@ -3971,6 +4033,8 @@ function createApprovedProviderExecutionReport(execution: ApprovedProviderExecut
     ...(execution.warnings.length ? execution.warnings.map((warning) => `- ${warning}`) : ["- none"]),
     "",
     ...formatApprovedProviderReconciliationPackage(execution.reconciliationPackage),
+    "",
+    ...formatApprovedProviderLiveWritePreflight(execution.liveWritePreflight),
   ].join("\n");
 }
 
@@ -3996,6 +4060,36 @@ function formatApprovedProviderReconciliationPackage(packageData: ApprovedProvid
     "",
     "### Reconciliation warnings",
     ...(packageData.warnings.length ? packageData.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+  ];
+}
+
+function formatApprovedProviderLiveWritePreflight(preflight: ApprovedProviderLiveWritePreflight | null) {
+  if (!preflight) {
+    return ["## Obsidian live-write preflight", "- none"];
+  }
+  return [
+    "## Obsidian live-write preflight",
+    `- Generated: ${preflight.generatedAt}`,
+    `- Feature flag: ${preflight.featureFlag}`,
+    `- Feature flag enabled: ${preflight.featureFlagEnabled ? "yes" : "no"}`,
+    `- Mutation ready: ${preflight.mutationReady ? "yes" : "no"}`,
+    `- Rollback plan: ${preflight.rollbackPlanRef ?? "missing"}`,
+    `- Reconciliation plan: ${preflight.reconciliationPlanRef ?? "missing"}`,
+    `- Mutations: ${preflight.operationCount}`,
+    `- Create: ${preflight.summary.create}`,
+    `- Update: ${preflight.summary.update}`,
+    `- Delete: ${preflight.summary.delete}`,
+    "",
+    "### Mutation operations",
+    ...(preflight.operations.length
+      ? preflight.operations.map((operation) => `- ${operation.intent} ${operation.path} (${operation.itemId}, task ${operation.sourceTaskId})`)
+      : ["- none"]),
+    "",
+    "### Preflight blockers",
+    ...(preflight.blockers.length ? preflight.blockers.map((blocker) => `- ${blocker}`) : ["- none"]),
+    "",
+    "### Preflight warnings",
+    ...(preflight.warnings.length ? preflight.warnings.map((warning) => `- ${warning}`) : ["- none"]),
   ];
 }
 

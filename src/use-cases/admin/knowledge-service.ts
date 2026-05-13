@@ -115,6 +115,8 @@ export type KnowledgeSyncTargetConfig = {
   reconciliationPlanStatus: "not_required" | "configured" | "missing";
   remoteWriteReady: boolean;
   remoteWriteBlockers: string[];
+  liveWriteFeatureFlag: string | null;
+  liveWriteFeatureFlagEnabled: boolean;
   inventoryManifest: KnowledgeProviderInventoryManifest | null;
   inventoryEntryCount: number;
   inventoryImportedAt: string | null;
@@ -181,21 +183,37 @@ export type KnowledgeProviderReconciliationPackage = {
   warnings: string[];
 };
 
+export type KnowledgeProviderLiveWritePreflight = {
+  target: "obsidian";
+  generatedAt: string;
+  featureFlag: string;
+  featureFlagEnabled: boolean;
+  mutationReady: boolean;
+  rollbackPlanRef: string | null;
+  reconciliationPlanRef: string | null;
+  summary: KnowledgeProviderReconciliationPackage["summary"];
+  operationCount: number;
+  operations: KnowledgeProviderReconciliationOperation[];
+  blockers: string[];
+  warnings: string[];
+};
+
 export type KnowledgeProviderExecution = {
   id: string;
   createdAt: string;
   previewId: string;
   auditId: string;
   target: KnowledgeExportSyncTarget;
-  status: "executed";
+  status: "executed" | "preflight_recorded";
   destination: string;
   packageName: string;
   artifactName: string;
-  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest";
+  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest" | "obsidian_live_write_preflight";
   itemCount: number;
   contentDigest: string;
   warnings: string[];
   reconciliationPackage: KnowledgeProviderReconciliationPackage | null;
+  liveWritePreflight: KnowledgeProviderLiveWritePreflight | null;
   createdBy: string | null;
 };
 
@@ -242,6 +260,7 @@ const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const knowledgeProviderPreviewFreshnessMs = 24 * 60 * 60 * 1000;
 const knowledgeCredentialRegistryEnvName = "KNOWLEDGE_SYNC_CREDENTIAL_REGISTRY_JSON";
+const knowledgeObsidianLiveWriteFlagEnvName = "KNOWLEDGE_SYNC_OBSIDIAN_LIVE_WRITE_ENABLED";
 const knowledgeCredentialEnvByTarget: Partial<Record<KnowledgeExportSyncTarget, string>> = {
   obsidian: "KNOWLEDGE_SYNC_OBSIDIAN_CREDENTIAL_REF",
   notion: "KNOWLEDGE_SYNC_NOTION_CREDENTIAL_REF",
@@ -948,6 +967,8 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
         reconciliationPlanStatus: remoteWrite.reconciliationPlanStatus,
         remoteWriteReady: remoteWrite.ready,
         remoteWriteBlockers: remoteWrite.blockers,
+        liveWriteFeatureFlag: target === "obsidian" ? knowledgeObsidianLiveWriteFlagEnvName : null,
+        liveWriteFeatureFlagEnabled: target === "obsidian" && isObsidianLiveWriteFeatureFlagEnabled(),
         inventoryManifest,
         inventoryEntryCount: inventoryManifest?.entries.length ?? 0,
         inventoryImportedAt: inventoryManifest?.importedAt ?? null,
@@ -1471,6 +1492,10 @@ function normalizeInventoryDigest(value: unknown) {
   return /^[a-f0-9]{64}$/.test(text) ? text : null;
 }
 
+function isObsidianLiveWriteFeatureFlagEnabled() {
+  return process.env[knowledgeObsidianLiveWriteFlagEnvName]?.trim().toLowerCase() === "true";
+}
+
 function isFreshProviderPreview(createdAt: string) {
   const created = Date.parse(createdAt);
   return Number.isFinite(created) && Date.now() - created <= knowledgeProviderPreviewFreshnessMs;
@@ -1484,6 +1509,7 @@ function buildKnowledgeProviderExecution(
 ): KnowledgeProviderExecution {
   const artifact = buildKnowledgeProviderExecutionArtifact(audit, config);
   const reconciliationPackage = preview.reconciliationPackage;
+  const liveWritePreflight = buildKnowledgeProviderLiveWritePreflight(config, reconciliationPackage);
   const digestInput = {
     previewId: preview.id,
     auditId: audit.id,
@@ -1497,6 +1523,7 @@ function buildKnowledgeProviderExecution(
     remoteWriteReady: config.remoteWriteReady,
     artifactType: artifact.type,
     reconciliationPackage,
+    liveWritePreflight,
   };
   return {
     id: `pending:${preview.id}`,
@@ -1504,7 +1531,7 @@ function buildKnowledgeProviderExecution(
     previewId: preview.id,
     auditId: audit.id,
     target: audit.target,
-    status: "executed",
+    status: liveWritePreflight ? "preflight_recorded" : "executed",
     destination: config.label,
     packageName: audit.packageName,
     artifactName: artifact.name,
@@ -1518,11 +1545,66 @@ function buildKnowledgeProviderExecution(
       ...(config.credentialSource === "secret_manager" ? ["Credential reference was resolved from server-side secret-manager registry metadata."] : []),
       ...(config.remoteWriteReady ? ["Remote write readiness passed; live external writes are still disabled in this slice."] : []),
       ...config.remoteWriteBlockers.map((blocker) => `Remote write remains blocked: ${blocker}`),
+      ...(liveWritePreflight
+        ? [
+            liveWritePreflight.mutationReady
+              ? "Obsidian live-write preflight passed; vault mutation adapter is still disabled in this slice."
+              : "Obsidian live-write preflight is blocked; no vault files were written.",
+            ...liveWritePreflight.blockers.map((blocker) => `Obsidian live-write preflight blocker: ${blocker}`),
+          ]
+        : []),
       ...(reconciliationPackage ? ["Reconciliation package was copied from the approved provider preview; no external files were written."] : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     reconciliationPackage,
+    liveWritePreflight,
     createdBy: actorId,
+  };
+}
+
+function buildKnowledgeProviderLiveWritePreflight(
+  config: KnowledgeSyncTargetConfig,
+  reconciliationPackage: KnowledgeProviderReconciliationPackage | null,
+): KnowledgeProviderLiveWritePreflight | null {
+  if (config.target !== "obsidian") {
+    return null;
+  }
+  const featureFlagEnabled = isObsidianLiveWriteFeatureFlagEnabled();
+  const operations = (reconciliationPackage?.operations ?? []).filter((operation) => operation.intent !== "noop");
+  const summary = reconciliationPackage?.summary ?? {
+    total: 0,
+    create: 0,
+    update: 0,
+    delete: 0,
+    noop: 0,
+  };
+  const blockers = [
+    ...(!featureFlagEnabled ? [`${knowledgeObsidianLiveWriteFlagEnvName} is not enabled.`] : []),
+    ...(!config.remoteWriteReady ? config.remoteWriteBlockers : []),
+    ...(!config.rollbackPlanRef ? ["Rollback plan reference is missing."] : []),
+    ...(!config.reconciliationPlanRef ? ["Reconciliation plan reference is missing."] : []),
+    ...(!reconciliationPackage ? ["Fresh Obsidian reconciliation package is missing."] : []),
+  ];
+
+  return {
+    target: "obsidian",
+    generatedAt: new Date().toISOString(),
+    featureFlag: knowledgeObsidianLiveWriteFlagEnvName,
+    featureFlagEnabled,
+    mutationReady: blockers.length === 0,
+    rollbackPlanRef: config.rollbackPlanRef,
+    reconciliationPlanRef: config.reconciliationPlanRef,
+    summary,
+    operationCount: operations.length,
+    operations,
+    blockers,
+    warnings: [
+      "This is a preflight artifact only; no Obsidian vault files were written.",
+      ...(operations.length
+        ? [`${operations.length} create/update/delete operation(s) would require a future live-write adapter.`]
+        : ["No create/update/delete operation requires live vault mutation."]
+      ),
+    ],
   };
 }
 
@@ -1532,9 +1614,9 @@ function buildKnowledgeProviderExecutionArtifact(
 ): { name: string; type: KnowledgeProviderExecution["artifactType"]; warning: string } {
   if (config.adapter === "markdown_files") {
     return {
-      name: audit.packageName.replace(/\.(json|md)$/i, ".obsidian-manifest.json"),
-      type: "obsidian_markdown_manifest",
-      warning: "Obsidian execution wrote only an append-only server audit manifest in this slice; vault file writes remain disabled.",
+      name: audit.packageName.replace(/\.(json|md)$/i, ".obsidian-live-write-preflight.json"),
+      type: "obsidian_live_write_preflight",
+      warning: "Obsidian execution recorded only an append-only live-write preflight artifact in this slice; vault file writes remain disabled.",
     };
   }
   return {
@@ -1556,7 +1638,7 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
     previewId: normalizeOptionalText(metadata.previewId),
     auditId: normalizeOptionalText(metadata.auditId),
     target,
-    status: "executed",
+    status: normalizeKnowledgeProviderExecutionStatus(metadata.status),
     destination: normalizeOptionalText(metadata.destination) || readKnowledgeSyncTargetLabel(target),
     packageName: normalizeOptionalText(metadata.packageName),
     artifactName: normalizeOptionalText(metadata.artifactName),
@@ -1565,12 +1647,61 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
     contentDigest: normalizeOptionalText(metadata.contentDigest),
     warnings: normalizeStringArray(metadata.warnings, 20),
     reconciliationPackage: normalizeKnowledgeProviderReconciliationPackage(metadata.reconciliationPackage),
+    liveWritePreflight: normalizeKnowledgeProviderLiveWritePreflight(metadata.liveWritePreflight),
     createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
   };
 }
 
+function normalizeKnowledgeProviderExecutionStatus(value: unknown): KnowledgeProviderExecution["status"] {
+  return value === "preflight_recorded" ? "preflight_recorded" : "executed";
+}
+
 function normalizeKnowledgeProviderExecutionArtifactType(value: unknown): KnowledgeProviderExecution["artifactType"] {
+  if (value === "obsidian_live_write_preflight") {
+    return "obsidian_live_write_preflight";
+  }
   return value === "obsidian_markdown_manifest" ? "obsidian_markdown_manifest" : "portable_archive_manifest";
+}
+
+function normalizeKnowledgeProviderLiveWritePreflight(value: unknown): KnowledgeProviderLiveWritePreflight | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (normalizeKnowledgeExportSyncTarget(record.target) !== "obsidian") {
+    return null;
+  }
+  const packageData = record.summary && typeof record.summary === "object" && !Array.isArray(record.summary)
+    ? record.summary as Record<string, unknown>
+    : {};
+  const operations = Array.isArray(record.operations)
+    ? record.operations
+      .map(normalizeKnowledgeProviderReconciliationOperation)
+      .filter((operation): operation is KnowledgeProviderReconciliationOperation => Boolean(operation))
+      .filter((operation) => operation.intent !== "noop")
+      .slice(0, 250)
+    : [];
+  const summary = {
+    total: readNumber(packageData.total, operations.length),
+    create: readNumber(packageData.create, operations.filter((operation) => operation.intent === "create").length),
+    update: readNumber(packageData.update, operations.filter((operation) => operation.intent === "update").length),
+    delete: readNumber(packageData.delete, operations.filter((operation) => operation.intent === "delete").length),
+    noop: readNumber(packageData.noop, 0),
+  };
+  return {
+    target: "obsidian",
+    generatedAt: normalizeIsoDate(record.generatedAt) ?? new Date(0).toISOString(),
+    featureFlag: normalizeOptionalText(record.featureFlag) || knowledgeObsidianLiveWriteFlagEnvName,
+    featureFlagEnabled: record.featureFlagEnabled === true,
+    mutationReady: record.mutationReady === true,
+    rollbackPlanRef: normalizeOptionalText(record.rollbackPlanRef) || null,
+    reconciliationPlanRef: normalizeOptionalText(record.reconciliationPlanRef) || null,
+    summary,
+    operationCount: readNumber(record.operationCount, operations.length),
+    operations,
+    blockers: normalizeStringArray(record.blockers, 20),
+    warnings: normalizeStringArray(record.warnings, 20),
+  };
 }
 
 function readKnowledgeProviderOperations(audit: KnowledgeExportSyncAudit, config: KnowledgeSyncTargetConfig) {
