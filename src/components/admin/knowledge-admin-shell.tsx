@@ -376,6 +376,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const approvalRiskWarningGroupCount = approvalRiskGroups.filter((group) => group.warningCount > 0).length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
   const reviewStatus = readReviewStatus(guardrailWarningCount, readyReadinessCount, draftReadiness.length);
+  const approvalDecisionMode = readApprovalDecisionMode(guardrailWarningCount, approvalRiskWarningGroupCount);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -550,6 +551,29 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Approval risk filter handoff copied.");
     } catch {
       setStatus("Clipboard copy failed. Review the active risk filter chips manually.");
+    }
+  }
+
+  async function copyApprovalDecisionNote() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        createApprovalDecisionNote(
+          detail,
+          draft,
+          draftReadiness,
+          approvalGuardrails,
+          approvalRiskGroups,
+          evidenceKindCounts,
+          reviewStatus,
+        ),
+      );
+      setStatus("Approval decision note copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the approval decision context manually.");
     }
   }
 
@@ -1104,6 +1128,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <button onClick={copyApprovalRiskSummary} type="button">Copy risk summary</button>
+                    <button onClick={copyApprovalDecisionNote} type="button">Copy decision note</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
                     <select
                       aria-label="공개 범위"
@@ -1202,6 +1227,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Risk groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
                   <span>Readiness {readyReadinessCount}/{draftReadiness.length}</span>
                   <span>Confidence {detail ? readConfidenceBand(detail.confidenceScore) : "unknown"}</span>
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge approval decision note context">
+                  <span>{approvalDecisionMode.label}</span>
+                  <span>{approvalDecisionMode.detail}</span>
+                  <span>Scope {scopeLabels[draft.scope]}</span>
+                  <span>Review {reviewStatus.label}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge approval risk summary">
                   {approvalRiskGroups.map((group) => (
@@ -1565,6 +1596,56 @@ function createApprovalChecklist(
   ].join("\n");
 }
 
+function createApprovalDecisionNote(
+  detail: CandidateDetail,
+  draft: ReturnType<typeof createDraftFromDetail>,
+  readiness: Array<{ label: string; ready: boolean }>,
+  guardrails: ApprovalGuardrail[],
+  riskGroups: ApprovalRiskGroup[],
+  evidenceKindCounts: Array<[string, number]>,
+  reviewStatus: ApprovalGuardrail,
+) {
+  const warnings = guardrails.filter((item) => item.tone === "warning");
+  const readyItems = guardrails.filter((item) => item.tone === "ready");
+  const decisionLabel = warnings.length ? "Blocker review" : "Approve-ready review";
+  const decisionGuidance = warnings.length
+    ? "Resolve or explicitly accept warning items before final approval."
+    : "Confirm final audience and evidence policy before approving the WIKI item.";
+
+  return [
+    "# Knowledge approval decision note",
+    `- Candidate: ${detail.title} (${detail.id})`,
+    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- Project: ${detail.projectName}`,
+    `- Proposed decision context: ${decisionLabel}`,
+    `- Current candidate state: ${detail.state}`,
+    `- Review status: ${reviewStatus.label}`,
+    `- Publication scope: ${scopeLabels[draft.scope]}`,
+    `- Rejection reason draft: ${draft.rejectionReason.trim() || "none"}`,
+    `- Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `- Readiness: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
+    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    `- Evidence: ${detail.evidence.length}`,
+    `- Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "",
+    "## Decision guidance",
+    `- ${decisionGuidance}`,
+    "",
+    "## Blocking warnings",
+    ...(warnings.length
+      ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
+      : ["- No blocking warnings"]),
+    "",
+    "## Ready checks",
+    ...(readyItems.length
+      ? readyItems.map((item) => `- ${item.label}: ${item.detail}`)
+      : ["- No ready checks recorded"]),
+    "",
+    "## Risk groups",
+    ...riskGroups.map((group) => `- ${group.label}: ${group.warningCount} warnings, ${group.readyCount} ready notes`),
+  ].join("\n");
+}
+
 function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
   const groups: ApprovalRiskGroup[] = [
     { key: "scope", label: "Scope", readyCount: 0, warningCount: 0, items: [] },
@@ -1857,6 +1938,22 @@ function readReviewStatus(warnings: number, readyCount: number, totalCount: numb
   return {
     label: "Ready for approval review",
     detail: "Readiness fields are complete and no guardrail warnings are active.",
+    tone: "ready",
+  };
+}
+
+function readApprovalDecisionMode(warnings: number, warningGroups: number): ApprovalGuardrail {
+  if (warnings > 0) {
+    return {
+      label: "Decision note: blocker review",
+      detail: `${warnings} warnings across ${warningGroups} risk groups`,
+      tone: "warning",
+    };
+  }
+
+  return {
+    label: "Decision note: approve-ready",
+    detail: "No active guardrail warnings",
     tone: "ready",
   };
 }
