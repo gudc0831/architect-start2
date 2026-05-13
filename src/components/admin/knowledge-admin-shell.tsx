@@ -61,6 +61,12 @@ type ApprovalGuardrail = {
   tone: "ready" | "warning";
 };
 
+type MarkdownHeading = {
+  level: number;
+  line: number;
+  text: string;
+};
+
 type CandidateRiskFilter = "all" | "low_confidence" | "unreviewed" | "cleanup_approved";
 type CandidateSort = "newest" | "low_confidence";
 type EvidenceSourceFilter = "all" | "sourced" | "unsourced";
@@ -228,6 +234,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ];
   }, [detail, draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.tagsText, draft.title]);
   const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
+  const markdownOutline = useMemo(
+    () => readMarkdownOutline(draft.bodyMarkdown),
+    [draft.bodyMarkdown],
+  );
   const evidenceKindCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of detail?.evidence ?? []) {
@@ -960,6 +970,17 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </div>
                   <pre>{draft.bodyMarkdown.trim() || "No Markdown body yet."}</pre>
                 </section>
+                <div className={styles.sourceChips} aria-label="Knowledge Markdown outline preview">
+                  {markdownOutline.length ? (
+                    markdownOutline.map((heading) => (
+                      <span key={`${heading.line}-${heading.text}`}>
+                        H{heading.level} L{heading.line}: {heading.text}
+                      </span>
+                    ))
+                  ) : (
+                    <span>No Markdown headings</span>
+                  )}
+                </div>
               </section>
 
               <footer className={styles.footer}>
@@ -1022,6 +1043,21 @@ function readError(payload: unknown) {
 
 function splitTags(value: string) {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 12);
+}
+
+function readMarkdownOutline(markdown: string): MarkdownHeading[] {
+  return markdown.split(/\r?\n/).flatMap((line, index) => {
+    const match = /^(#{1,6})\s+(.+?)\s*#*$/.exec(line.trim());
+    if (!match) {
+      return [];
+    }
+
+    return [{
+      level: match[1].length,
+      line: index + 1,
+      text: match[2].trim(),
+    }];
+  }).slice(0, 12);
 }
 
 function createDraftFromDetail(detail: CandidateDetail) {
