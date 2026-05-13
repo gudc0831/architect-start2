@@ -238,6 +238,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => readMarkdownOutline(draft.bodyMarkdown),
     [draft.bodyMarkdown],
   );
+  const markdownStructureSummary = useMemo(
+    () => readMarkdownStructureSummary(draft.bodyMarkdown),
+    [draft.bodyMarkdown],
+  );
   const evidenceKindCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of detail?.evidence ?? []) {
@@ -1008,6 +1012,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>No Markdown headings</span>
                   )}
                 </div>
+                <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
+                  <span>Headings {markdownStructureSummary.headings}</span>
+                  <span>Paragraphs {markdownStructureSummary.paragraphs}</span>
+                  <span>List items {markdownStructureSummary.listItems}</span>
+                  <span>Lines {markdownStructureSummary.lines}</span>
+                </div>
               </section>
 
               <footer className={styles.footer}>
@@ -1085,6 +1095,19 @@ function readMarkdownOutline(markdown: string): MarkdownHeading[] {
       text: match[2].trim(),
     }];
   }).slice(0, 12);
+}
+
+function readMarkdownStructureSummary(markdown: string) {
+  const lines = markdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const headings = lines.filter((line) => /^#{1,6}\s+/.test(line)).length;
+  const listItems = lines.filter((line) => /^([-*+]|\d+\.)\s+/.test(line)).length;
+  const paragraphs = lines.filter((line) => !/^#{1,6}\s+/.test(line) && !/^([-*+]|\d+\.)\s+/.test(line)).length;
+  return {
+    headings,
+    paragraphs,
+    listItems,
+    lines: lines.length,
+  };
 }
 
 function createDraftFromDetail(detail: CandidateDetail) {
