@@ -221,15 +221,17 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     [candidates, selectedId],
   );
   const selectedCandidateIndex = visibleCandidates.findIndex((candidate) => candidate.id === selectedId);
+  const draftTags = useMemo(() => splitTags(draft.tagsText), [draft.tagsText]);
+  const duplicateDraftTags = useMemo(() => readDuplicateTags(draftTags), [draftTags]);
   const draftReadiness = useMemo(
     () => [
       { label: "Title", ready: Boolean(draft.title.trim()) },
       { label: "Summary", ready: Boolean(draft.summary.trim()) },
       { label: "Body", ready: Boolean(draft.bodyMarkdown.trim()) },
-      { label: "Tags", ready: splitTags(draft.tagsText).length > 0 },
+      { label: "Tags", ready: draftTags.length > 0 },
       { label: "Evidence", ready: Boolean(detail?.evidence.length) },
     ],
-    [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.tagsText, draft.title],
+    [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.title, draftTags.length],
   );
   const draftDirtyStates = useMemo(() => {
     if (!detail) {
@@ -241,11 +243,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       { label: "Title", dirty: draft.title !== original.title },
       { label: "Summary", dirty: draft.summary !== original.summary },
       { label: "Body", dirty: draft.bodyMarkdown !== original.bodyMarkdown },
-      { label: "Tags", dirty: splitTags(draft.tagsText).join("|") !== splitTags(original.tagsText).join("|") },
+      { label: "Tags", dirty: draftTags.join("|") !== splitTags(original.tagsText).join("|") },
       { label: "Scope", dirty: draft.scope !== original.scope },
       { label: "Rejection reason", dirty: draft.rejectionReason.trim() !== original.rejectionReason.trim() },
     ];
-  }, [detail, draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.tagsText, draft.title]);
+  }, [detail, draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.title, draftTags]);
   const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
   const markdownOutline = useMemo(
     () => readMarkdownOutline(draft.bodyMarkdown),
@@ -325,9 +327,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       markdownOutline,
       markdownStructureSummary,
       markdownWikiLinks,
+      draftTags,
+      duplicateDraftTags,
       draft.bodyMarkdown,
     ),
-    [detail, draft.bodyMarkdown, draftDirtyStates, draftReadiness, markdownOutline, markdownStructureSummary, markdownWikiLinks],
+    [
+      detail,
+      draft.bodyMarkdown,
+      draftDirtyStates,
+      draftReadiness,
+      markdownOutline,
+      markdownStructureSummary,
+      markdownWikiLinks,
+      draftTags,
+      duplicateDraftTags,
+    ],
   );
   const guardrailWarningCount = approvalGuardrails.filter((item) => item.tone === "warning").length;
   const readyReadinessCount = draftReadiness.filter((item) => item.ready).length;
@@ -494,7 +508,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           `- Changed fields: ${changedFields.length}/${draftDirtyStates.length}`,
           `- Fields: ${changedFields.join(", ") || "none"}`,
           `- Scope: ${scopeLabels[draft.scope]}`,
-          `- Tags: ${splitTags(draft.tagsText).join(", ") || "none"}`,
+          `- Tags: ${draftTags.join(", ") || "none"}`,
         ].join("\n"),
       );
       setStatus("Dirty draft summary copied.");
@@ -578,6 +592,33 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyDraftTagHandoff() {
+    if (!detail) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        [
+          "# Knowledge draft tag handoff",
+          `- Candidate: ${detail.title} (${detail.id})`,
+          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- Tags: ${draftTags.length}`,
+          `- Duplicate tags: ${duplicateDraftTags.join(", ") || "none"}`,
+          "",
+          ...(
+            draftTags.length
+              ? draftTags.map((tag) => `- ${tag}`)
+              : ["- No draft tags"]
+          ),
+        ].join("\n"),
+      );
+      setStatus("Draft tag handoff copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the draft tag preview manually.");
+    }
+  }
+
   async function approveCandidate() {
     if (!detail) {
       return;
@@ -590,7 +631,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         title: draft.title,
         summary: draft.summary,
         bodyMarkdown: draft.bodyMarkdown,
-        tags: splitTags(draft.tagsText),
+        tags: draftTags,
         scope: draft.scope,
       });
       setDetail(data);
@@ -926,6 +967,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <button onClick={copyMarkdownOutline} type="button">Copy Markdown outline</button>
                     <button onClick={copyMarkdownStructureSummary} type="button">Copy Markdown structure</button>
                     <button onClick={copyMarkdownWikiLinks} type="button">Copy WIKI links</button>
+                    <button onClick={copyDraftTagHandoff} type="button">Copy draft tags</button>
                     <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
                     <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
                     <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
@@ -998,12 +1040,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <span>Title {draft.title.trim().length} chars</span>
                   <span>Summary {draft.summary.trim().length} chars</span>
                   <span>Body {draft.bodyMarkdown.trim().length} chars</span>
-                  <span>Tags {splitTags(draft.tagsText).length}</span>
+                  <span>Tags {draftTags.length}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge draft dirty-state indicators">
                   <span>Changed {dirtyDraftCount}/{draftDirtyStates.length}</span>
                   {draftDirtyStates.map((item) => (
                     <span key={item.label}>{item.dirty ? "Changed" : "Original"} {item.label}</span>
+                  ))}
+                </div>
+                <div className={styles.sourceChips} aria-label="Knowledge draft tag preview">
+                  {draftTags.length ? (
+                    draftTags.map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)
+                  ) : (
+                    <span>No draft tags</span>
+                  )}
+                  {duplicateDraftTags.map((tag) => (
+                    <span key={`duplicate-${tag}`}>Duplicate {tag}</span>
                   ))}
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge guardrail summary">
@@ -1169,6 +1221,19 @@ function splitTags(value: string) {
   return value.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 12);
 }
 
+function readDuplicateTags(tags: string[]) {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const tag of tags) {
+    const key = tag.toLowerCase();
+    if (seen.has(key)) {
+      duplicates.add(tag);
+    }
+    seen.add(key);
+  }
+  return Array.from(duplicates);
+}
+
 function readMarkdownOutline(markdown: string): MarkdownHeading[] {
   return markdown.split(/\r?\n/).flatMap((line, index) => {
     const match = /^(#{1,6})\s+(.+?)\s*#*$/.exec(line.trim());
@@ -1276,6 +1341,8 @@ function buildApprovalGuardrails(
   markdownOutline: MarkdownHeading[],
   markdownStructureSummary: MarkdownStructureSummary,
   markdownWikiLinks: MarkdownWikiLink[],
+  draftTags: string[],
+  duplicateDraftTags: string[],
   bodyMarkdown: string,
 ): ApprovalGuardrail[] {
   const guardrails: ApprovalGuardrail[] = [];
@@ -1297,6 +1364,34 @@ function buildApprovalGuardrails(
 
   if (!detail) {
     return guardrails;
+  }
+
+  if (draftTags.length >= 2) {
+    guardrails.push({
+      label: "Tag coverage ready",
+      detail: `${draftTags.length} draft tags are present for retrieval and WIKI grouping.`,
+      tone: "ready",
+    });
+  } else {
+    guardrails.push({
+      label: "Tag coverage limited",
+      detail: `${draftTags.length}/2 recommended draft tags are present. Add tags before approval when possible.`,
+      tone: "warning",
+    });
+  }
+
+  if (duplicateDraftTags.length) {
+    guardrails.push({
+      label: "Duplicate draft tags",
+      detail: `Remove duplicate tag values before approval: ${duplicateDraftTags.join(", ")}.`,
+      tone: "warning",
+    });
+  } else if (draftTags.length) {
+    guardrails.push({
+      label: "Draft tags unique",
+      detail: "Draft tags do not contain duplicates.",
+      tone: "ready",
+    });
   }
 
   if (bodyMarkdown.trim()) {
