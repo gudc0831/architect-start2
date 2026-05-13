@@ -965,6 +965,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedProviderExecutionReviewReviewerFilter,
     approvedProviderExecutionReviewStaleDays,
   ]);
+  const hasProviderExecutionReviewShortcutFilters =
+    Boolean(approvedProviderExecutionDigestFilter.trim()) ||
+    approvedProviderExecutionReviewCategoryFilter !== "all" ||
+    Boolean(approvedProviderExecutionReviewReviewerFilter.trim());
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -2066,6 +2070,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     } catch {
       setStatus("Clipboard copy failed. Review package filters manually.");
     }
+  }
+
+  function clearApprovedProviderExecutionReviewShortcutFilters() {
+    setApprovedProviderExecutionDigestFilter("");
+    setApprovedProviderExecutionReviewCategoryFilter("all");
+    setApprovedProviderExecutionReviewReviewerFilter("");
+    setStatus("Provider execution package review shortcut filters cleared.");
   }
 
   return (
@@ -3312,6 +3323,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       <button onClick={copyApprovedProviderExecutionPackageReviewHandoff} type="button">
                         Copy review handoff
                       </button>
+                    </div>
+                    <div className={styles.sourceChips} aria-label="Provider execution package review shortcut reset chips">
+                      {approvedProviderExecutionDigestFilter.trim() ? (
+                        <button onClick={() => setApprovedProviderExecutionDigestFilter("")} type="button">
+                          Clear digest {approvedProviderExecutionDigestFilter.trim().slice(0, 12)}
+                        </button>
+                      ) : null}
+                      {approvedProviderExecutionReviewCategoryFilter !== "all" ? (
+                        <button onClick={() => setApprovedProviderExecutionReviewCategoryFilter("all")} type="button">
+                          Clear note type {getProviderExecutionPackageReviewNoteCategoryLabel(approvedProviderExecutionReviewCategoryFilter)}
+                        </button>
+                      ) : null}
+                      {approvedProviderExecutionReviewReviewerFilter.trim() ? (
+                        <button onClick={() => setApprovedProviderExecutionReviewReviewerFilter("")} type="button">
+                          Clear reviewer {approvedProviderExecutionReviewReviewerFilter.trim()}
+                        </button>
+                      ) : null}
+                      {hasProviderExecutionReviewShortcutFilters ? (
+                        <button onClick={clearApprovedProviderExecutionReviewShortcutFilters} type="button">
+                          Clear review shortcuts
+                        </button>
+                      ) : (
+                        <span>No shortcut filters active</span>
+                      )}
                     </div>
                     {approvedProviderExecutionReviewReport ? (
                       <div className={styles.providerReviewReport} aria-label="Approved WIKI provider execution package review report">
