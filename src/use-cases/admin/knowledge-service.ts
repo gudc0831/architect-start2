@@ -217,6 +217,39 @@ export type KnowledgeProviderExecution = {
   createdBy: string | null;
 };
 
+export type KnowledgeProviderExecutionPackage = {
+  packageVersion: 1;
+  packageGeneratedAt: string;
+  executionId: string;
+  execution: KnowledgeProviderExecution;
+  exportAudit: KnowledgeExportSyncAudit | null;
+  providerPreview: KnowledgeProviderPreview | null;
+  providerEvidence: {
+    target: KnowledgeExportSyncTarget;
+    status: KnowledgeProviderExecution["status"];
+    artifactName: string;
+    artifactType: KnowledgeProviderExecution["artifactType"];
+    executionDigest: string;
+    packageDigest: string;
+    credentialExcluded: true;
+    externalWritesPerformed: false;
+  };
+  rollbackEvidence: {
+    rollbackPlanRef: string | null;
+    reconciliationPlanRef: string | null;
+    preflightMutationReady: boolean | null;
+    preflightBlockers: string[];
+  };
+  warnings: string[];
+};
+
+export type KnowledgeProviderExecutionPackageExport = {
+  filename: string;
+  json: string;
+  digest: string;
+  packageData: KnowledgeProviderExecutionPackage;
+};
+
 type KnowledgeExportSyncAuditInput = {
   action?: unknown;
   target?: unknown;
@@ -550,6 +583,86 @@ export async function createKnowledgeProviderExecution(
     id: event.id,
     createdAt: event.createdAt,
   };
+}
+
+export async function exportKnowledgeProviderExecutionPackage(
+  input: { executionId?: unknown },
+  user: AuthUser,
+): Promise<KnowledgeProviderExecutionPackageExport> {
+  void user;
+  const executionId = normalizeRequiredText(input.executionId, "executionId");
+  const executions = await listKnowledgeProviderExecutions();
+  const execution = executions.find((item) => item.id === executionId);
+  if (!execution) {
+    throw badRequest("Knowledge provider execution id was not found.", "KNOWLEDGE_PROVIDER_EXECUTION_NOT_FOUND");
+  }
+
+  const [audits, previews] = await Promise.all([
+    listKnowledgeExportSyncAudits(),
+    listKnowledgeProviderPreviews(),
+  ]);
+  const exportAudit = audits.find((item) => item.id === execution.auditId) ?? null;
+  const providerPreview = previews.find((item) => item.id === execution.previewId) ?? null;
+  const packageData = buildKnowledgeProviderExecutionPackage(execution, exportAudit, providerPreview);
+  const json = JSON.stringify(packageData, null, 2);
+  const digest = createHash("sha256").update(json).digest("hex");
+  const finalizedPackage = {
+    ...packageData,
+    providerEvidence: {
+      ...packageData.providerEvidence,
+      packageDigest: digest,
+    },
+  };
+  const finalizedJson = JSON.stringify(finalizedPackage, null, 2);
+  return {
+    filename: createKnowledgeProviderExecutionPackageFilename(execution),
+    json: finalizedJson,
+    digest,
+    packageData: finalizedPackage,
+  };
+}
+
+function buildKnowledgeProviderExecutionPackage(
+  execution: KnowledgeProviderExecution,
+  exportAudit: KnowledgeExportSyncAudit | null,
+  providerPreview: KnowledgeProviderPreview | null,
+): KnowledgeProviderExecutionPackage {
+  const preflight = execution.liveWritePreflight;
+  return {
+    packageVersion: 1,
+    packageGeneratedAt: execution.createdAt,
+    executionId: execution.id,
+    execution,
+    exportAudit,
+    providerPreview,
+    providerEvidence: {
+      target: execution.target,
+      status: execution.status,
+      artifactName: execution.artifactName,
+      artifactType: execution.artifactType,
+      executionDigest: execution.contentDigest,
+      packageDigest: "",
+      credentialExcluded: true,
+      externalWritesPerformed: false,
+    },
+    rollbackEvidence: {
+      rollbackPlanRef: preflight?.rollbackPlanRef ?? null,
+      reconciliationPlanRef: preflight?.reconciliationPlanRef ?? null,
+      preflightMutationReady: preflight?.mutationReady ?? null,
+      preflightBlockers: preflight?.blockers ?? [],
+    },
+    warnings: [
+      "Provider execution package is read-only evidence generated from append-only audit records.",
+      "Provider credentials and secret references are excluded from this package.",
+      "Exporting this package does not perform external provider writes.",
+      ...execution.warnings,
+    ],
+  };
+}
+
+function createKnowledgeProviderExecutionPackageFilename(execution: KnowledgeProviderExecution) {
+  const safeId = execution.id.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 80) || "execution";
+  return `approved-wiki-provider-execution-${safeId}.json`;
 }
 
 async function toCandidateDetail(record: AssistantRecord): Promise<KnowledgeCandidateDetail> {

@@ -1794,6 +1794,32 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovedProviderExecutionPackage() {
+    if (!approvedProviderExecution) {
+      return;
+    }
+    try {
+      const attachment = await readTextAttachment(`/api/admin/knowledge/provider-executions/${encodeURIComponent(approvedProviderExecution.id)}/package`);
+      await navigator.clipboard.writeText(attachment.text);
+      setStatus(`Approved WIKI provider execution package copied (${attachment.digest.slice(0, 12)} digest).`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Provider execution package could not be copied.");
+    }
+  }
+
+  async function downloadApprovedProviderExecutionPackage() {
+    if (!approvedProviderExecution) {
+      return;
+    }
+    try {
+      const attachment = await readTextAttachment(`/api/admin/knowledge/provider-executions/${encodeURIComponent(approvedProviderExecution.id)}/package`);
+      downloadTextFile(attachment.filename, attachment.text, "application/json");
+      setStatus(`Approved WIKI provider execution package downloaded (${attachment.digest.slice(0, 12)} digest).`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Provider execution package could not be downloaded.");
+    }
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -2729,6 +2755,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecution} type="button">
                         Copy execution
                       </button>
+                      <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecutionPackage} type="button">
+                        Copy execution package
+                      </button>
+                      <button disabled={!approvedProviderExecution} onClick={downloadApprovedProviderExecutionPackage} type="button">
+                        Download execution package
+                      </button>
                     </div>
                   </div>
                   <div className={styles.sourceChips} aria-label="Approved WIKI sync target config summary">
@@ -3026,6 +3058,30 @@ async function writeJson<T>(url: string, body: unknown): Promise<T> {
     throw new Error(readError(payload));
   }
   return payload.data as T;
+}
+
+async function readTextAttachment(url: string): Promise<{ text: string; filename: string; digest: string }> {
+  const response = await fetch(url, { credentials: "same-origin" });
+  const text = await response.text();
+  if (!response.ok) {
+    let payload: unknown = {};
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = {};
+    }
+    throw new Error(readError(payload));
+  }
+  return {
+    text,
+    filename: readAttachmentFilename(response.headers.get("content-disposition")) ?? "provider-execution-package.json",
+    digest: response.headers.get("x-provider-execution-package-digest") ?? "unknown",
+  };
+}
+
+function readAttachmentFilename(value: string | null) {
+  const match = value?.match(/filename="([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 
 function readError(payload: unknown) {
