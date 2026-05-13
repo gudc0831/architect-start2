@@ -104,6 +104,8 @@ export type KnowledgeSyncTargetConfig = {
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
   credentialRef: string | null;
   credentialStatus: "not_required" | "missing" | "configured";
+  credentialSource: "not_required" | "target_config" | "server_env" | "missing";
+  credentialScope: KnowledgeExportSyncTarget;
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -133,7 +135,7 @@ export type KnowledgeProviderExecution = {
   destination: string;
   packageName: string;
   artifactName: string;
-  artifactType: "portable_archive_manifest";
+  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest";
   itemCount: number;
   contentDigest: string;
   warnings: string[];
@@ -181,6 +183,11 @@ const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const knowledgeProviderPreviewFreshnessMs = 24 * 60 * 60 * 1000;
+const knowledgeCredentialEnvByTarget: Partial<Record<KnowledgeExportSyncTarget, string>> = {
+  obsidian: "KNOWLEDGE_SYNC_OBSIDIAN_CREDENTIAL_REF",
+  notion: "KNOWLEDGE_SYNC_NOTION_CREDENTIAL_REF",
+  assistant_retrieval: "KNOWLEDGE_SYNC_RETRIEVAL_CREDENTIAL_REF",
+};
 
 export async function listKnowledgeCandidates(): Promise<KnowledgeCandidateListItem[]> {
   const records = await assistantRepository.listKnowledgeCandidateRecords();
@@ -342,7 +349,10 @@ export async function updateKnowledgeSyncTargetConfig(
       updatedBy: user.id,
     },
   });
-  const [config] = readKnowledgeSyncTargetConfigs([event]);
+  const config = readKnowledgeSyncTargetConfigs([event]).find((item) => item.target === target);
+  if (!config) {
+    throw badRequest("Knowledge sync target config could not be normalized.", "KNOWLEDGE_SYNC_TARGET_CONFIG_INVALID");
+  }
   return config;
 }
 
@@ -437,8 +447,8 @@ export async function createKnowledgeProviderExecution(
   if (!config?.enabled || config.dryRunOnly || config.credentialStatus === "missing") {
     throw badRequest("Knowledge sync target is not enabled for guarded execution.", "KNOWLEDGE_SYNC_TARGET_EXECUTION_BLOCKED");
   }
-  if (preview.target !== "portable_archive") {
-    throw badRequest("Only the portable archive execution adapter is enabled in this slice.", "KNOWLEDGE_PROVIDER_ADAPTER_NOT_ENABLED");
+  if (preview.target !== "portable_archive" && preview.target !== "obsidian") {
+    throw badRequest("Only portable archive and Obsidian execution adapters are enabled.", "KNOWLEDGE_PROVIDER_ADAPTER_NOT_ENABLED");
   }
 
   const execution = buildKnowledgeProviderExecution(preview, audit, config, user.id);
@@ -845,15 +855,18 @@ function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): Knowledg
     .map((target) => {
       const event = latestByTarget.get(target);
       const metadata = event?.metadata ?? {};
-      const credentialRef = normalizeOptionalText(metadata.credentialRef) || null;
+      const configuredCredentialRef = normalizeOptionalText(metadata.credentialRef) || null;
+      const credential = readKnowledgeSyncCredentialState(target, configuredCredentialRef);
       return {
         target,
         label: readKnowledgeSyncTargetLabel(target),
         enabled: metadata.enabled === true,
         dryRunOnly: metadata.dryRunOnly !== false,
         adapter: readKnowledgeSyncAdapter(target),
-        credentialRef,
-        credentialStatus: readKnowledgeSyncCredentialStatus(target, credentialRef),
+        credentialRef: credential.ref,
+        credentialStatus: credential.status,
+        credentialSource: credential.source,
+        credentialScope: target,
         notes: normalizeOptionalText(metadata.notes),
         updatedAt: event?.createdAt ?? null,
         updatedBy: normalizeOptionalText(metadata.updatedBy) || (event?.profileId ?? null),
@@ -888,14 +901,35 @@ function readKnowledgeSyncAdapter(target: KnowledgeExportSyncTarget): KnowledgeS
   return "portable_archive";
 }
 
-function readKnowledgeSyncCredentialStatus(
-  target: KnowledgeExportSyncTarget,
-  credentialRef: string | null,
-): KnowledgeSyncTargetConfig["credentialStatus"] {
+function readKnowledgeSyncCredentialState(target: KnowledgeExportSyncTarget, credentialRef: string | null) {
   if (target === "portable_archive") {
-    return "not_required";
+    return {
+      ref: null,
+      status: "not_required",
+      source: "not_required",
+    } as const;
   }
-  return credentialRef ? "configured" : "missing";
+  if (credentialRef) {
+    return {
+      ref: credentialRef,
+      status: "configured",
+      source: "target_config",
+    } as const;
+  }
+  const envName = knowledgeCredentialEnvByTarget[target];
+  const envRef = envName && normalizeOptionalText(process.env[envName]) ? `env:${envName}` : null;
+  if (envRef) {
+    return {
+      ref: envRef,
+      status: "configured",
+      source: "server_env",
+    } as const;
+  }
+  return {
+    ref: null,
+    status: "missing",
+    source: "missing",
+  } as const;
 }
 
 function buildKnowledgeProviderPreview(
@@ -916,6 +950,8 @@ function buildKnowledgeProviderPreview(
       "Provider adapter is dry-run only in this slice; no external write is executed.",
       ...(config.dryRunOnly ? ["Target is configured as dry-run only."] : []),
       ...(config.credentialStatus === "missing" ? ["Target is missing a server-side credential reference."] : []),
+      ...(config.credentialSource === "server_env" ? ["Credential readiness is satisfied by a server environment reference."] : []),
+      ...(config.credentialSource === "target_config" ? ["Credential readiness uses an opaque target configuration reference."] : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     createdBy: actorId,
@@ -952,7 +988,7 @@ function buildKnowledgeProviderExecution(
   config: KnowledgeSyncTargetConfig,
   actorId: string,
 ): KnowledgeProviderExecution {
-  const artifactName = audit.packageName.replace(/\.(json|md)$/i, ".manifest.json");
+  const artifact = buildKnowledgeProviderExecutionArtifact(audit, config);
   const digestInput = {
     previewId: preview.id,
     auditId: audit.id,
@@ -960,6 +996,9 @@ function buildKnowledgeProviderExecution(
     packageName: audit.packageName,
     itemIds: audit.itemIds,
     adapter: config.adapter,
+    credentialSource: config.credentialSource,
+    credentialScope: config.credentialScope,
+    artifactType: artifact.type,
   };
   return {
     id: `pending:${preview.id}`,
@@ -970,15 +1009,35 @@ function buildKnowledgeProviderExecution(
     status: "executed",
     destination: config.label,
     packageName: audit.packageName,
-    artifactName,
-    artifactType: "portable_archive_manifest",
+    artifactName: artifact.name,
+    artifactType: artifact.type,
     itemCount: audit.itemCount,
     contentDigest: createHash("sha256").update(JSON.stringify(digestInput)).digest("hex"),
     warnings: [
-      "Portable archive execution wrote only an append-only server audit artifact in this slice.",
+      artifact.warning,
+      ...(config.credentialSource === "server_env" ? ["Credential reference was resolved from server environment metadata."] : []),
+      ...(config.credentialSource === "target_config" ? ["Credential reference was resolved from opaque target configuration metadata."] : []),
       ...(audit.unsourced ? [`${audit.unsourced} item(s) have no source references.`] : []),
     ],
     createdBy: actorId,
+  };
+}
+
+function buildKnowledgeProviderExecutionArtifact(
+  audit: KnowledgeExportSyncAudit,
+  config: KnowledgeSyncTargetConfig,
+): { name: string; type: KnowledgeProviderExecution["artifactType"]; warning: string } {
+  if (config.adapter === "markdown_files") {
+    return {
+      name: audit.packageName.replace(/\.(json|md)$/i, ".obsidian-manifest.json"),
+      type: "obsidian_markdown_manifest",
+      warning: "Obsidian execution wrote only an append-only server audit manifest in this slice; vault file writes remain disabled.",
+    };
+  }
+  return {
+    name: audit.packageName.replace(/\.(json|md)$/i, ".manifest.json"),
+    type: "portable_archive_manifest",
+    warning: "Portable archive execution wrote only an append-only server audit artifact in this slice.",
   };
 }
 
@@ -998,12 +1057,16 @@ function toKnowledgeProviderExecution(event: AssistantAuditEvent): KnowledgeProv
     destination: normalizeOptionalText(metadata.destination) || readKnowledgeSyncTargetLabel(target),
     packageName: normalizeOptionalText(metadata.packageName),
     artifactName: normalizeOptionalText(metadata.artifactName),
-    artifactType: "portable_archive_manifest",
+    artifactType: normalizeKnowledgeProviderExecutionArtifactType(metadata.artifactType),
     itemCount: readNumber(metadata.itemCount, 0),
     contentDigest: normalizeOptionalText(metadata.contentDigest),
     warnings: normalizeStringArray(metadata.warnings, 20),
     createdBy: normalizeOptionalText(metadata.createdBy) || event.profileId,
   };
+}
+
+function normalizeKnowledgeProviderExecutionArtifactType(value: unknown): KnowledgeProviderExecution["artifactType"] {
+  return value === "obsidian_markdown_manifest" ? "obsidian_markdown_manifest" : "portable_archive_manifest";
 }
 
 function readKnowledgeProviderOperations(audit: KnowledgeExportSyncAudit, config: KnowledgeSyncTargetConfig) {

@@ -159,6 +159,8 @@ type ApprovedSyncTargetConfig = {
   adapter: "portable_archive" | "markdown_files" | "notion_blocks" | "retrieval_index";
   credentialRef: string | null;
   credentialStatus: "not_required" | "missing" | "configured";
+  credentialSource: "not_required" | "target_config" | "server_env" | "missing";
+  credentialScope: ApprovedSyncTarget;
   notes: string;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -188,7 +190,7 @@ type ApprovedProviderExecution = {
   destination: string;
   packageName: string;
   artifactName: string;
-  artifactType: "portable_archive_manifest";
+  artifactType: "portable_archive_manifest" | "obsidian_markdown_manifest";
   itemCount: number;
   contentDigest: string;
   warnings: string[];
@@ -1693,7 +1695,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         },
       );
       setApprovedProviderExecution(execution);
-      setStatus("Approved WIKI portable archive execution recorded to server audit history.");
+      setStatus("Approved WIKI provider adapter execution recorded to server audit history.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Approved WIKI provider execution could not be recorded.");
     }
@@ -2641,7 +2643,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         Copy provider preview
                       </button>
                       <button disabled={!approvedProviderPreview} onClick={executeApprovedProviderAdapter} type="button">
-                        Execute archive
+                        Execute adapter
                       </button>
                       <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecution} type="button">
                         Copy execution
@@ -2654,6 +2656,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>{approvedSyncTargetDryRunOnly ? "Dry-run only" : "Execution allowed"}</span>
                     <span>Adapter {selectedApprovedSyncTargetConfig?.adapter ?? "pending"}</span>
                     <span>Credential {selectedApprovedSyncTargetConfig?.credentialStatus ?? "not saved"}</span>
+                    <span>Source {selectedApprovedSyncTargetConfig?.credentialSource ?? "not saved"}</span>
+                    <span>Scope {selectedApprovedSyncTargetConfig?.credentialScope ?? approvedSyncTarget}</span>
                     <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
                   </div>
                   <div className={styles.syncTargetControls}>
