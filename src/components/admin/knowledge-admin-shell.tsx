@@ -3195,7 +3195,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package review notes">
                         {approvedProviderExecution.packageReviewNotes.length ? approvedProviderExecution.packageReviewNotes.map((note) => (
                           <article key={note.id}>
-                            <strong>{providerExecutionPackageReviewNoteCategories.find((option) => option.value === note.category)?.label ?? note.category}</strong>
+                            <strong>{getProviderExecutionPackageReviewNoteCategoryLabel(note.category)}</strong>
                             <p>{note.note}</p>
                             <span>{formatDate(note.createdAt)} / {note.reviewerId ?? "unknown reviewer"}</span>
                             <span>{note.packageDigest.slice(0, 16)} package digest</span>
@@ -3332,6 +3332,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </button>
                           )) : <span>No reviewers yet</span>}
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package note category quick filters">
+                          <button onClick={() => setApprovedProviderExecutionReviewCategoryFilter("all")} type="button">
+                            All note types
+                          </button>
+                          {approvedProviderExecutionReviewReport.summary.categoryCounts.map((item) => (
+                            <button
+                              key={item.category}
+                              onClick={() => setApprovedProviderExecutionReviewCategoryFilter(item.category)}
+                              type="button"
+                            >
+                              {getProviderExecutionPackageReviewNoteCategoryLabel(item.category)} ({item.count})
+                            </button>
+                          ))}
+                        </div>
                         <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package coverage rows">
                           {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (
                             <article key={item.executionId}>
@@ -3339,6 +3353,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               <p>{item.packageFilename}</p>
                               <span>{item.noteCount} note(s)</span>
                               <span>{item.latestReviewNoteAt ? `latest ${formatDate(item.latestReviewNoteAt)}` : `stale threshold ${item.staleDays} day(s)`}</span>
+                              <button onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)} type="button">
+                                Focus digest {item.packageDigest.slice(0, 12)}
+                              </button>
                             </article>
                           ))}
                         </div>
@@ -3357,6 +3374,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <span>{execution.packageReview.localDownloadTracked ? "local download tracked" : "local download separate"}</span>
                           <span>{execution.packageReview.reviewNoteCount} review note(s)</span>
                           <span>{execution.packageReview.latestReviewNoteAt ? `latest ${formatDate(execution.packageReview.latestReviewNoteAt)}` : "unreviewed package"}</span>
+                          <button onClick={() => setApprovedProviderExecutionDigestFilter(execution.packageReview.packageDigest)} type="button">
+                            Focus digest
+                          </button>
                           <button onClick={() => setApprovedProviderExecution(execution)} type="button">
                             Review package
                           </button>
@@ -4571,9 +4591,18 @@ function createProviderExecutionPackageReviewHandoff(report: ProviderExecutionPa
       ? report.summary.reviewerCounts.map((item) => `- ${item.reviewerId ?? "unknown"}: ${item.count}`)
       : ["- none"]),
     "",
+    "## Note category counts",
+    ...(report.summary.categoryCounts.length
+      ? report.summary.categoryCounts.map((item) => `- ${getProviderExecutionPackageReviewNoteCategoryLabel(item.category)}: ${item.count}`)
+      : ["- none"]),
+    "",
     "## Coverage",
     ...(report.coverage.slice(0, 10).map((item) => `- ${item.coverageStatus}: ${item.executionId} (${item.noteCount} note(s), ${item.packageDigest.slice(0, 16)} digest)`)),
   ].join("\n");
+}
+
+function getProviderExecutionPackageReviewNoteCategoryLabel(category: ProviderExecutionPackageReviewNoteCategory) {
+  return providerExecutionPackageReviewNoteCategories.find((option) => option.value === category)?.label ?? category;
 }
 
 function formatApprovedProviderReconciliationPackage(packageData: ApprovedProviderReconciliationPackage | null) {
