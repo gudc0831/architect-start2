@@ -3723,14 +3723,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryFilename} type="button">
                             Copy filename
                           </button>
-                          <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
-                            Reset summary status
-                          </button>
                           <button
                             onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryResetConfirmation}
                             type="button"
                           >
                             Copy reset confirmation
+                          </button>
+                          <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
+                            Reset summary status
                           </button>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
