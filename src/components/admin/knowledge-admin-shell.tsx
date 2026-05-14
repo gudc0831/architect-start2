@@ -1106,6 +1106,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const providerExecutionPackageCoverageGroupSummaryResetConfirmation = approvedProviderExecutionCoverageSummaryResetAt
     ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
     : "Local reset not run";
+  const providerExecutionPackageCoverageGroupSummaryResetConfirmationTitle = approvedProviderExecutionCoverageSummaryResetAt
+    ? `Last local reset was recorded at ${approvedProviderExecutionCoverageSummaryResetAt}. Reset summary status replaces this browser-only timestamp.`
+    : "Local reset has not run in this browser session.";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopiedAtTitle =
     approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
       ? `Reset confirmation was copied locally at ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}. Reset summary status clears this browser-only copied-at indicator.`
@@ -3784,7 +3787,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             download status
                           </span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset confirmation chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary reset confirmation chip"
+                          title={providerExecutionPackageCoverageGroupSummaryResetConfirmationTitle}
+                        >
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmation}</span>
                         </div>
                         <div
