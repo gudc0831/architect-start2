@@ -3916,31 +3916,70 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             approvedProviderExecutionReviewQueueDensity === "compact" ? styles.coverageGroupQueuesCompact : ""
                           }`}
                           aria-label="Provider execution package coverage queue groups"
+                          title="Grouped coverage queues show visible provider execution package review-state buckets under the active filters."
                         >
                           {approvedProviderExecutionReviewReport.coverage.length === 0 ? (
-                            <p className={styles.coverageQueueEmptyState}>
+                            <p
+                              className={styles.coverageQueueEmptyState}
+                              title="Queue empty state appears when no provider execution packages match the active coverage filters."
+                            >
                               No provider execution packages match the active coverage filters: {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.
                             </p>
                           ) : null}
                           {providerExecutionPackageReviewCoverageGroups.map((group) => (
-                            <section key={group.key} className={styles.coverageGroupQueue}>
+                            <section
+                              key={group.key}
+                              className={styles.coverageGroupQueue}
+                              title={`${group.title} queue shows ${group.rows.length} visible provider execution package(s) for this review-state bucket.`}
+                            >
                               <header>
                                 <strong>{group.title}</strong>
-                                <span>{group.rows.length} package(s)</span>
+                                <span
+                                  title={`${group.title} count is ${group.rows.length} visible provider execution package(s) under the active filters.`}
+                                >
+                                  {group.rows.length} package(s)
+                                </span>
                                 <p>{group.description}</p>
                               </header>
-                              <div className={styles.reviewNotes} aria-label={`${group.title} rows`}>
+                              <div
+                                className={styles.reviewNotes}
+                                aria-label={`${group.title} rows`}
+                                title={`${group.title} rows show the first visible provider execution packages in this review-state bucket.`}
+                              >
                                 {group.rows.length ? group.rows.slice(0, 4).map((item) => (
-                                  <article key={item.executionId}>
-                                    <strong>{providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} / {approvedSyncTargetLabels[item.target]}</strong>
-                                    <p>{item.packageFilename}</p>
-                                    <div className={styles.sourceChips} aria-label="Provider execution package coverage row chips">
+                                  <article
+                                    key={item.executionId}
+                                    title={`${item.packageFilename} is in the ${providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} queue for ${approvedSyncTargetLabels[item.target]}.`}
+                                  >
+                                    <strong title="Queue row status pairs review coverage state with the provider sync target.">
+                                      {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} / {approvedSyncTargetLabels[item.target]}
+                                    </strong>
+                                    <p title="Package filename identifies the local provider execution package evidence file for this queue row.">
+                                      {item.packageFilename}
+                                    </p>
+                                    <div
+                                      className={styles.sourceChips}
+                                      aria-label="Provider execution package coverage row chips"
+                                      title="Coverage row chips summarize state, review-note count, target, and latest-review or stale-threshold details."
+                                    >
                                       <span>State {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]}</span>
                                       <span>{item.noteCount} note(s)</span>
                                       <span>Target {approvedSyncTargetLabels[item.target]}</span>
-                                      <span>{item.latestReviewNoteAt ? `Latest ${formatDate(item.latestReviewNoteAt)}` : `Stale threshold ${item.staleDays} day(s)`}</span>
+                                      <span
+                                        title={
+                                          item.latestReviewNoteAt
+                                            ? "Latest-review chip shows the most recent review note date for this provider execution package."
+                                            : "Stale-threshold chip shows the active stale-day threshold for unreviewed provider execution packages."
+                                        }
+                                      >
+                                        {item.latestReviewNoteAt ? `Latest ${formatDate(item.latestReviewNoteAt)}` : `Stale threshold ${item.staleDays} day(s)`}
+                                      </span>
                                     </div>
-                                    <button onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)} type="button">
+                                    <button
+                                      onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)}
+                                      title="Focus digest filters the provider execution package review surface to this package digest without mutating review state."
+                                      type="button"
+                                    >
                                       Focus digest {item.packageDigest.slice(0, 12)}
                                     </button>
                                   </article>
