@@ -1051,6 +1051,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     providerExecutionPackageReviewActiveFilterLabels,
     providerExecutionPackageReviewCoverageGroups,
   ]);
+  const providerExecutionPackageCoverageGroupSummarySizeChips = useMemo(
+    () => [
+      `Summary lines ${providerExecutionPackageCoverageGroupSummary.split("\n").length}`,
+      `Summary chars ${providerExecutionPackageCoverageGroupSummary.length}`,
+    ],
+    [providerExecutionPackageCoverageGroupSummary],
+  );
   const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -3652,6 +3659,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary Markdown size chips">
+                          {providerExecutionPackageCoverageGroupSummarySizeChips.map((label) => (
+                            <span key={label}>{label}</span>
+                          ))}
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
