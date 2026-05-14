@@ -1106,6 +1106,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const providerExecutionPackageCoverageGroupSummaryResetConfirmation = approvedProviderExecutionCoverageSummaryResetAt
     ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
     : "Local reset not run";
+  const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopiedAtTitle =
+    approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
+      ? `Reset confirmation was copied locally at ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}. Reset summary status clears this browser-only copied-at indicator.`
+      : "Reset confirmation copied-at is pending until Copy reset confirmation succeeds locally.";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyFreshness =
     !approvedProviderExecutionCoverageSummaryResetAt
       ? "Reset confirmation copy freshness pending"
@@ -3792,6 +3796,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div
                           className={styles.sourceChips}
                           aria-label="Provider execution package coverage summary reset confirmation copied-at chip"
+                          title={providerExecutionPackageCoverageGroupSummaryResetConfirmationCopiedAtTitle}
                         >
                           <span>
                             {approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
