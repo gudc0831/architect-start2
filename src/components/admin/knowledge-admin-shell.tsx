@@ -3837,7 +3837,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         >
                           <span>Next file {providerExecutionPackageCoverageGroupSummaryNextDownloadFilename}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary Markdown size chips">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary Markdown size chips"
+                          title="Line and character counts are computed from the exact Markdown preview text used for copy and download."
+                        >
                           {providerExecutionPackageCoverageGroupSummarySizeChips.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
