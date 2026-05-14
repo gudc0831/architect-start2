@@ -3590,6 +3590,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             Copy group summary
                           </button>
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
+                          {providerExecutionPackageReviewActiveFilterLabels.map((label) => (
+                            <span key={label}>{label}</span>
+                          ))}
+                        </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
                           aria-label="Provider execution package coverage group summary preview"
