@@ -1026,6 +1026,28 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       `stale ${filters.staleDays} day(s)`,
     ].filter((label): label is string => Boolean(label));
   }, [approvedProviderExecutionReviewReport]);
+  const providerExecutionPackageCoverageGroupSummary = useMemo(() => {
+    if (!approvedProviderExecutionReviewReport) {
+      return "Provider execution package review report is not loaded.";
+    }
+    const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
+    return [
+      "# Provider execution package coverage group summary",
+      `- Filters: ${providerExecutionPackageReviewActiveFilterLabels.join(", ")}`,
+      `- Visible packages: ${totals.totalCount}`,
+      `- Reviewed packages: ${totals.reviewedCount}`,
+      `- Unreviewed packages: ${totals.unreviewedCount}`,
+      `- Stale unreviewed packages: ${totals.staleUnreviewedCount}`,
+      `- Visible review notes: ${totals.noteCount}`,
+      "",
+      "## Groups",
+      ...providerExecutionPackageReviewCoverageGroups.map((group) => `- ${group.title}: ${group.rows.length} package(s)`),
+    ].join("\n");
+  }, [
+    approvedProviderExecutionReviewReport,
+    providerExecutionPackageReviewActiveFilterLabels,
+    providerExecutionPackageReviewCoverageGroups,
+  ]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -2134,21 +2156,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Provider execution package review report is not loaded.");
       return;
     }
-    const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
-    const summary = [
-      "# Provider execution package coverage group summary",
-      `- Filters: ${providerExecutionPackageReviewActiveFilterLabels.join(", ")}`,
-      `- Visible packages: ${totals.totalCount}`,
-      `- Reviewed packages: ${totals.reviewedCount}`,
-      `- Unreviewed packages: ${totals.unreviewedCount}`,
-      `- Stale unreviewed packages: ${totals.staleUnreviewedCount}`,
-      `- Visible review notes: ${totals.noteCount}`,
-      "",
-      "## Groups",
-      ...providerExecutionPackageReviewCoverageGroups.map((group) => `- ${group.title}: ${group.rows.length} package(s)`),
-    ].join("\n");
     try {
-      await navigator.clipboard.writeText(summary);
+      await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummary);
       setStatus("Provider execution package coverage group summary copied.");
     } catch {
       setStatus("Clipboard copy failed. Review coverage group summary manually.");
@@ -3581,6 +3590,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             Copy group summary
                           </button>
                         </div>
+                        <pre
+                          className={styles.coverageGroupSummaryPreview}
+                          aria-label="Provider execution package coverage group summary preview"
+                        >
+                          {providerExecutionPackageCoverageGroupSummary}
+                        </pre>
                         <div
                           className={`${styles.coverageGroupQueues} ${
                             approvedProviderExecutionReviewQueueDensity === "compact" ? styles.coverageGroupQueuesCompact : ""
