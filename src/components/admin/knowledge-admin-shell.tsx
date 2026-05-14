@@ -497,6 +497,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     useState<ProviderExecutionPackageReviewQueueDensity>("comfortable");
   const [approvedProviderExecutionCoverageSummaryDownloadFilename, setApprovedProviderExecutionCoverageSummaryDownloadFilename] =
     useState("");
+  const [approvedProviderExecutionCoverageSummaryCopied, setApprovedProviderExecutionCoverageSummaryCopied] = useState(false);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -2173,6 +2174,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     try {
       await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummary);
+      setApprovedProviderExecutionCoverageSummaryCopied(true);
       setStatus("Provider execution package coverage group summary copied.");
     } catch {
       setStatus("Clipboard copy failed. Review coverage group summary manually.");
@@ -3635,6 +3637,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               ? `Downloaded ${approvedProviderExecutionCoverageSummaryDownloadFilename}`
                               : "Download pending"}
                           </span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary copy status chip">
+                          <span>{approvedProviderExecutionCoverageSummaryCopied ? "Copied group summary" : "Copy pending"}</span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
