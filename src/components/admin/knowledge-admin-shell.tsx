@@ -3830,7 +3830,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         >
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary next download filename chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary next download filename chip"
+                          title="Next file is the Markdown filename used by Download group summary and Copy filename local handoffs."
+                        >
                           <span>Next file {providerExecutionPackageCoverageGroupSummaryNextDownloadFilename}</span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary Markdown size chips">
