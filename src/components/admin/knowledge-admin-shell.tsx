@@ -300,6 +300,7 @@ type ApprovedProviderExecutionPackageReviewNote = {
 
 type ProviderExecutionPackageReviewCoveragePreset = "all" | "reviewed" | "unreviewed" | "stale_unreviewed";
 type ProviderExecutionPackageReviewCoverageStatus = Exclude<ProviderExecutionPackageReviewCoveragePreset, "all">;
+type ProviderExecutionPackageReviewQueueDensity = "comfortable" | "compact";
 
 type ProviderExecutionPackageReviewNoteReport = {
   generatedAt: string;
@@ -492,6 +493,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     useState<ProviderExecutionPackageReviewCoveragePreset>("all");
   const [approvedProviderExecutionReviewReviewerFilter, setApprovedProviderExecutionReviewReviewerFilter] = useState("");
   const [approvedProviderExecutionReviewStaleDays, setApprovedProviderExecutionReviewStaleDays] = useState(7);
+  const [approvedProviderExecutionReviewQueueDensity, setApprovedProviderExecutionReviewQueueDensity] =
+    useState<ProviderExecutionPackageReviewQueueDensity>("comfortable");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -3523,7 +3526,24 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </button>
                           </article>
                         </div>
-                        <div className={styles.coverageGroupQueues} aria-label="Provider execution package coverage queue groups">
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage queue density controls">
+                          {(["comfortable", "compact"] as ProviderExecutionPackageReviewQueueDensity[]).map((density) => (
+                            <button
+                              key={density}
+                              aria-pressed={approvedProviderExecutionReviewQueueDensity === density}
+                              onClick={() => setApprovedProviderExecutionReviewQueueDensity(density)}
+                              type="button"
+                            >
+                              {density === "comfortable" ? "Comfortable queue" : "Compact queue"}
+                            </button>
+                          ))}
+                        </div>
+                        <div
+                          className={`${styles.coverageGroupQueues} ${
+                            approvedProviderExecutionReviewQueueDensity === "compact" ? styles.coverageGroupQueuesCompact : ""
+                          }`}
+                          aria-label="Provider execution package coverage queue groups"
+                        >
                           {providerExecutionPackageReviewCoverageGroups.map((group) => (
                             <section key={group.key} className={styles.coverageGroupQueue}>
                               <header>

@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 387 provider execution package review coverage queue density controls.
+Diff: Added local comfortable/compact density controls for grouped provider execution package coverage queues; updated `사용자 가이드.md`.
+Why: Reviewers need a denser scan mode for grouped package coverage rows without changing filters or review state.
+Verify/Time: Passed 2026-05-14 10:08 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` unchanged-report validation; `npm run build`; Browser UI validation confirmed comfortable/compact density toggles, preserved digest focus actions, and mobile comfortable toggle. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

@@ -1037,6 +1037,24 @@
   font-weight: 800;
 }
 
+.coverageGroupQueuesCompact {
+  gap: 0.35rem;
+}
+
+.coverageGroupQueuesCompact .coverageGroupQueue {
+  gap: 0.3rem;
+  padding: 0.45rem;
+}
+
+.coverageGroupQueuesCompact .reviewNotes article {
+  gap: 0.18rem;
+  padding: 0.4rem;
+}
+
+.coverageGroupQueuesCompact .reviewNotes p {
+  line-height: 1.25;
+}
+
 .handoffPreview {
   display: grid;
   gap: 0.55rem;
