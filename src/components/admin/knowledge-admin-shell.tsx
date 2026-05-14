@@ -3714,7 +3714,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </button>
                           </article>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage queue density controls">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage queue density controls"
+                          title="Queue density controls change only local grouped coverage queue spacing for review scanning."
+                        >
                           {(["comfortable", "compact"] as ProviderExecutionPackageReviewQueueDensity[]).map((density) => (
                             <button
                               key={density}
@@ -3750,27 +3754,47 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             Reset summary status
                           </button>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary filter chips"
+                          title="Summary filter chips show the active provider execution package review scope used by the preview and local handoffs."
+                        >
                           {providerExecutionPackageReviewActiveFilterLabels.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary count chips">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary count chips"
+                          title="Summary count chips show visible, reviewed, unreviewed, stale, and note totals used by the copied Markdown summary."
+                        >
                           {providerExecutionPackageCoverageSummaryCountChips.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary download status chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary download status chip"
+                          title="Download status is browser-only and updates after Download group summary creates the local Markdown file."
+                        >
                           <span>
                             {approvedProviderExecutionCoverageSummaryDownloadFilename
                               ? `Downloaded ${approvedProviderExecutionCoverageSummaryDownloadFilename}`
                               : "Download pending"}
                           </span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary copy status chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary copy status chip"
+                          title="Copy status is browser-only and updates after Copy group summary succeeds locally."
+                        >
                           <span>{approvedProviderExecutionCoverageSummaryCopied ? "Copied group summary" : "Copy pending"}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filename copy status chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary filename copy status chip"
+                          title="Filename copy status is browser-only and updates after Copy filename succeeds locally."
+                        >
                           <span>
                             {approvedProviderExecutionCoverageSummaryCopiedFilename
                               ? `Copied filename ${approvedProviderExecutionCoverageSummaryCopiedFilename}`
@@ -3860,13 +3884,25 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         >
                           <span>{providerExecutionPackageCoverageEmptyQueueChip}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary review-needed chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary review-needed chip"
+                          title="Review-needed count shows visible provider execution packages that still have no matching review note."
+                        >
                           <span>{providerExecutionPackageCoverageReviewNeededChip}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary stale priority chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary stale priority chip"
+                          title="Stale priority shows whether visible unreviewed provider execution packages exceed the active stale-day threshold."
+                        >
                           <span>{providerExecutionPackageCoverageStalePriorityChip}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary local-only handoff chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary local-only handoff chip"
+                          title="Local handoff only means copy and download actions do not create a server archive or mutate provider review state."
+                        >
                           <span>Local handoff only, not server archived</span>
                         </div>
                         <pre
