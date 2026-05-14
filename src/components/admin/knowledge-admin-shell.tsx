@@ -3767,7 +3767,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset explanation chip">
-                          <span>Reset clears local summary, filename, reset-copy, and download status only</span>
+                          <span>
+                            Reset clears browser-only summary copy, filename copy, reset-confirmation copy, copied-at, and
+                            download status
+                          </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset confirmation chip">
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmation}</span>
