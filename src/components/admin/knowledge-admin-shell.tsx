@@ -3718,6 +3718,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               : "Filename copy pending"}
                           </span>
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset explanation chip">
+                          <span>Reset clears local summary, filename, and download status only</span>
+                        </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
                         </div>
