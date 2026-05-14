@@ -498,6 +498,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderExecutionCoverageSummaryDownloadFilename, setApprovedProviderExecutionCoverageSummaryDownloadFilename] =
     useState("");
   const [approvedProviderExecutionCoverageSummaryCopied, setApprovedProviderExecutionCoverageSummaryCopied] = useState(false);
+  const [approvedProviderExecutionCoverageSummaryCopiedFilename, setApprovedProviderExecutionCoverageSummaryCopiedFilename] =
+    useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -2222,6 +2224,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovedProviderExecutionPackageCoverageGroupSummaryFilename() {
+    if (!approvedProviderExecutionReviewReport) {
+      setStatus("Provider execution package review report is not loaded.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummaryNextDownloadFilename);
+      setApprovedProviderExecutionCoverageSummaryCopiedFilename(providerExecutionPackageCoverageGroupSummaryNextDownloadFilename);
+      setStatus("Provider execution package coverage group summary filename copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review coverage group summary filename manually.");
+    }
+  }
+
   function downloadApprovedProviderExecutionPackageCoverageGroupSummary() {
     if (!approvedProviderExecutionReviewReport) {
       setStatus("Provider execution package review report is not loaded.");
@@ -2236,6 +2252,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   function resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus() {
     setApprovedProviderExecutionCoverageSummaryDownloadFilename("");
     setApprovedProviderExecutionCoverageSummaryCopied(false);
+    setApprovedProviderExecutionCoverageSummaryCopiedFilename("");
     setStatus("Provider execution package coverage group summary local status reset.");
   }
 
@@ -3667,6 +3684,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <button onClick={downloadApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
                             Download group summary
                           </button>
+                          <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryFilename} type="button">
+                            Copy filename
+                          </button>
                           <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
                             Reset summary status
                           </button>
@@ -3690,6 +3710,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary copy status chip">
                           <span>{approvedProviderExecutionCoverageSummaryCopied ? "Copied group summary" : "Copy pending"}</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filename copy status chip">
+                          <span>
+                            {approvedProviderExecutionCoverageSummaryCopiedFilename
+                              ? `Copied filename ${approvedProviderExecutionCoverageSummaryCopiedFilename}`
+                              : "Filename copy pending"}
+                          </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
