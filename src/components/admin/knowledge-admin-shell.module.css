@@ -963,6 +963,33 @@
   gap: 0.5rem;
 }
 
+.coverageGroupTotals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+}
+
+.coverageGroupTotals article {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+}
+
+.coverageGroupTotals strong {
+  font-size: 0.78rem;
+}
+
+.coverageGroupTotals span {
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .handoffPreview {
   display: grid;
   gap: 0.55rem;

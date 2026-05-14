@@ -316,6 +316,13 @@ type ProviderExecutionPackageReviewNoteReport = {
     unreviewedCount: number;
     staleUnreviewedCount: number;
     noteCount: number;
+    coverageGroupTotals: {
+      totalCount: number;
+      reviewedCount: number;
+      unreviewedCount: number;
+      staleUnreviewedCount: number;
+      noteCount: number;
+    };
     reviewerCounts: { reviewerId: string | null; count: number }[];
     categoryCounts: { category: ProviderExecutionPackageReviewNoteCategory; count: number }[];
   };
@@ -3450,6 +3457,28 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               {getProviderExecutionPackageReviewNoteCategoryLabel(item.category)} ({item.count})
                             </button>
                           ))}
+                        </div>
+                        <div className={styles.coverageGroupTotals} aria-label="Provider execution package coverage queue group totals">
+                          <article>
+                            <strong>All visible</strong>
+                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.totalCount} package(s)</span>
+                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.noteCount} note(s)</span>
+                          </article>
+                          <article>
+                            <strong>Reviewed</strong>
+                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.reviewedCount} package(s)</span>
+                            <span>Has package review notes</span>
+                          </article>
+                          <article>
+                            <strong>Unreviewed</strong>
+                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.unreviewedCount} package(s)</span>
+                            <span>No matching review notes</span>
+                          </article>
+                          <article>
+                            <strong>Stale</strong>
+                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.staleUnreviewedCount} package(s)</span>
+                            <span>{approvedProviderExecutionReviewReport.filters.staleDays} day threshold</span>
+                          </article>
                         </div>
                         <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package coverage rows">
                           {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (

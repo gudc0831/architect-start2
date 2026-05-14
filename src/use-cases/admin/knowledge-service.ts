@@ -287,6 +287,13 @@ export type KnowledgeProviderExecutionPackageReviewNoteReport = {
     unreviewedCount: number;
     staleUnreviewedCount: number;
     noteCount: number;
+    coverageGroupTotals: {
+      totalCount: number;
+      reviewedCount: number;
+      unreviewedCount: number;
+      staleUnreviewedCount: number;
+      noteCount: number;
+    };
     reviewerCounts: { reviewerId: string | null; count: number }[];
     categoryCounts: { category: KnowledgeProviderExecutionPackageReviewNoteCategory; count: number }[];
   };
@@ -692,12 +699,12 @@ export async function getKnowledgeProviderExecutionPackageReviewNoteReport(
   const coveragePreset = normalizeProviderExecutionPackageReviewCoveragePreset(input.coveragePreset);
   const staleDays = normalizePositiveInteger(input.staleDays, 7, 0, 365);
   const executions = await listKnowledgeProviderExecutions();
-  const coverage = executions
+  const coverageBeforeReviewNoteFilters = executions
     .map((execution) => toProviderExecutionPackageReviewCoverageItem(execution, staleDays))
     .filter((item) => matchesProviderExecutionPackageCoveragePreset(item, coveragePreset))
     .filter((item) => !packageDigest || item.packageDigest.toLowerCase().includes(packageDigest))
     .filter((item) => !executionId || item.executionId.toLowerCase().includes(executionId));
-  const visibleExecutionIds = new Set(coverage.map((item) => item.executionId));
+  const visibleExecutionIds = new Set(coverageBeforeReviewNoteFilters.map((item) => item.executionId));
   const notes = executions
     .flatMap((execution) => execution.packageReviewNotes.map((note) => toProviderExecutionPackageReviewNoteReportItem(note, execution)))
     .filter((note) => visibleExecutionIds.has(note.executionId))
@@ -705,6 +712,10 @@ export async function getKnowledgeProviderExecutionPackageReviewNoteReport(
     .filter((note) => !reviewerId || (note.reviewerId ?? "").toLowerCase().includes(reviewerId))
     .filter((note) => !packageDigest || note.packageDigest.toLowerCase().includes(packageDigest))
     .filter((note) => !executionId || note.executionId.toLowerCase().includes(executionId));
+  const filteredNoteExecutionIds = new Set(notes.map((note) => note.executionId));
+  const coverage = category || reviewerId
+    ? coverageBeforeReviewNoteFilters.filter((item) => filteredNoteExecutionIds.has(item.executionId))
+    : coverageBeforeReviewNoteFilters;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -716,7 +727,10 @@ export async function getKnowledgeProviderExecutionPackageReviewNoteReport(
       coveragePreset,
       staleDays,
     },
-    summary: summarizeProviderExecutionPackageReview(executions, staleDays),
+    summary: {
+      ...summarizeProviderExecutionPackageReview(executions, staleDays),
+      coverageGroupTotals: summarizeProviderExecutionPackageCoverageGroups(coverage, notes),
+    },
     notes,
     coverage,
   };
@@ -2203,6 +2217,20 @@ function summarizeProviderExecutionPackageReview(
       category,
       count: categoryCountMap.get(category) ?? 0,
     })),
+    coverageGroupTotals: summarizeProviderExecutionPackageCoverageGroups(coverage, notes),
+  };
+}
+
+function summarizeProviderExecutionPackageCoverageGroups(
+  coverage: KnowledgeProviderExecutionPackageReviewCoverageItem[],
+  notes: KnowledgeProviderExecutionPackageReviewNote[],
+): KnowledgeProviderExecutionPackageReviewNoteReport["summary"]["coverageGroupTotals"] {
+  return {
+    totalCount: coverage.length,
+    reviewedCount: coverage.filter((item) => item.coverageStatus === "reviewed").length,
+    unreviewedCount: coverage.filter((item) => item.coverageStatus === "unreviewed").length,
+    staleUnreviewedCount: coverage.filter((item) => item.coverageStatus === "stale_unreviewed").length,
+    noteCount: notes.length,
   };
 }
 
