@@ -1026,6 +1026,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     const emptyQueueCount = providerExecutionPackageReviewCoverageGroups.filter((group) => group.rows.length === 0).length;
     return `Empty queues ${emptyQueueCount}/${providerExecutionPackageReviewCoverageGroups.length}`;
   }, [providerExecutionPackageReviewCoverageGroups]);
+  const providerExecutionPackageCoverageReviewNeededChip = useMemo(() => {
+    const totals = approvedProviderExecutionReviewReport?.summary.coverageGroupTotals;
+    if (!totals) {
+      return "Needs review unavailable";
+    }
+    return `Needs review ${totals.unreviewedCount}`;
+  }, [approvedProviderExecutionReviewReport]);
   const providerExecutionPackageReviewActiveFilterLabels = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -3681,6 +3688,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary empty queue count chip">
                           <span>{providerExecutionPackageCoverageEmptyQueueChip}</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary review-needed chip">
+                          <span>{providerExecutionPackageCoverageReviewNeededChip}</span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
