@@ -1086,6 +1086,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     ],
     [providerExecutionPackageCoverageGroupSummary],
   );
+  const providerExecutionPackageCoverageGroupSummaryNextDownloadFilename = useMemo(
+    () => approvedProviderExecutionReviewReport
+      ? createProviderExecutionPackageCoverageSummaryFilename(approvedProviderExecutionReviewReport.generatedAt)
+      : "Next filename unavailable",
+    [approvedProviderExecutionReviewReport],
+  );
   const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -2221,7 +2227,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus("Provider execution package review report is not loaded.");
       return;
     }
-    const filename = `provider-execution-package-coverage-summary-${approvedProviderExecutionReviewReport.generatedAt.slice(0, 10)}.md`;
+    const filename = providerExecutionPackageCoverageGroupSummaryNextDownloadFilename;
     downloadTextFile(filename, providerExecutionPackageCoverageGroupSummary, "text/markdown");
     setApprovedProviderExecutionCoverageSummaryDownloadFilename(filename);
     setStatus("Provider execution package coverage group summary downloaded.");
@@ -3688,6 +3694,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary next download filename chip">
+                          <span>Next file {providerExecutionPackageCoverageGroupSummaryNextDownloadFilename}</span>
+                        </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary Markdown size chips">
                           {providerExecutionPackageCoverageGroupSummarySizeChips.map((label) => (
                             <span key={label}>{label}</span>
@@ -5135,6 +5144,10 @@ function downloadTextFile(filename: string, content: string, mimeType: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function createProviderExecutionPackageCoverageSummaryFilename(generatedAt: string) {
+  return `provider-execution-package-coverage-summary-${generatedAt.slice(0, 10)}.md`;
 }
 
 function readChecklistStatus(
