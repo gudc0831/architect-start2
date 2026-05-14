@@ -2177,6 +2177,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  function downloadApprovedProviderExecutionPackageCoverageGroupSummary() {
+    if (!approvedProviderExecutionReviewReport) {
+      setStatus("Provider execution package review report is not loaded.");
+      return;
+    }
+    const filename = `provider-execution-package-coverage-summary-${approvedProviderExecutionReviewReport.generatedAt.slice(0, 10)}.md`;
+    downloadTextFile(filename, providerExecutionPackageCoverageGroupSummary, "text/markdown");
+    setStatus("Provider execution package coverage group summary downloaded.");
+  }
+
   function clearApprovedProviderExecutionReviewShortcutFilters() {
     setApprovedProviderExecutionDigestFilter("");
     setApprovedProviderExecutionReviewCategoryFilter("all");
@@ -3601,6 +3611,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           ))}
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
                             Copy group summary
+                          </button>
+                          <button onClick={downloadApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
+                            Download group summary
                           </button>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
