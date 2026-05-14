@@ -1015,6 +1015,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       },
     ];
   }, [approvedProviderExecutionReviewReport]);
+  const providerExecutionPackageCoverageDominantQueueChip = useMemo(() => {
+    const [dominantGroup] = [...providerExecutionPackageReviewCoverageGroups].sort((first, second) => second.rows.length - first.rows.length);
+    if (!dominantGroup || dominantGroup.rows.length === 0) {
+      return "Dominant queue none";
+    }
+    return `Dominant queue ${dominantGroup.title} (${dominantGroup.rows.length})`;
+  }, [providerExecutionPackageReviewCoverageGroups]);
   const providerExecutionPackageReviewActiveFilterLabels = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -3664,6 +3671,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           {providerExecutionPackageCoverageGroupSummarySizeChips.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary dominant queue chip">
+                          <span>{providerExecutionPackageCoverageDominantQueueChip}</span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
