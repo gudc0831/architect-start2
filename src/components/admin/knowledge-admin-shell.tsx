@@ -501,6 +501,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderExecutionCoverageSummaryCopiedFilename, setApprovedProviderExecutionCoverageSummaryCopiedFilename] =
     useState("");
   const [approvedProviderExecutionCoverageSummaryResetAt, setApprovedProviderExecutionCoverageSummaryResetAt] = useState("");
+  const [
+    approvedProviderExecutionCoverageSummaryCopiedResetConfirmation,
+    setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation,
+  ] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -1095,6 +1099,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       : "Next filename unavailable",
     [approvedProviderExecutionReviewReport],
   );
+  const providerExecutionPackageCoverageGroupSummaryResetConfirmation = approvedProviderExecutionCoverageSummaryResetAt
+    ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
+    : "Local reset not run";
   const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -2239,6 +2246,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovedProviderExecutionPackageCoverageGroupSummaryResetConfirmation() {
+    try {
+      await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummaryResetConfirmation);
+      setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation(
+        providerExecutionPackageCoverageGroupSummaryResetConfirmation,
+      );
+      setStatus("Provider execution package coverage group summary reset confirmation copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review coverage group summary reset confirmation manually.");
+    }
+  }
+
   function downloadApprovedProviderExecutionPackageCoverageGroupSummary() {
     if (!approvedProviderExecutionReviewReport) {
       setStatus("Provider execution package review report is not loaded.");
@@ -2254,6 +2273,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setApprovedProviderExecutionCoverageSummaryDownloadFilename("");
     setApprovedProviderExecutionCoverageSummaryCopied(false);
     setApprovedProviderExecutionCoverageSummaryCopiedFilename("");
+    setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation("");
     setApprovedProviderExecutionCoverageSummaryResetAt(new Date().toISOString());
     setStatus("Provider execution package coverage group summary local status reset.");
   }
@@ -3692,6 +3712,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
                             Reset summary status
                           </button>
+                          <button
+                            onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryResetConfirmation}
+                            type="button"
+                          >
+                            Copy reset confirmation
+                          </button>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
                           {providerExecutionPackageReviewActiveFilterLabels.map((label) => (
@@ -3721,13 +3747,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset explanation chip">
-                          <span>Reset clears local summary, filename, and download status only</span>
+                          <span>Reset clears local summary, filename, reset-copy, and download status only</span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset confirmation chip">
+                          <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmation}</span>
+                        </div>
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary reset confirmation copy status chip"
+                        >
                           <span>
-                            {approvedProviderExecutionCoverageSummaryResetAt
-                              ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
-                              : "Local reset not run"}
+                            {approvedProviderExecutionCoverageSummaryCopiedResetConfirmation
+                              ? `Copied reset confirmation ${approvedProviderExecutionCoverageSummaryCopiedResetConfirmation}`
+                              : "Reset confirmation copy pending"}
                           </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
