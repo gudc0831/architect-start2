@@ -2090,6 +2090,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setStatus("Provider execution package review shortcut filters cleared.");
   }
 
+  function showApprovedProviderExecutionReviewCoverageGroup(preset: ProviderExecutionPackageReviewCoveragePreset) {
+    setApprovedProviderExecutionReviewCoveragePreset(preset);
+    setStatus(`Provider execution package review coverage filter set to ${preset}.`);
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -3468,16 +3473,25 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             <strong>Reviewed</strong>
                             <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.reviewedCount} package(s)</span>
                             <span>Has package review notes</span>
+                            <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("reviewed")} type="button">
+                              Focus reviewed
+                            </button>
                           </article>
                           <article>
                             <strong>Unreviewed</strong>
                             <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.unreviewedCount} package(s)</span>
                             <span>No matching review notes</span>
+                            <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("unreviewed")} type="button">
+                              Focus unreviewed
+                            </button>
                           </article>
                           <article>
                             <strong>Stale</strong>
                             <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.staleUnreviewedCount} package(s)</span>
                             <span>{approvedProviderExecutionReviewReport.filters.staleDays} day threshold</span>
+                            <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("stale_unreviewed")} type="button">
+                              Focus stale
+                            </button>
                           </article>
                         </div>
                         <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package coverage rows">

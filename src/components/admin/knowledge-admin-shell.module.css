@@ -990,6 +990,20 @@
   overflow-wrap: anywhere;
 }
 
+.coverageGroupTotals button {
+  justify-self: start;
+  min-height: 2rem;
+  margin-top: 0.15rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--theme-accent-border-strong);
+  border-radius: 6px;
+  background: var(--theme-surface);
+  color: var(--theme-accent-text);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .handoffPreview {
   display: grid;
   gap: 0.55rem;
