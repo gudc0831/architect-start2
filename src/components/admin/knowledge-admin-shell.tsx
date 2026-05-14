@@ -980,6 +980,29 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => createProviderExecutionPackageReviewHandoff(approvedProviderExecutionReviewReport),
     [approvedProviderExecutionReviewReport],
   );
+  const providerExecutionPackageReviewCoverageGroups = useMemo(() => {
+    const coverage = approvedProviderExecutionReviewReport?.coverage ?? [];
+    return [
+      {
+        key: "stale",
+        title: "Stale review queue",
+        description: "Unreviewed packages older than the active stale threshold.",
+        rows: coverage.filter((item) => item.coverageStatus === "stale_unreviewed"),
+      },
+      {
+        key: "unreviewed",
+        title: "Unreviewed queue",
+        description: "Packages that still need a matching review note.",
+        rows: coverage.filter((item) => item.coverageStatus === "unreviewed"),
+      },
+      {
+        key: "reviewed",
+        title: "Reviewed queue",
+        description: "Packages with retained review notes in the active scope.",
+        rows: coverage.filter((item) => item.coverageStatus === "reviewed"),
+      },
+    ];
+  }, [approvedProviderExecutionReviewReport]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -3494,17 +3517,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </button>
                           </article>
                         </div>
-                        <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package coverage rows">
-                          {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (
-                            <article key={item.executionId}>
-                              <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
-                              <p>{item.packageFilename}</p>
-                              <span>{item.noteCount} note(s)</span>
-                              <span>{item.latestReviewNoteAt ? `latest ${formatDate(item.latestReviewNoteAt)}` : `stale threshold ${item.staleDays} day(s)`}</span>
-                              <button onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)} type="button">
-                                Focus digest {item.packageDigest.slice(0, 12)}
-                              </button>
-                            </article>
+                        <div className={styles.coverageGroupQueues} aria-label="Provider execution package coverage queue groups">
+                          {providerExecutionPackageReviewCoverageGroups.map((group) => (
+                            <section key={group.key} className={styles.coverageGroupQueue}>
+                              <header>
+                                <strong>{group.title}</strong>
+                                <span>{group.rows.length} package(s)</span>
+                                <p>{group.description}</p>
+                              </header>
+                              <div className={styles.reviewNotes} aria-label={`${group.title} rows`}>
+                                {group.rows.length ? group.rows.slice(0, 4).map((item) => (
+                                  <article key={item.executionId}>
+                                    <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
+                                    <p>{item.packageFilename}</p>
+                                    <span>{item.noteCount} note(s)</span>
+                                    <span>{item.latestReviewNoteAt ? `latest ${formatDate(item.latestReviewNoteAt)}` : `stale threshold ${item.staleDays} day(s)`}</span>
+                                    <button onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)} type="button">
+                                      Focus digest {item.packageDigest.slice(0, 12)}
+                                    </button>
+                                  </article>
+                                )) : (
+                                  <p>No provider execution packages match this review group.</p>
+                                )}
+                              </div>
+                            </section>
                           ))}
                         </div>
                       </div>
