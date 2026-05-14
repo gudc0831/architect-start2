@@ -3846,7 +3846,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             <span key={label}>{label}</span>
                           ))}
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary dominant queue chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary dominant queue chip"
+                          title="Dominant queue identifies the currently largest visible provider execution package coverage queue."
+                        >
                           <span>{providerExecutionPackageCoverageDominantQueueChip}</span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary empty queue count chip">
