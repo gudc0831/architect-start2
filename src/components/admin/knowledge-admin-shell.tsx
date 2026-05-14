@@ -2129,6 +2129,32 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
   }
 
+  async function copyApprovedProviderExecutionPackageCoverageGroupSummary() {
+    if (!approvedProviderExecutionReviewReport) {
+      setStatus("Provider execution package review report is not loaded.");
+      return;
+    }
+    const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
+    const summary = [
+      "# Provider execution package coverage group summary",
+      `- Filters: ${providerExecutionPackageReviewActiveFilterLabels.join(", ")}`,
+      `- Visible packages: ${totals.totalCount}`,
+      `- Reviewed packages: ${totals.reviewedCount}`,
+      `- Unreviewed packages: ${totals.unreviewedCount}`,
+      `- Stale unreviewed packages: ${totals.staleUnreviewedCount}`,
+      `- Visible review notes: ${totals.noteCount}`,
+      "",
+      "## Groups",
+      ...providerExecutionPackageReviewCoverageGroups.map((group) => `- ${group.title}: ${group.rows.length} package(s)`),
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(summary);
+      setStatus("Provider execution package coverage group summary copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review coverage group summary manually.");
+    }
+  }
+
   function clearApprovedProviderExecutionReviewShortcutFilters() {
     setApprovedProviderExecutionDigestFilter("");
     setApprovedProviderExecutionReviewCategoryFilter("all");
@@ -3551,6 +3577,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               {density === "comfortable" ? "Comfortable queue" : "Compact queue"}
                             </button>
                           ))}
+                          <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
+                            Copy group summary
+                          </button>
                         </div>
                         <div
                           className={`${styles.coverageGroupQueues} ${
