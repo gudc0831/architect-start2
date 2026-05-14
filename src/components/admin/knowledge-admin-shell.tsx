@@ -3650,6 +3650,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary copy status chip">
                           <span>{approvedProviderExecutionCoverageSummaryCopied ? "Copied group summary" : "Copy pending"}</span>
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
+                          <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
+                        </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
                           aria-label="Provider execution package coverage group summary preview"
