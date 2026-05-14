@@ -495,6 +495,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderExecutionReviewStaleDays, setApprovedProviderExecutionReviewStaleDays] = useState(7);
   const [approvedProviderExecutionReviewQueueDensity, setApprovedProviderExecutionReviewQueueDensity] =
     useState<ProviderExecutionPackageReviewQueueDensity>("comfortable");
+  const [approvedProviderExecutionCoverageSummaryDownloadFilename, setApprovedProviderExecutionCoverageSummaryDownloadFilename] =
+    useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -2184,6 +2186,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     const filename = `provider-execution-package-coverage-summary-${approvedProviderExecutionReviewReport.generatedAt.slice(0, 10)}.md`;
     downloadTextFile(filename, providerExecutionPackageCoverageGroupSummary, "text/markdown");
+    setApprovedProviderExecutionCoverageSummaryDownloadFilename(filename);
     setStatus("Provider execution package coverage group summary downloaded.");
   }
 
@@ -3625,6 +3628,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           {providerExecutionPackageCoverageSummaryCountChips.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary download status chip">
+                          <span>
+                            {approvedProviderExecutionCoverageSummaryDownloadFilename
+                              ? `Downloaded ${approvedProviderExecutionCoverageSummaryDownloadFilename}`
+                              : "Download pending"}
+                          </span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
