@@ -3705,6 +3705,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary stale priority chip">
                           <span>{providerExecutionPackageCoverageStalePriorityChip}</span>
                         </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary local-only handoff chip">
+                          <span>Local handoff only, not server archived</span>
+                        </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
                           aria-label="Provider execution package coverage group summary preview"
