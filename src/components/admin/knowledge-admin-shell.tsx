@@ -3714,6 +3714,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               {density === "comfortable" ? "Comfortable queue" : "Compact queue"}
                             </button>
                           ))}
+                        </div>
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary local handoff actions"
+                        >
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
                             Copy group summary
                           </button>
