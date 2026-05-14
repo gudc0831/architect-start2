@@ -1112,6 +1112,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       : approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
         ? "Reset confirmation copy current"
         : "Reset confirmation copy refresh needed";
+  const providerExecutionPackageCoverageGroupSummaryResetConfirmationFreshnessTitle =
+    "Pending before reset; refresh needed after reset until the latest reset confirmation is copied; current after Copy reset confirmation.";
   const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -3787,6 +3789,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div
                           className={styles.sourceChips}
                           aria-label="Provider execution package coverage summary reset confirmation freshness chip"
+                          title={providerExecutionPackageCoverageGroupSummaryResetConfirmationFreshnessTitle}
                         >
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyFreshness}</span>
                         </div>
