@@ -1033,6 +1033,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     return `Needs review ${totals.unreviewedCount}`;
   }, [approvedProviderExecutionReviewReport]);
+  const providerExecutionPackageCoverageStalePriorityChip = useMemo(() => {
+    const report = approvedProviderExecutionReviewReport;
+    if (!report) {
+      return "Priority stale unavailable";
+    }
+    const staleCount = report.summary.coverageGroupTotals.staleUnreviewedCount;
+    return staleCount > 0
+      ? `Priority stale ${staleCount} over ${report.filters.staleDays}d`
+      : `Priority no stale packages over ${report.filters.staleDays}d`;
+  }, [approvedProviderExecutionReviewReport]);
   const providerExecutionPackageReviewActiveFilterLabels = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
@@ -3691,6 +3701,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary review-needed chip">
                           <span>{providerExecutionPackageCoverageReviewNeededChip}</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary stale priority chip">
+                          <span>{providerExecutionPackageCoverageStalePriorityChip}</span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
