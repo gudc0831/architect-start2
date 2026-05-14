@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 386 provider execution package review coverage group row chips.
+Diff: Added compact review-state, note-count, target, and stale/latest chips to grouped provider execution package coverage rows; updated `사용자 가이드.md`.
+Why: Reviewers need grouped coverage rows to expose the key scan fields without reading each row sentence.
+Verify/Time: Passed 2026-05-14 09:56 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` row-field validation; `npm run build`; Browser UI validation at 1440x900 and 390x844 confirmed state, note-count, target, and stale-threshold chips. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

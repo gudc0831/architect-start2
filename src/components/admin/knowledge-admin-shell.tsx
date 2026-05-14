@@ -299,6 +299,7 @@ type ApprovedProviderExecutionPackageReviewNote = {
 };
 
 type ProviderExecutionPackageReviewCoveragePreset = "all" | "reviewed" | "unreviewed" | "stale_unreviewed";
+type ProviderExecutionPackageReviewCoverageStatus = Exclude<ProviderExecutionPackageReviewCoveragePreset, "all">;
 
 type ProviderExecutionPackageReviewNoteReport = {
   generatedAt: string;
@@ -429,6 +430,11 @@ const providerExecutionPackageReviewNoteCategories: { value: ProviderExecutionPa
   { value: "follow_up", label: "Follow-up" },
   { value: "approval_context", label: "Approval context" },
 ];
+const providerExecutionPackageReviewCoverageStatusLabels: Record<ProviderExecutionPackageReviewCoverageStatus, string> = {
+  reviewed: "Reviewed",
+  unreviewed: "Unreviewed",
+  stale_unreviewed: "Stale unreviewed",
+};
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
@@ -3528,10 +3534,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               <div className={styles.reviewNotes} aria-label={`${group.title} rows`}>
                                 {group.rows.length ? group.rows.slice(0, 4).map((item) => (
                                   <article key={item.executionId}>
-                                    <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
+                                    <strong>{providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} / {approvedSyncTargetLabels[item.target]}</strong>
                                     <p>{item.packageFilename}</p>
-                                    <span>{item.noteCount} note(s)</span>
-                                    <span>{item.latestReviewNoteAt ? `latest ${formatDate(item.latestReviewNoteAt)}` : `stale threshold ${item.staleDays} day(s)`}</span>
+                                    <div className={styles.sourceChips} aria-label="Provider execution package coverage row chips">
+                                      <span>State {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]}</span>
+                                      <span>{item.noteCount} note(s)</span>
+                                      <span>Target {approvedSyncTargetLabels[item.target]}</span>
+                                      <span>{item.latestReviewNoteAt ? `Latest ${formatDate(item.latestReviewNoteAt)}` : `Stale threshold ${item.staleDays} day(s)`}</span>
+                                    </div>
                                     <button onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)} type="button">
                                       Focus digest {item.packageDigest.slice(0, 12)}
                                     </button>
