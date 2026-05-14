@@ -3853,7 +3853,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         >
                           <span>{providerExecutionPackageCoverageDominantQueueChip}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary empty queue count chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary empty queue count chip"
+                          title="Empty queue count shows how many visible provider execution package coverage queues have no packages under the active filters."
+                        >
                           <span>{providerExecutionPackageCoverageEmptyQueueChip}</span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary review-needed chip">
