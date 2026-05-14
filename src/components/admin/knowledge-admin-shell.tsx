@@ -3823,7 +3823,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         >
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyFreshness}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary generated-at chip"
+                          title="Generated-at is the provider review report timestamp used by the visible preview and local handoff actions."
+                        >
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary next download filename chip">
