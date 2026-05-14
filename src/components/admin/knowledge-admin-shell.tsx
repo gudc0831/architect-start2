@@ -3718,6 +3718,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <div
                           className={styles.sourceChips}
                           aria-label="Provider execution package coverage summary local handoff actions"
+                          title="Local handoff actions copy, download, and reset browser-only provider execution package coverage summary status."
                         >
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
                             Copy group summary
