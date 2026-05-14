@@ -505,6 +505,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedProviderExecutionCoverageSummaryCopiedResetConfirmation,
     setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation,
   ] = useState("");
+  const [
+    approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt,
+    setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt,
+  ] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -2252,6 +2256,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation(
         providerExecutionPackageCoverageGroupSummaryResetConfirmation,
       );
+      setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt(new Date().toISOString());
       setStatus("Provider execution package coverage group summary reset confirmation copied.");
     } catch {
       setStatus("Clipboard copy failed. Review coverage group summary reset confirmation manually.");
@@ -2274,6 +2279,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setApprovedProviderExecutionCoverageSummaryCopied(false);
     setApprovedProviderExecutionCoverageSummaryCopiedFilename("");
     setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation("");
+    setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt("");
     setApprovedProviderExecutionCoverageSummaryResetAt(new Date().toISOString());
     setStatus("Provider execution package coverage group summary local status reset.");
   }
@@ -3760,6 +3766,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             {approvedProviderExecutionCoverageSummaryCopiedResetConfirmation
                               ? `Copied reset confirmation ${approvedProviderExecutionCoverageSummaryCopiedResetConfirmation}`
                               : "Reset confirmation copy pending"}
+                          </span>
+                        </div>
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary reset confirmation copied-at chip"
+                        >
+                          <span>
+                            {approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
+                              ? `Reset confirmation copied at ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}`
+                              : "Reset confirmation copied-at pending"}
                           </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
