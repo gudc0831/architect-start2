@@ -1048,6 +1048,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     providerExecutionPackageReviewActiveFilterLabels,
     providerExecutionPackageReviewCoverageGroups,
   ]);
+  const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
+    if (!approvedProviderExecutionReviewReport) {
+      return [];
+    }
+    const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
+    return [
+      `Visible ${totals.totalCount}`,
+      `Reviewed ${totals.reviewedCount}`,
+      `Unreviewed ${totals.unreviewedCount}`,
+      `Stale ${totals.staleUnreviewedCount}`,
+      `Notes ${totals.noteCount}`,
+    ];
+  }, [approvedProviderExecutionReviewReport]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -3592,6 +3605,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
                           {providerExecutionPackageReviewActiveFilterLabels.map((label) => (
+                            <span key={label}>{label}</span>
+                          ))}
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary count chips">
+                          {providerExecutionPackageCoverageSummaryCountChips.map((label) => (
                             <span key={label}>{label}</span>
                           ))}
                         </div>

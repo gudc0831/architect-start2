@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 392 provider execution package review coverage group summary count chips.
+Diff: Added read-only visible, reviewed, unreviewed, stale, and note count chips above the provider execution package coverage group summary preview; updated `사용자 가이드.md`.
+Why: Reviewers need compact count signals beside the active filter scope before reading or copying the Markdown summary.
+Verify/Time: Passed 2026-05-14 11:01 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` summary-total validation; `npm run build`; Browser UI validation confirmed visible/reviewed/unreviewed/stale/note count chips match preview counts, update after `Focus reviewed`, and render at 1440x900 and 390x844. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.
