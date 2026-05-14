@@ -500,6 +500,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedProviderExecutionCoverageSummaryCopied, setApprovedProviderExecutionCoverageSummaryCopied] = useState(false);
   const [approvedProviderExecutionCoverageSummaryCopiedFilename, setApprovedProviderExecutionCoverageSummaryCopiedFilename] =
     useState("");
+  const [approvedProviderExecutionCoverageSummaryResetAt, setApprovedProviderExecutionCoverageSummaryResetAt] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -2253,6 +2254,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setApprovedProviderExecutionCoverageSummaryDownloadFilename("");
     setApprovedProviderExecutionCoverageSummaryCopied(false);
     setApprovedProviderExecutionCoverageSummaryCopiedFilename("");
+    setApprovedProviderExecutionCoverageSummaryResetAt(new Date().toISOString());
     setStatus("Provider execution package coverage group summary local status reset.");
   }
 
@@ -3720,6 +3722,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset explanation chip">
                           <span>Reset clears local summary, filename, and download status only</span>
+                        </div>
+                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset confirmation chip">
+                          <span>
+                            {approvedProviderExecutionCoverageSummaryResetAt
+                              ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
+                              : "Local reset not run"}
+                          </span>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary generated-at chip">
                           <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
