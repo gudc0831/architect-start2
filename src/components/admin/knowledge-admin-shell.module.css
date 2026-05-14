@@ -1055,6 +1055,19 @@
   line-height: 1.25;
 }
 
+.coverageQueueEmptyState {
+  margin: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .handoffPreview {
   display: grid;
   gap: 0.55rem;

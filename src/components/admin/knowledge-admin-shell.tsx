@@ -1012,6 +1012,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       },
     ];
   }, [approvedProviderExecutionReviewReport]);
+  const providerExecutionPackageReviewActiveFilterLabels = useMemo(() => {
+    if (!approvedProviderExecutionReviewReport) {
+      return [];
+    }
+    const { filters } = approvedProviderExecutionReviewReport;
+    return [
+      `review ${filters.coveragePreset}`,
+      filters.packageDigest ? `digest ${filters.packageDigest.slice(0, 12)}` : null,
+      filters.reviewerId ? `reviewer ${filters.reviewerId}` : null,
+      filters.category !== "all" ? `note type ${getProviderExecutionPackageReviewNoteCategoryLabel(filters.category)}` : null,
+      filters.executionId ? `execution ${filters.executionId}` : null,
+      `stale ${filters.staleDays} day(s)`,
+    ].filter((label): label is string => Boolean(label));
+  }, [approvedProviderExecutionReviewReport]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
@@ -3544,6 +3558,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           }`}
                           aria-label="Provider execution package coverage queue groups"
                         >
+                          {approvedProviderExecutionReviewReport.coverage.length === 0 ? (
+                            <p className={styles.coverageQueueEmptyState}>
+                              No provider execution packages match the active coverage filters: {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.
+                            </p>
+                          ) : null}
                           {providerExecutionPackageReviewCoverageGroups.map((group) => (
                             <section key={group.key} className={styles.coverageGroupQueue}>
                               <header>
@@ -3567,7 +3586,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                                     </button>
                                   </article>
                                 )) : (
-                                  <p>No provider execution packages match this review group.</p>
+                                  <p>No provider execution packages match this review group under {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.</p>
                                 )}
                               </div>
                             </section>
