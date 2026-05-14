@@ -2192,6 +2192,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setStatus("Provider execution package coverage group summary downloaded.");
   }
 
+  function resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus() {
+    setApprovedProviderExecutionCoverageSummaryDownloadFilename("");
+    setApprovedProviderExecutionCoverageSummaryCopied(false);
+    setStatus("Provider execution package coverage group summary local status reset.");
+  }
+
   function clearApprovedProviderExecutionReviewShortcutFilters() {
     setApprovedProviderExecutionDigestFilter("");
     setApprovedProviderExecutionReviewCategoryFilter("all");
@@ -3619,6 +3625,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </button>
                           <button onClick={downloadApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
                             Download group summary
+                          </button>
+                          <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
+                            Reset summary status
                           </button>
                         </div>
                         <div className={styles.sourceChips} aria-label="Provider execution package coverage summary filter chips">
