@@ -3766,7 +3766,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               : "Filename copy pending"}
                           </span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package coverage summary reset explanation chip">
+                        <div
+                          className={styles.sourceChips}
+                          aria-label="Provider execution package coverage summary reset explanation chip"
+                          title="Reset status affects browser-only summary copy, filename copy, reset-confirmation copy, copied-at, and download indicators only."
+                        >
                           <span>
                             Reset clears browser-only summary copy, filename copy, reset-confirmation copy, copied-at, and
                             download status
