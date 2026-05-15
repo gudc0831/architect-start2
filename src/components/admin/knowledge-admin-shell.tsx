@@ -577,7 +577,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [approvedExportScope, setApprovedExportScope] = useState<ApprovedExportScope>("visible");
   const [approvedSyncTarget, setApprovedSyncTarget] = useState<ApprovedSyncTarget>("portable_archive");
   const [approvedSyncConfirmation, setApprovedSyncConfirmation] = useState("");
-  const [approvedSyncHistory, setApprovedSyncHistory] = useState<ApprovedSyncRun[]>(() => readApprovedSyncHistory());
+  const [approvedSyncHistory, setApprovedSyncHistory] = useState<ApprovedSyncRun[]>([]);
+  const [approvedSyncHistoryLoaded, setApprovedSyncHistoryLoaded] = useState(false);
   const [approvedSyncTargetConfigs, setApprovedSyncTargetConfigs] = useState<ApprovedSyncTargetConfig[]>([]);
   const [approvedSyncTargetEnabled, setApprovedSyncTargetEnabled] = useState(false);
   const [approvedSyncTargetDryRunOnly, setApprovedSyncTargetDryRunOnly] = useState(true);
@@ -1317,8 +1318,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   }, [selectedId, visibleCandidates]);
 
   useEffect(() => {
+    setApprovedSyncHistory(readApprovedSyncHistory());
+    setApprovedSyncHistoryLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!approvedSyncHistoryLoaded) {
+      return;
+    }
     writeApprovedSyncHistory(approvedSyncHistory);
-  }, [approvedSyncHistory]);
+  }, [approvedSyncHistory, approvedSyncHistoryLoaded]);
 
   useEffect(() => {
     let active = true;
@@ -6252,6 +6261,7 @@ function readApprovalDecisionMode(warnings: number, warningGroups: number): Appr
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

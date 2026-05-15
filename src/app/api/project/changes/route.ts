@@ -24,6 +24,18 @@ export async function GET() {
     const user = await requireUser();
     const context = await requireCurrentProjectAccess(user);
     const projectId = context.project.id;
+
+    if (context.project.source !== "postgres") {
+      const response = NextResponse.json({
+        data: {
+          projectId,
+          version: context.project.updatedAt,
+        },
+      });
+      response.headers.set("Cache-Control", "no-store");
+      return applyProjectSessionProjectId(response, projectId);
+    }
+
     const [project, tasks, files, memberships, invitations, accessRequests] = await Promise.all([
       prisma.project.findUnique({
         where: { id: projectId },
