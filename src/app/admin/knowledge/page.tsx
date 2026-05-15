@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { KnowledgeAdminShell } from "@/components/admin/knowledge-admin-shell";
+import { canManageKnowledge } from "@/lib/auth/knowledge-guards";
 import { requirePageUser } from "@/lib/auth/require-page-user";
 import { listKnowledgeCandidates } from "@/use-cases/admin/knowledge-service";
 
@@ -10,7 +11,7 @@ export default async function AdminKnowledgePage() {
     redirect("/auth/pending-access");
   }
 
-  if (user.accessStatus === "disabled" || user.role !== "admin") {
+  if (!canManageKnowledge(user)) {
     redirect("/auth/no-access");
   }
 

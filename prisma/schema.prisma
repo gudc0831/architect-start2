@@ -170,11 +170,33 @@ model File {
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader        Profile?  @relation("FileUploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  analysisChunks  FileAnalysisChunk[]
 
   @@index([taskId, deletedAt, purgedAt])
   @@index([projectId, deletedAt, purgedAt])
   @@unique([fileGroupId, version])
   @@map("files")
+}
+
+model FileAnalysisChunk {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileId      String   @map("file_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  taskId      String   @map("task_id") @db.Uuid
+  analysisId  String   @map("analysis_id")
+  chunkIndex  Int      @map("chunk_index")
+  text        String
+  tokenHash   String   @map("token_hash")
+  embedding   Unsupported("vector")?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, analysisId, chunkIndex])
+  @@index([projectId, taskId])
+  @@index([projectId, analysisId])
+  @@map("file_analysis_chunks")
 }
 
 model ProfilePreference {

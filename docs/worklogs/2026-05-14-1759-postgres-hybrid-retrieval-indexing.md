@@ -1,0 +1,4 @@
+Req: Implement the next core Architect Browser Assistant slice for Postgres text/vector/hybrid retrieval quality using the regulation evaluation fixture as baseline.
+Diff: Added a shared file-analysis ranking domain, `FileRepository.searchFileAnalyses()`, Postgres FTS + lexical rerank for project document evidence, Postgres FTS + lexical rerank for approved WIKI retrieval, and `npm run retrieval:hybrid:validate`.
+Why: Project document and approved WIKI retrieval needed a first Postgres-backed text-hybrid implementation before larger legal-source imports or vector indexes.
+Verify/Time: 2026-05-14 18:02 KST. `npm run retrieval:hybrid:validate` passed, `npm run regulation:seed:validate` passed, `npm run typecheck` passed, `npm run lint` passed with 7 pre-existing React Hook warnings, and `npm run build` passed.

@@ -352,6 +352,67 @@ type ProviderExecutionPackageReviewNoteReport = {
   }[];
 };
 
+type RegulationGovernanceRefreshStatus = "scheduled" | "due" | "overdue";
+
+type RegulationGovernanceAcknowledgement = {
+  id: string;
+  createdAt: string;
+  packageId: string;
+  packageDigest: string;
+  asOf: string;
+  note: string;
+  reviewerId: string | null;
+  sourceCount: number;
+  documentCount: number;
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  valid: boolean;
+  productionImportEnabled: boolean;
+};
+
+type RegulationGovernanceReport = {
+  packageId: string;
+  packageDigest: string;
+  title: string;
+  generatedAt: string;
+  asOf: string;
+  valid: boolean;
+  seedValid: boolean;
+  errors: string[];
+  warnings: string[];
+  productionImport: {
+    enabled: boolean;
+    requiredReview: "knowledge_admin";
+    blockedReason?: string;
+  };
+  refreshPolicy: {
+    cadenceDays: number;
+    staleAfterDays: number;
+    ownerRole: "knowledge_admin";
+  };
+  sourceCount: number;
+  documentCount: number;
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  sources: {
+    sourceId: string;
+    sourceName: string;
+    publisher: string;
+    officialUrl: string;
+    refreshDueAt: string;
+    refreshStatus: RegulationGovernanceRefreshStatus;
+    daysUntilDue: number | null;
+    verificationChecklist: string[];
+    documentCount: number;
+    adminReviewRequiredCount: number;
+    approvedDocumentCount: number;
+  }[];
+  acknowledgementSummary: {
+    count: number;
+    latestAcknowledgedAt: string | null;
+    latestReviewerId: string | null;
+  };
+  acknowledgements: RegulationGovernanceAcknowledgement[];
+};
+
 const stateLabels: Record<CandidateState, string> = {
   candidate: "검토 대기",
   pending_review: "검토 중",
@@ -437,6 +498,12 @@ const providerExecutionPackageReviewCoverageStatusLabels: Record<ProviderExecuti
   stale_unreviewed: "Stale unreviewed",
 };
 
+const regulationGovernanceStatusLabels: Record<RegulationGovernanceRefreshStatus, string> = {
+  scheduled: "Scheduled",
+  due: "Due soon",
+  overdue: "Overdue",
+};
+
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(initialCandidates[0]?.id ?? "");
@@ -509,6 +576,10 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt,
     setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt,
   ] = useState("");
+  const [regulationGovernance, setRegulationGovernance] = useState<RegulationGovernanceReport | null>(null);
+  const [regulationGovernanceLoading, setRegulationGovernanceLoading] = useState(false);
+  const [regulationGovernanceAcknowledgementNote, setRegulationGovernanceAcknowledgementNote] = useState("");
+  const [regulationGovernanceAcknowledgementSaving, setRegulationGovernanceAcknowledgementSaving] = useState(false);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -951,6 +1022,49 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     approvedSyncConfirmation.trim() === approvedSyncConfirmationText;
   const latestApprovedSyncRun = approvedSyncHistory[0] ?? null;
   const selectedApprovedSyncTargetConfig = approvedSyncTargetConfigs.find((item) => item.target === approvedSyncTarget) ?? null;
+  const regulationGovernanceChecks = useMemo<ReviewChecklistItem[]>(() => {
+    if (!regulationGovernance) {
+      return [];
+    }
+    const checklistCount = regulationGovernance.sources.reduce(
+      (total, source) => total + source.verificationChecklist.length,
+      0,
+    );
+    return [
+      {
+        label: "Manifest validation",
+        detail: regulationGovernance.valid
+          ? "Seed package and governance manifest pass the offline validator."
+          : `${regulationGovernance.errors.length} blocking issue(s) require review.`,
+        ready: regulationGovernance.valid,
+      },
+      {
+        label: "Production import gate",
+        detail: regulationGovernance.productionImport.enabled
+          ? "Production import is enabled for this package."
+          : regulationGovernance.productionImport.blockedReason ?? "Production import is blocked until review context is recorded.",
+        ready: !regulationGovernance.productionImport.enabled && Boolean(regulationGovernance.productionImport.blockedReason),
+      },
+      {
+        label: "Refresh schedule",
+        detail: `${regulationGovernance.statusCounts.overdue} overdue / ${regulationGovernance.statusCounts.due} due soon / ${regulationGovernance.statusCounts.scheduled} scheduled source(s).`,
+        ready: regulationGovernance.statusCounts.overdue === 0,
+      },
+      {
+        label: "Verification checklist",
+        detail: `${checklistCount} checklist item(s) are attached across ${regulationGovernance.sourceCount} official source(s).`,
+        ready: checklistCount >= regulationGovernance.sourceCount,
+      },
+      {
+        label: "Reviewer acknowledgement",
+        detail: regulationGovernance.acknowledgementSummary.latestAcknowledgedAt
+          ? `Latest acknowledgement ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)} by ${regulationGovernance.acknowledgementSummary.latestReviewerId ?? "unknown reviewer"}.`
+          : "No persisted governance acknowledgement has been recorded for this package.",
+        ready: Boolean(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt),
+      },
+    ];
+  }, [regulationGovernance]);
+  const regulationGovernanceReadyCount = regulationGovernanceChecks.filter((item) => item.ready).length;
   const providerPreviewAudit = approvedSyncHistory.find(
     (item) => item.target === approvedSyncTarget && item.status === "provider_ready",
   ) ?? null;
@@ -1196,6 +1310,33 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
   useEffect(() => {
     let active = true;
+    setRegulationGovernanceLoading(true);
+    readJson<RegulationGovernanceReport>("/api/admin/knowledge/regulation-governance")
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setRegulationGovernance(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Regulation governance report could not be loaded.");
+      })
+      .finally(() => {
+        if (active) {
+          setRegulationGovernanceLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     readJson<ApprovedProviderExecution[]>("/api/admin/knowledge/provider-executions")
       .then((data) => {
         if (!active) {
@@ -1346,6 +1487,60 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     } catch (error) {
       setApprovedItemsLoaded(true);
       setStatus(error instanceof Error ? error.message : "Approved WIKI items could not be loaded.");
+    }
+  }
+
+  async function refreshRegulationGovernance() {
+    setRegulationGovernanceLoading(true);
+    try {
+      const data = await readJson<RegulationGovernanceReport>("/api/admin/knowledge/regulation-governance");
+      setRegulationGovernance(data);
+      setStatus(`Regulation governance loaded: ${data.sourceCount} source(s), ${data.statusCounts.overdue} overdue.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Regulation governance report could not be loaded.");
+    } finally {
+      setRegulationGovernanceLoading(false);
+    }
+  }
+
+  async function copyRegulationGovernanceReport() {
+    if (!regulationGovernance) {
+      setStatus("Regulation governance report is not loaded.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(createRegulationGovernanceReport(regulationGovernance));
+      setStatus("Regulation governance report copied.");
+    } catch {
+      setStatus("Clipboard copy failed. Review the regulation governance panel manually.");
+    }
+  }
+
+  async function saveRegulationGovernanceAcknowledgement() {
+    if (!regulationGovernance) {
+      setStatus("Regulation governance report is not loaded.");
+      return;
+    }
+    if (!regulationGovernanceAcknowledgementNote.trim()) {
+      setStatus("Regulation governance acknowledgement note is required.");
+      return;
+    }
+
+    setRegulationGovernanceAcknowledgementSaving(true);
+    try {
+      const data = await writeJson<RegulationGovernanceReport>("/api/admin/knowledge/regulation-governance/acknowledgements", {
+        packageId: regulationGovernance.packageId,
+        packageDigest: regulationGovernance.packageDigest,
+        note: regulationGovernanceAcknowledgementNote.trim(),
+      });
+      setRegulationGovernance(data);
+      setRegulationGovernanceAcknowledgementNote("");
+      setStatus(`Regulation governance acknowledgement saved for ${data.packageId}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Regulation governance acknowledgement could not be saved.");
+    } finally {
+      setRegulationGovernanceAcknowledgementSaving(false);
     }
   }
 
@@ -4019,6 +4214,116 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </section>
             </section>
 
+            <section className={styles.exportPanel} aria-label="Regulation legal-source governance refresh">
+              <div className={styles.exportHeader}>
+                <div>
+                  <p>Legal source governance</p>
+                  <h4>Offline refresh review</h4>
+                </div>
+                <div className={styles.editorTools}>
+                  <button disabled={regulationGovernanceLoading} onClick={refreshRegulationGovernance} type="button">
+                    Refresh governance
+                  </button>
+                  <button disabled={!regulationGovernance} onClick={copyRegulationGovernanceReport} type="button">
+                    Copy governance report
+                  </button>
+                </div>
+              </div>
+              {regulationGovernance ? (
+                <>
+                  <div className={styles.sourceChips} aria-label="Regulation governance summary">
+                    <span>Package {regulationGovernance.packageId}</span>
+                    <span>As of {regulationGovernance.asOf}</span>
+                    <span>Sources {regulationGovernance.sourceCount}</span>
+                    <span>Documents {regulationGovernance.documentCount}</span>
+                    <span>{regulationGovernance.packageDigest.slice(0, 16)} package digest</span>
+                    <span>Ready {regulationGovernanceReadyCount}/{regulationGovernanceChecks.length}</span>
+                    <span>Acknowledgements {regulationGovernance.acknowledgementSummary.count}</span>
+                    <span>{regulationGovernance.acknowledgementSummary.latestAcknowledgedAt ? `Latest ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)}` : "No acknowledgement"}</span>
+                    <span>{regulationGovernance.productionImport.enabled ? "Production import enabled" : "Production import blocked"}</span>
+                  </div>
+                  <section className={styles.guardrails} aria-label="Regulation governance checks">
+                    <h4>Governance checks</h4>
+                    <div>
+                      {regulationGovernanceChecks.map((item) => (
+                        <article
+                          className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                          key={item.label}
+                        >
+                          <strong>{item.label}</strong>
+                          <p>{item.detail}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                  {(regulationGovernance.errors.length || regulationGovernance.warnings.length) ? (
+                    <div className={styles.syncWarnings} aria-label="Regulation governance warnings">
+                      {regulationGovernance.errors.map((error) => (
+                        <span key={`error-${error}`}>Error: {error}</span>
+                      ))}
+                      {regulationGovernance.warnings.map((warning) => (
+                        <span key={`warning-${warning}`}>Warning: {warning}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={styles.syncWarnings} aria-label="Regulation governance warnings">
+                      <span>No blocking governance errors in the offline manifest.</span>
+                    </div>
+                  )}
+                  <div className={styles.reviewNoteForm} aria-label="Regulation governance acknowledgement form">
+                    <label>
+                      Reviewer acknowledgement
+                      <textarea
+                        aria-label="Regulation governance acknowledgement note"
+                        onChange={(event) => setRegulationGovernanceAcknowledgementNote(event.target.value)}
+                        placeholder="Record reviewer context for this governance package and current validation snapshot"
+                        value={regulationGovernanceAcknowledgementNote}
+                      />
+                    </label>
+                    <button
+                      disabled={regulationGovernanceAcknowledgementSaving || !regulationGovernanceAcknowledgementNote.trim()}
+                      onClick={saveRegulationGovernanceAcknowledgement}
+                      type="button"
+                    >
+                      {regulationGovernanceAcknowledgementSaving ? "Saving..." : "Record acknowledgement"}
+                    </button>
+                  </div>
+                  <div className={styles.reviewNotes} aria-label="Regulation governance acknowledgement records">
+                    {regulationGovernance.acknowledgements.length ? regulationGovernance.acknowledgements.map((acknowledgement) => (
+                      <article key={acknowledgement.id}>
+                        <strong>{formatDate(acknowledgement.createdAt)} / {acknowledgement.reviewerId ?? "unknown reviewer"}</strong>
+                        <p>{acknowledgement.note}</p>
+                        <span>{acknowledgement.packageDigest.slice(0, 16)} package digest</span>
+                        <span>As of {acknowledgement.asOf}</span>
+                        <span>{acknowledgement.sourceCount} source(s)</span>
+                        <span>{acknowledgement.documentCount} document(s)</span>
+                        <span>{acknowledgement.statusCounts.overdue} overdue</span>
+                        <span>{acknowledgement.productionImportEnabled ? "production import enabled" : "production import blocked"}</span>
+                      </article>
+                    )) : <p className={styles.empty}>No governance acknowledgements have been recorded.</p>}
+                  </div>
+                  <div className={styles.syncHistory} aria-label="Regulation governance source refresh rows">
+                    {regulationGovernance.sources.map((source) => (
+                      <article key={source.sourceId}>
+                        <strong>{source.sourceName}</strong>
+                        <p>{source.publisher} / {source.sourceId}</p>
+                        <span>{regulationGovernanceStatusLabels[source.refreshStatus]}</span>
+                        <span>Refresh due {source.refreshDueAt || "missing"}</span>
+                        <span>{source.daysUntilDue === null ? "Due date invalid" : `${source.daysUntilDue} day(s) left`}</span>
+                        <span>{source.documentCount} document(s)</span>
+                        <span>{source.adminReviewRequiredCount} admin review required</span>
+                        <span>{source.verificationChecklist.length} checklist item(s)</span>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className={styles.empty}>
+                  {regulationGovernanceLoading ? "Loading regulation governance..." : "Regulation governance report is not loaded."}
+                </p>
+              )}
+            </section>
+
             <div className={styles.approvedGrid}>
               <div className={styles.approvedList} aria-label="Approved WIKI visible items">
                 {visibleApprovedItems.length ? visibleApprovedItems.map((item) => (
@@ -5083,6 +5388,61 @@ function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
         ...(run.dryRunWarnings.length ? run.dryRunWarnings.map((warning) => `- ${warning}`) : ["- none"]),
       ].join("\n"))
       : ["- No guarded sync history has been recorded locally."]),
+  ].join("\n");
+}
+
+function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
+  return [
+    "# Regulation legal-source governance report",
+    `- Package: ${report.packageId}`,
+    `- Package digest: ${report.packageDigest}`,
+    `- Generated at: ${new Date().toISOString()}`,
+    `- As of: ${report.asOf}`,
+    `- Valid: ${report.valid ? "yes" : "no"}`,
+    `- Production import: ${report.productionImport.enabled ? "enabled" : "blocked"}`,
+    `- Required review: ${report.productionImport.requiredReview}`,
+    `- Blocked reason: ${report.productionImport.blockedReason ?? "-"}`,
+    `- Refresh cadence: ${report.refreshPolicy.cadenceDays} day(s)`,
+    `- Stale after: ${report.refreshPolicy.staleAfterDays} day(s)`,
+    `- Sources: ${report.sourceCount}`,
+    `- Documents: ${report.documentCount}`,
+    "",
+    "## Refresh summary",
+    `- Scheduled: ${report.statusCounts.scheduled}`,
+    `- Due soon: ${report.statusCounts.due}`,
+    `- Overdue: ${report.statusCounts.overdue}`,
+    "",
+    "## Acknowledgements",
+    `- Count: ${report.acknowledgementSummary.count}`,
+    `- Latest: ${report.acknowledgementSummary.latestAcknowledgedAt ?? "-"}`,
+    `- Latest reviewer: ${report.acknowledgementSummary.latestReviewerId ?? "-"}`,
+    ...(report.acknowledgements.length
+      ? report.acknowledgements.map((acknowledgement) => `- ${acknowledgement.createdAt} / ${acknowledgement.reviewerId ?? "unknown"} / ${acknowledgement.note}`)
+      : ["- none"]),
+    "",
+    "## Errors",
+    ...(report.errors.length ? report.errors.map((error) => `- ${error}`) : ["- none"]),
+    "",
+    "## Warnings",
+    ...(report.warnings.length ? report.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "",
+    "## Sources",
+    ...report.sources.flatMap((source) => [
+      `### ${source.sourceName}`,
+      `- Source id: ${source.sourceId}`,
+      `- Publisher: ${source.publisher}`,
+      `- Official URL: ${source.officialUrl}`,
+      `- Refresh: ${regulationGovernanceStatusLabels[source.refreshStatus]} / ${source.refreshDueAt || "missing"}`,
+      `- Days until due: ${source.daysUntilDue ?? "invalid"}`,
+      `- Documents: ${source.documentCount}`,
+      `- Admin review required: ${source.adminReviewRequiredCount}`,
+      `- Approved documents: ${source.approvedDocumentCount}`,
+      "- Verification checklist:",
+      ...(source.verificationChecklist.length
+        ? source.verificationChecklist.map((item) => `  - ${item}`)
+        : ["  - missing"]),
+      "",
+    ]),
   ].join("\n");
 }
 

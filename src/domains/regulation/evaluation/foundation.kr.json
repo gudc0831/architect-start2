@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "architect.regulation.eval.v1",
+  "fixtureId": "kr-architecture-regulation-foundation-eval-2026-05-14",
+  "seedPackageId": "kr-architecture-foundation-2026-05-14",
+  "queries": [
+    {
+      "id": "evacuation-fire-safety",
+      "question": "피난계단과 방화구획 기준은 어떤 공식 근거를 먼저 확인해야 하나?",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["building-act-evacuation-fire-safety"],
+      "requiredTerms": ["피난계단", "방화구획"]
+    },
+    {
+      "id": "attached-parking",
+      "question": "부설주차장 설치 기준과 주차대수 산정은 어디에서 확인해야 해?",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["parking-lot-act-attached-parking"],
+      "requiredTerms": ["부설주차장", "주차대수"]
+    },
+    {
+      "id": "zoning-ratio",
+      "question": "용도지역, 건폐율, 용적률 제한 근거가 필요해.",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["national-land-planning-zoning-ratio"],
+      "requiredTerms": ["용도지역", "건폐율", "용적률"]
+    },
+    {
+      "id": "site-road-access",
+      "question": "대지와 도로 접도 요건, 건축선 검토 근거를 찾아줘.",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["building-act-site-road-access"],
+      "requiredTerms": ["접도", "건축선"]
+    },
+    {
+      "id": "local-ordinance",
+      "question": "서울 건축 조례나 지자체 조례 확인이 필요한 기준인지 알고 싶어.",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["local-ordinance-building-check"],
+      "requiredTerms": ["서울", "건축 조례"]
+    },
+    {
+      "id": "molit-guidance",
+      "question": "국토교통부 고시나 질의회신 같은 행정자료도 근거 후보로 봐야 하나?",
+      "expectedEvidenceKind": "regulation",
+      "expectedDocumentIds": ["molit-notice-guidance-check"],
+      "requiredTerms": ["국토교통부", "질의회신"]
+    }
+  ]
+}

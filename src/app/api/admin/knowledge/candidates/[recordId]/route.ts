@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireRole } from "@/lib/auth/require-user";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { getKnowledgeCandidate } from "@/use-cases/admin/knowledge-service";
 
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
   context: { params: Promise<{ recordId: string }> },
 ) {
   try {
-    await requireRole("admin");
+    await requireKnowledgeAdmin();
     const { recordId } = await context.params;
     const data = await getKnowledgeCandidate(recordId);
     return NextResponse.json({ data });

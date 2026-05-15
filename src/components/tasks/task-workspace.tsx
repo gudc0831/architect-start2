@@ -3433,7 +3433,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
     },
-    [isDailyHtmlDragReorderDisabled, isMobileViewport, isReorderingTasks],
+    [isDailyHtmlDragReorderDisabled, isMobileViewport, isReorderingTasks, setTaskDropState],
   );
 
   const handleTaskRowDragOver = useCallback(
@@ -3452,7 +3452,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
       setTaskDropState({ taskId: task.id, position });
     },
-    [taskDragState],
+    [taskDragState, setTaskDropState],
   );
 
   const handleTaskRowDrop = useCallback(
@@ -3491,13 +3491,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         "manual",
       );
     },
-    [dailyTreeRows, taskDragState, reorderDailyTasks],
+    [dailyTreeRows, taskDragState, reorderDailyTasks, setTaskDropState],
   );
 
   const clearTaskDragInteraction = useCallback(() => {
     setTaskDragState(null);
     setTaskDropState(null);
-  }, []);
+  }, [setTaskDropState]);
 
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
     if (column.headerControl?.kind === "sortMenu") {

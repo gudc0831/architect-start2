@@ -109,6 +109,12 @@ export const fileRepository: FileRepository = {
   listFilesByTask(taskId) {
     return getFileRepository().listFilesByTask(taskId);
   },
+  listFilesByProject(projectId) {
+    return getFileRepository().listFilesByProject(projectId);
+  },
+  searchFileAnalyses(input) {
+    return getFileRepository().searchFileAnalyses(input);
+  },
   findFileById(fileId) {
     return getFileRepository().findFileById(fileId);
   },

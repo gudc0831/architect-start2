@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireRole } from "@/lib/auth/require-user";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { exportKnowledgeProviderExecutionPackageReviewNoteCsv } from "@/use-cases/admin/knowledge-service";
 
 export async function GET(request: Request) {
   try {
-    await requireRole("admin");
+    await requireKnowledgeAdmin();
     const searchParams = new URL(request.url).searchParams;
     const data = await exportKnowledgeProviderExecutionPackageReviewNoteCsv({
       category: searchParams.get("category"),

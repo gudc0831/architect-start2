@@ -19,6 +19,7 @@ import type {
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { normalizeFileMetadata } from "@/domains/file/analysis";
 import type { FileMetadata } from "@/domains/file/analysis";
+import { rankFileAnalyses } from "@/domains/file/search";
 import { conflict, serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
@@ -445,6 +446,21 @@ class MemoryFileRepository implements FileRepository {
     return files
       .filter((file) => file.taskId === taskId && !file.purgedAt)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listFilesByProject(projectId: string) {
+    const files = await readFiles();
+    return latestFiles(files.filter((file) => file.projectId === projectId && !file.deletedAt && !file.purgedAt));
+  }
+
+  async searchFileAnalyses(input) {
+    return rankFileAnalyses({
+      files: await this.listFilesByProject(input.projectId),
+      query: input.query,
+      excludedFileIds: input.excludedFileIds,
+      limit: input.limit,
+      mode: "lexical",
+    });
   }
 
   async attachFile(input: CreateFileInput) {

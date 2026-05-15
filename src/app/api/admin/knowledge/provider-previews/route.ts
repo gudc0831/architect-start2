@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
-import { requireRole } from "@/lib/auth/require-user";
 import {
   createKnowledgeProviderPreview,
   listKnowledgeProviderPreviews,
@@ -9,7 +9,7 @@ import {
 
 export async function GET() {
   try {
-    await requireRole("admin");
+    await requireKnowledgeAdmin();
     const data = await listKnowledgeProviderPreviews();
     return NextResponse.json({ data });
   } catch (error) {
@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
-    const user = await requireRole("admin");
+    const user = await requireKnowledgeAdmin();
     const body = await request.json().catch(() => ({}));
     const data = await createKnowledgeProviderPreview(
       isRecord(body) ? body : {},

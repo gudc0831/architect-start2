@@ -86,6 +86,17 @@ class LocalAssistantRepository implements AssistantRepository {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  async searchApprovedKnowledge(input: { projectId: string; query: string; limit?: number }) {
+    const store = await readStore();
+    return rankApprovedKnowledge(
+      store.records
+        .filter((record) => record.projectId === input.projectId || record.metadata.approvedKnowledgeItem?.scope === "organization")
+        .map((record) => record.metadata.approvedKnowledgeItem)
+        .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
+      input.query,
+    ).slice(0, input.limit ?? 4);
+  }
+
   async findRecordById(recordId: string) {
     const store = await readStore();
     return store.records.find((record) => record.id === recordId) ?? null;
@@ -375,3 +386,20 @@ class LocalAssistantRepository implements AssistantRepository {
 }
 
 export const localAssistantRepository = new LocalAssistantRepository();
+
+function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {
+  const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length >= 2);
+  return items
+    .map((item) => ({
+      item,
+      score: scoreApprovedKnowledge(item, terms),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || right.item.approvedAt.localeCompare(left.item.approvedAt))
+    .map((entry) => entry.item);
+}
+
+function scoreApprovedKnowledge(item: ApprovedKnowledgeItem, terms: string[]) {
+  const haystack = `${item.title} ${item.summary} ${item.bodyMarkdown} ${item.tags.join(" ")}`.toLowerCase();
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}

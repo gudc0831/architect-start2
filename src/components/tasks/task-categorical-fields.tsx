@@ -111,15 +111,18 @@ export function TaskCategoricalFieldMultiSelect({
   disabled = false,
   ...props
 }: TaskCategoricalFieldMultiSelectProps) {
-  const context = { workTypeDefinitions, categoryDefinitionsByField };
+  const context = useMemo(
+    () => ({ workTypeDefinitions, categoryDefinitionsByField }),
+    [categoryDefinitionsByField, workTypeDefinitions],
+  );
   const allOptions = useMemo(
     () => getTaskCategoricalFieldOptions(fieldKey, context),
-    [context.categoryDefinitionsByField, context.workTypeDefinitions, fieldKey],
+    [context, fieldKey],
   );
   const options = useMemo(() => allOptions.filter((option) => option.value), [allOptions]);
   const selectedValues = useMemo(
     () => getTaskCategoricalFieldValues(fieldKey, value, context),
-    [context.categoryDefinitionsByField, context.workTypeDefinitions, fieldKey, value],
+    [context, fieldKey, value],
   );
   const [isOpen, setIsOpen] = useState(false);
   const [draftValues, setDraftValues] = useState<string[]>(selectedValues);

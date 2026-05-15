@@ -1,0 +1,4 @@
+Req: Continue the next roadmap candidate by adding a safe embedding provider/backfill plan for `file_analysis_chunks`.
+Diff: Added `scripts/file-analysis-embedding-backfill-plan.ts` and `npm run file-analysis:embedding:plan` to report provider config, pgvector dimension compatibility, chunk embedding coverage, source/verification groups, sample missing chunks, blockers, and estimated dry-run batches without calling a provider or mutating the database.
+Why: The chunk table already supports `embedding vector(1536)`, but production backfill needs an auditable preflight plan before keys, rate limits, and DB writes are introduced.
+Verify/Time: 2026-05-15 13:39 KST; `npm run file-analysis:embedding:plan -- --sample-limit 2`, `npm run file-analysis:embedding:plan -- --json --sample-limit 0`, `npm run typecheck`, `npm run lint`, `npm run retrieval:hybrid:validate`, and `NEXT_DIST_DIR=.next-build npm run build` passed.

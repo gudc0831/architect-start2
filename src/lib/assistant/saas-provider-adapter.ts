@@ -176,6 +176,7 @@ function buildOpenAIInstructions(instruction: string) {
 function buildDeterministicAnswer(input: Pick<ProviderInput, "taskLabel" | "question" | "instruction" | "evidence">) {
   const primary = input.evidence[0];
   const external = input.evidence.find((item) => item.kind === "web_or_skill");
+  const regulation = input.evidence.find((item) => item.kind === "regulation");
   const projectDocument = input.evidence.find((item) => item.kind === "project_document");
 
   return [
@@ -183,6 +184,7 @@ function buildDeterministicAnswer(input: Pick<ProviderInput, "taskLabel" | "ques
     `질문: ${input.question}`,
     `지침: ${input.instruction}`,
     primary ? `주요 근거: ${primary.title} - ${primary.excerpt}` : "주요 근거: 현재 연결된 근거가 부족합니다.",
+    regulation ? `법규 근거 확인: ${regulation.title} - ${regulation.excerpt}` : null,
     projectDocument ? `문서 근거 확인: ${projectDocument.title} - ${projectDocument.excerpt}` : null,
     external ? `외부 근거 확인: ${external.title} - ${external.excerpt}` : null,
     "의견: 이 응답은 provider adapter 검증용 deterministic 응답입니다. 공식 결론으로 반영하기 전 도면, 기준 문서, 담당자 협의를 확인하세요.",

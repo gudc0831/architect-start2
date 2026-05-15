@@ -23,6 +23,9 @@ export const assistantRepository: AssistantRepository = {
   listKnowledgeCandidateRecords(input) {
     return getAssistantRepository().listKnowledgeCandidateRecords(input);
   },
+  searchApprovedKnowledge(input) {
+    return getAssistantRepository().searchApprovedKnowledge(input);
+  },
   findRecordById(recordId) {
     return getAssistantRepository().findRecordById(recordId);
   },

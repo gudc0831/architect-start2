@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireRole } from "@/lib/auth/require-user";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { exportKnowledgeProviderExecutionPackage } from "@/use-cases/admin/knowledge-service";
 
 export async function GET(_request: Request, context: { params: Promise<{ executionId: string }> }) {
   try {
-    const user = await requireRole("admin");
+    const user = await requireKnowledgeAdmin();
     const { executionId } = await context.params;
     const data = await exportKnowledgeProviderExecutionPackage({ executionId }, user);
 

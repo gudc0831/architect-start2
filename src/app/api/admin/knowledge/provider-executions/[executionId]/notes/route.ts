@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
-import { requireRole } from "@/lib/auth/require-user";
 import {
   createKnowledgeProviderExecutionPackageReviewNote,
   listKnowledgeProviderExecutions,
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ executionId: string }> };
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    await requireRole("admin");
+    await requireKnowledgeAdmin();
     const { executionId } = await context.params;
     const executions = await listKnowledgeProviderExecutions();
     const execution = executions.find((item) => item.id === executionId);
@@ -24,7 +24,7 @@ export async function GET(_request: Request, context: RouteContext) {
 export async function POST(request: Request, context: RouteContext) {
   try {
     assertRequestIntegrity(request);
-    const user = await requireRole("admin");
+    const user = await requireKnowledgeAdmin();
     const { executionId } = await context.params;
     const body = await request.json().catch(() => ({}));
     const data = await createKnowledgeProviderExecutionPackageReviewNote(

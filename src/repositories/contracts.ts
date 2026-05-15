@@ -1,6 +1,7 @@
 import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import type { FileMetadata } from "@/domains/file/analysis";
+import type { FileAnalysisSearchResult } from "@/domains/file/search";
 import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
 
 export type TaskOrderUpdateInput = {
@@ -95,6 +96,14 @@ export type CreateFileInput = {
   storedPath?: string;
 };
 
+export type SearchFileAnalysesInput = {
+  projectId: string;
+  query: string;
+  excludedFileIds?: string[];
+  limit?: number;
+  queryEmbedding?: number[];
+};
+
 export type UpdateProjectInput = Pick<ProjectRecord, "name"> & {
   updatedBy?: string | null;
 };
@@ -118,6 +127,8 @@ export interface FileRepository {
   listActiveFiles(taskId?: string): Promise<FileRecord[]>;
   listTrashFiles(taskId?: string): Promise<FileRecord[]>;
   listFilesByTask(taskId: string): Promise<FileRecord[]>;
+  listFilesByProject(projectId: string): Promise<FileRecord[]>;
+  searchFileAnalyses(input: SearchFileAnalysesInput): Promise<FileAnalysisSearchResult[]>;
   findFileById(fileId: string): Promise<FileRecord | null>;
   attachFile(input: CreateFileInput): Promise<FileRecord>;
   moveFileToTrash(fileId: string): Promise<FileRecord>;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   type CreateExternalEvidenceInput,
   externalEvidenceToAssistantEvidence,
@@ -117,6 +117,12 @@ type PrismaAssistantAuditEvent = {
   targetId: string | null;
   metadata: Prisma.JsonValue;
   createdAt: Date;
+};
+
+type PrismaApprovedKnowledgeSearchRow = {
+  item: Prisma.JsonValue;
+  updatedAt: Date;
+  ftsRank: number | null;
 };
 
 const assistantPrisma = prisma as typeof prisma & {
@@ -282,6 +288,82 @@ class PostgresAssistantRepository implements AssistantRepository {
       take: 100,
     });
     return records.map(toRecord);
+  }
+
+  async searchApprovedKnowledge(input: { projectId: string; query: string; limit?: number }) {
+    const limit = Math.max(0, input.limit ?? 4);
+    if (limit === 0) {
+      return [];
+    }
+
+    try {
+      const rows = await prisma.$queryRaw<PrismaApprovedKnowledgeSearchRow[]>(Prisma.sql`
+        with approved_knowledge as (
+          select
+            metadata->'approvedKnowledgeItem' as item,
+            updated_at as "updatedAt",
+            concat_ws(
+              ' ',
+              metadata #>> '{approvedKnowledgeItem,title}',
+              metadata #>> '{approvedKnowledgeItem,summary}',
+              metadata #>> '{approvedKnowledgeItem,bodyMarkdown}',
+              metadata #>> '{approvedKnowledgeItem,tags}'
+            ) as search_text
+          from assistant_task_records
+          where candidate_state = 'approved'
+            and metadata ? 'approvedKnowledgeItem'
+            and (
+              project_id = ${input.projectId}::uuid
+              or metadata #>> '{approvedKnowledgeItem,scope}' = 'organization'
+            )
+        )
+        select
+          item,
+          "updatedAt",
+          ts_rank_cd(to_tsvector('simple', search_text), plainto_tsquery('simple', ${input.query}))::float as "ftsRank"
+        from approved_knowledge
+        order by "ftsRank" desc, "updatedAt" desc
+        limit ${100}
+      `);
+      const terms = input.query.toLowerCase().split(/\s+/).filter((term) => term.length >= 2);
+      return rows
+        .map((row) => {
+          const item = row.item as ApprovedKnowledgeItem | null;
+          if (!item) {
+            return null;
+          }
+          const score = scoreApprovedKnowledge(item, terms) + Math.max(0, Number(row.ftsRank ?? 0)) * 12;
+          return { item, score };
+        })
+        .filter((entry): entry is { item: ApprovedKnowledgeItem; score: number } => entry !== null && entry.score > 0)
+        .sort((left, right) => right.score - left.score || right.item.approvedAt.localeCompare(left.item.approvedAt))
+        .map((entry) => entry.item)
+        .slice(0, limit);
+    } catch {
+      const records = await prisma.assistantTaskRecord.findMany({
+        where: {
+          candidateState: "approved",
+          OR: [
+            { projectId: input.projectId },
+            {
+              metadata: {
+                path: ["approvedKnowledgeItem", "scope"],
+                equals: "organization",
+              },
+            },
+          ],
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 100,
+      });
+
+      return rankApprovedKnowledge(
+        records
+          .map((record) => toRecord(record).metadata.approvedKnowledgeItem)
+          .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
+        input.query,
+      ).slice(0, limit);
+    }
   }
 
   async findRecordById(recordId: string) {
@@ -583,4 +665,21 @@ function buildMonthRange(month?: string) {
   const start = new Date(Date.UTC(yearValue, monthValue - 1, 1));
   const end = new Date(Date.UTC(yearValue, monthValue, 1));
   return { gte: start, lt: end };
+}
+
+function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {
+  const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length >= 2);
+  return items
+    .map((item) => ({
+      item,
+      score: scoreApprovedKnowledge(item, terms),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || right.item.approvedAt.localeCompare(left.item.approvedAt))
+    .map((entry) => entry.item);
+}
+
+function scoreApprovedKnowledge(item: ApprovedKnowledgeItem, terms: string[]) {
+  const haystack = `${item.title} ${item.summary} ${item.bodyMarkdown} ${item.tags.join(" ")}`.toLowerCase();
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
 }

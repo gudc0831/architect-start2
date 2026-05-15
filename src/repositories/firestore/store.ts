@@ -10,6 +10,7 @@ import {
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { normalizeFileMetadata } from "@/domains/file/analysis";
+import { rankFileAnalyses } from "@/domains/file/search";
 import type {
   CreateTaskInput,
   FileRepository,
@@ -478,6 +479,28 @@ class FirestoreFileRepository implements FileRepository {
       .map((entry) => toFileRecord(entry.id, entry.data()))
       .filter((file) => file.taskId === taskId && !file.purgedAt)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listFilesByProject(projectId: string) {
+    const db = getDb();
+    if (!db) return [];
+
+    const snapshot = await getDocs(collection(db, fileCollectionName));
+    return latestFiles(
+      snapshot.docs
+        .map((entry) => toFileRecord(entry.id, entry.data()))
+        .filter((file) => file.projectId === projectId && !file.deletedAt && !file.purgedAt),
+    );
+  }
+
+  async searchFileAnalyses(input) {
+    return rankFileAnalyses({
+      files: await this.listFilesByProject(input.projectId),
+      query: input.query,
+      excludedFileIds: input.excludedFileIds,
+      limit: input.limit,
+      mode: "lexical",
+    });
   }
 
   async attachFile(input: CreateFileInput) {

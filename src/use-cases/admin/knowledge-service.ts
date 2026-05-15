@@ -6,6 +6,13 @@ import type {
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
 import type { AssistantAuditEvent } from "@/domains/assistant/saas-api-mode";
+import governanceManifestJson from "@/domains/regulation/governance/foundation.kr.json";
+import {
+  validateRegulationGovernanceManifest,
+  type RegulationGovernanceManifest,
+} from "@/domains/regulation/governance";
+import { validateRegulationSeedPackage, type RegulationSeedPackage } from "@/domains/regulation/knowledge";
+import seedPackageJson from "@/domains/regulation/seeds/foundation.kr.json";
 import type { TaskRecord } from "@/domains/task/types";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
@@ -340,6 +347,61 @@ export type KnowledgeProviderExecutionPackageExport = {
   packageData: KnowledgeProviderExecutionPackage;
 };
 
+export type RegulationGovernanceRefreshStatus = "scheduled" | "due" | "overdue";
+
+export type RegulationGovernanceSourceReport = {
+  sourceId: string;
+  sourceName: string;
+  publisher: string;
+  officialUrl: string;
+  refreshDueAt: string;
+  refreshStatus: RegulationGovernanceRefreshStatus;
+  daysUntilDue: number | null;
+  verificationChecklist: string[];
+  documentCount: number;
+  adminReviewRequiredCount: number;
+  approvedDocumentCount: number;
+};
+
+export type RegulationGovernanceAcknowledgement = {
+  id: string;
+  createdAt: string;
+  packageId: string;
+  packageDigest: string;
+  asOf: string;
+  note: string;
+  reviewerId: string | null;
+  sourceCount: number;
+  documentCount: number;
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  valid: boolean;
+  productionImportEnabled: boolean;
+};
+
+export type RegulationGovernanceReport = {
+  packageId: string;
+  packageDigest: string;
+  title: string;
+  generatedAt: string;
+  asOf: string;
+  valid: boolean;
+  seedValid: boolean;
+  errors: string[];
+  warnings: string[];
+  productionImport: RegulationGovernanceManifest["productionImport"];
+  refreshPolicy: RegulationGovernanceManifest["refreshPolicy"];
+  sourceCount: number;
+  documentCount: number;
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  sources: RegulationGovernanceSourceReport[];
+  acknowledgementSummary: {
+    count: number;
+    latestAcknowledgedAt: string | null;
+    latestReviewerId: string | null;
+  };
+  acknowledgements: RegulationGovernanceAcknowledgement[];
+};
+
 type KnowledgeExportSyncAuditInput = {
   action?: unknown;
   target?: unknown;
@@ -377,6 +439,12 @@ type KnowledgeProviderExecutionPackageReviewNoteInput = {
   note?: unknown;
 };
 
+type RegulationGovernanceAcknowledgementInput = {
+  packageId?: unknown;
+  packageDigest?: unknown;
+  note?: unknown;
+};
+
 type KnowledgeProviderExecutionPackageReviewNoteReportInput = {
   category?: unknown;
   reviewerId?: unknown;
@@ -396,6 +464,8 @@ const knowledgeProviderExecutionEventType = "knowledge_sync_provider_execution";
 const knowledgeProviderExecutionTargetType = "knowledge_sync_provider_execution";
 const knowledgeProviderExecutionPackageReviewNoteEventType = "knowledge_sync_provider_execution_package_review_note";
 const knowledgeProviderExecutionPackageReviewNoteTargetType = "knowledge_sync_provider_execution_package";
+const regulationGovernanceAcknowledgementEventType = "regulation_governance_acknowledgement";
+const regulationGovernanceAcknowledgementTargetType = "regulation_governance_package";
 const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
@@ -855,6 +925,148 @@ export async function exportKnowledgeProviderExecutionPackage(
   };
 }
 
+export async function getRegulationGovernanceReport(
+  options: { asOf?: Date; includeAcknowledgements?: boolean } = {},
+): Promise<RegulationGovernanceReport> {
+  const seedPackage = seedPackageJson as unknown as RegulationSeedPackage;
+  const governanceManifest = governanceManifestJson as unknown as RegulationGovernanceManifest;
+  const asOf = options.asOf ?? new Date();
+  const asOfText = asOf.toISOString().slice(0, 10);
+  const seedValidation = validateRegulationSeedPackage(seedPackage);
+  const governanceValidation = validateRegulationGovernanceManifest(seedPackage, governanceManifest, { asOf });
+  const refreshBySourceId = new Map(governanceValidation.refresh.map((item) => [item.sourceId, item]));
+  const manifestBySourceId = new Map(governanceManifest.sources.map((source) => [source.sourceId, source]));
+  const documentsBySourceId = new Map<string, RegulationSeedPackage["documents"]>();
+
+  for (const document of seedPackage.documents) {
+    const current = documentsBySourceId.get(document.sourceId) ?? [];
+    current.push(document);
+    documentsBySourceId.set(document.sourceId, current);
+  }
+
+  const statusCounts: Record<RegulationGovernanceRefreshStatus, number> = {
+    scheduled: 0,
+    due: 0,
+    overdue: 0,
+  };
+
+  const sources = seedPackage.sources.map((source) => {
+    const refresh = refreshBySourceId.get(source.id) ?? {
+      sourceId: source.id,
+      refreshDueAt: "",
+      status: "overdue" as const,
+    };
+    const governed = manifestBySourceId.get(source.id);
+    const documents = documentsBySourceId.get(source.id) ?? [];
+    statusCounts[refresh.status] += 1;
+
+    return {
+      sourceId: source.id,
+      sourceName: source.name,
+      publisher: source.publisher,
+      officialUrl: governed?.officialUrl ?? source.officialUrl,
+      refreshDueAt: refresh.refreshDueAt,
+      refreshStatus: refresh.status,
+      daysUntilDue: calculateDaysUntilDue(refresh.refreshDueAt, asOf),
+      verificationChecklist: governed?.verificationChecklist ?? [],
+      documentCount: documents.length,
+      adminReviewRequiredCount: documents.filter((document) => document.reviewStatus === "admin_review_required").length,
+      approvedDocumentCount: documents.filter((document) => document.reviewStatus === "approved").length,
+    };
+  });
+  const valid = seedValidation.valid && governanceValidation.valid;
+  const packageDigest = createRegulationGovernancePackageDigest({
+    packageId: seedPackage.packageId,
+    generatedAt: seedPackage.generatedAt,
+    asOf: asOfText,
+    valid,
+    productionImport: governanceManifest.productionImport,
+    refreshPolicy: governanceManifest.refreshPolicy,
+    statusCounts,
+    sources,
+  });
+  const acknowledgements = options.includeAcknowledgements === false
+    ? []
+    : await listRegulationGovernanceAcknowledgements({ packageId: seedPackage.packageId });
+
+  return {
+    packageId: seedPackage.packageId,
+    packageDigest,
+    title: seedPackage.title,
+    generatedAt: seedPackage.generatedAt,
+    asOf: asOfText,
+    valid,
+    seedValid: seedValidation.valid,
+    errors: [...seedValidation.errors, ...governanceValidation.errors],
+    warnings: [...seedValidation.warnings, ...governanceValidation.warnings],
+    productionImport: governanceManifest.productionImport,
+    refreshPolicy: governanceManifest.refreshPolicy,
+    sourceCount: seedPackage.sources.length,
+    documentCount: seedPackage.documents.length,
+    statusCounts,
+    sources,
+    acknowledgementSummary: summarizeRegulationGovernanceAcknowledgements(acknowledgements),
+    acknowledgements: acknowledgements.slice(0, 20),
+  };
+}
+
+export async function listRegulationGovernanceAcknowledgements(
+  input: { packageId?: unknown } = {},
+): Promise<RegulationGovernanceAcknowledgement[]> {
+  const packageId = normalizeOptionalText(input.packageId);
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [regulationGovernanceAcknowledgementEventType],
+    targetType: regulationGovernanceAcknowledgementTargetType,
+    limit: 100,
+  });
+  return events
+    .map(toRegulationGovernanceAcknowledgement)
+    .filter((item): item is RegulationGovernanceAcknowledgement => Boolean(item))
+    .filter((item) => !packageId || item.packageId === packageId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function createRegulationGovernanceAcknowledgement(
+  input: RegulationGovernanceAcknowledgementInput,
+  user: AuthUser,
+): Promise<RegulationGovernanceAcknowledgement> {
+  const report = await getRegulationGovernanceReport({ includeAcknowledgements: false });
+  const packageId = normalizeOptionalText(input.packageId);
+  if (packageId && packageId !== report.packageId) {
+    throw badRequest("Regulation governance package id does not match the current package.", "REGULATION_GOVERNANCE_PACKAGE_ID_MISMATCH");
+  }
+  const packageDigest = normalizeOptionalText(input.packageDigest);
+  if (packageDigest && packageDigest !== report.packageDigest) {
+    throw badRequest("Regulation governance package digest does not match the current report.", "REGULATION_GOVERNANCE_PACKAGE_DIGEST_MISMATCH");
+  }
+
+  const event = await assistantRepository.createAuditEvent({
+    projectId: null,
+    profileId: user.id,
+    eventType: regulationGovernanceAcknowledgementEventType,
+    targetType: regulationGovernanceAcknowledgementTargetType,
+    targetId: report.packageId,
+    metadata: {
+      regulationGovernanceAcknowledgementVersion: 1,
+      packageId: report.packageId,
+      packageDigest: report.packageDigest,
+      asOf: report.asOf,
+      note: normalizeRegulationGovernanceAcknowledgementNote(input.note),
+      reviewerId: user.id,
+      sourceCount: report.sourceCount,
+      documentCount: report.documentCount,
+      statusCounts: report.statusCounts,
+      valid: report.valid,
+      productionImportEnabled: report.productionImport.enabled,
+    },
+  });
+  const acknowledgement = toRegulationGovernanceAcknowledgement(event);
+  if (!acknowledgement) {
+    throw badRequest("Regulation governance acknowledgement could not be normalized.", "REGULATION_GOVERNANCE_ACKNOWLEDGEMENT_INVALID");
+  }
+  return acknowledgement;
+}
+
 function buildKnowledgeProviderExecutionPackage(
   execution: KnowledgeProviderExecution,
   exportAudit: KnowledgeExportSyncAudit | null,
@@ -1155,6 +1367,14 @@ function normalizeProviderExecutionPackageReviewNoteText(value: unknown) {
   return text;
 }
 
+function normalizeRegulationGovernanceAcknowledgementNote(value: unknown) {
+  const text = normalizeText(value).slice(0, 2000);
+  if (!text) {
+    throw badRequest("Regulation governance acknowledgement note is required.", "REGULATION_GOVERNANCE_ACKNOWLEDGEMENT_NOTE_REQUIRED");
+  }
+  return text;
+}
+
 function normalizeProviderExecutionPackageReviewCoveragePreset(value: unknown): KnowledgeProviderExecutionPackageReviewNoteReport["filters"]["coveragePreset"] {
   return value === "reviewed" || value === "unreviewed" || value === "stale_unreviewed" ? value : "all";
 }
@@ -1341,6 +1561,49 @@ function toKnowledgeExportSyncAudit(event: AssistantAuditEvent): KnowledgeExport
 
 function readNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function calculateDaysUntilDue(value: string, asOf: Date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const dueAt = new Date(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(dueAt.getTime())) {
+    return null;
+  }
+  return Math.floor((dueAt.getTime() - asOf.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function createRegulationGovernancePackageDigest(input: {
+  packageId: string;
+  generatedAt: string;
+  asOf: string;
+  valid: boolean;
+  productionImport: RegulationGovernanceManifest["productionImport"];
+  refreshPolicy: RegulationGovernanceManifest["refreshPolicy"];
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  sources: RegulationGovernanceSourceReport[];
+}) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      packageId: input.packageId,
+      generatedAt: input.generatedAt,
+      asOf: input.asOf,
+      valid: input.valid,
+      productionImport: input.productionImport,
+      refreshPolicy: input.refreshPolicy,
+      statusCounts: input.statusCounts,
+      sources: input.sources.map((source) => ({
+        sourceId: source.sourceId,
+        refreshDueAt: source.refreshDueAt,
+        refreshStatus: source.refreshStatus,
+        documentCount: source.documentCount,
+        adminReviewRequiredCount: source.adminReviewRequiredCount,
+        approvedDocumentCount: source.approvedDocumentCount,
+        verificationChecklistCount: source.verificationChecklist.length,
+      })),
+    }))
+    .digest("hex");
 }
 
 function readKnowledgeSyncTargetConfigs(events: AssistantAuditEvent[]): KnowledgeSyncTargetConfig[] {
@@ -2100,6 +2363,55 @@ function toKnowledgeProviderExecution(
       packageReviewNotes,
     }),
     packageReviewNotes,
+  };
+}
+
+function toRegulationGovernanceAcknowledgement(event: AssistantAuditEvent): RegulationGovernanceAcknowledgement | null {
+  if (
+    event.eventType !== regulationGovernanceAcknowledgementEventType ||
+    event.targetType !== regulationGovernanceAcknowledgementTargetType
+  ) {
+    return null;
+  }
+  const metadata = event.metadata;
+  const packageId = normalizeOptionalText(metadata.packageId || event.targetId);
+  const packageDigest = normalizeOptionalText(metadata.packageDigest);
+  const asOf = normalizeOptionalText(metadata.asOf);
+  const note = normalizeOptionalText(metadata.note);
+  if (!packageId || !packageDigest || !asOf || !note) {
+    return null;
+  }
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    packageId,
+    packageDigest,
+    asOf,
+    note,
+    reviewerId: normalizeOptionalText(metadata.reviewerId) || event.profileId,
+    sourceCount: readNumber(metadata.sourceCount, 0),
+    documentCount: readNumber(metadata.documentCount, 0),
+    statusCounts: readRegulationGovernanceStatusCounts(metadata.statusCounts),
+    valid: metadata.valid === true,
+    productionImportEnabled: metadata.productionImportEnabled === true,
+  };
+}
+
+function readRegulationGovernanceStatusCounts(value: unknown): Record<RegulationGovernanceRefreshStatus, number> {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    scheduled: readNumber(record.scheduled, 0),
+    due: readNumber(record.due, 0),
+    overdue: readNumber(record.overdue, 0),
+  };
+}
+
+function summarizeRegulationGovernanceAcknowledgements(acknowledgements: RegulationGovernanceAcknowledgement[]) {
+  const latest = acknowledgements[0] ?? null;
+  return {
+    count: acknowledgements.length,
+    latestAcknowledgedAt: latest?.createdAt ?? null,
+    latestReviewerId: latest?.reviewerId ?? null,
   };
 }
 

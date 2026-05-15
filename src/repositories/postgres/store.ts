@@ -23,6 +23,7 @@ import type {
   FileRepository,
   PreferenceRepository,
   ProjectRepository,
+  SearchFileAnalysesInput,
   TaskOrderUpdateInput,
   TaskRepository,
   UpdateProjectInput,
@@ -32,8 +33,16 @@ import type {
 import type { FileRecord, TaskFileSummary, TaskRecord } from "@/domains/task/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import { storageProvider } from "@/storage";
-import { normalizeFileMetadata } from "@/domains/file/analysis";
+import { getFileAnalysisEntries, normalizeFileMetadata } from "@/domains/file/analysis";
 import type { FileMetadata } from "@/domains/file/analysis";
+import {
+  buildFileAnalysisChunks,
+  compareFileAnalysisSearchResults,
+  rankFileAnalyses,
+  scoreFileAnalysisMatch,
+  tokenizeSearchText,
+  type FileAnalysisSearchResult,
+} from "@/domains/file/search";
 
 function toProjectRecord(project: {
   id: string;
@@ -165,6 +174,30 @@ function toFileRecord(file: {
   };
 }
 
+type PostgresFileAnalysisSearchRow = {
+  id: string;
+  taskId: string;
+  projectId: string;
+  fileGroupId: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: bigint;
+  storageBucket: string;
+  objectPath: string;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  uploadedBy: string | null;
+  deletedAt: Date | null;
+  purgedAt: Date | null;
+  metadata: Prisma.JsonValue;
+  analysis: Prisma.JsonValue;
+  ftsRank: number | null;
+  analysisId?: string | null;
+  chunkText?: string | null;
+  vectorDistance?: number | null;
+};
+
 function applyTaskFileSummary(task: TaskRecord, fileSummaryByTaskId: Map<string, TaskFileSummary>): TaskRecord {
   return {
     ...task,
@@ -203,6 +236,69 @@ function buildTaskFileSummaryMap(files: FileRecord[]) {
       },
     ]),
   );
+}
+
+function normalizeQueryEmbeddingLiteral(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 1536) {
+    return null;
+  }
+
+  const normalized = value.map((item) => (typeof item === "number" && Number.isFinite(item) ? Math.max(-1, Math.min(1, item)) : 0));
+  return `[${normalized.join(",")}]`;
+}
+
+function scoreChunkText(value: string, query: string) {
+  const terms = tokenizeSearchText(query);
+  if (terms.length === 0 || !value) {
+    return 0;
+  }
+
+  const haystack = value.toLowerCase();
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1.2 : 0), 0);
+}
+
+async function syncFileAnalysisChunks(file: FileRecord) {
+  const chunks = getFileAnalysisEntries(file.metadata).flatMap((analysis) => buildFileAnalysisChunks(file, analysis));
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`delete from file_analysis_chunks where file_id = ${file.id}::uuid`);
+    if (chunks.length === 0) {
+      return;
+    }
+
+    await prisma.$executeRaw(Prisma.sql`
+      insert into file_analysis_chunks (
+        file_id,
+        project_id,
+        task_id,
+        analysis_id,
+        chunk_index,
+        text,
+        token_hash,
+        metadata
+      )
+      values ${Prisma.join(
+        chunks.map((chunk) => Prisma.sql`(
+          ${chunk.fileId}::uuid,
+          ${chunk.projectId}::uuid,
+          ${chunk.taskId}::uuid,
+          ${chunk.analysisId},
+          ${chunk.chunkIndex},
+          ${chunk.text},
+          ${chunk.tokenHash},
+          ${JSON.stringify(chunk.metadata)}::jsonb
+        )`),
+      )}
+      on conflict (file_id, analysis_id, chunk_index)
+      do update set
+        text = excluded.text,
+        token_hash = excluded.token_hash,
+        metadata = excluded.metadata,
+        updated_at = now()
+    `);
+  } catch {
+    // The chunk table is created by the cloud migration. Local/dev stores keep the metadata-only fallback.
+  }
 }
 
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
@@ -580,6 +676,286 @@ class PostgresFileRepository implements FileRepository {
     return files.map((file) => toFileRecord(file));
   }
 
+  async listFilesByProject(projectId: string) {
+    const files = await prisma.file.findMany({
+      where: { projectId, deletedAt: null, purgedAt: null },
+      orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
+    });
+
+    const latestByGroup = new Map<string, (typeof files)[number]>();
+    for (const file of files) {
+      if (!latestByGroup.has(file.fileGroupId)) {
+        latestByGroup.set(file.fileGroupId, file);
+      }
+    }
+
+    return [...latestByGroup.values()].map((file) => toFileRecord(file));
+  }
+
+  async searchFileAnalyses(input: SearchFileAnalysesInput) {
+    const limit = Math.max(0, input.limit ?? 4);
+    if (limit === 0 || tokenizeSearchText(input.query).length === 0) {
+      return [];
+    }
+
+    const chunkResults = await this.searchFileAnalysisChunks(input, limit);
+    if (chunkResults.length > 0) {
+      return chunkResults;
+    }
+
+    try {
+      const rows = await prisma.$queryRaw<PostgresFileAnalysisSearchRow[]>(Prisma.sql`
+        with latest_files as (
+          select distinct on (f.file_group_id)
+            f.id,
+            f.task_id as "taskId",
+            f.project_id as "projectId",
+            f.file_group_id as "fileGroupId",
+            f.original_name as "originalName",
+            f.mime_type as "mimeType",
+            f.size_bytes as "sizeBytes",
+            f.storage_bucket as "storageBucket",
+            f.object_path as "objectPath",
+            f.version,
+            f.created_at as "createdAt",
+            f.updated_at as "updatedAt",
+            f.uploaded_by as "uploadedBy",
+            f.deleted_at as "deletedAt",
+            f.purged_at as "purgedAt",
+            f.metadata
+          from files f
+          where f.project_id = ${input.projectId}::uuid
+            and f.deleted_at is null
+            and f.purged_at is null
+          order by f.file_group_id, f.version desc, f.created_at desc
+        ),
+        analysis_entries as (
+          select
+            latest_files.*,
+            analysis.value as analysis,
+            concat_ws(
+              ' ',
+              latest_files."originalName",
+              analysis.value->>'summary',
+              analysis.value->>'extractedText',
+              (analysis.value->'tags')::text
+            ) as search_text
+          from latest_files
+          cross join lateral jsonb_array_elements(coalesce(latest_files.metadata->'analysis', '[]'::jsonb)) as analysis(value)
+          where coalesce(analysis.value->>'verificationState', 'unverified') <> 'rejected'
+            and (
+              coalesce(analysis.value->>'summary', '') <> ''
+              or coalesce(analysis.value->>'extractedText', '') <> ''
+            )
+        )
+        select
+          id,
+          "taskId",
+          "projectId",
+          "fileGroupId",
+          "originalName",
+          "mimeType",
+          "sizeBytes",
+          "storageBucket",
+          "objectPath",
+          version,
+          "createdAt",
+          "updatedAt",
+          "uploadedBy",
+          "deletedAt",
+          "purgedAt",
+          metadata,
+          analysis,
+          ts_rank_cd(to_tsvector('simple', search_text), plainto_tsquery('simple', ${input.query}))::float as "ftsRank"
+        from analysis_entries
+        order by "ftsRank" desc, "updatedAt" desc
+        limit ${Math.min(200, Math.max(50, limit * 12))}
+      `);
+      const excludedFileIds = new Set(input.excludedFileIds ?? []);
+      const results = rows
+        .filter((row) => !excludedFileIds.has(row.id))
+        .map((row): FileAnalysisSearchResult | null => {
+          const file = toFileRecord(row);
+          const analysis = getFileAnalysisEntries({ analysis: [row.analysis] })[0];
+          if (!analysis) {
+            return null;
+          }
+
+          const lexicalScore = scoreFileAnalysisMatch(file, analysis, input.query);
+          const ftsRank = Math.max(0, Number(row.ftsRank ?? 0));
+          const score = lexicalScore.score + ftsRank * 12;
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file,
+            analysis,
+            score,
+            matchedTerms: lexicalScore.matchedTerms,
+            mode: ftsRank > 0 ? "text_hybrid" : "lexical",
+          };
+        })
+        .filter((result): result is FileAnalysisSearchResult => Boolean(result))
+        .sort(compareFileAnalysisSearchResults)
+        .slice(0, limit);
+
+      return results;
+    } catch {
+      return rankFileAnalyses({
+        files: await this.listFilesByProject(input.projectId),
+        query: input.query,
+        excludedFileIds: input.excludedFileIds,
+        limit,
+        mode: "lexical",
+      });
+    }
+  }
+
+  private async searchFileAnalysisChunks(input: SearchFileAnalysesInput, limit: number) {
+    const queryVector = normalizeQueryEmbeddingLiteral(input.queryEmbedding);
+    const vectorDistanceSelect = queryVector
+      ? Prisma.sql`, min(c.embedding <=> ${queryVector}::vector)::float as "vectorDistance"`
+      : Prisma.sql`, null::float as "vectorDistance"`;
+    const vectorCandidatePredicate = queryVector ? Prisma.sql`or c.embedding is not null` : Prisma.sql``;
+
+    try {
+      const rows = await prisma.$queryRaw<PostgresFileAnalysisSearchRow[]>(Prisma.sql`
+        with latest_files as (
+          select distinct on (f.file_group_id)
+            f.id,
+            f.task_id as "taskId",
+            f.project_id as "projectId",
+            f.file_group_id as "fileGroupId",
+            f.original_name as "originalName",
+            f.mime_type as "mimeType",
+            f.size_bytes as "sizeBytes",
+            f.storage_bucket as "storageBucket",
+            f.object_path as "objectPath",
+            f.version,
+            f.created_at as "createdAt",
+            f.updated_at as "updatedAt",
+            f.uploaded_by as "uploadedBy",
+            f.deleted_at as "deletedAt",
+            f.purged_at as "purgedAt",
+            f.metadata
+          from files f
+          where f.project_id = ${input.projectId}::uuid
+            and f.deleted_at is null
+            and f.purged_at is null
+          order by f.file_group_id, f.version desc, f.created_at desc
+        ),
+        chunk_matches as (
+          select
+            latest_files.id,
+            latest_files."taskId",
+            latest_files."projectId",
+            latest_files."fileGroupId",
+            latest_files."originalName",
+            latest_files."mimeType",
+            latest_files."sizeBytes",
+            latest_files."storageBucket",
+            latest_files."objectPath",
+            latest_files.version,
+            latest_files."createdAt",
+            latest_files."updatedAt",
+            latest_files."uploadedBy",
+            latest_files."deletedAt",
+            latest_files."purgedAt",
+            latest_files.metadata,
+            c.analysis_id as "analysisId",
+            string_agg(c.text, ' ' order by c.chunk_index) as "chunkText",
+            max(ts_rank_cd(to_tsvector('simple', c.text), plainto_tsquery('simple', ${input.query})))::float as "ftsRank"
+            ${vectorDistanceSelect}
+          from latest_files
+          join file_analysis_chunks c on c.file_id = latest_files.id
+          where c.project_id = ${input.projectId}::uuid
+            and (
+              to_tsvector('simple', c.text) @@ plainto_tsquery('simple', ${input.query})
+              ${vectorCandidatePredicate}
+            )
+          group by
+            latest_files.id,
+            latest_files."taskId",
+            latest_files."projectId",
+            latest_files."fileGroupId",
+            latest_files."originalName",
+            latest_files."mimeType",
+            latest_files."sizeBytes",
+            latest_files."storageBucket",
+            latest_files."objectPath",
+            latest_files.version,
+            latest_files."createdAt",
+            latest_files."updatedAt",
+            latest_files."uploadedBy",
+            latest_files."deletedAt",
+            latest_files."purgedAt",
+            latest_files.metadata,
+            c.analysis_id
+        )
+        select
+          id,
+          "taskId",
+          "projectId",
+          "fileGroupId",
+          "originalName",
+          "mimeType",
+          "sizeBytes",
+          "storageBucket",
+          "objectPath",
+          version,
+          "createdAt",
+          "updatedAt",
+          "uploadedBy",
+          "deletedAt",
+          "purgedAt",
+          metadata,
+          null::jsonb as analysis,
+          "analysisId",
+          "chunkText",
+          "ftsRank",
+          "vectorDistance"
+        from chunk_matches
+        order by coalesce("vectorDistance", 99) asc, "ftsRank" desc, "updatedAt" desc
+        limit ${Math.min(200, Math.max(50, limit * 12))}
+      `);
+
+      const excludedFileIds = new Set(input.excludedFileIds ?? []);
+      return rows
+        .filter((row) => !excludedFileIds.has(row.id))
+        .map((row): FileAnalysisSearchResult | null => {
+          const file = toFileRecord(row);
+          const analysis = getFileAnalysisEntries(file.metadata).find((entry) => entry.id === row.analysisId);
+          if (!analysis) {
+            return null;
+          }
+
+          const lexicalScore = scoreFileAnalysisMatch(file, analysis, input.query);
+          const chunkScore = scoreChunkText(row.chunkText ?? "", input.query);
+          const ftsRank = Math.max(0, Number(row.ftsRank ?? 0));
+          const vectorDistance = typeof row.vectorDistance === "number" && Number.isFinite(row.vectorDistance) ? row.vectorDistance : null;
+          const vectorScore = vectorDistance === null ? 0 : Math.max(0, 1 - vectorDistance) * 8;
+          const score = lexicalScore.score + chunkScore + ftsRank * 16 + vectorScore;
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file,
+            analysis,
+            score,
+            matchedTerms: lexicalScore.matchedTerms,
+            mode: vectorDistance === null ? "text_hybrid" : "vector_hybrid",
+          };
+        })
+        .filter((result): result is FileAnalysisSearchResult => Boolean(result))
+        .sort(compareFileAnalysisSearchResults)
+        .slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
   async attachFile(input: CreateFileInput) {
     const file = await prisma.file.create({
       data: {
@@ -651,7 +1027,9 @@ class PostgresFileRepository implements FileRepository {
       },
     });
 
-    return toFileRecord(file);
+    const record = toFileRecord(file);
+    await syncFileAnalysisChunks(record);
+    return record;
   }
 }
 

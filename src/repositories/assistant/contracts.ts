@@ -131,10 +131,17 @@ export type DeleteAssistantAuditEventsByIdsResult = {
   skippedIds: string[];
 };
 
+export type SearchApprovedKnowledgeInput = {
+  projectId: string;
+  query: string;
+  limit?: number;
+};
+
 export interface AssistantRepository {
   listRecordsByTask(taskId: string): Promise<AssistantRecord[]>;
   listExternalEvidenceByTask(taskId: string): Promise<ExternalEvidenceRecord[]>;
   listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }): Promise<AssistantRecord[]>;
+  searchApprovedKnowledge(input: SearchApprovedKnowledgeInput): Promise<ApprovedKnowledgeItem[]>;
   findRecordById(recordId: string): Promise<AssistantRecord | null>;
   findWorkSummaryDraftByRecordId(recordId: string): Promise<AssistantWorkSummaryDraft | null>;
   createRecord(input: CreateAssistantRecordInput): Promise<AssistantRecord>;

@@ -174,10 +174,10 @@ function normalizeOcrTags(value: unknown, sourceType: FileAnalysisSourceType, pr
 
 async function runTesseract(file: FileRecord, content: Uint8Array, language: string, extensionOverride?: string) {
   const extension = extensionOverride || extname(file.originalName).replace(/^\./, "").toLowerCase() || "png";
-  const directory = await mkdtemp(join(tmpdir(), "architect-ocr-"));
-  const imagePath = join(directory, `input.${extension === "jpeg" ? "jpg" : extension}`);
+  const directory = await mkdtemp(/*turbopackIgnore: true*/ join(/*turbopackIgnore: true*/ tmpdir(), "architect-ocr-"));
+  const imagePath = join(/*turbopackIgnore: true*/ directory, `input.${extension === "jpeg" ? "jpg" : extension}`);
   try {
-    await writeFile(imagePath, Buffer.from(content));
+    await writeFile(/*turbopackIgnore: true*/ imagePath, Buffer.from(content));
     const command = normalizeText(process.env.TESSERACT_CMD) || "tesseract";
     const { stdout } = await execFileAsync(command, [imagePath, "stdout", "-l", language], {
       maxBuffer: 1024 * 1024,
@@ -192,7 +192,7 @@ async function runTesseract(file: FileRecord, content: Uint8Array, language: str
     }
     throw serviceUnavailable("Tesseract OCR provider failed for this file.", "FILE_OCR_PROVIDER_FAILED");
   } finally {
-    await rm(directory, { force: true, recursive: true });
+    await rm(/*turbopackIgnore: true*/ directory, { force: true, recursive: true });
   }
 }
 
@@ -205,14 +205,14 @@ async function rasterizePdfPage(file: FileRecord, content: Uint8Array, input: Oc
     );
   }
 
-  const directory = await mkdtemp(join(tmpdir(), "architect-pdf-ocr-"));
-  const pdfPath = join(directory, "input.pdf");
-  const outputPrefix = join(directory, "page");
+  const directory = await mkdtemp(/*turbopackIgnore: true*/ join(/*turbopackIgnore: true*/ tmpdir(), "architect-pdf-ocr-"));
+  const pdfPath = join(/*turbopackIgnore: true*/ directory, "input.pdf");
+  const outputPrefix = join(/*turbopackIgnore: true*/ directory, "page");
   const pageNumber = normalizeFileAnalysisRegion(input.region)?.pageNumber ?? 1;
   const dpi = normalizeRasterDpi(process.env.FILE_PDF_RASTER_DPI);
 
   try {
-    await writeFile(pdfPath, Buffer.from(content));
+    await writeFile(/*turbopackIgnore: true*/ pdfPath, Buffer.from(content));
     await execFileAsync(rasterizer.command, ["-f", String(pageNumber), "-l", String(pageNumber), "-png", "-r", String(dpi), pdfPath, outputPrefix], {
       maxBuffer: 1024 * 1024,
       timeout: 45000,
@@ -222,7 +222,7 @@ async function rasterizePdfPage(file: FileRecord, content: Uint8Array, input: Oc
     if (!output) {
       throw unprocessable("PDF rasterizer produced no image for the selected page.", "FILE_OCR_PDF_RASTER_EMPTY");
     }
-    return new Uint8Array(await readFile(join(directory, output)));
+    return new Uint8Array(await readFile(/*turbopackIgnore: true*/ join(/*turbopackIgnore: true*/ directory, output)));
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "";
     if (code === "ENOENT") {
@@ -233,12 +233,12 @@ async function rasterizePdfPage(file: FileRecord, content: Uint8Array, input: Oc
     }
     throw serviceUnavailable(`PDF rasterizer failed for ${file.originalName}.`, "FILE_OCR_PDF_RASTERIZER_FAILED");
   } finally {
-    await rm(directory, { force: true, recursive: true });
+    await rm(/*turbopackIgnore: true*/ directory, { force: true, recursive: true });
   }
 }
 
 async function findRasterizedPng(directory: string) {
-  const files = await readdir(directory);
+  const files = await readdir(/*turbopackIgnore: true*/ directory);
   return files.find((file) => /^page-\d+\.png$/i.test(file)) ?? files.find((file) => file.toLowerCase().endsWith(".png")) ?? null;
 }
 

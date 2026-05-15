@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
-import { requireRole } from "@/lib/auth/require-user";
 import { reviewKnowledgeCandidate } from "@/use-cases/admin/knowledge-service";
 
 export async function POST(
@@ -10,7 +10,7 @@ export async function POST(
 ) {
   try {
     assertRequestIntegrity(request);
-    const user = await requireRole("admin");
+    const user = await requireKnowledgeAdmin();
     const { recordId } = await context.params;
     const body = await request.json();
     const data = await reviewKnowledgeCandidate({

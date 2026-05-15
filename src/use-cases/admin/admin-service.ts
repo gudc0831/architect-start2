@@ -20,6 +20,19 @@ function sanitizeName(value: string) {
   return value.trim();
 }
 
+function normalizeSortOrder(value: number | undefined, fallback: number): number;
+function normalizeSortOrder(value: number | undefined): number | undefined;
+function normalizeSortOrder(value: number | undefined, fallback?: number) {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!Number.isSafeInteger(value)) {
+    throw badRequest("sortOrder must be an integer", "SORT_ORDER_INVALID");
+  }
+
+  return value;
+}
+
 function uniqueById<T extends { id: string }>(items: T[]) {
   const seen = new Set<string>();
 
@@ -314,7 +327,7 @@ export async function createGlobalWorkType(
     code: assertCreatableWorkTypeCode(existingDefinitions, null, input.code),
     labelKo: input.labelKo.trim(),
     labelEn: input.labelEn.trim(),
-    sortOrder: input.sortOrder ?? 0,
+    sortOrder: normalizeSortOrder(input.sortOrder, 0),
     isSystem: input.isSystem ?? false,
     actorId: userId,
   });
@@ -342,7 +355,7 @@ export async function createGlobalTaskCategory(
     code: assertCreatableTaskCategoryCode(existingDefinitions, fieldKey, null, input.code),
     labelKo: input.labelKo.trim(),
     labelEn: input.labelEn.trim(),
-    sortOrder: input.sortOrder ?? 0,
+    sortOrder: normalizeSortOrder(input.sortOrder, 0),
     isSystem: input.isSystem ?? false,
     actorId: userId,
   });
@@ -376,7 +389,7 @@ export async function createProjectWorkType(
     code: assertCreatableWorkTypeCode(existingDefinitions, normalizedProjectId, input.code),
     labelKo: input.labelKo.trim(),
     labelEn: input.labelEn.trim(),
-    sortOrder: input.sortOrder ?? 0,
+    sortOrder: normalizeSortOrder(input.sortOrder, 0),
     isSystem: false,
     actorId: userId,
   });
@@ -404,7 +417,7 @@ export async function createProjectTaskCategory(
     code: assertCreatableTaskCategoryCode(existingDefinitions, fieldKey, normalizedProjectId, input.code),
     labelKo: input.labelKo.trim(),
     labelEn: input.labelEn.trim(),
-    sortOrder: input.sortOrder ?? 0,
+    sortOrder: normalizeSortOrder(input.sortOrder, 0),
     isSystem: false,
     actorId: userId,
   });
@@ -418,7 +431,7 @@ export async function updateAdminWorkType(
   return adminRepository.updateWorkTypeDefinition(id.trim(), {
     labelKo: input.labelKo?.trim(),
     labelEn: input.labelEn?.trim(),
-    sortOrder: input.sortOrder,
+    sortOrder: normalizeSortOrder(input.sortOrder),
     isActive: input.isActive,
     updatedBy: userId,
   });
@@ -432,7 +445,7 @@ export async function updateAdminTaskCategory(
   return adminRepository.updateTaskCategoryDefinition(id.trim(), {
     labelKo: input.labelKo?.trim(),
     labelEn: input.labelEn?.trim(),
-    sortOrder: input.sortOrder,
+    sortOrder: normalizeSortOrder(input.sortOrder),
     isActive: input.isActive,
     updatedBy: userId,
   });

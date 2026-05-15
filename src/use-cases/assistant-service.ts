@@ -24,6 +24,8 @@ import {
 import { getFileAnalysisEntries } from "@/domains/file/analysis";
 import type { FileAnalysisEntry, FileAnalysisSourceType } from "@/domains/file/analysis";
 import type { AuthUser } from "@/domains/auth/types";
+import { searchFoundationRegulations } from "@/domains/regulation/foundation";
+import { regulationSearchResultToEvidence, type RegulationSearchResult } from "@/domains/regulation/knowledge";
 import type { TaskRecord } from "@/domains/task/types";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
@@ -91,16 +93,45 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const project = await getSelectedTaskProject();
   const question = normalizeText(input.question);
-  const [tasks, files, previousRecords, externalEvidence] = await Promise.all([
+  const [tasks, files, previousRecords, externalEvidence, approvedKnowledge] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     fileRepository.listFilesByTask(task.id),
     assistantRepository.listRecordsByTask(task.id),
     assistantRepository.listExternalEvidenceByTask(task.id),
+    assistantRepository.searchApprovedKnowledge({ projectId: project.id, query: question, limit: 4 }),
   ]);
-  const evidence = buildEvidence({ task, projectName: project.name, question, tasks, files, previousRecords, externalEvidence });
-  const hasFileAnalysisEvidence = evidence.some((item) => item.id.startsWith("file-analysis:"));
+  const projectFileAnalysisMatches = await fileRepository.searchFileAnalyses({
+    projectId: project.id,
+    query: question,
+    excludedFileIds: files.map((file) => file.id),
+    limit: 4,
+  });
+  const regulationResults = searchFoundationRegulations(question, 4);
+  const evidence = buildEvidence({
+    task,
+    projectName: project.name,
+    question,
+    tasks,
+    files,
+    projectFileAnalysisMatches,
+    previousRecords,
+    externalEvidence,
+    approvedKnowledge,
+    regulationResults,
+  });
+  const hasFileAnalysisEvidence = evidence.some(
+    (item) =>
+      item.kind === "project_document" &&
+      (item.id.startsWith("file-analysis:") || item.id.startsWith("project-file-analysis:")),
+  );
   const hasExternalEvidence = externalEvidence.length > 0;
-  const unavailableEvidenceKinds: AssistantEvidence["kind"][] = ["central_knowledge", "regulation"];
+  const unavailableEvidenceKinds: AssistantEvidence["kind"][] = [];
+  if (regulationResults.length === 0) {
+    unavailableEvidenceKinds.push("regulation");
+  }
+  if (approvedKnowledge.length === 0) {
+    unavailableEvidenceKinds.push("central_knowledge");
+  }
   if (!hasFileAnalysisEvidence) {
     unavailableEvidenceKinds.push("project_document");
   }
@@ -337,10 +368,27 @@ function buildEvidence(input: {
   question: string;
   tasks: TaskRecord[];
   files: Awaited<ReturnType<typeof fileRepository.listFilesByTask>>;
+  projectFileAnalysisMatches: Awaited<ReturnType<typeof fileRepository.searchFileAnalyses>>;
   previousRecords: Awaited<ReturnType<typeof assistantRepository.listRecordsByTask>>;
   externalEvidence: Awaited<ReturnType<typeof assistantRepository.listExternalEvidenceByTask>>;
+  approvedKnowledge: Awaited<ReturnType<typeof assistantRepository.searchApprovedKnowledge>>;
+  regulationResults: RegulationSearchResult[];
 }): AssistantEvidence[] {
-  const evidence: AssistantEvidence[] = [
+  const evidence: AssistantEvidence[] = input.approvedKnowledge.map((item) => ({
+    id: `approved-knowledge:${item.id}`,
+    kind: "central_knowledge",
+    priority: 1,
+    title: item.title,
+    excerpt: compactExcerpt([item.summary, item.bodyMarkdown]),
+    recordId: item.sourceRecordId,
+    confidenceWeight: 0.86,
+  }));
+
+  for (const regulationResult of input.regulationResults) {
+    evidence.push(regulationSearchResultToEvidence(regulationResult));
+  }
+
+  evidence.push(
     {
       id: `task:${input.task.id}`,
       kind: "task",
@@ -350,7 +398,7 @@ function buildEvidence(input: {
       recordId: input.task.id,
       confidenceWeight: 0.78,
     },
-  ];
+  );
 
   const previousAssistantRecords = input.previousRecords.filter(
     (record) => record.runtimeMode !== "external-evidence" && !record.metadata.externalEvidence,
@@ -405,6 +453,18 @@ function buildEvidence(input: {
       excerpt: `Attached file for ${input.task.issueId || "current task"} in ${input.projectName}. Text extraction has not been confirmed yet.`,
       recordId: file.id,
       confidenceWeight: 0.25,
+    });
+  }
+
+  for (const match of input.projectFileAnalysisMatches.slice(0, 4)) {
+    evidence.push({
+      id: `project-file-analysis:${match.file.id}:${match.analysis.id}`,
+      kind: "project_document",
+      priority: 4,
+      title: `Project document ${match.file.originalName} / ${formatFileAnalysisSource(match.analysis.sourceType)}`,
+      excerpt: compactExcerpt([formatFileAnalysisNotice(match.analysis), match.analysis.summary, match.analysis.extractedText]),
+      recordId: match.file.id,
+      confidenceWeight: Math.min(0.62, Math.max(match.analysis.confidenceWeight, 0.42)),
     });
   }
 
