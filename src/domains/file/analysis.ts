@@ -2,6 +2,28 @@ export type FileAnalysisSourceType = "document_text" | "manual_text" | "ocr_text
 
 export type FileAnalysisVerificationState = "unverified" | "user_confirmed" | "rejected";
 
+export type FileAnalysisProviderStatus = "client_supplied" | "provider_extracted";
+
+export type FileAnalysisRegion = {
+  pageNumber?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  unit: "percent" | "px";
+};
+
+export type FileAnalysisArtifact = {
+  kind: "image_crop";
+  storageBucket: string;
+  objectPath: string;
+  mimeType: string;
+  sizeBytes: number;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  capturedAt?: string;
+};
+
 export type FileAnalysisEntry = {
   id: string;
   sourceType: FileAnalysisSourceType;
@@ -10,6 +32,10 @@ export type FileAnalysisEntry = {
   tags: string[];
   confidenceWeight: number;
   verificationState: FileAnalysisVerificationState;
+  provider?: string;
+  providerStatus?: FileAnalysisProviderStatus;
+  region?: FileAnalysisRegion;
+  artifact?: FileAnalysisArtifact;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -21,6 +47,7 @@ export type FileMetadata = {
 
 const sourceTypes = new Set<FileAnalysisSourceType>(["document_text", "manual_text", "ocr_text", "image_region"]);
 const verificationStates = new Set<FileAnalysisVerificationState>(["unverified", "user_confirmed", "rejected"]);
+const providerStatuses = new Set<FileAnalysisProviderStatus>(["client_supplied", "provider_extracted"]);
 
 export function normalizeFileMetadata(value: unknown): FileMetadata {
   if (!isRecord(value)) {
@@ -85,6 +112,59 @@ export function normalizeFileAnalysisConfidence(
   return Math.min(cap, Math.max(0.05, Math.round(numeric * 100) / 100));
 }
 
+export function normalizeFileAnalysisRegion(value: unknown): FileAnalysisRegion | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const x = normalizeRegionNumber(value.x);
+  const y = normalizeRegionNumber(value.y);
+  const width = normalizeRegionNumber(value.width);
+  const height = normalizeRegionNumber(value.height);
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  const unit = value.unit === "px" ? "px" : "percent";
+  const pageNumber = normalizePageNumber(value.pageNumber);
+  return {
+    ...(pageNumber ? { pageNumber } : {}),
+    x,
+    y,
+    width,
+    height,
+    unit,
+  };
+}
+
+export function normalizeFileAnalysisArtifact(value: unknown): FileAnalysisArtifact | undefined {
+  if (!isRecord(value) || value.kind !== "image_crop") {
+    return undefined;
+  }
+
+  const storageBucket = normalizeString(value.storageBucket);
+  const objectPath = normalizeString(value.objectPath);
+  const mimeType = normalizeString(value.mimeType);
+  const sizeBytes = Number(value.sizeBytes);
+  if (!storageBucket || !objectPath || !mimeType || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return undefined;
+  }
+
+  const sourceUrl = normalizeString(value.sourceUrl);
+  const sourceTitle = normalizeString(value.sourceTitle);
+  const capturedAt = normalizeString(value.capturedAt);
+  return {
+    kind: "image_crop",
+    storageBucket,
+    objectPath,
+    mimeType,
+    sizeBytes: Math.round(sizeBytes),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(sourceTitle ? { sourceTitle } : {}),
+    ...(capturedAt ? { capturedAt } : {}),
+  };
+}
+
 function normalizeFileAnalysisEntry(value: unknown): FileAnalysisEntry | null {
   if (!isRecord(value)) {
     return null;
@@ -99,6 +179,13 @@ function normalizeFileAnalysisEntry(value: unknown): FileAnalysisEntry | null {
 
   const sourceType = normalizeFileAnalysisSourceType(value.sourceType);
   const verificationState = normalizeFileAnalysisVerificationState(value.verificationState);
+  const provider = normalizeString(value.provider);
+  const providerStatus =
+    typeof value.providerStatus === "string" && providerStatuses.has(value.providerStatus as FileAnalysisProviderStatus)
+      ? (value.providerStatus as FileAnalysisProviderStatus)
+      : undefined;
+  const region = normalizeFileAnalysisRegion(value.region);
+  const artifact = normalizeFileAnalysisArtifact(value.artifact);
   return {
     id,
     sourceType,
@@ -107,10 +194,24 @@ function normalizeFileAnalysisEntry(value: unknown): FileAnalysisEntry | null {
     tags: normalizeFileAnalysisTags(value.tags),
     confidenceWeight: normalizeFileAnalysisConfidence(value.confidenceWeight, sourceType, verificationState),
     verificationState,
+    ...(provider ? { provider } : {}),
+    ...(providerStatus ? { providerStatus } : {}),
+    ...(region ? { region } : {}),
+    ...(artifact ? { artifact } : {}),
     createdBy: typeof value.createdBy === "string" && value.createdBy ? value.createdBy : null,
     createdAt,
     updatedAt,
   };
+}
+
+function normalizeRegionNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric * 100) / 100 : null;
+}
+
+function normalizePageNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : undefined;
 }
 
 function normalizeString(value: unknown) {

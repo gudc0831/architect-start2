@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
@@ -21,6 +22,27 @@ type AssistantFileAnalysis = {
   id: string;
   sourceType: string;
   verificationState: string;
+  summary?: string;
+  confidenceWeight?: number;
+  provider?: string;
+  providerStatus?: string;
+  region?: {
+    pageNumber?: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    unit: "percent" | "px";
+  };
+  artifact?: {
+    kind: "image_crop";
+    mimeType: string;
+    sizeBytes: number;
+    sourceUrl?: string;
+    sourceTitle?: string;
+    capturedAt?: string;
+  };
+  createdAt?: string;
 };
 
 type AssistantFile = {
@@ -54,6 +76,7 @@ type AssistantOutput = {
 };
 
 type AssistantExecutionMode = "mock" | "saas-api" | "local-codex";
+type FileAnalysisSourceMode = "manual_text" | "ocr_text" | "image_region";
 
 type RetrieveResponse = {
   taskContext: AssistantTaskContext;
@@ -145,6 +168,33 @@ type LocalCodexStatus = {
   available: boolean;
   mode: "local-chatgpt-codex" | "mock";
   reason?: string;
+};
+
+type BrowserRegionCapture = {
+  dataUrl: string;
+  cropDataUrl?: string;
+  title: string;
+  url: string;
+  capturedAt: string;
+  region: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    unit: "percent" | "px";
+  };
+  pixelRegion: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    unit: "percent" | "px";
+  };
+  viewport: {
+    width: number;
+    height: number;
+    devicePixelRatio: number;
+  };
 };
 
 type LocalCodexBridgeResponse<T> =
@@ -247,8 +297,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [recordHistory, setRecordHistory] = useState<AssistantRecordHistoryItem[]>([]);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
+  const [analysisSourceType, setAnalysisSourceType] = useState<FileAnalysisSourceMode>("manual_text");
   const [analysisText, setAnalysisText] = useState("");
   const [analysisSummary, setAnalysisSummary] = useState("");
+  const [analysisPageNumber, setAnalysisPageNumber] = useState("");
+  const [analysisRegionX, setAnalysisRegionX] = useState("");
+  const [analysisRegionY, setAnalysisRegionY] = useState("");
+  const [analysisRegionWidth, setAnalysisRegionWidth] = useState("");
+  const [analysisRegionHeight, setAnalysisRegionHeight] = useState("");
+  const [analysisCropDataUrl, setAnalysisCropDataUrl] = useState("");
+  const [analysisCropSourceUrl, setAnalysisCropSourceUrl] = useState("");
+  const [analysisCropSourceTitle, setAnalysisCropSourceTitle] = useState("");
+  const [analysisCropCapturedAt, setAnalysisCropCapturedAt] = useState("");
   const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>("mock");
   const [assistantPolicy, setAssistantPolicy] = useState<AssistantPolicyResponse | null>(null);
   const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
@@ -293,6 +353,14 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     taskUpdateProposal && !busy && !taskUpdateApplied && (!taskUpdateProposal.alreadyRecorded || taskUpdateProposal.statusChanged),
   );
   const canCreateFollowUpTask = Boolean(followUpTaskProposal && !busy && !followUpTaskCreated);
+  const selectedAssistantFile = useMemo(
+    () => taskFiles.find((file) => file.id === selectedFileId) ?? null,
+    [selectedFileId, taskFiles],
+  );
+  const selectedFileAnalyses = useMemo(
+    () => selectedAssistantFile?.metadata?.analysis ?? [],
+    [selectedAssistantFile],
+  );
 
   useEffect(() => {
     setRetrieveResult(null);
@@ -308,8 +376,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
+    setAnalysisSourceType("manual_text");
     setAnalysisText("");
     setAnalysisSummary("");
+    setAnalysisPageNumber("");
+    setAnalysisRegionX("");
+    setAnalysisRegionY("");
+    setAnalysisRegionWidth("");
+    setAnalysisRegionHeight("");
+    setAnalysisCropDataUrl("");
+    setAnalysisCropSourceUrl("");
+    setAnalysisCropSourceTitle("");
+    setAnalysisCropCapturedAt("");
     setExecutionMode("mock");
     setAssistantPolicy(null);
     setExternalEvidence([]);
@@ -662,17 +740,124 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
 
     setBusy(true);
     try {
-      const saved = await postJson<{ file: AssistantFile }>(`/api/files/${encodeURIComponent(selectedFileId)}/analysis`, {
-        sourceType: "manual_text",
+      const requestBody = {
+        sourceType: analysisSourceType,
         extractedText: analysisText,
         summary: analysisSummary,
+        provider: analysisSourceType === "manual_text" ? undefined : "client_supplied",
+        providerStatus: analysisSourceType === "manual_text" ? undefined : "client_supplied",
+        region: analysisSourceType === "image_region" ? buildAnalysisRegionPayload() : undefined,
         verificationState: "unverified",
+      };
+      const saved = await postJson<{ file: AssistantFile }>(
+        `/api/files/${encodeURIComponent(selectedFileId)}/analysis`,
+        analysisSourceType === "image_region" && analysisCropDataUrl
+          ? {
+              ...requestBody,
+              mode: "ocr_extract",
+              sourceImageDataUrl: analysisCropDataUrl,
+              sourceUrl: analysisCropSourceUrl,
+              sourceTitle: analysisCropSourceTitle,
+              capturedAt: analysisCropCapturedAt,
+            }
+          : requestBody,
+      );
+      setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
+      setAnalysisText("");
+      setAnalysisSummary("");
+      clearAnalysisCrop();
+      resetGeneratedOutput();
+      setStatus("파일 분석 근거를 저장했습니다. 다음 근거 조회부터 assistant 의견에 반영됩니다.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function autoExtractSelectedFileAnalysis() {
+    if (!selectedTask || !selectedFileId) {
+      setStatus("자동 추출할 첨부 파일을 먼저 선택하세요.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const saved = await postJson<{ file: AssistantFile }>(`/api/files/${encodeURIComponent(selectedFileId)}/analysis`, {
+        mode: "auto_extract",
       });
       setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
       setAnalysisText("");
       setAnalysisSummary("");
       resetGeneratedOutput();
-      setStatus("파일 분석 근거를 저장했습니다. 다음 근거 조회부터 assistant 의견에 반영됩니다.");
+      setStatus("파일 텍스트를 자동 추출해 assistant 근거로 저장했습니다. 다음 근거 조회부터 반영됩니다.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ocrExtractSelectedFileAnalysis() {
+    if (!selectedTask || !selectedFileId) {
+      setStatus("Select an attached image or scanned PDF before OCR extraction.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const saved = await postJson<{ file: AssistantFile }>(`/api/files/${encodeURIComponent(selectedFileId)}/analysis`, {
+        mode: "ocr_extract",
+        sourceType: analysisSourceType === "image_region" ? "image_region" : "ocr_text",
+        region: analysisSourceType === "image_region" ? buildAnalysisRegionPayload() : undefined,
+        sourceImageDataUrl: analysisSourceType === "image_region" ? analysisCropDataUrl : undefined,
+        sourceUrl: analysisSourceType === "image_region" ? analysisCropSourceUrl : undefined,
+        sourceTitle: analysisSourceType === "image_region" ? analysisCropSourceTitle : undefined,
+        capturedAt: analysisSourceType === "image_region" ? analysisCropCapturedAt : undefined,
+      });
+      setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
+      setAnalysisText("");
+      setAnalysisSummary("");
+      clearAnalysisCrop();
+      resetGeneratedOutput();
+      setStatus("OCR provider result was saved as assistant file evidence.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function captureBrowserImageRegion() {
+    if (!selectedTask || !selectedFileId) {
+      setStatus("Select an attached file before capturing an image region.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const capture = await requestLocalCodexBridge<BrowserRegionCapture>("select-region", undefined, 60000);
+      setAnalysisSourceType("image_region");
+      setAnalysisRegionX(formatRegionNumber(capture.region.x));
+      setAnalysisRegionY(formatRegionNumber(capture.region.y));
+      setAnalysisRegionWidth(formatRegionNumber(capture.region.width));
+      setAnalysisRegionHeight(formatRegionNumber(capture.region.height));
+      setAnalysisCropDataUrl(capture.cropDataUrl || "");
+      setAnalysisCropSourceUrl(capture.url);
+      setAnalysisCropSourceTitle(capture.title);
+      setAnalysisCropCapturedAt(capture.capturedAt);
+      setAnalysisSummary((current) =>
+        current.trim()
+          ? current
+          : [
+              `Browser region captured from ${capture.title || "active tab"}.`,
+              `Source: ${capture.url}`,
+              `Viewport: ${capture.viewport.width}x${capture.viewport.height}; region: x ${formatRegionNumber(capture.region.x)}%, y ${formatRegionNumber(capture.region.y)}%, w ${formatRegionNumber(capture.region.width)}%, h ${formatRegionNumber(capture.region.height)}%.`,
+              `Captured at: ${capture.capturedAt}`,
+            ].join("\n"),
+      );
+      resetGeneratedOutput();
+      setStatus("Browser image region captured. Review the OCR text or summary, then save it as file evidence.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -738,6 +923,24 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
+  }
+
+  function clearAnalysisCrop() {
+    setAnalysisCropDataUrl("");
+    setAnalysisCropSourceUrl("");
+    setAnalysisCropSourceTitle("");
+    setAnalysisCropCapturedAt("");
+  }
+
+  function buildAnalysisRegionPayload() {
+    return {
+      pageNumber: parseOptionalNumber(analysisPageNumber),
+      x: parseOptionalNumber(analysisRegionX),
+      y: parseOptionalNumber(analysisRegionY),
+      width: parseOptionalNumber(analysisRegionWidth),
+      height: parseOptionalNumber(analysisRegionHeight),
+      unit: "percent",
+    };
   }
 
   return (
@@ -833,6 +1036,131 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   </select>
                 </label>
                 <label className="task-assistant__field task-assistant__field--plain">
+                  <span>Analysis mode</span>
+                  <select
+                    disabled={busy || !selectedFileId}
+                    onChange={(event) => {
+                      const nextSourceType = event.target.value as FileAnalysisSourceMode;
+                      setAnalysisSourceType(nextSourceType);
+                      if (nextSourceType !== "image_region") {
+                        clearAnalysisCrop();
+                      }
+                    }}
+                    value={analysisSourceType}
+                  >
+                    <option value="manual_text">Manual text</option>
+                    <option value="ocr_text">OCR text</option>
+                    <option value="image_region">Selected image region</option>
+                  </select>
+                </label>
+                {selectedFileAnalyses.length ? (
+                  <div className="task-assistant__analysis-list" aria-label="Saved file analysis evidence">
+                    {selectedFileAnalyses.slice(0, 4).map((analysis) => {
+                      const artifactPreviewUrl =
+                        selectedAssistantFile && analysis.artifact
+                          ? buildAnalysisArtifactUrl(selectedAssistantFile.id, analysis.id, "inline")
+                          : "";
+                      const artifactDownloadUrl =
+                        selectedAssistantFile && analysis.artifact
+                          ? buildAnalysisArtifactUrl(selectedAssistantFile.id, analysis.id, "attachment")
+                          : "";
+
+                      return (
+                        <article className="task-assistant__analysis-card" key={analysis.id}>
+                          <header>
+                            <strong>{fileAnalysisSourceLabel(analysis.sourceType)}</strong>
+                            <span>{analysis.verificationState}</span>
+                          </header>
+                          {analysis.summary ? <p>{analysis.summary}</p> : null}
+                          <small>
+                            {analysis.providerStatus ?? "manual"} / confidence {formatConfidenceWeight(analysis.confidenceWeight)}
+                          </small>
+                          {analysis.region ? <small>{formatAnalysisRegion(analysis.region)}</small> : null}
+                          {analysis.artifact ? (
+                            <div className="task-assistant__artifact-preview">
+                              <Image
+                                alt={`${fileAnalysisSourceLabel(analysis.sourceType)} crop preview`}
+                                height={180}
+                                src={artifactPreviewUrl}
+                                unoptimized
+                                width={320}
+                              />
+                              <div className="task-assistant__artifact-actions">
+                                <a href={artifactPreviewUrl} rel="noreferrer" target="_blank">
+                                  Preview crop
+                                </a>
+                                <a download href={artifactDownloadUrl}>
+                                  Download crop
+                                </a>
+                              </div>
+                              <small>
+                                {analysis.artifact.mimeType} / {formatBytes(analysis.artifact.sizeBytes)}
+                                {analysis.artifact.capturedAt ? ` / ${formatRecordDate(analysis.artifact.capturedAt)}` : ""}
+                              </small>
+                              {analysis.artifact.sourceUrl ? (
+                                <a href={analysis.artifact.sourceUrl} rel="noreferrer" target="_blank">
+                                  Source page
+                                </a>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="task-assistant__hint">저장된 파일 근거가 있으면 최근 분석과 crop artifact가 여기에 표시됩니다.</p>
+                )}
+                {analysisSourceType === "image_region" ? (
+                  <>
+                    <button
+                      className="secondary-button"
+                      disabled={busy || !selectedFileId}
+                      onClick={() => void captureBrowserImageRegion()}
+                      type="button"
+                    >
+                      Select browser region
+                    </button>
+                    <div className="task-assistant__grid task-assistant__grid--compact">
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>Page</span>
+                      <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisPageNumber(event.target.value)} placeholder="1" value={analysisPageNumber} />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>X%</span>
+                      <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisRegionX(event.target.value)} placeholder="0" value={analysisRegionX} />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>Y%</span>
+                      <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisRegionY(event.target.value)} placeholder="0" value={analysisRegionY} />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>W%</span>
+                      <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisRegionWidth(event.target.value)} placeholder="100" value={analysisRegionWidth} />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>H%</span>
+                      <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisRegionHeight(event.target.value)} placeholder="100" value={analysisRegionHeight} />
+                    </label>
+                    </div>
+                    {analysisCropDataUrl ? (
+                      <div className="task-assistant__artifact-preview task-assistant__artifact-preview--pending" aria-label="Pending crop preview">
+                        <Image
+                          alt="Pending selected browser crop preview"
+                          height={180}
+                          src={analysisCropDataUrl}
+                          unoptimized
+                          width={320}
+                        />
+                        <small>
+                          Pending crop / {analysisCropSourceTitle || "active tab"}
+                          {analysisCropCapturedAt ? ` / ${formatRecordDate(analysisCropCapturedAt)}` : ""}
+                        </small>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                <label className="task-assistant__field task-assistant__field--plain">
                   <span>확인 내용</span>
                   <textarea
                     disabled={busy || !selectedFileId}
@@ -852,6 +1180,22 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                     value={analysisSummary}
                   />
                 </label>
+                <button
+                  className="secondary-button"
+                  disabled={busy || !selectedFileId}
+                  onClick={() => void autoExtractSelectedFileAnalysis()}
+                  type="button"
+                >
+                  자동 텍스트 추출
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={busy || !selectedFileId}
+                  onClick={() => void ocrExtractSelectedFileAnalysis()}
+                  type="button"
+                >
+                  OCR provider extract
+                </button>
                 <button
                   className="secondary-button"
                   disabled={busy || !selectedFileId || (!analysisText.trim() && !analysisSummary.trim())}
@@ -1268,6 +1612,62 @@ function parseSummaryTags(value: string) {
     .slice(0, 12);
 }
 
+function parseOptionalNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function formatRegionNumber(value: number) {
+  return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "";
+}
+
+function buildAnalysisArtifactUrl(fileId: string, analysisId: string, disposition: "inline" | "attachment") {
+  const params = new URLSearchParams({ disposition });
+  return `/api/files/${encodeURIComponent(fileId)}/analysis/${encodeURIComponent(analysisId)}/artifact?${params.toString()}`;
+}
+
+function fileAnalysisSourceLabel(sourceType: string) {
+  switch (sourceType) {
+    case "document_text":
+      return "Document text";
+    case "ocr_text":
+      return "OCR text";
+    case "image_region":
+      return "Image region";
+    case "manual_text":
+      return "Manual text";
+    default:
+      return sourceType || "File evidence";
+  }
+}
+
+function formatConfidenceWeight(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
+}
+
+function formatAnalysisRegion(region: NonNullable<AssistantFileAnalysis["region"]>) {
+  const page = region.pageNumber ? `page ${region.pageNumber}, ` : "";
+  const unit = region.unit === "px" ? "px" : "%";
+  return `${page}x ${formatRegionNumber(region.x)}${unit}, y ${formatRegionNumber(region.y)}${unit}, w ${formatRegionNumber(region.width)}${unit}, h ${formatRegionNumber(region.height)}${unit}`;
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  if (value < 1024) {
+    return `${Math.round(value)} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${Math.round((value / 1024) * 10) / 10} KB`;
+  }
+  return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
+}
+
 function buildTaskUpdateProposal(
   task: TaskRecord,
   summary: DraftSummary,
@@ -1555,7 +1955,7 @@ function formatHealthCheckTime() {
 }
 
 function requestLocalCodexBridge<T>(
-  command: "status" | "generate",
+  command: "status" | "generate" | "select-region",
   input?: unknown,
   timeoutMs = 30000,
 ): Promise<T> {

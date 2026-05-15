@@ -3788,6 +3788,15 @@ a {
   background: transparent;
 }
 
+.task-assistant__grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.task-assistant__grid--compact {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .task-assistant__field input,
 .task-assistant__field select,
 .task-assistant__field textarea {
@@ -3945,6 +3954,83 @@ a {
 .task-assistant__evidence-list {
   display: grid;
   gap: 0.6rem;
+}
+
+.task-assistant__analysis-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.task-assistant__analysis-card {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.task-assistant__analysis-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.task-assistant__analysis-card header strong {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.task-assistant__analysis-card header span,
+.task-assistant__analysis-card small {
+  color: var(--theme-text-subtle);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.task-assistant__analysis-card p {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.task-assistant__artifact-preview {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.55rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-form-label);
+}
+
+.task-assistant__artifact-preview--pending {
+  border-left: 3px solid var(--accent);
+}
+
+.task-assistant__artifact-preview img {
+  display: block;
+  width: 100%;
+  max-height: 10rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  object-fit: contain;
+}
+
+.task-assistant__artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.task-assistant__artifact-preview a,
+.task-assistant__artifact-actions a {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 .task-assistant__history-list {

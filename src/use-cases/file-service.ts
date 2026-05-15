@@ -4,12 +4,16 @@ import {
   appendFileAnalysisEntry,
   getFileAnalysisEntries,
   normalizeFileAnalysisConfidence,
+  normalizeFileAnalysisArtifact,
+  normalizeFileAnalysisRegion,
   normalizeFileAnalysisSourceType,
   normalizeFileAnalysisTags,
   normalizeFileAnalysisVerificationState,
 } from "@/domains/file/analysis";
+import { extractTextFromStoredFile } from "@/domains/file/text-extraction";
+import { buildClientSuppliedOcrAnalysis, extractOcrFromImageContent, extractOcrFromStoredFile } from "@/domains/file/ocr";
 import { resolveFileContentType } from "@/domains/file/metadata";
-import type { FileAnalysisEntry } from "@/domains/file/analysis";
+import type { FileAnalysisArtifact, FileAnalysisEntry } from "@/domains/file/analysis";
 import type { FileRecord } from "@/domains/task/types";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
 import { badRequest, conflict } from "@/lib/api/errors";
@@ -55,6 +59,25 @@ export type FileAnalysisSaveInput = {
   tags?: unknown;
   confidenceWeight?: number | null;
   verificationState?: string | null;
+  provider?: string | null;
+  providerStatus?: string | null;
+  region?: unknown;
+  artifact?: unknown;
+};
+
+export type FileOcrAnalysisInput = {
+  fileId: string;
+  sourceType?: string | null;
+  extractedText?: string | null;
+  summary?: string | null;
+  tags?: unknown;
+  provider?: string | null;
+  language?: string | null;
+  region?: unknown;
+  sourceImageDataUrl?: string | null;
+  sourceUrl?: string | null;
+  sourceTitle?: string | null;
+  capturedAt?: string | null;
 };
 
 export async function listFiles(scope: FileScope, taskId?: string) {
@@ -337,6 +360,30 @@ export async function listFileAnalysis(fileId: string) {
   return getFileAnalysisEntries(file.metadata);
 }
 
+export async function readFileAnalysisArtifact(fileId: string, analysisId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active file analysis artifacts can be opened", "FILE_NOT_ACTIVE");
+  }
+
+  const analysis = getFileAnalysisEntries(file.metadata).find((entry) => entry.id === normalizeRequiredId(analysisId, "analysisId"));
+  if (!analysis?.artifact) {
+    throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
+  }
+
+  const content = await storageProvider.download({
+    storageBucket: normalizeStorageBucket(analysis.artifact.storageBucket),
+    objectPath: normalizeObjectPath(analysis.artifact.objectPath),
+  });
+
+  return {
+    file,
+    analysis,
+    artifact: analysis.artifact,
+    content,
+  };
+}
+
 export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: string | null) {
   const file = await requireFileInSelectedProject(normalizeRequiredId(input.fileId, "fileId"));
   if (file.deletedAt) {
@@ -360,6 +407,12 @@ export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: st
     tags: normalizeFileAnalysisTags(input.tags),
     confidenceWeight: normalizeFileAnalysisConfidence(input.confidenceWeight, sourceType, verificationState),
     verificationState,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.providerStatus === "client_supplied" || input.providerStatus === "provider_extracted"
+      ? { providerStatus: input.providerStatus }
+      : {}),
+    ...(normalizeFileAnalysisRegion(input.region) ? { region: normalizeFileAnalysisRegion(input.region) } : {}),
+    ...(normalizeFileAnalysisArtifact(input.artifact) ? { artifact: normalizeFileAnalysisArtifact(input.artifact) } : {}),
     createdBy: userId ?? null,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -370,6 +423,107 @@ export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: st
     file: nextFile,
     analysis,
   };
+}
+
+export async function runOcrFileAnalysis(input: FileOcrAnalysisInput, userId?: string | null) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(input.fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
+  }
+
+  const extractedText = normalizeAnalysisText(input.extractedText, 12000);
+  const summary = normalizeAnalysisText(input.summary, 1200);
+  const sourceImage = decodeImageDataUrl(input.sourceImageDataUrl);
+  const artifact = sourceImage
+    ? await saveAnalysisImageCrop(file, sourceImage, {
+        sourceUrl: input.sourceUrl,
+        sourceTitle: input.sourceTitle,
+        capturedAt: input.capturedAt,
+      })
+    : undefined;
+  const ocrResult = sourceImage
+    ? extractedText || summary
+      ? buildClientSuppliedOcrAnalysis(file, {
+          sourceType: input.sourceType,
+          extractedText,
+          summary,
+          tags: input.tags,
+          provider: input.provider,
+          region: input.region,
+        })
+      : await extractOcrFromImageContent(file, sourceImage.bytes, {
+          sourceType: input.sourceType,
+          tags: input.tags,
+          provider: input.provider,
+          language: input.language,
+          region: input.region,
+        })
+    : extractedText || summary
+      ? buildClientSuppliedOcrAnalysis(file, {
+          sourceType: input.sourceType,
+          extractedText,
+          summary,
+          tags: input.tags,
+          provider: input.provider,
+          region: input.region,
+        })
+      : await extractOcrFromStoredFile(
+          file,
+          await storageProvider.download({
+            storageBucket: normalizeStorageBucket(file.storageBucket),
+            objectPath: normalizeObjectPath(file.objectPath),
+          }),
+          {
+            sourceType: input.sourceType,
+            tags: input.tags,
+            provider: input.provider,
+            language: input.language,
+            region: input.region,
+          },
+        );
+
+  return saveFileAnalysis(
+    {
+      fileId: file.id,
+      sourceType: ocrResult.sourceType,
+      extractedText: ocrResult.extractedText,
+      summary: ocrResult.summary,
+      tags: ocrResult.tags,
+      confidenceWeight: ocrResult.confidenceWeight,
+      verificationState: "unverified",
+      provider: ocrResult.provider,
+      providerStatus: ocrResult.providerStatus,
+      region: ocrResult.region,
+      artifact,
+    },
+    userId,
+  );
+}
+
+export async function autoExtractFileAnalysis(fileId: string, userId?: string | null) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
+  }
+
+  const content = await storageProvider.download({
+    storageBucket: normalizeStorageBucket(file.storageBucket),
+    objectPath: normalizeObjectPath(file.objectPath),
+  });
+  const extracted = await extractTextFromStoredFile(file, content);
+
+  return saveFileAnalysis(
+    {
+      fileId: file.id,
+      sourceType: "document_text",
+      extractedText: extracted.extractedText,
+      summary: extracted.summary,
+      tags: extracted.tags,
+      confidenceWeight: extracted.confidenceWeight,
+      verificationState: "unverified",
+    },
+    userId,
+  );
 }
 
 function validateUploadDescriptor(originalName: string, sizeBytes: number) {
@@ -502,4 +656,60 @@ function isUniqueConstraintError(error: unknown) {
 function buildObjectPath(projectId: string, taskId: string, originalName: string) {
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "-");
   return `projects/${projectId}/tasks/${taskId}/${randomUUID()}-${safeName}`;
+}
+
+function decodeImageDataUrl(value: string | null | undefined):
+  | {
+      bytes: Uint8Array;
+      mimeType: "image/png" | "image/jpeg";
+      extension: "png" | "jpg";
+    }
+  | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const match = value.match(/^data:(image\/png|image\/jpeg);base64,([a-zA-Z0-9+/=\r\n]+)$/);
+  if (!match) {
+    throw badRequest("sourceImageDataUrl must be a PNG or JPEG data URL.", "FILE_OCR_SOURCE_IMAGE_INVALID");
+  }
+
+  const mimeType = match[1] as "image/png" | "image/jpeg";
+  const bytes = new Uint8Array(Buffer.from(match[2].replace(/\s+/g, ""), "base64"));
+  if (bytes.byteLength <= 0) {
+    throw badRequest("sourceImageDataUrl is empty.", "FILE_OCR_SOURCE_IMAGE_EMPTY");
+  }
+  if (bytes.byteLength > 4 * 1024 * 1024) {
+    throw badRequest("sourceImageDataUrl exceeds the 4MB crop artifact limit.", "FILE_OCR_SOURCE_IMAGE_TOO_LARGE");
+  }
+
+  return {
+    bytes,
+    mimeType,
+    extension: mimeType === "image/png" ? "png" : "jpg",
+  };
+}
+
+async function saveAnalysisImageCrop(
+  file: FileRecord,
+  image: { bytes: Uint8Array; mimeType: "image/png" | "image/jpeg"; extension: "png" | "jpg" },
+  metadata: { sourceUrl?: string | null; sourceTitle?: string | null; capturedAt?: string | null },
+): Promise<FileAnalysisArtifact> {
+  const objectPath = buildObjectPath(file.projectId, file.taskId, `analysis-crop-${file.id}.${image.extension}`);
+  const stored = await storageProvider.upload({
+    file: new File([Buffer.from(image.bytes)], `analysis-crop-${file.id}.${image.extension}`, { type: image.mimeType }),
+    objectPath,
+    contentType: image.mimeType,
+  });
+
+  return {
+    kind: "image_crop",
+    storageBucket: stored.storageBucket,
+    objectPath: stored.objectPath,
+    mimeType: image.mimeType,
+    sizeBytes: image.bytes.byteLength,
+    ...(normalizeAnalysisText(metadata.sourceUrl, 500) ? { sourceUrl: normalizeAnalysisText(metadata.sourceUrl, 500) } : {}),
+    ...(normalizeAnalysisText(metadata.sourceTitle, 200) ? { sourceTitle: normalizeAnalysisText(metadata.sourceTitle, 200) } : {}),
+    ...(normalizeAnalysisText(metadata.capturedAt, 80) ? { capturedAt: normalizeAnalysisText(metadata.capturedAt, 80) } : {}),
+  };
 }
