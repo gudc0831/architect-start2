@@ -5,6 +5,7 @@ import {
   getFileAnalysisEntries,
   normalizeFileAnalysisConfidence,
   normalizeFileAnalysisArtifact,
+  normalizeFileMetadata,
   normalizeFileAnalysisRegion,
   normalizeFileAnalysisSourceType,
   normalizeFileAnalysisTags,
@@ -365,6 +366,54 @@ export async function readFileAnalysisArtifact(fileId: string, analysisId: strin
     analysis,
     artifact: analysis.artifact,
     content,
+  };
+}
+
+export async function deleteFileAnalysisArtifact(fileId: string, analysisId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active file analysis artifacts can be deleted", "FILE_NOT_ACTIVE");
+  }
+
+  const normalizedAnalysisId = normalizeRequiredId(analysisId, "analysisId");
+  const analysisEntries = getFileAnalysisEntries(file.metadata);
+  const targetAnalysis = analysisEntries.find((entry) => entry.id === normalizedAnalysisId);
+  if (!targetAnalysis?.artifact) {
+    throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
+  }
+
+  await storageProvider.delete({
+    storageBucket: normalizeStorageBucket(targetAnalysis.artifact.storageBucket),
+    objectPath: normalizeObjectPath(targetAnalysis.artifact.objectPath),
+  });
+
+  const timestamp = new Date().toISOString();
+  const nextAnalysis = analysisEntries.map((entry) => {
+    if (entry.id !== normalizedAnalysisId) {
+      return entry;
+    }
+
+    const nextEntry: FileAnalysisEntry = {
+      ...entry,
+      updatedAt: timestamp,
+    };
+    delete nextEntry.artifact;
+    return nextEntry;
+  });
+  const nextFile = await fileRepository.updateFileMetadata(file.id, {
+    ...normalizeFileMetadata(file.metadata),
+    analysis: nextAnalysis,
+  });
+
+  return {
+    file: nextFile,
+    analysisId: normalizedAnalysisId,
+    deletedArtifact: {
+      kind: targetAnalysis.artifact.kind,
+      mimeType: targetAnalysis.artifact.mimeType,
+      sizeBytes: targetAnalysis.artifact.sizeBytes,
+      capturedAt: targetAnalysis.artifact.capturedAt ?? null,
+    },
   };
 }
 

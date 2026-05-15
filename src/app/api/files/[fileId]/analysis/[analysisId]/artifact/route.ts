@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
-import { readFileAnalysisArtifact } from "@/use-cases/file-service";
+import { deleteFileAnalysisArtifact, readFileAnalysisArtifact } from "@/use-cases/file-service";
 
 type FileContentDisposition = "inline" | "attachment";
 
@@ -28,6 +29,23 @@ export async function GET(
       },
       status: 200,
     });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ fileId: string; analysisId: string }> },
+) {
+  try {
+    assertRequestIntegrity(request);
+    const user = await requireUser();
+    await requireCurrentProjectEditor(user);
+    const { fileId, analysisId } = await context.params;
+    const data = await deleteFileAnalysisArtifact(fileId, analysisId);
+
+    return NextResponse.json({ data });
   } catch (error) {
     return handleRouteError(error);
   }

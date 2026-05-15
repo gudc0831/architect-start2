@@ -828,6 +828,26 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     }
   }
 
+  async function deleteSelectedFileAnalysisArtifact(fileId: string, analysisId: string) {
+    if (typeof window !== "undefined" && !window.confirm("Remove this saved crop artifact? The analysis text will remain.")) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const saved = await deleteJson<{ file: AssistantFile; analysisId: string }>(
+        `/api/files/${encodeURIComponent(fileId)}/analysis/${encodeURIComponent(analysisId)}/artifact`,
+      );
+      setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
+      resetGeneratedOutput();
+      setStatus("Saved crop artifact was removed. The analysis text remains available as file evidence.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function captureBrowserImageRegion() {
     if (!selectedTask || !selectedFileId) {
       setStatus("Select an attached file before capturing an image region.");
@@ -1092,6 +1112,18 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                                 <a download href={artifactDownloadUrl}>
                                   Download crop
                                 </a>
+                                <button
+                                  aria-label="Remove saved crop artifact"
+                                  disabled={busy || !selectedAssistantFile}
+                                  onClick={() => {
+                                    if (selectedAssistantFile) {
+                                      void deleteSelectedFileAnalysisArtifact(selectedAssistantFile.id, analysis.id);
+                                    }
+                                  }}
+                                  type="button"
+                                >
+                                  Remove crop
+                                </button>
                               </div>
                               <small>
                                 {analysis.artifact.mimeType} / {formatBytes(analysis.artifact.sizeBytes)}
@@ -2169,6 +2201,18 @@ async function patchJson<T = unknown>(path: string, body: unknown): Promise<T> {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+  });
+  const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
+  if (!response.ok) {
+    throw new Error(parsed.error?.message ?? "Request failed");
+  }
+
+  return parsed.data as T;
+}
+
+async function deleteJson<T = unknown>(path: string): Promise<T> {
+  const response = await fetch(path, {
+    method: "DELETE",
   });
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {

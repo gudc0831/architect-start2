@@ -4026,11 +4026,26 @@ a {
 }
 
 .task-assistant__artifact-preview a,
-.task-assistant__artifact-actions a {
+.task-assistant__artifact-actions a,
+.task-assistant__artifact-actions button {
+  border: 0;
+  padding: 0;
+  background: transparent;
   color: var(--accent);
   font-size: 0.72rem;
+  font-family: inherit;
   font-weight: 900;
   text-decoration: none;
+}
+
+.task-assistant__artifact-actions button {
+  color: var(--warn);
+  cursor: pointer;
+}
+
+.task-assistant__artifact-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .task-assistant__history-list {
