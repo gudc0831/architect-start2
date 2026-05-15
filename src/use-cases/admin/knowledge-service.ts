@@ -348,6 +348,32 @@ export type KnowledgeProviderExecutionPackageExport = {
 };
 
 export type RegulationGovernanceRefreshStatus = "scheduled" | "due" | "overdue";
+export type RegulationGovernanceSourceReviewState = "reviewed" | "needs_follow_up" | "blocked";
+
+export type RegulationGovernanceSourceReview = {
+  id: string;
+  createdAt: string;
+  packageId: string;
+  packageDigest: string;
+  asOf: string;
+  sourceId: string;
+  sourceName: string;
+  reviewState: RegulationGovernanceSourceReviewState;
+  note: string;
+  reviewerId: string | null;
+  refreshStatus: RegulationGovernanceRefreshStatus;
+  documentCount: number;
+  adminReviewRequiredCount: number;
+  checklistCount: number;
+};
+
+export type RegulationGovernanceSourceReviewSummary = {
+  count: number;
+  latestReviewedAt: string | null;
+  latestReviewerId: string | null;
+  latestReviewState: RegulationGovernanceSourceReviewState | null;
+  latestNote: string | null;
+};
 
 export type RegulationGovernanceSourceReport = {
   sourceId: string;
@@ -361,6 +387,8 @@ export type RegulationGovernanceSourceReport = {
   documentCount: number;
   adminReviewRequiredCount: number;
   approvedDocumentCount: number;
+  reviewSummary: RegulationGovernanceSourceReviewSummary;
+  reviews: RegulationGovernanceSourceReview[];
 };
 
 export type RegulationGovernanceAcknowledgement = {
@@ -394,6 +422,15 @@ export type RegulationGovernanceReport = {
   documentCount: number;
   statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
   sources: RegulationGovernanceSourceReport[];
+  sourceReviewSummary: {
+    count: number;
+    reviewedSourceCount: number;
+    unreviewedSourceCount: number;
+    followUpSourceCount: number;
+    blockedSourceCount: number;
+    latestReviewedAt: string | null;
+    latestReviewerId: string | null;
+  };
   acknowledgementSummary: {
     count: number;
     latestAcknowledgedAt: string | null;
@@ -445,6 +482,14 @@ type RegulationGovernanceAcknowledgementInput = {
   note?: unknown;
 };
 
+type RegulationGovernanceSourceReviewInput = {
+  packageId?: unknown;
+  packageDigest?: unknown;
+  sourceId?: unknown;
+  reviewState?: unknown;
+  note?: unknown;
+};
+
 type KnowledgeProviderExecutionPackageReviewNoteReportInput = {
   category?: unknown;
   reviewerId?: unknown;
@@ -466,6 +511,8 @@ const knowledgeProviderExecutionPackageReviewNoteEventType = "knowledge_sync_pro
 const knowledgeProviderExecutionPackageReviewNoteTargetType = "knowledge_sync_provider_execution_package";
 const regulationGovernanceAcknowledgementEventType = "regulation_governance_acknowledgement";
 const regulationGovernanceAcknowledgementTargetType = "regulation_governance_package";
+const regulationGovernanceSourceReviewEventType = "regulation_governance_source_review";
+const regulationGovernanceSourceReviewTargetType = "regulation_governance_source";
 const knowledgeExportSyncConfirmationText = "SYNC_APPROVED_WIKI";
 const knowledgeProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const knowledgeProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
@@ -926,7 +973,7 @@ export async function exportKnowledgeProviderExecutionPackage(
 }
 
 export async function getRegulationGovernanceReport(
-  options: { asOf?: Date; includeAcknowledgements?: boolean } = {},
+  options: { asOf?: Date; includeAcknowledgements?: boolean; includeSourceReviews?: boolean } = {},
 ): Promise<RegulationGovernanceReport> {
   const seedPackage = seedPackageJson as unknown as RegulationSeedPackage;
   const governanceManifest = governanceManifestJson as unknown as RegulationGovernanceManifest;
@@ -950,7 +997,7 @@ export async function getRegulationGovernanceReport(
     overdue: 0,
   };
 
-  const sources = seedPackage.sources.map((source) => {
+  const baseSources = seedPackage.sources.map((source) => {
     const refresh = refreshBySourceId.get(source.id) ?? {
       sourceId: source.id,
       refreshDueAt: "",
@@ -983,7 +1030,19 @@ export async function getRegulationGovernanceReport(
     productionImport: governanceManifest.productionImport,
     refreshPolicy: governanceManifest.refreshPolicy,
     statusCounts,
-    sources,
+    sources: baseSources,
+  });
+  const sourceReviews = options.includeSourceReviews === false
+    ? []
+    : await listRegulationGovernanceSourceReviews({ packageId: seedPackage.packageId });
+  const reviewsBySourceId = groupRegulationGovernanceSourceReviews(sourceReviews);
+  const sources = baseSources.map((source) => {
+    const reviews = reviewsBySourceId.get(source.sourceId) ?? [];
+    return {
+      ...source,
+      reviewSummary: summarizeRegulationGovernanceSourceReviews(reviews),
+      reviews: reviews.slice(0, 5),
+    };
   });
   const acknowledgements = options.includeAcknowledgements === false
     ? []
@@ -1005,9 +1064,80 @@ export async function getRegulationGovernanceReport(
     documentCount: seedPackage.documents.length,
     statusCounts,
     sources,
+    sourceReviewSummary: summarizeRegulationGovernanceSourceCoverage(sources, sourceReviews),
     acknowledgementSummary: summarizeRegulationGovernanceAcknowledgements(acknowledgements),
     acknowledgements: acknowledgements.slice(0, 20),
   };
+}
+
+export async function listRegulationGovernanceSourceReviews(
+  input: { packageId?: unknown; sourceId?: unknown } = {},
+): Promise<RegulationGovernanceSourceReview[]> {
+  const packageId = normalizeOptionalText(input.packageId);
+  const sourceId = normalizeOptionalText(input.sourceId);
+  const events = await assistantRepository.listAuditEvents({
+    eventTypes: [regulationGovernanceSourceReviewEventType],
+    targetType: regulationGovernanceSourceReviewTargetType,
+    limit: 200,
+  });
+  return events
+    .map(toRegulationGovernanceSourceReview)
+    .filter((item): item is RegulationGovernanceSourceReview => Boolean(item))
+    .filter((item) => !packageId || item.packageId === packageId)
+    .filter((item) => !sourceId || item.sourceId === sourceId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function createRegulationGovernanceSourceReview(
+  input: RegulationGovernanceSourceReviewInput,
+  user: AuthUser,
+): Promise<RegulationGovernanceSourceReview> {
+  const report = await getRegulationGovernanceReport({
+    includeAcknowledgements: false,
+    includeSourceReviews: false,
+  });
+  const packageId = normalizeOptionalText(input.packageId);
+  if (packageId && packageId !== report.packageId) {
+    throw badRequest("Regulation governance package id does not match the current package.", "REGULATION_GOVERNANCE_PACKAGE_ID_MISMATCH");
+  }
+  const packageDigest = normalizeOptionalText(input.packageDigest);
+  if (packageDigest && packageDigest !== report.packageDigest) {
+    throw badRequest("Regulation governance package digest does not match the current report.", "REGULATION_GOVERNANCE_PACKAGE_DIGEST_MISMATCH");
+  }
+
+  const sourceId = normalizeRequiredText(input.sourceId, "sourceId");
+  const source = report.sources.find((item) => item.sourceId === sourceId);
+  if (!source) {
+    throw badRequest("Regulation governance source id was not found.", "REGULATION_GOVERNANCE_SOURCE_NOT_FOUND");
+  }
+
+  const event = await assistantRepository.createAuditEvent({
+    projectId: null,
+    profileId: user.id,
+    eventType: regulationGovernanceSourceReviewEventType,
+    targetType: regulationGovernanceSourceReviewTargetType,
+    targetId: `${report.packageId}:${source.sourceId}`,
+    metadata: {
+      regulationGovernanceSourceReviewVersion: 1,
+      packageId: report.packageId,
+      packageDigest: report.packageDigest,
+      asOf: report.asOf,
+      sourceId: source.sourceId,
+      sourceName: source.sourceName,
+      reviewState: normalizeRegulationGovernanceSourceReviewState(input.reviewState),
+      note: normalizeRegulationGovernanceSourceReviewNote(input.note),
+      reviewerId: user.id,
+      refreshStatus: source.refreshStatus,
+      documentCount: source.documentCount,
+      adminReviewRequiredCount: source.adminReviewRequiredCount,
+      checklistCount: source.verificationChecklist.length,
+    },
+  });
+  const review = toRegulationGovernanceSourceReview(event);
+  if (!review) {
+    throw badRequest("Regulation governance source review could not be normalized.", "REGULATION_GOVERNANCE_SOURCE_REVIEW_INVALID");
+  }
+  return review;
 }
 
 export async function listRegulationGovernanceAcknowledgements(
@@ -1375,6 +1505,18 @@ function normalizeRegulationGovernanceAcknowledgementNote(value: unknown) {
   return text;
 }
 
+function normalizeRegulationGovernanceSourceReviewState(value: unknown): RegulationGovernanceSourceReviewState {
+  return value === "needs_follow_up" || value === "blocked" ? value : "reviewed";
+}
+
+function normalizeRegulationGovernanceSourceReviewNote(value: unknown) {
+  const text = normalizeText(value).slice(0, 2000);
+  if (!text) {
+    throw badRequest("Regulation governance source review note is required.", "REGULATION_GOVERNANCE_SOURCE_REVIEW_NOTE_REQUIRED");
+  }
+  return text;
+}
+
 function normalizeProviderExecutionPackageReviewCoveragePreset(value: unknown): KnowledgeProviderExecutionPackageReviewNoteReport["filters"]["coveragePreset"] {
   return value === "reviewed" || value === "unreviewed" || value === "stale_unreviewed" ? value : "all";
 }
@@ -1582,7 +1724,15 @@ function createRegulationGovernancePackageDigest(input: {
   productionImport: RegulationGovernanceManifest["productionImport"];
   refreshPolicy: RegulationGovernanceManifest["refreshPolicy"];
   statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
-  sources: RegulationGovernanceSourceReport[];
+  sources: Array<{
+    sourceId: string;
+    refreshDueAt: string;
+    refreshStatus: RegulationGovernanceRefreshStatus;
+    documentCount: number;
+    adminReviewRequiredCount: number;
+    approvedDocumentCount: number;
+    verificationChecklist: string[];
+  }>;
 }) {
   return createHash("sha256")
     .update(JSON.stringify({
@@ -2397,12 +2547,96 @@ function toRegulationGovernanceAcknowledgement(event: AssistantAuditEvent): Regu
   };
 }
 
+function toRegulationGovernanceSourceReview(event: AssistantAuditEvent): RegulationGovernanceSourceReview | null {
+  if (
+    event.eventType !== regulationGovernanceSourceReviewEventType ||
+    event.targetType !== regulationGovernanceSourceReviewTargetType
+  ) {
+    return null;
+  }
+  const metadata = event.metadata;
+  const packageId = normalizeOptionalText(metadata.packageId);
+  const packageDigest = normalizeOptionalText(metadata.packageDigest);
+  const asOf = normalizeOptionalText(metadata.asOf);
+  const sourceId = normalizeOptionalText(metadata.sourceId || event.targetId);
+  const sourceName = normalizeOptionalText(metadata.sourceName);
+  const note = normalizeOptionalText(metadata.note);
+  if (!packageId || !packageDigest || !asOf || !sourceId || !sourceName || !note) {
+    return null;
+  }
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    packageId,
+    packageDigest,
+    asOf,
+    sourceId,
+    sourceName,
+    reviewState: normalizeRegulationGovernanceSourceReviewState(metadata.reviewState),
+    note,
+    reviewerId: normalizeOptionalText(metadata.reviewerId) || event.profileId,
+    refreshStatus: normalizeRegulationGovernanceRefreshStatus(metadata.refreshStatus),
+    documentCount: readNumber(metadata.documentCount, 0),
+    adminReviewRequiredCount: readNumber(metadata.adminReviewRequiredCount, 0),
+    checklistCount: readNumber(metadata.checklistCount, 0),
+  };
+}
+
+function normalizeRegulationGovernanceRefreshStatus(value: unknown): RegulationGovernanceRefreshStatus {
+  return value === "scheduled" || value === "due" || value === "overdue" ? value : "overdue";
+}
+
 function readRegulationGovernanceStatusCounts(value: unknown): Record<RegulationGovernanceRefreshStatus, number> {
   const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   return {
     scheduled: readNumber(record.scheduled, 0),
     due: readNumber(record.due, 0),
     overdue: readNumber(record.overdue, 0),
+  };
+}
+
+function groupRegulationGovernanceSourceReviews(reviews: RegulationGovernanceSourceReview[]) {
+  const reviewsBySourceId = new Map<string, RegulationGovernanceSourceReview[]>();
+  for (const review of reviews) {
+    const current = reviewsBySourceId.get(review.sourceId) ?? [];
+    current.push(review);
+    reviewsBySourceId.set(review.sourceId, current);
+  }
+  for (const sourceReviews of reviewsBySourceId.values()) {
+    sourceReviews.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+  return reviewsBySourceId;
+}
+
+function summarizeRegulationGovernanceSourceReviews(
+  reviews: RegulationGovernanceSourceReview[],
+): RegulationGovernanceSourceReviewSummary {
+  const latest = reviews[0] ?? null;
+  return {
+    count: reviews.length,
+    latestReviewedAt: latest?.createdAt ?? null,
+    latestReviewerId: latest?.reviewerId ?? null,
+    latestReviewState: latest?.reviewState ?? null,
+    latestNote: latest?.note ?? null,
+  };
+}
+
+function summarizeRegulationGovernanceSourceCoverage(
+  sources: RegulationGovernanceSourceReport[],
+  reviews: RegulationGovernanceSourceReview[],
+) {
+  const latest = reviews[0] ?? null;
+  const latestBySource = sources
+    .map((source) => source.reviewSummary.latestReviewState)
+    .filter((state): state is RegulationGovernanceSourceReviewState => Boolean(state));
+  return {
+    count: reviews.length,
+    reviewedSourceCount: sources.filter((source) => source.reviewSummary.count > 0).length,
+    unreviewedSourceCount: sources.filter((source) => source.reviewSummary.count === 0).length,
+    followUpSourceCount: latestBySource.filter((state) => state === "needs_follow_up").length,
+    blockedSourceCount: latestBySource.filter((state) => state === "blocked").length,
+    latestReviewedAt: latest?.createdAt ?? null,
+    latestReviewerId: latest?.reviewerId ?? null,
   };
 }
 

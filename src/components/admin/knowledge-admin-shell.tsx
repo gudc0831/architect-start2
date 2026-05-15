@@ -353,6 +353,7 @@ type ProviderExecutionPackageReviewNoteReport = {
 };
 
 type RegulationGovernanceRefreshStatus = "scheduled" | "due" | "overdue";
+type RegulationGovernanceSourceReviewState = "reviewed" | "needs_follow_up" | "blocked";
 
 type RegulationGovernanceAcknowledgement = {
   id: string;
@@ -367,6 +368,23 @@ type RegulationGovernanceAcknowledgement = {
   statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
   valid: boolean;
   productionImportEnabled: boolean;
+};
+
+type RegulationGovernanceSourceReview = {
+  id: string;
+  createdAt: string;
+  packageId: string;
+  packageDigest: string;
+  asOf: string;
+  sourceId: string;
+  sourceName: string;
+  reviewState: RegulationGovernanceSourceReviewState;
+  note: string;
+  reviewerId: string | null;
+  refreshStatus: RegulationGovernanceRefreshStatus;
+  documentCount: number;
+  adminReviewRequiredCount: number;
+  checklistCount: number;
 };
 
 type RegulationGovernanceReport = {
@@ -404,7 +422,24 @@ type RegulationGovernanceReport = {
     documentCount: number;
     adminReviewRequiredCount: number;
     approvedDocumentCount: number;
+    reviewSummary: {
+      count: number;
+      latestReviewedAt: string | null;
+      latestReviewerId: string | null;
+      latestReviewState: RegulationGovernanceSourceReviewState | null;
+      latestNote: string | null;
+    };
+    reviews: RegulationGovernanceSourceReview[];
   }[];
+  sourceReviewSummary: {
+    count: number;
+    reviewedSourceCount: number;
+    unreviewedSourceCount: number;
+    followUpSourceCount: number;
+    blockedSourceCount: number;
+    latestReviewedAt: string | null;
+    latestReviewerId: string | null;
+  };
   acknowledgementSummary: {
     count: number;
     latestAcknowledgedAt: string | null;
@@ -503,6 +538,16 @@ const regulationGovernanceStatusLabels: Record<RegulationGovernanceRefreshStatus
   due: "Due soon",
   overdue: "Overdue",
 };
+const regulationGovernanceSourceReviewStateOptions: { value: RegulationGovernanceSourceReviewState; label: string }[] = [
+  { value: "reviewed", label: "Reviewed" },
+  { value: "needs_follow_up", label: "Needs follow-up" },
+  { value: "blocked", label: "Blocked" },
+];
+const regulationGovernanceSourceReviewStateLabels: Record<RegulationGovernanceSourceReviewState, string> = {
+  reviewed: "Reviewed",
+  needs_follow_up: "Needs follow-up",
+  blocked: "Blocked",
+};
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
@@ -580,6 +625,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [regulationGovernanceLoading, setRegulationGovernanceLoading] = useState(false);
   const [regulationGovernanceAcknowledgementNote, setRegulationGovernanceAcknowledgementNote] = useState("");
   const [regulationGovernanceAcknowledgementSaving, setRegulationGovernanceAcknowledgementSaving] = useState(false);
+  const [regulationGovernanceSourceReviewNotes, setRegulationGovernanceSourceReviewNotes] = useState<Record<string, string>>({});
+  const [regulationGovernanceSourceReviewStates, setRegulationGovernanceSourceReviewStates] = useState<Record<string, RegulationGovernanceSourceReviewState>>({});
+  const [regulationGovernanceSourceReviewSaving, setRegulationGovernanceSourceReviewSaving] = useState("");
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -1054,6 +1102,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         label: "Verification checklist",
         detail: `${checklistCount} checklist item(s) are attached across ${regulationGovernance.sourceCount} official source(s).`,
         ready: checklistCount >= regulationGovernance.sourceCount,
+      },
+      {
+        label: "Source review coverage",
+        detail: `${regulationGovernance.sourceReviewSummary.reviewedSourceCount}/${regulationGovernance.sourceCount} source(s) reviewed; ${regulationGovernance.sourceReviewSummary.followUpSourceCount} need follow-up and ${regulationGovernance.sourceReviewSummary.blockedSourceCount} are blocked.`,
+        ready: regulationGovernance.sourceReviewSummary.reviewedSourceCount === regulationGovernance.sourceCount &&
+          regulationGovernance.sourceReviewSummary.blockedSourceCount === 0,
       },
       {
         label: "Reviewer acknowledgement",
@@ -1541,6 +1595,41 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setStatus(error instanceof Error ? error.message : "Regulation governance acknowledgement could not be saved.");
     } finally {
       setRegulationGovernanceAcknowledgementSaving(false);
+    }
+  }
+
+  async function saveRegulationGovernanceSourceReview(sourceId: string) {
+    if (!regulationGovernance) {
+      setStatus("Regulation governance report is not loaded.");
+      return;
+    }
+    const note = regulationGovernanceSourceReviewNotes[sourceId]?.trim() ?? "";
+    if (!note) {
+      setStatus("Regulation governance source review note is required.");
+      return;
+    }
+
+    setRegulationGovernanceSourceReviewSaving(sourceId);
+    try {
+      const data = await writeJson<RegulationGovernanceReport>(
+        `/api/admin/knowledge/regulation-governance/sources/${encodeURIComponent(sourceId)}/reviews`,
+        {
+          packageId: regulationGovernance.packageId,
+          packageDigest: regulationGovernance.packageDigest,
+          reviewState: regulationGovernanceSourceReviewStates[sourceId] ?? "reviewed",
+          note,
+        },
+      );
+      setRegulationGovernance(data);
+      setRegulationGovernanceSourceReviewNotes((current) => ({
+        ...current,
+        [sourceId]: "",
+      }));
+      setStatus(`Regulation governance source review saved for ${sourceId}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Regulation governance source review could not be saved.");
+    } finally {
+      setRegulationGovernanceSourceReviewSaving("");
     }
   }
 
@@ -4238,6 +4327,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>Documents {regulationGovernance.documentCount}</span>
                     <span>{regulationGovernance.packageDigest.slice(0, 16)} package digest</span>
                     <span>Ready {regulationGovernanceReadyCount}/{regulationGovernanceChecks.length}</span>
+                    <span>Source reviews {regulationGovernance.sourceReviewSummary.count}</span>
+                    <span>{regulationGovernance.sourceReviewSummary.reviewedSourceCount}/{regulationGovernance.sourceCount} sources reviewed</span>
+                    <span>{regulationGovernance.sourceReviewSummary.latestReviewedAt ? `Latest source review ${formatDate(regulationGovernance.sourceReviewSummary.latestReviewedAt)}` : "No source review"}</span>
                     <span>Acknowledgements {regulationGovernance.acknowledgementSummary.count}</span>
                     <span>{regulationGovernance.acknowledgementSummary.latestAcknowledgedAt ? `Latest ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)}` : "No acknowledgement"}</span>
                     <span>{regulationGovernance.productionImport.enabled ? "Production import enabled" : "Production import blocked"}</span>
@@ -4313,6 +4405,61 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <span>{source.documentCount} document(s)</span>
                         <span>{source.adminReviewRequiredCount} admin review required</span>
                         <span>{source.verificationChecklist.length} checklist item(s)</span>
+                        <span>{source.reviewSummary.count} source review(s)</span>
+                        <span>{source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "Unreviewed"}</span>
+                        <div className={styles.sourceReviewForm}>
+                          <label>
+                            Review state
+                            <select
+                              onChange={(event) => {
+                                setRegulationGovernanceSourceReviewStates((current) => ({
+                                  ...current,
+                                  [source.sourceId]: event.target.value as RegulationGovernanceSourceReviewState,
+                                }));
+                              }}
+                              value={regulationGovernanceSourceReviewStates[source.sourceId] ?? "reviewed"}
+                            >
+                              {regulationGovernanceSourceReviewStateOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Source review note
+                            <textarea
+                              onChange={(event) => {
+                                setRegulationGovernanceSourceReviewNotes((current) => ({
+                                  ...current,
+                                  [source.sourceId]: event.target.value,
+                                }));
+                              }}
+                              placeholder="Record source-specific official URL, refresh, checklist, or follow-up review context"
+                              value={regulationGovernanceSourceReviewNotes[source.sourceId] ?? ""}
+                            />
+                          </label>
+                          <button
+                            disabled={
+                              regulationGovernanceSourceReviewSaving === source.sourceId ||
+                              !regulationGovernanceSourceReviewNotes[source.sourceId]?.trim()
+                            }
+                            onClick={() => void saveRegulationGovernanceSourceReview(source.sourceId)}
+                            type="button"
+                          >
+                            {regulationGovernanceSourceReviewSaving === source.sourceId ? "Saving..." : "Record source review"}
+                          </button>
+                        </div>
+                        <div className={styles.sourceReviewNotes} aria-label={`${source.sourceName} source review records`}>
+                          {source.reviews.length ? source.reviews.slice(0, 2).map((review) => (
+                            <article key={review.id}>
+                              <strong>
+                                {regulationGovernanceSourceReviewStateLabels[review.reviewState]} / {formatDate(review.createdAt)} / {review.reviewerId ?? "unknown reviewer"}
+                              </strong>
+                              <p>{review.note}</p>
+                            </article>
+                          )) : <p className={styles.empty}>No source-specific review has been recorded.</p>}
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -5412,6 +5559,15 @@ function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
     `- Due soon: ${report.statusCounts.due}`,
     `- Overdue: ${report.statusCounts.overdue}`,
     "",
+    "## Source reviews",
+    `- Review records: ${report.sourceReviewSummary.count}`,
+    `- Reviewed sources: ${report.sourceReviewSummary.reviewedSourceCount}/${report.sourceCount}`,
+    `- Unreviewed sources: ${report.sourceReviewSummary.unreviewedSourceCount}`,
+    `- Needs follow-up: ${report.sourceReviewSummary.followUpSourceCount}`,
+    `- Blocked: ${report.sourceReviewSummary.blockedSourceCount}`,
+    `- Latest: ${report.sourceReviewSummary.latestReviewedAt ?? "-"}`,
+    `- Latest reviewer: ${report.sourceReviewSummary.latestReviewerId ?? "-"}`,
+    "",
     "## Acknowledgements",
     `- Count: ${report.acknowledgementSummary.count}`,
     `- Latest: ${report.acknowledgementSummary.latestAcknowledgedAt ?? "-"}`,
@@ -5437,10 +5593,17 @@ function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
       `- Documents: ${source.documentCount}`,
       `- Admin review required: ${source.adminReviewRequiredCount}`,
       `- Approved documents: ${source.approvedDocumentCount}`,
+      `- Source review count: ${source.reviewSummary.count}`,
+      `- Latest source review: ${source.reviewSummary.latestReviewedAt ?? "-"}`,
+      `- Latest source review state: ${source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "-"}`,
       "- Verification checklist:",
       ...(source.verificationChecklist.length
         ? source.verificationChecklist.map((item) => `  - ${item}`)
         : ["  - missing"]),
+      "- Source review records:",
+      ...(source.reviews.length
+        ? source.reviews.map((review) => `  - ${review.createdAt} / ${regulationGovernanceSourceReviewStateLabels[review.reviewState]} / ${review.reviewerId ?? "unknown"} / ${review.note}`)
+        : ["  - none"]),
       "",
     ]),
   ].join("\n");

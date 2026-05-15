@@ -820,6 +820,81 @@
   overflow-wrap: anywhere;
 }
 
+.sourceReviewForm {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.28fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+  border-top: 1px solid var(--theme-border-field);
+  padding-top: 0.55rem;
+}
+
+.sourceReviewForm label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--theme-text-subtle);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.sourceReviewForm select,
+.sourceReviewForm textarea {
+  border: 1px solid var(--theme-border-field-strong);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.sourceReviewForm select {
+  min-height: 2.1rem;
+  padding: 0 0.6rem;
+}
+
+.sourceReviewForm textarea {
+  min-height: 3.2rem;
+  padding: 0.5rem 0.6rem;
+  resize: vertical;
+}
+
+.sourceReviewForm button {
+  min-height: 2.1rem;
+}
+
+.sourceReviewForm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.sourceReviewNotes {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sourceReviewNotes article {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.45rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-panel);
+}
+
+.sourceReviewNotes strong {
+  font-size: 0.76rem;
+}
+
+.sourceReviewNotes p {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .syncTargetPanel {
   display: grid;
   gap: 0.7rem;
