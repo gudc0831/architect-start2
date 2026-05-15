@@ -375,6 +375,62 @@ export type RegulationGovernanceSourceReviewSummary = {
   latestNote: string | null;
 };
 
+export type RegulationGovernanceSourceReviewCoveragePreset = "all" | "reviewed" | "unreviewed" | "stale";
+
+export type RegulationGovernanceSourceReviewCoverageItem = {
+  sourceId: string;
+  sourceName: string;
+  officialUrl: string;
+  packageDigest: string;
+  coverageStatus: RegulationGovernanceSourceReviewCoveragePreset;
+  reviewCount: number;
+  latestReviewedAt: string | null;
+  latestReviewerId: string | null;
+  latestReviewState: RegulationGovernanceSourceReviewState | null;
+  staleDays: number;
+  isStale: boolean;
+  refreshStatus: RegulationGovernanceRefreshStatus;
+  documentCount: number;
+  adminReviewRequiredCount: number;
+};
+
+export type RegulationGovernanceSourceReviewCoverageReport = {
+  generatedAt: string;
+  packageId: string;
+  packageDigest: string;
+  filters: {
+    coveragePreset: RegulationGovernanceSourceReviewCoveragePreset;
+    staleDays: number;
+  };
+  summary: {
+    sourceCount: number;
+    reviewedSourceCount: number;
+    unreviewedSourceCount: number;
+    staleSourceCount: number;
+    blockedSourceCount: number;
+    followUpSourceCount: number;
+    latestReviewedAt: string | null;
+    latestReviewerId: string | null;
+  };
+  sources: RegulationGovernanceSourceReviewCoverageItem[];
+};
+
+export type RegulationGovernanceProductionImportPreflight = {
+  status: "ready" | "blocked";
+  canImport: boolean;
+  requiredReview: "knowledge_admin";
+  packageDigest: string;
+  acknowledgementCount: number;
+  sourceReviewCoverage: {
+    reviewedSourceCount: number;
+    requiredSourceCount: number;
+    blockedSourceCount: number;
+    followUpSourceCount: number;
+  };
+  blockers: string[];
+  warnings: string[];
+};
+
 export type RegulationGovernanceSourceReport = {
   sourceId: string;
   sourceName: string;
@@ -431,6 +487,7 @@ export type RegulationGovernanceReport = {
     latestReviewedAt: string | null;
     latestReviewerId: string | null;
   };
+  productionImportPreflight: RegulationGovernanceProductionImportPreflight;
   acknowledgementSummary: {
     count: number;
     latestAcknowledgedAt: string | null;
@@ -495,6 +552,11 @@ type KnowledgeProviderExecutionPackageReviewNoteReportInput = {
   reviewerId?: unknown;
   packageDigest?: unknown;
   executionId?: unknown;
+  coveragePreset?: unknown;
+  staleDays?: unknown;
+};
+
+type RegulationGovernanceSourceReviewCoverageInput = {
   coveragePreset?: unknown;
   staleDays?: unknown;
 };
@@ -1047,6 +1109,8 @@ export async function getRegulationGovernanceReport(
   const acknowledgements = options.includeAcknowledgements === false
     ? []
     : await listRegulationGovernanceAcknowledgements({ packageId: seedPackage.packageId });
+  const sourceReviewSummary = summarizeRegulationGovernanceSourceCoverage(sources, sourceReviews);
+  const acknowledgementSummary = summarizeRegulationGovernanceAcknowledgements(acknowledgements);
 
   return {
     packageId: seedPackage.packageId,
@@ -1064,9 +1128,90 @@ export async function getRegulationGovernanceReport(
     documentCount: seedPackage.documents.length,
     statusCounts,
     sources,
-    sourceReviewSummary: summarizeRegulationGovernanceSourceCoverage(sources, sourceReviews),
-    acknowledgementSummary: summarizeRegulationGovernanceAcknowledgements(acknowledgements),
+    sourceReviewSummary,
+    productionImportPreflight: buildRegulationProductionImportPreflight({
+      valid,
+      productionImport: governanceManifest.productionImport,
+      statusCounts,
+      sources,
+      sourceReviewSummary,
+      acknowledgementCount: acknowledgements.length,
+      packageDigest,
+    }),
+    acknowledgementSummary,
     acknowledgements: acknowledgements.slice(0, 20),
+  };
+}
+
+export async function getRegulationGovernanceSourceReviewCoverageReport(
+  input: RegulationGovernanceSourceReviewCoverageInput = {},
+): Promise<RegulationGovernanceSourceReviewCoverageReport> {
+  const coveragePreset = normalizeRegulationGovernanceSourceReviewCoveragePreset(input.coveragePreset);
+  const staleDays = normalizePositiveInteger(input.staleDays, 30, 0, 3650);
+  const report = await getRegulationGovernanceReport();
+  const allSources = report.sources.map((source) => toRegulationGovernanceSourceReviewCoverageItem(source, report.packageDigest, staleDays));
+  const sources = allSources.filter((source) => coveragePreset === "all" || source.coverageStatus === coveragePreset);
+  return {
+    generatedAt: new Date().toISOString(),
+    packageId: report.packageId,
+    packageDigest: report.packageDigest,
+    filters: {
+      coveragePreset,
+      staleDays,
+    },
+    summary: {
+      sourceCount: allSources.length,
+      reviewedSourceCount: allSources.filter((source) => source.coverageStatus === "reviewed").length,
+      unreviewedSourceCount: allSources.filter((source) => source.coverageStatus === "unreviewed").length,
+      staleSourceCount: allSources.filter((source) => source.coverageStatus === "stale").length,
+      blockedSourceCount: allSources.filter((source) => source.latestReviewState === "blocked").length,
+      followUpSourceCount: allSources.filter((source) => source.latestReviewState === "needs_follow_up").length,
+      latestReviewedAt: report.sourceReviewSummary.latestReviewedAt,
+      latestReviewerId: report.sourceReviewSummary.latestReviewerId,
+    },
+    sources,
+  };
+}
+
+export async function exportRegulationGovernanceSourceReviewCoverageCsv(
+  input: RegulationGovernanceSourceReviewCoverageInput = {},
+): Promise<{ filename: string; csv: string }> {
+  const report = await getRegulationGovernanceSourceReviewCoverageReport(input);
+  const header = [
+    "source_id",
+    "source_name",
+    "official_url",
+    "package_digest",
+    "coverage_status",
+    "review_count",
+    "latest_reviewed_at",
+    "latest_reviewer_id",
+    "latest_review_state",
+    "stale_days",
+    "is_stale",
+    "refresh_status",
+    "document_count",
+    "admin_review_required_count",
+  ];
+  const rows = report.sources.map((source) => [
+    source.sourceId,
+    source.sourceName,
+    source.officialUrl,
+    source.packageDigest,
+    source.coverageStatus,
+    String(source.reviewCount),
+    source.latestReviewedAt ?? "",
+    source.latestReviewerId ?? "",
+    source.latestReviewState ?? "",
+    String(source.staleDays),
+    String(source.isStale),
+    source.refreshStatus,
+    String(source.documentCount),
+    String(source.adminReviewRequiredCount),
+  ]);
+  return {
+    filename: `regulation-source-review-coverage-${report.generatedAt.slice(0, 10)}.csv`,
+    csv: [header, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\n"),
   };
 }
 
@@ -1116,7 +1261,7 @@ export async function createRegulationGovernanceSourceReview(
     profileId: user.id,
     eventType: regulationGovernanceSourceReviewEventType,
     targetType: regulationGovernanceSourceReviewTargetType,
-    targetId: `${report.packageId}:${source.sourceId}`,
+    targetId: null,
     metadata: {
       regulationGovernanceSourceReviewVersion: 1,
       packageId: report.packageId,
@@ -1175,7 +1320,7 @@ export async function createRegulationGovernanceAcknowledgement(
     profileId: user.id,
     eventType: regulationGovernanceAcknowledgementEventType,
     targetType: regulationGovernanceAcknowledgementTargetType,
-    targetId: report.packageId,
+    targetId: null,
     metadata: {
       regulationGovernanceAcknowledgementVersion: 1,
       packageId: report.packageId,
@@ -2647,6 +2792,87 @@ function summarizeRegulationGovernanceAcknowledgements(acknowledgements: Regulat
     latestAcknowledgedAt: latest?.createdAt ?? null,
     latestReviewerId: latest?.reviewerId ?? null,
   };
+}
+
+function buildRegulationProductionImportPreflight(input: {
+  valid: boolean;
+  productionImport: RegulationGovernanceManifest["productionImport"];
+  statusCounts: Record<RegulationGovernanceRefreshStatus, number>;
+  sources: RegulationGovernanceSourceReport[];
+  sourceReviewSummary: RegulationGovernanceReport["sourceReviewSummary"];
+  acknowledgementCount: number;
+  packageDigest: string;
+}): RegulationGovernanceProductionImportPreflight {
+  const blockers = [
+    ...(!input.valid ? ["Seed package or governance manifest validation failed."] : []),
+    ...(!input.productionImport.enabled ? [input.productionImport.blockedReason ?? "Production import is disabled in the governance manifest."] : []),
+    ...(input.acknowledgementCount === 0 ? ["Current package has no Knowledge admin acknowledgement record."] : []),
+    ...(input.sourceReviewSummary.reviewedSourceCount < input.sources.length
+      ? [`Only ${input.sourceReviewSummary.reviewedSourceCount}/${input.sources.length} official source(s) have source-review records.`]
+      : []),
+    ...(input.sourceReviewSummary.blockedSourceCount > 0 ? [`${input.sourceReviewSummary.blockedSourceCount} source review(s) are blocked.`] : []),
+    ...(input.sourceReviewSummary.followUpSourceCount > 0 ? [`${input.sourceReviewSummary.followUpSourceCount} source review(s) require follow-up.`] : []),
+    ...(input.statusCounts.overdue > 0 ? [`${input.statusCounts.overdue} official source(s) are overdue for refresh review.`] : []),
+    ...(input.sources.some((source) => !source.officialUrl.startsWith("https://")) ? ["Every production source must use an HTTPS official URL."] : []),
+    ...(input.sources.some((source) => source.adminReviewRequiredCount > 0)
+      ? ["Seed documents still require Knowledge admin document-level approval before production import."]
+      : []),
+  ];
+
+  return {
+    status: blockers.length === 0 ? "ready" : "blocked",
+    canImport: blockers.length === 0,
+    requiredReview: "knowledge_admin",
+    packageDigest: input.packageDigest,
+    acknowledgementCount: input.acknowledgementCount,
+    sourceReviewCoverage: {
+      reviewedSourceCount: input.sourceReviewSummary.reviewedSourceCount,
+      requiredSourceCount: input.sources.length,
+      blockedSourceCount: input.sourceReviewSummary.blockedSourceCount,
+      followUpSourceCount: input.sourceReviewSummary.followUpSourceCount,
+    },
+    blockers,
+    warnings: [
+      "Preflight only: this check does not crawl external legal sources and does not import production regulation rows.",
+      "External crawling and scheduled refresh remain explicit opt-in follow-up work.",
+    ],
+  };
+}
+
+function toRegulationGovernanceSourceReviewCoverageItem(
+  source: RegulationGovernanceSourceReport,
+  packageDigest: string,
+  staleDays: number,
+): RegulationGovernanceSourceReviewCoverageItem {
+  const latestReviewedAt = source.reviewSummary.latestReviewedAt;
+  const latestMs = latestReviewedAt ? Date.parse(latestReviewedAt) : NaN;
+  const staleAt = Number.isFinite(latestMs) ? latestMs + staleDays * 24 * 60 * 60 * 1000 : Number.NEGATIVE_INFINITY;
+  const isStale = !latestReviewedAt || Date.now() >= staleAt;
+  const coverageStatus: RegulationGovernanceSourceReviewCoveragePreset = source.reviewSummary.count === 0
+    ? "unreviewed"
+    : isStale
+      ? "stale"
+      : "reviewed";
+  return {
+    sourceId: source.sourceId,
+    sourceName: source.sourceName,
+    officialUrl: source.officialUrl,
+    packageDigest,
+    coverageStatus,
+    reviewCount: source.reviewSummary.count,
+    latestReviewedAt,
+    latestReviewerId: source.reviewSummary.latestReviewerId,
+    latestReviewState: source.reviewSummary.latestReviewState,
+    staleDays,
+    isStale,
+    refreshStatus: source.refreshStatus,
+    documentCount: source.documentCount,
+    adminReviewRequiredCount: source.adminReviewRequiredCount,
+  };
+}
+
+function normalizeRegulationGovernanceSourceReviewCoveragePreset(value: unknown): RegulationGovernanceSourceReviewCoveragePreset {
+  return value === "reviewed" || value === "unreviewed" || value === "stale" ? value : "all";
 }
 
 function groupProviderExecutionPackageReviewNotes(events: AssistantAuditEvent[]) {

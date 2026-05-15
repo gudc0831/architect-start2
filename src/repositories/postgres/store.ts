@@ -261,10 +261,23 @@ async function syncFileAnalysisChunks(file: FileRecord) {
   const chunks = getFileAnalysisEntries(file.metadata).flatMap((analysis) => buildFileAnalysisChunks(file, analysis));
 
   try {
-    await prisma.$executeRaw(Prisma.sql`delete from file_analysis_chunks where file_id = ${file.id}::uuid`);
     if (chunks.length === 0) {
+      await prisma.$executeRaw(Prisma.sql`delete from file_analysis_chunks where file_id = ${file.id}::uuid`);
       return;
     }
+
+    await prisma.$executeRaw(Prisma.sql`
+      delete from file_analysis_chunks existing
+      where existing.file_id = ${file.id}::uuid
+        and not exists (
+          select 1
+          from (values ${Prisma.join(chunks.map((chunk) => Prisma.sql`(${chunk.analysisId}, ${chunk.chunkIndex}, ${chunk.tokenHash})`))})
+            as incoming(analysis_id, chunk_index, token_hash)
+          where incoming.analysis_id = existing.analysis_id
+            and incoming.chunk_index = existing.chunk_index
+            and incoming.token_hash = existing.token_hash
+        )
+    `);
 
     await prisma.$executeRaw(Prisma.sql`
       insert into file_analysis_chunks (

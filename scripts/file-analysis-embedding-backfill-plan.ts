@@ -1,9 +1,12 @@
+import { loadEnvConfig } from "@next/env";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import seedPackageJson from "../src/domains/regulation/seeds/foundation.kr.json";
 import { buildFileAnalysisChunks } from "../src/domains/file/search";
 import type { FileRecord } from "../src/domains/task/types";
 import type { RegulationSeedPackage } from "../src/domains/regulation/knowledge";
+
+loadEnvConfig(process.cwd());
 
 type BackfillStats = {
   available: boolean;

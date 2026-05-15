@@ -100,11 +100,13 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     assistantRepository.listExternalEvidenceByTask(task.id),
     assistantRepository.searchApprovedKnowledge({ projectId: project.id, query: question, limit: 4 }),
   ]);
+  const queryEmbedding = await createFileAnalysisQueryEmbedding(question);
   const projectFileAnalysisMatches = await fileRepository.searchFileAnalyses({
     projectId: project.id,
     query: question,
     excludedFileIds: files.map((file) => file.id),
     limit: 4,
+    queryEmbedding: queryEmbedding ?? undefined,
   });
   const regulationResults = searchFoundationRegulations(question, 4);
   const evidence = buildEvidence({
@@ -144,6 +146,41 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     evidence,
     unavailableEvidenceKinds,
   };
+}
+
+async function createFileAnalysisQueryEmbedding(question: string) {
+  if (process.env.ARCHITECT_FILE_EMBEDDING_QUERY_ENABLED !== "1") {
+    return null;
+  }
+  const provider = process.env.ARCHITECT_FILE_EMBEDDING_PROVIDER?.trim() || "disabled";
+  const apiKey = process.env.ARCHITECT_FILE_EMBEDDING_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const dimensions = Number.parseInt(process.env.ARCHITECT_FILE_EMBEDDING_DIMENSIONS ?? "1536", 10);
+  if (provider !== "openai" || !apiKey || dimensions !== 1536 || !question.trim()) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(process.env.ARCHITECT_FILE_EMBEDDING_ENDPOINT?.trim() || "https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.ARCHITECT_FILE_EMBEDDING_MODEL?.trim() || "text-embedding-3-small",
+        input: question,
+        dimensions,
+      }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { data?: Array<{ embedding?: number[] }> };
+    const embedding = payload.data?.[0]?.embedding;
+    return Array.isArray(embedding) && embedding.length === 1536 ? embedding : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveAssistantRecord(input: SaveAssistantRecordInput, user: AuthUser) {

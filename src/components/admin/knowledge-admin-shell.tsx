@@ -440,12 +440,161 @@ type RegulationGovernanceReport = {
     latestReviewedAt: string | null;
     latestReviewerId: string | null;
   };
+  productionImportPreflight: {
+    status: "ready" | "blocked";
+    canImport: boolean;
+    requiredReview: "knowledge_admin";
+    packageDigest: string;
+    acknowledgementCount: number;
+    sourceReviewCoverage: {
+      reviewedSourceCount: number;
+      requiredSourceCount: number;
+      blockedSourceCount: number;
+      followUpSourceCount: number;
+    };
+    blockers: string[];
+    warnings: string[];
+  };
   acknowledgementSummary: {
     count: number;
     latestAcknowledgedAt: string | null;
     latestReviewerId: string | null;
   };
   acknowledgements: RegulationGovernanceAcknowledgement[];
+};
+
+type RegulationSourceReviewCoveragePreset = "all" | "reviewed" | "unreviewed" | "stale";
+
+type RegulationSourceReviewCoverageReport = {
+  generatedAt: string;
+  packageId: string;
+  packageDigest: string;
+  filters: {
+    coveragePreset: RegulationSourceReviewCoveragePreset;
+    staleDays: number;
+  };
+  summary: {
+    sourceCount: number;
+    reviewedSourceCount: number;
+    unreviewedSourceCount: number;
+    staleSourceCount: number;
+    blockedSourceCount: number;
+    followUpSourceCount: number;
+    latestReviewedAt: string | null;
+    latestReviewerId: string | null;
+  };
+  sources: {
+    sourceId: string;
+    sourceName: string;
+    officialUrl: string;
+    packageDigest: string;
+    coverageStatus: RegulationSourceReviewCoveragePreset;
+    reviewCount: number;
+    latestReviewedAt: string | null;
+    latestReviewerId: string | null;
+    latestReviewState: RegulationGovernanceSourceReviewState | null;
+    staleDays: number;
+    isStale: boolean;
+    refreshStatus: RegulationGovernanceRefreshStatus;
+    documentCount: number;
+    adminReviewRequiredCount: number;
+  }[];
+};
+
+type FileAnalysisChunkDebugReport = {
+  generatedAt: string;
+  database: {
+    available: boolean;
+    reason: string | null;
+    totalChunks: number;
+    embeddedChunks: number;
+    missingEmbeddings: number;
+    projectCount: number;
+    fileCount: number;
+    analysisCount: number;
+  };
+  filters: {
+    query: string | null;
+    sourceType: string | null;
+    verificationState: string | null;
+    sampleLimit: number;
+  };
+  coverage: {
+    sourceType: string;
+    verificationState: string;
+    totalChunks: number;
+    embeddedChunks: number;
+    missingEmbeddings: number;
+  }[];
+  missingSamples: {
+    id: string;
+    fileId: string;
+    analysisId: string;
+    chunkIndex: number;
+    tokenHash: string;
+    sourceType: string;
+    verificationState: string;
+    chars: number;
+    preview: string;
+  }[];
+  retrieval: {
+    id: string;
+    fileName: string;
+    chunkIndex: number;
+    sourceType: string;
+    verificationState: string;
+    ftsRank: number;
+    vectorReady: boolean;
+    preview: string;
+  }[];
+  blockers: string[];
+  warnings: string[];
+};
+
+type KnowledgeExternalSyncWorkerReport = {
+  generatedAt: string;
+  dryRun: true;
+  queue: {
+    pendingProviderReadyAudits: number;
+    pendingPreviewCount: number;
+    executionCount: number;
+    targetCounts: Record<ApprovedSyncTarget, number>;
+  };
+  targets: {
+    target: ApprovedSyncTarget;
+    enabled: boolean;
+    dryRunOnly: boolean;
+    credentialStatus: string;
+    remoteWriteReady: boolean;
+    remoteWriteBlockers: string[];
+    liveWriteFeatureFlag: string | null;
+    liveWriteFeatureFlagEnabled: boolean;
+  }[];
+  nextActions: {
+    auditId: string;
+    target: ApprovedSyncTarget;
+    packageName: string;
+    status: ApprovedSyncRun["status"];
+    action: "blocked" | "preflight_only" | "ready_for_guarded_execution";
+    blockers: string[];
+  }[];
+  blockers: string[];
+  warnings: string[];
+};
+
+type KnowledgeAdminCapabilityReport = {
+  userId: string;
+  accessStatus: string;
+  allowed: boolean;
+  role: "admin" | "member";
+  mapping: "global_admin_backfill" | "explicit_capability" | "none";
+  capabilities: string[];
+  migration: {
+    schemaVersion: 1;
+    profileCapabilityTableReady: false;
+    backfillRequired: boolean;
+    backfillSource: "global_admin";
+  };
 };
 
 const stateLabels: Record<CandidateState, string> = {
@@ -548,6 +697,12 @@ const regulationGovernanceSourceReviewStateLabels: Record<RegulationGovernanceSo
   needs_follow_up: "Needs follow-up",
   blocked: "Blocked",
 };
+const regulationSourceReviewCoverageLabels: Record<RegulationSourceReviewCoveragePreset, string> = {
+  all: "All source reviews",
+  reviewed: "Reviewed",
+  unreviewed: "Unreviewed",
+  stale: "Stale",
+};
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
   const [candidates, setCandidates] = useState(initialCandidates);
@@ -629,6 +784,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const [regulationGovernanceSourceReviewNotes, setRegulationGovernanceSourceReviewNotes] = useState<Record<string, string>>({});
   const [regulationGovernanceSourceReviewStates, setRegulationGovernanceSourceReviewStates] = useState<Record<string, RegulationGovernanceSourceReviewState>>({});
   const [regulationGovernanceSourceReviewSaving, setRegulationGovernanceSourceReviewSaving] = useState("");
+  const [regulationSourceReviewCoverage, setRegulationSourceReviewCoverage] = useState<RegulationSourceReviewCoverageReport | null>(null);
+  const [regulationSourceReviewCoveragePreset, setRegulationSourceReviewCoveragePreset] =
+    useState<RegulationSourceReviewCoveragePreset>("all");
+  const [regulationSourceReviewStaleDays, setRegulationSourceReviewStaleDays] = useState(30);
+  const [fileChunkDebug, setFileChunkDebug] = useState<FileAnalysisChunkDebugReport | null>(null);
+  const [fileChunkDebugQuery, setFileChunkDebugQuery] = useState("");
+  const [knowledgeSyncWorker, setKnowledgeSyncWorker] = useState<KnowledgeExternalSyncWorkerReport | null>(null);
+  const [knowledgeCapabilityReport, setKnowledgeCapabilityReport] = useState<KnowledgeAdminCapabilityReport | null>(null);
   const [draft, setDraft] = useState({
     title: "",
     summary: "",
@@ -1310,6 +1473,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
   const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
+  const regulationSourceReviewCoverageQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("coveragePreset", regulationSourceReviewCoveragePreset);
+    params.set("staleDays", String(regulationSourceReviewStaleDays));
+    return params.toString();
+  }, [regulationSourceReviewCoveragePreset, regulationSourceReviewStaleDays]);
+  const fileChunkDebugQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (fileChunkDebugQuery.trim()) {
+      params.set("query", fileChunkDebugQuery.trim());
+    }
+    params.set("sampleLimit", "8");
+    return params.toString();
+  }, [fileChunkDebugQuery]);
 
   useEffect(() => {
     if (!selectedId && visibleCandidates[0]) {
@@ -1391,6 +1568,75 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (active) {
           setRegulationGovernanceLoading(false);
         }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    readJson<RegulationSourceReviewCoverageReport>(
+      `/api/admin/knowledge/regulation-governance/source-review-coverage?${regulationSourceReviewCoverageQuery}`,
+    )
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setRegulationSourceReviewCoverage(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Regulation source-review coverage could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [regulationSourceReviewCoverageQuery]);
+
+  useEffect(() => {
+    let active = true;
+    readJson<FileAnalysisChunkDebugReport>(`/api/admin/knowledge/file-analysis-chunks?${fileChunkDebugQueryString}`)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setFileChunkDebug(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "File-analysis chunk debug report could not be loaded.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fileChunkDebugQueryString]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      readJson<KnowledgeExternalSyncWorkerReport>("/api/admin/knowledge/sync-worker"),
+      readJson<KnowledgeAdminCapabilityReport>("/api/admin/knowledge/capabilities"),
+    ])
+      .then(([syncWorker, capabilityReport]) => {
+        if (!active) {
+          return;
+        }
+        setKnowledgeSyncWorker(syncWorker);
+        setKnowledgeCapabilityReport(capabilityReport);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setStatus(error instanceof Error ? error.message : "Knowledge operational reports could not be loaded.");
       });
 
     return () => {
@@ -1558,11 +1804,39 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       const data = await readJson<RegulationGovernanceReport>("/api/admin/knowledge/regulation-governance");
       setRegulationGovernance(data);
+      await refreshRegulationSourceReviewCoverage();
       setStatus(`Regulation governance loaded: ${data.sourceCount} source(s), ${data.statusCounts.overdue} overdue.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Regulation governance report could not be loaded.");
     } finally {
       setRegulationGovernanceLoading(false);
+    }
+  }
+
+  async function refreshRegulationSourceReviewCoverage() {
+    const data = await readJson<RegulationSourceReviewCoverageReport>(
+      `/api/admin/knowledge/regulation-governance/source-review-coverage?${regulationSourceReviewCoverageQuery}`,
+    );
+    setRegulationSourceReviewCoverage(data);
+  }
+
+  async function refreshFileChunkDebug() {
+    try {
+      const data = await readJson<FileAnalysisChunkDebugReport>(`/api/admin/knowledge/file-analysis-chunks?${fileChunkDebugQueryString}`);
+      setFileChunkDebug(data);
+      setStatus(`File-analysis chunks loaded: ${data.database.totalChunks} chunk(s), ${data.database.missingEmbeddings} missing embedding(s).`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "File-analysis chunk debug report could not be loaded.");
+    }
+  }
+
+  async function refreshKnowledgeSyncWorker() {
+    try {
+      const data = await readJson<KnowledgeExternalSyncWorkerReport>("/api/admin/knowledge/sync-worker");
+      setKnowledgeSyncWorker(data);
+      setStatus(`Knowledge sync worker loaded: ${data.queue.pendingProviderReadyAudits} pending provider-ready audit(s).`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Knowledge sync worker report could not be loaded.");
     }
   }
 
@@ -1598,6 +1872,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         note: regulationGovernanceAcknowledgementNote.trim(),
       });
       setRegulationGovernance(data);
+      await refreshRegulationSourceReviewCoverage();
       setRegulationGovernanceAcknowledgementNote("");
       setStatus(`Regulation governance acknowledgement saved for ${data.packageId}.`);
     } catch (error) {
@@ -1630,6 +1905,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         },
       );
       setRegulationGovernance(data);
+      await refreshRegulationSourceReviewCoverage();
       setRegulationGovernanceSourceReviewNotes((current) => ({
         ...current,
         [sourceId]: "",
@@ -4312,6 +4588,91 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               </section>
             </section>
 
+            <section className={styles.exportPanel} aria-label="Knowledge operational validation">
+              <div className={styles.exportHeader}>
+                <div>
+                  <p>Operational validation</p>
+                  <h4>Chunks, sync worker, and capabilities</h4>
+                </div>
+                <div className={styles.exportActions}>
+                  <button onClick={refreshFileChunkDebug} type="button">
+                    Refresh chunks
+                  </button>
+                  <button onClick={refreshKnowledgeSyncWorker} type="button">
+                    Refresh sync worker
+                  </button>
+                </div>
+              </div>
+              <div className={styles.reviewNoteForm} aria-label="File-analysis chunk retrieval debug query">
+                <input
+                  aria-label="Chunk debug query"
+                  onChange={(event) => setFileChunkDebugQuery(event.target.value)}
+                  placeholder="FTS query for chunk retrieval debug"
+                  value={fileChunkDebugQuery}
+                />
+                <button onClick={refreshFileChunkDebug} type="button">
+                  Run query
+                </button>
+              </div>
+              <div className={styles.sourceChips} aria-label="Knowledge capability migration state">
+                <span>{knowledgeCapabilityReport?.allowed ? "Knowledge admin allowed" : "Knowledge admin blocked"}</span>
+                <span>Mapping {knowledgeCapabilityReport?.mapping ?? "unknown"}</span>
+                <span>Capabilities {knowledgeCapabilityReport?.capabilities.length ?? 0}</span>
+                <span>
+                  Capability table {knowledgeCapabilityReport?.migration.profileCapabilityTableReady ? "ready" : "pending"}
+                </span>
+              </div>
+              <div className={styles.sourceChips} aria-label="File-analysis chunk coverage summary">
+                <span>{fileChunkDebug?.database.available ? "Chunk DB available" : "Chunk DB unavailable"}</span>
+                <span>Total {fileChunkDebug?.database.totalChunks ?? 0}</span>
+                <span>Embedded {fileChunkDebug?.database.embeddedChunks ?? 0}</span>
+                <span>Missing {fileChunkDebug?.database.missingEmbeddings ?? 0}</span>
+                <span>Retrieval hits {fileChunkDebug?.retrieval.length ?? 0}</span>
+              </div>
+              {fileChunkDebug?.blockers.length ? (
+                <div className={styles.syncWarnings} aria-label="File-analysis chunk debug blockers">
+                  {fileChunkDebug.blockers.map((blocker) => (
+                    <span key={blocker}>{blocker}</span>
+                  ))}
+                </div>
+              ) : null}
+              <div className={styles.syncHistory} aria-label="File-analysis chunk coverage rows">
+                {fileChunkDebug?.coverage.length ? fileChunkDebug.coverage.map((group) => (
+                  <article key={`${group.sourceType}:${group.verificationState}`}>
+                    <strong>{group.sourceType} / {group.verificationState}</strong>
+                    <span>Total {group.totalChunks}</span>
+                    <span>Embedded {group.embeddedChunks}</span>
+                    <span>Missing {group.missingEmbeddings}</span>
+                  </article>
+                )) : <p className={styles.empty}>No chunk coverage rows are available.</p>}
+              </div>
+              <div className={styles.syncHistory} aria-label="File-analysis retrieval debug hits">
+                {fileChunkDebug?.retrieval.length ? fileChunkDebug.retrieval.slice(0, 5).map((hit) => (
+                  <article key={hit.id}>
+                    <strong>{hit.fileName} / chunk {hit.chunkIndex}</strong>
+                    <span>FTS {hit.ftsRank.toFixed(4)}</span>
+                    <span>{hit.vectorReady ? "Vector ready" : "No embedding"}</span>
+                    <p>{hit.preview}</p>
+                  </article>
+                )) : <p className={styles.empty}>No retrieval debug hits for the active query.</p>}
+              </div>
+              <div className={styles.sourceChips} aria-label="Approved WIKI sync worker summary">
+                <span>Pending {knowledgeSyncWorker?.queue.pendingProviderReadyAudits ?? 0}</span>
+                <span>Previews {knowledgeSyncWorker?.queue.pendingPreviewCount ?? 0}</span>
+                <span>Executions {knowledgeSyncWorker?.queue.executionCount ?? 0}</span>
+                <span>{knowledgeSyncWorker?.dryRun ? "Dry-run/preflight only" : "Execution enabled"}</span>
+              </div>
+              <div className={styles.syncHistory} aria-label="Approved WIKI sync worker next actions">
+                {knowledgeSyncWorker?.nextActions.length ? knowledgeSyncWorker.nextActions.slice(0, 5).map((action) => (
+                  <article key={action.auditId}>
+                    <strong>{action.action} / {approvedSyncTargetLabels[action.target]}</strong>
+                    <p>{action.packageName}</p>
+                    <span>{action.blockers.length} blocker(s)</span>
+                  </article>
+                )) : <p className={styles.empty}>No provider-ready sync audits are queued.</p>}
+              </div>
+            </section>
+
             <section className={styles.exportPanel} aria-label="Regulation legal-source governance refresh">
               <div className={styles.exportHeader}>
                 <div>
@@ -4342,6 +4703,53 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <span>Acknowledgements {regulationGovernance.acknowledgementSummary.count}</span>
                     <span>{regulationGovernance.acknowledgementSummary.latestAcknowledgedAt ? `Latest ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)}` : "No acknowledgement"}</span>
                     <span>{regulationGovernance.productionImport.enabled ? "Production import enabled" : "Production import blocked"}</span>
+                    <span>{regulationGovernance.productionImportPreflight.status === "ready" ? "Production preflight ready" : "Production preflight blocked"}</span>
+                  </div>
+                  <div className={styles.syncWarnings} aria-label="Regulation production import preflight">
+                    {regulationGovernance.productionImportPreflight.blockers.length ? regulationGovernance.productionImportPreflight.blockers.map((blocker) => (
+                      <span key={blocker}>Preflight blocker: {blocker}</span>
+                    )) : <span>Production import preflight has no blockers.</span>}
+                    {regulationGovernance.productionImportPreflight.warnings.map((warning) => (
+                      <span key={warning}>Preflight warning: {warning}</span>
+                    ))}
+                  </div>
+                  <div className={styles.reviewNoteForm} aria-label="Regulation source-review coverage filters">
+                    <label>
+                      Source-review coverage
+                      <select
+                        onChange={(event) => setRegulationSourceReviewCoveragePreset(event.target.value as RegulationSourceReviewCoveragePreset)}
+                        value={regulationSourceReviewCoveragePreset}
+                      >
+                        {(Object.keys(regulationSourceReviewCoverageLabels) as RegulationSourceReviewCoveragePreset[]).map((value) => (
+                          <option key={value} value={value}>
+                            {regulationSourceReviewCoverageLabels[value]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Stale days
+                      <input
+                        min={0}
+                        onChange={(event) => setRegulationSourceReviewStaleDays(Math.max(0, Number.parseInt(event.target.value, 10) || 0))}
+                        type="number"
+                        value={regulationSourceReviewStaleDays}
+                      />
+                    </label>
+                    <a
+                      download
+                      href={`/api/admin/knowledge/regulation-governance/source-review-coverage/export?${regulationSourceReviewCoverageQuery}`}
+                    >
+                      Download source-review CSV
+                    </a>
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Regulation source-review coverage summary">
+                    <span>Reviewed {regulationSourceReviewCoverage?.summary.reviewedSourceCount ?? 0}</span>
+                    <span>Unreviewed {regulationSourceReviewCoverage?.summary.unreviewedSourceCount ?? 0}</span>
+                    <span>Stale {regulationSourceReviewCoverage?.summary.staleSourceCount ?? 0}</span>
+                    <span>Blocked {regulationSourceReviewCoverage?.summary.blockedSourceCount ?? 0}</span>
+                    <span>Follow-up {regulationSourceReviewCoverage?.summary.followUpSourceCount ?? 0}</span>
+                    <span>{regulationSourceReviewCoverage?.packageDigest.slice(0, 16) ?? "No"} coverage digest</span>
                   </div>
                   <section className={styles.guardrails} aria-label="Regulation governance checks">
                     <h4>Governance checks</h4>
@@ -4402,6 +4810,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         <span>{acknowledgement.productionImportEnabled ? "production import enabled" : "production import blocked"}</span>
                       </article>
                     )) : <p className={styles.empty}>No governance acknowledgements have been recorded.</p>}
+                  </div>
+                  <div className={styles.syncHistory} aria-label="Regulation source-review coverage rows">
+                    {regulationSourceReviewCoverage?.sources.length ? regulationSourceReviewCoverage.sources.map((source) => (
+                      <article key={source.sourceId}>
+                        <strong>{source.sourceName}</strong>
+                        <p>{source.officialUrl}</p>
+                        <span>{regulationSourceReviewCoverageLabels[source.coverageStatus]}</span>
+                        <span>{source.reviewCount} review(s)</span>
+                        <span>{source.latestReviewerId ?? "no reviewer"}</span>
+                        <span>{source.latestReviewedAt ? `Latest ${formatDate(source.latestReviewedAt)}` : "No latest review"}</span>
+                        <span>{source.packageDigest.slice(0, 16)} package digest</span>
+                      </article>
+                    )) : <p className={styles.empty}>No source-review coverage rows match the active filters.</p>}
                   </div>
                   <div className={styles.syncHistory} aria-label="Regulation governance source refresh rows">
                     {regulationGovernance.sources.map((source) => (
@@ -5558,6 +5979,8 @@ function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
     `- Production import: ${report.productionImport.enabled ? "enabled" : "blocked"}`,
     `- Required review: ${report.productionImport.requiredReview}`,
     `- Blocked reason: ${report.productionImport.blockedReason ?? "-"}`,
+    `- Production preflight: ${report.productionImportPreflight.status}`,
+    `- Preflight can import: ${report.productionImportPreflight.canImport ? "yes" : "no"}`,
     `- Refresh cadence: ${report.refreshPolicy.cadenceDays} day(s)`,
     `- Stale after: ${report.refreshPolicy.staleAfterDays} day(s)`,
     `- Sources: ${report.sourceCount}`,
@@ -5576,6 +5999,18 @@ function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
     `- Blocked: ${report.sourceReviewSummary.blockedSourceCount}`,
     `- Latest: ${report.sourceReviewSummary.latestReviewedAt ?? "-"}`,
     `- Latest reviewer: ${report.sourceReviewSummary.latestReviewerId ?? "-"}`,
+    "",
+    "## Production import preflight",
+    `- Acknowledgements: ${report.productionImportPreflight.acknowledgementCount}`,
+    `- Source coverage: ${report.productionImportPreflight.sourceReviewCoverage.reviewedSourceCount}/${report.productionImportPreflight.sourceReviewCoverage.requiredSourceCount}`,
+    `- Blocked source reviews: ${report.productionImportPreflight.sourceReviewCoverage.blockedSourceCount}`,
+    `- Follow-up source reviews: ${report.productionImportPreflight.sourceReviewCoverage.followUpSourceCount}`,
+    ...(report.productionImportPreflight.blockers.length
+      ? report.productionImportPreflight.blockers.map((blocker) => `- Blocker: ${blocker}`)
+      : ["- Blocker: none"]),
+    ...(report.productionImportPreflight.warnings.length
+      ? report.productionImportPreflight.warnings.map((warning) => `- Warning: ${warning}`)
+      : ["- Warning: none"]),
     "",
     "## Acknowledgements",
     `- Count: ${report.acknowledgementSummary.count}`,
