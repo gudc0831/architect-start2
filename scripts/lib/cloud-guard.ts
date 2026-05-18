@@ -201,15 +201,55 @@ async function readCloudBackupTables() {
 
 async function getRowCounts(): Promise<CloudCounts> {
   const prisma = await getPrisma();
-  const [profiles, projects, tasks, files, preferences] = await Promise.all([
-    prisma.profile.count(),
-    prisma.project.count(),
-    prisma.task.count(),
-    prisma.file.count(),
-    prisma.profilePreference.count(),
-  ]);
+  const profiles = await prisma.profile.count();
+  const projects = await prisma.project.count();
+  const tasks = await prisma.task.count();
+  const files = await prisma.file.count();
+  const preferences = await prisma.profilePreference.count();
 
   return { profiles, projects, tasks, files, preferences };
+}
+
+async function disconnectPrisma() {
+  try {
+    const prisma = await getPrisma();
+    await prisma.$disconnect();
+  } catch {
+    // Best effort: fallback row counts should still run if Prisma cleanup fails.
+  }
+}
+
+async function getRowCountsViaPg(): Promise<CloudCounts> {
+  const { Pool } = await import("pg");
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for cloud row count fallback");
+  }
+
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+  });
+  const tableSpecs = [
+    ["profiles", "profiles"],
+    ["projects", "projects"],
+    ["tasks", "tasks"],
+    ["files", "files"],
+    ["preferences", "profile_preferences"],
+  ] as const;
+
+  try {
+    const entries = await Promise.all(
+      tableSpecs.map(async ([key, tableName]) => {
+        const result = await pool.query<{ count: number }>(`select count(*)::int as count from "public"."${tableName}"`);
+        return [key, Number(result.rows[0]?.count ?? 0)] as const;
+      }),
+    );
+    return Object.fromEntries(entries) as CloudCounts;
+  } finally {
+    await pool.end();
+  }
 }
 
 export async function getCloudGuardSummary(options?: { includeMigrationStatus?: boolean }): Promise<CloudGuardSummary> {
@@ -240,7 +280,15 @@ export async function getCloudGuardSummary(options?: { includeMigrationStatus?: 
   try {
     rowCounts = await getRowCounts();
   } catch (error) {
-    rowCountError = error instanceof Error ? error.message : String(error);
+    const prismaError = error instanceof Error ? error.message : String(error);
+    await disconnectPrisma();
+    try {
+      rowCounts = await getRowCountsViaPg();
+      rowCountError = `Prisma row count failed; pg fallback counts used. Prisma error: ${prismaError}`;
+    } catch (fallbackError) {
+      const pgError = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      rowCountError = `Prisma row count failed: ${prismaError}; pg fallback failed: ${pgError}`;
+    }
   }
 
   const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : false;
