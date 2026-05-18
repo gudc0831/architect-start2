@@ -13,7 +13,18 @@ function createPrismaClient() {
     throw serviceUnavailable("DATABASE_URL이 설정되지 않았습니다.", "DATABASE_URL_MISSING");
   }
 
-  const adapter = new PrismaPg({ connectionString: databaseUrl });
+  const configuredPoolMax = Number(process.env.DATABASE_POOL_MAX);
+  const poolMax = Number.isSafeInteger(configuredPoolMax) && configuredPoolMax > 0
+    ? configuredPoolMax
+    : process.env.NODE_ENV === "production"
+      ? 1
+      : 4;
+  const adapter = new PrismaPg({
+    connectionString: databaseUrl,
+    max: poolMax,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+  });
 
   return new PrismaClient({
     adapter,
