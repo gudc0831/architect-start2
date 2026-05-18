@@ -240,12 +240,11 @@ async function getRowCountsViaPg(): Promise<CloudCounts> {
   ] as const;
 
   try {
-    const entries = await Promise.all(
-      tableSpecs.map(async ([key, tableName]) => {
-        const result = await pool.query<{ count: number }>(`select count(*)::int as count from "public"."${tableName}"`);
-        return [key, Number(result.rows[0]?.count ?? 0)] as const;
-      }),
-    );
+    const entries: Array<readonly [keyof CloudCounts, number]> = [];
+    for (const [key, tableName] of tableSpecs) {
+      const result = await pool.query<{ count: number }>(`select count(*)::int as count from "public"."${tableName}"`);
+      entries.push([key, Number(result.rows[0]?.count ?? 0)] as const);
+    }
     return Object.fromEntries(entries) as CloudCounts;
   } finally {
     await pool.end();
@@ -291,7 +290,7 @@ export async function getCloudGuardSummary(options?: { includeMigrationStatus?: 
     }
   }
 
-  const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : false;
+  const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : Boolean(rowCountError);
   const migrationStatus = options?.includeMigrationStatus
     ? (() => {
         const result = captureNpmExec(["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
