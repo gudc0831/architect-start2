@@ -26,15 +26,48 @@ type CloudCounts = {
   preferences: number;
 };
 
-type CloudBackupTables = {
-  profiles: unknown[];
-  projects: unknown[];
-  tasks: unknown[];
-  files: unknown[];
-  preferences: unknown[];
-  storageBuckets: unknown[];
-  storageObjects: unknown[];
+type CloudBackupTables = Record<string, unknown[]>;
+
+type CloudBackupTableSpec = {
+  schemaName: "public" | "storage";
+  tableName: string;
+  backupKey: string;
+  orderBy: string;
 };
+
+export const CLOUD_BACKUP_TABLE_SPECS = [
+  { schemaName: "public", tableName: "profiles", backupKey: "profiles", orderBy: "row_data.created_at asc" },
+  { schemaName: "public", tableName: "projects", backupKey: "projects", orderBy: "row_data.created_at asc" },
+  { schemaName: "public", tableName: "tasks", backupKey: "tasks", orderBy: "row_data.created_at asc, row_data.task_number asc" },
+  { schemaName: "public", tableName: "files", backupKey: "files", orderBy: "row_data.created_at asc, row_data.version asc" },
+  { schemaName: "public", tableName: "profile_preferences", backupKey: "preferences", orderBy: "row_data.profile_id asc" },
+  { schemaName: "public", tableName: "foundation_settings", backupKey: "foundationSettings", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "project_memberships", backupKey: "projectMemberships", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "project_invitations", backupKey: "projectInvitations", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "access_requests", backupKey: "accessRequests", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "edit_leases", backupKey: "editLeases", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "work_type_definitions", backupKey: "workTypeDefinitions", orderBy: "row_data.created_at asc, row_data.sort_order asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_task_records", backupKey: "assistantTaskRecords", orderBy: "row_data.created_at asc, row_data.id asc" },
+  {
+    schemaName: "public",
+    tableName: "assistant_work_summary_drafts",
+    backupKey: "assistantWorkSummaryDrafts",
+    orderBy: "row_data.created_at asc, row_data.id asc",
+  },
+  { schemaName: "public", tableName: "assistant_run_policies", backupKey: "assistantRunPolicies", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_usage_events", backupKey: "assistantUsageEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_audit_events", backupKey: "assistantAuditEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "file_analysis_chunks", backupKey: "fileAnalysisChunks", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "storage", tableName: "buckets", backupKey: "storageBuckets", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "storage", tableName: "objects", backupKey: "storageObjects", orderBy: "row_data.created_at asc, row_data.name asc" },
+] satisfies CloudBackupTableSpec[];
+
+export const CLOUD_RESTORE_LIMITATION =
+  "Cloud backups are JSON coverage snapshots for inspection and emergency manual recovery planning. Automated cloud restore is not implemented; npm run data:restore restores local snapshots only.";
+
+function tableIdentifier(spec: CloudBackupTableSpec) {
+  return `${spec.schemaName}.${spec.tableName}`;
+}
 
 type CloudGuardLock = {
   operation: string;
@@ -164,38 +197,25 @@ async function readBackupTableRows(schemaName: string, tableName: string, orderB
 }
 
 async function readCloudBackupTables() {
-  const tableSpecs = [
-    ["public", "profiles", "profiles", "row_data.created_at asc"],
-    ["public", "projects", "projects", "row_data.created_at asc"],
-    ["public", "tasks", "tasks", "row_data.created_at asc, row_data.task_number asc"],
-    ["public", "files", "files", "row_data.created_at asc, row_data.version asc"],
-    ["public", "profile_preferences", "preferences", "row_data.profile_id asc"],
-    ["storage", "buckets", "storageBuckets", "row_data.created_at asc, row_data.id asc"],
-    ["storage", "objects", "storageObjects", "row_data.created_at asc, row_data.name asc"],
-  ] as const;
+  const tables: CloudBackupTables = Object.fromEntries(CLOUD_BACKUP_TABLE_SPECS.map((spec) => [spec.backupKey, []]));
+  const tableCounts: Record<string, number> = {};
+  const tableErrors: Record<string, string> = {};
 
-  const tables: CloudBackupTables = {
-    profiles: [],
-    projects: [],
-    tasks: [],
-    files: [],
-    preferences: [],
-    storageBuckets: [],
-    storageObjects: [],
-  };
-  const errors: Record<string, string> = {};
-
-  for (const [schemaName, tableName, backupKey, orderBy] of tableSpecs) {
+  for (const spec of CLOUD_BACKUP_TABLE_SPECS) {
+    const identifier = tableIdentifier(spec);
     try {
-      tables[backupKey] = await readBackupTableRows(schemaName, tableName, orderBy);
+      const rows = await readBackupTableRows(spec.schemaName, spec.tableName, spec.orderBy);
+      tables[spec.backupKey] = rows;
+      tableCounts[identifier] = rows.length;
     } catch (error) {
-      errors[backupKey] = error instanceof Error ? error.message : String(error);
+      tableErrors[identifier] = error instanceof Error ? error.message : String(error);
     }
   }
 
   return {
     tables,
-    errors,
+    tableCounts,
+    tableErrors,
   };
 }
 
@@ -419,16 +439,24 @@ export async function createCloudBackup(reason: string) {
 
   let tables: CloudBackupTables | null = null;
   let backupError: string | null = null;
+  let tableCounts: Record<string, number> = {};
+  let tableErrors: Record<string, string> = {};
 
   try {
     const backup = await readCloudBackupTables();
     tables = backup.tables;
-    if (Object.keys(backup.errors).length > 0) {
-      backupError = JSON.stringify(backup.errors);
+    tableCounts = backup.tableCounts;
+    tableErrors = backup.tableErrors;
+    if (Object.keys(tableErrors).length > 0) {
+      backupError = JSON.stringify(tableErrors);
     }
   } catch (error) {
     backupError = error instanceof Error ? error.message : String(error);
   }
+
+  const expectedTables = CLOUD_BACKUP_TABLE_SPECS.map(tableIdentifier);
+  const failedTables = Object.keys(tableErrors);
+  const succeededTables = expectedTables.filter((tableName) => !failedTables.includes(tableName));
 
   const payload = {
     id: backupId,
@@ -439,6 +467,14 @@ export async function createCloudBackup(reason: string) {
     rowCounts: summary.rowCounts,
     rowCountError: summary.rowCountError,
     backupError,
+    tableCounts,
+    tableErrors,
+    backupCoverage: {
+      expectedTables,
+      succeededTables,
+      failedTables,
+    },
+    cloudRestoreLimitation: CLOUD_RESTORE_LIMITATION,
     tables,
   };
 
@@ -481,6 +517,9 @@ export async function listCloudBackups(limit = 10) {
           createdAt: parsed.createdAt,
           reason: parsed.reason,
           databaseTarget: parsed.databaseTarget,
+          tableCounts: parsed.tableCounts ?? null,
+          tableErrors: parsed.tableErrors ?? null,
+          backupCoverage: parsed.backupCoverage ?? null,
         };
       } catch {
         return null;

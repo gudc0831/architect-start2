@@ -24,6 +24,21 @@ function escapePowerShellSingleQuoted(input) {
   return String(input).replace(/'/g, "''");
 }
 
+function buildNextEnv(repoRoot, args) {
+  const env = {
+    ...process.env,
+    INIT_CWD: repoRoot,
+    PWD: repoRoot,
+  };
+
+  const command = args[0];
+  if ((command === 'build' || command === 'start') && !env.NEXT_DIST_DIR) {
+    env.NEXT_DIST_DIR = '.next-build';
+  }
+
+  return env;
+}
+
 function spawnNextOnWindows(repoRoot, args) {
   const command = [
     `$repo = '${escapePowerShellSingleQuoted(repoRoot)}'`,
@@ -34,11 +49,7 @@ function spawnNextOnWindows(repoRoot, args) {
 
   return spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      INIT_CWD: repoRoot,
-      PWD: repoRoot,
-    },
+    env: buildNextEnv(repoRoot, args),
     stdio: 'inherit',
     windowsHide: false,
   });
@@ -57,11 +68,7 @@ function runNext(args) {
     ? spawnNextOnWindows(repoRoot, args)
     : spawn(process.execPath, [nextBin, ...args], {
         cwd: repoRoot,
-        env: {
-          ...process.env,
-          INIT_CWD: repoRoot,
-          PWD: repoRoot,
-        },
+        env: buildNextEnv(repoRoot, args),
         stdio: 'inherit',
         windowsHide: false,
       });
