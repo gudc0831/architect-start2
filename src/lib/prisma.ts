@@ -16,9 +16,7 @@ function createPrismaClient() {
   const configuredPoolMax = Number(process.env.DATABASE_POOL_MAX);
   const poolMax = Number.isSafeInteger(configuredPoolMax) && configuredPoolMax > 0
     ? configuredPoolMax
-    : process.env.NODE_ENV === "production"
-      ? 1
-      : 4;
+    : 1;
   const adapter = new PrismaPg({
     connectionString: databaseUrl,
     max: poolMax,
