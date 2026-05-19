@@ -76,7 +76,7 @@ async function readApiData<T>(input: RequestInfo, init?: RequestInit): Promise<T
   const json = (await response.json().catch(() => ({}))) as { data?: T; error?: { message?: string } };
 
   if (!response.ok || !json.data) {
-    throw new Error(json.error?.message || `Request failed (${response.status})`);
+    throw new Error("프로젝트 정보를 불러오지 못했습니다.");
   }
 
   return json.data;

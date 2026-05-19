@@ -34,8 +34,8 @@ export function Sidebar() {
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
-  const navSectionLabel = isPreview ? "Preview routes" : "Workspace routes";
-  const sessionSectionLabel = isPreview ? "Safe preview" : "Session";
+  const navSectionLabel = isPreview ? "미리보기 경로" : "작업공간 경로";
+  const sessionSectionLabel = isPreview ? "안전 미리보기" : "세션";
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -59,10 +59,10 @@ export function Sidebar() {
               className={isWarmStudio ? "sidebar__section-label sidebar__section-label--compact" : undefined}
               style={isWarmStudio ? undefined : { fontSize: "0.78rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}
             >
-              Projects
+              프로젝트
             </span>
             <select
-              aria-label="Select current project"
+              aria-label="현재 프로젝트 선택"
               className="sidebar__title-input"
               disabled={isSyncing}
               onChange={(event) => void switchProject(event.target.value)}
@@ -78,13 +78,13 @@ export function Sidebar() {
         ) : null}
         <div className="sidebar__project-panel">
           <div className="sidebar__project-heading">
-            <span className="sidebar__project-label">Current project</span>
+            <span className="sidebar__project-label">현재 프로젝트</span>
             {showProjectSwitcher ? <span className="sidebar__project-count">{availableProjects.length}</span> : null}
           </div>
           <div className="sidebar__project-name">{projectName}</div>
           {!isPreview && authUser?.role === "admin" ? (
             <Link className="secondary-button" href={adminHref}>
-              Manage projects
+              프로젝트 관리
             </Link>
           ) : null}
         </div>
@@ -92,14 +92,14 @@ export function Sidebar() {
           <p className="sidebar__copy">{isPreview ? t("sidebar.previewCopy") : t("sidebar.workspaceCopy")}</p>
           {isWarmStudio ? (
             <div className="sidebar__status-stack">
-              <span className={clsx("sidebar__status-pill", isPreview && "sidebar__status-pill--preview")}>{isPreview ? "Preview" : "Workspace"}</span>
+              <span className={clsx("sidebar__status-pill", isPreview && "sidebar__status-pill--preview")}>{isPreview ? "프리뷰" : "작업공간"}</span>
               <span className="sidebar__status-pill">{projectLoaded ? (isSyncing ? t("system.syncing") : labelForProjectSource(projectSource)) : t("system.loading")}</span>
             </div>
           ) : null}
           <p className="sidebar__status">{sourceLabel}</p>
           {showProjectSwitcher && selectedProject ? (
             <p className="sidebar__status" style={{ opacity: 0.85 }}>
-              {availableProjects.length} projects, viewing {selectedProject.name}
+              프로젝트 {availableProjects.length}개, 현재 {selectedProject.name} 보기
             </p>
           ) : null}
         </div>
@@ -118,7 +118,7 @@ export function Sidebar() {
             {!isPreview && authUser?.role === "admin" ? (
               <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
                 <span aria-hidden="true" className="sidebar__link-index">99</span>
-                <span className="sidebar__link-label">Admin</span>
+                <span className="sidebar__link-label">관리자</span>
               </Link>
             ) : null}
           </nav>
@@ -132,7 +132,7 @@ export function Sidebar() {
           ))}
           {!isPreview && authUser?.role === "admin" ? (
             <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
-              Admin
+              관리자
             </Link>
           ) : null}
         </nav>

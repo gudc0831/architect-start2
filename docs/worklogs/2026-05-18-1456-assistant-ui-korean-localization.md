@@ -1,0 +1,4 @@
+Req: 관리자 메뉴까지 포함해 AI assistant UI 노출 문구를 한글화한다. 내부 enum/API/DB 값은 변경하지 않는다.
+Diff: `/daily` assistant 패널의 분석 방식, 실행 모드, 근거, 신뢰도, OCR/크롭, 승인/보류, 로컬 Codex 진단 문구를 한글화했다. Task 상세의 assistant 변경 출처 패널, sidebar의 프로젝트/관리 메뉴, admin foundation의 협업 접근 권한, admin assistant 운영 화면, admin knowledge의 후보/승인 WIKI/provider 실행 패키지 검토 UI도 한글화했다. 서버 원문 오류가 UI에 직접 노출될 수 있는 `json.error?.message` 경고는 제거했다.
+Why: 코드와 저장 값은 안정적으로 유지하면서 운영자와 사용자가 메뉴 의미를 더 빨리 이해하게 하기 위해 UI 렌더링 계층의 라벨/상태/버튼/빈 상태 문구만 바꿨다.
+Verify/Time: 2026-05-18 15:19-15:23 KST, `npm run typecheck`, `npm run lint`, `npm run build` 통과. `node --experimental-strip-types scripts/ui-copy-validator.ts --command-results output\ui-copy\validator-command-results.json` 결과 warning 0, failure 7. 남은 failure는 기존 보호 식별자/카탈로그 규칙(`/board`, `completedAt`, `statusHistory`, `Owner Discipline`, 기존 `자동`/`오늘`/`Architect Start`)이며 이번 assistant UI 원문 오류 노출 경고는 0개로 정리됐다.

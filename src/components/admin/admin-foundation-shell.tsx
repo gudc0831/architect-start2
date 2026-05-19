@@ -51,32 +51,44 @@ const emptyCategoryDrafts = (): CategoryDraftMap =>
   Object.fromEntries(taskCategoryFieldKeys.map((fieldKey) => [fieldKey, emptyCategoryDraft()])) as CategoryDraftMap;
 
 const projectRoleLabels: Record<RequestedProjectRole, string> = {
-  viewer: "Viewer",
-  editor: "Editor",
-  manager: "Manager",
+  viewer: "뷰어",
+  editor: "에디터",
+  manager: "관리 권한자",
 };
+
+const requestStatusLabels: Record<string, string> = {
+  pending: "대기 중",
+  approved: "승인됨",
+  rejected: "거절됨",
+  revoked: "취소됨",
+  expired: "만료됨",
+};
+
+function labelForRequestStatus(status: string) {
+  return requestStatusLabels[status] ?? "상태 확인 필요";
+}
 
 const fieldDescription: Partial<Record<TaskCategoryFieldKey, string>> = {
-  workType: "DailyTask 작업유형 열에서 선택할 항목을 관리합니다.",
-  coordinationScope: "DailyTask 협업범위 열에서 선택할 항목을 관리합니다.",
-  relatedDisciplines: "DailyTask 관련분야 열에서 선택할 항목을 관리합니다.",
+  workType: "일일 작업의 작업 유형 열에서 선택할 항목을 관리합니다.",
+  coordinationScope: "일일 작업의 협업 범위 열에서 선택할 항목을 관리합니다.",
+  relatedDisciplines: "일일 작업의 관련 분야 열에서 선택할 항목을 관리합니다.",
 };
 
-fieldDescription.requestedBy = "DailyTask 요청자 열에서 선택할 항목을 관리합니다.";
-fieldDescription.locationRef = "DailyTask 위치참조 열에서 선택할 항목을 관리합니다.";
+fieldDescription.requestedBy = "일일 작업의 요청자 열에서 선택할 항목을 관리합니다.";
+fieldDescription.locationRef = "일일 작업의 위치 참조 열에서 선택할 항목을 관리합니다.";
 
 async function readJson<T>(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, init);
   const json = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok || !json.data) {
-    throw new Error(json.error?.message || "Request failed");
+    throw new Error("요청을 처리하지 못했습니다.");
   }
   return json.data;
 }
 
 function getDefinitionScopeLabel(definition: TaskCategoryDefinition) {
   if (definition.projectId) {
-    return "프로젝트";
+    return "프로젝트 범위";
   }
 
   if (definition.isSystem) {
@@ -183,7 +195,7 @@ function CategoryRow({
             }}
             type="button"
           >
-            {saving ? "저장 중..." : "저장"}
+            {saving ? "저장하고 있습니다..." : "저장하기"}
           </button>
         </div>
       </div>
@@ -403,9 +415,9 @@ export function AdminFoundationShell() {
         if (active) {
           setStatusMessage(null);
         }
-      } catch (error) {
+      } catch {
         if (active) {
-          setStatusMessage(error instanceof Error ? error.message : "Failed to load admin data.");
+          setStatusMessage("관리자 데이터를 불러오지 못했습니다.");
         }
       } finally {
         if (active) {
@@ -433,7 +445,7 @@ export function AdminFoundationShell() {
 
     void loadProjectScopedData(currentProjectId)
       .then(() => setStatusMessage(null))
-      .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 데이터를 불러오지 못했습니다."));
+      .catch(() => setStatusMessage("프로젝트 데이터를 불러오지 못했습니다."));
   }, [currentProjectId, loadProjectScopedData, selectedProject?.name]);
 
   async function saveCategoryDefinition(definitionId: string, next: SaveCategoryDefinitionInput) {
@@ -460,8 +472,8 @@ export function AdminFoundationShell() {
     try {
       await switchProject(projectId);
       setStatusMessage("현재 프로젝트를 전환했습니다.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "프로젝트 전환에 실패했습니다.");
+    } catch {
+      setStatusMessage("프로젝트 전환에 실패했습니다.");
     } finally {
       setSwitchingProjectId(null);
     }
@@ -478,8 +490,8 @@ export function AdminFoundationShell() {
       });
       setOwnerDiscipline(settings.ownerDiscipline);
       setStatusMessage("책임 분야를 저장했습니다.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "책임 분야 저장에 실패했습니다.");
+    } catch {
+      setStatusMessage("책임 분야 저장에 실패했습니다.");
     } finally {
       setSavingOwnerDiscipline(false);
     }
@@ -500,8 +512,8 @@ export function AdminFoundationShell() {
       });
       await refreshProjects();
       setStatusMessage("프로젝트 이름을 수정했습니다.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "프로젝트 이름 수정에 실패했습니다.");
+    } catch {
+      setStatusMessage("프로젝트 이름 수정에 실패했습니다.");
     } finally {
       setRenamingProject(false);
     }
@@ -520,8 +532,8 @@ export function AdminFoundationShell() {
       await refreshProjects();
       await switchProject(project.id);
       setStatusMessage("프로젝트를 만들었습니다.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "프로젝트 생성에 실패했습니다.");
+    } catch {
+      setStatusMessage("프로젝트 생성에 실패했습니다.");
     } finally {
       setCreatingProject(false);
     }
@@ -542,8 +554,8 @@ export function AdminFoundationShell() {
       });
       await loadProjectScopedData(currentProjectId);
       setStatusMessage("프로젝트 참여자 정보를 저장했습니다.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "프로젝트 참여자 저장에 실패했습니다.");
+    } catch {
+      setStatusMessage("프로젝트 참여자 저장에 실패했습니다.");
     } finally {
       setSavingMembers(false);
     }
@@ -580,9 +592,9 @@ export function AdminFoundationShell() {
       setInviteDraft({ email: "", role: "viewer" });
       setLastInviteUrl(invitation.acceptUrl ?? null);
       await loadProjectScopedData(currentProjectId);
-      setStatusMessage("Invitation created.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to create invitation.");
+      setStatusMessage("초대 링크를 만들었습니다.");
+    } catch {
+      setStatusMessage("초대 링크 생성에 실패했습니다.");
     } finally {
       setSavingInvitation(false);
     }
@@ -598,9 +610,9 @@ export function AdminFoundationShell() {
       if (currentProjectId) {
         await loadProjectScopedData(currentProjectId);
       }
-      setStatusMessage("Invitation revoked.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to revoke invitation.");
+      setStatusMessage("초대를 취소했습니다.");
+    } catch {
+      setStatusMessage("초대 취소에 실패했습니다.");
     }
   }
 
@@ -618,9 +630,9 @@ export function AdminFoundationShell() {
         body: JSON.stringify({ action, projectId: currentProjectId, role }),
       });
       await loadProjectScopedData(currentProjectId);
-      setStatusMessage(action === "approve" ? "Access request approved." : "Access request rejected.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to review access request.");
+      setStatusMessage(action === "approve" ? "접근 요청을 승인했습니다." : "접근 요청을 거절했습니다.");
+    } catch {
+      setStatusMessage("접근 요청 처리에 실패했습니다.");
     } finally {
       setSavingAccessRequestId(null);
     }
@@ -638,10 +650,10 @@ export function AdminFoundationShell() {
         </div>
         <div className={styles.heroActions}>
           <a className={clsx(styles.button, styles.buttonSecondary)} href="/admin/assistant">
-            Assistant 운영
+            AI 어시스턴트 운영
           </a>
           <a className={clsx(styles.button, styles.buttonSecondary)} href="/admin/knowledge">
-            Knowledge WIKI
+            지식 WIKI 관리
           </a>
         </div>
         {statusMessage ? (
@@ -669,7 +681,7 @@ export function AdminFoundationShell() {
             }}
             type="button"
           >
-            {savingOwnerDiscipline ? "저장 중..." : "책임 분야 저장"}
+            {savingOwnerDiscipline ? "저장하고 있습니다..." : "책임 분야 저장"}
           </button>
         </div>
       </SectionCard>
@@ -709,7 +721,7 @@ export function AdminFoundationShell() {
                       type="button"
                     >
                       <span className={styles.projectSwitchName}>{project.name}</span>
-                      <span className={styles.projectSwitchMeta}>{isCurrent ? "현재" : isSwitching ? "전환 중" : "열기"}</span>
+                      <span className={styles.projectSwitchMeta}>{isCurrent ? "현재" : isSwitching ? "전환 중" : "선택"}</span>
                     </button>
                   );
                 })}
@@ -767,7 +779,7 @@ export function AdminFoundationShell() {
                   }}
                   type="button"
                 >
-                  {renamingProject ? "저장 중..." : "이름 변경"}
+                  {renamingProject ? "저장하고 있습니다..." : "이름 변경"}
                 </button>
               </div>
             </div>
@@ -950,7 +962,7 @@ export function AdminFoundationShell() {
             }}
             type="button"
           >
-            {savingMembers ? "저장 중..." : "참여자 저장"}
+            {savingMembers ? "저장하고 있습니다..." : "참여자 저장"}
           </button>
         </div>
       </SectionCard>
@@ -958,20 +970,20 @@ export function AdminFoundationShell() {
       {canManageSelectedProject ? (
         <SectionCard
           aside={<span className={styles.supportMeta}>{selectedProjectLabel}</span>}
-          description="Create copy-link invitations and review pending access requests for the selected project."
-          title="Collaboration Access"
+          description="선택된 프로젝트의 초대 링크를 만들고 대기 중인 접근 요청을 검토합니다."
+          title="협업 접근 권한"
         >
           <div className={styles.membersLayout}>
             <div className={styles.membersGroup}>
               <div className={styles.groupHeader}>
                 <div>
-                  <h3 className={styles.groupTitle}>Invitations</h3>
-                  <p className={styles.groupCopy}>Managers can invite viewers or editors. Only global admins can invite managers.</p>
+                  <h3 className={styles.groupTitle}>초대</h3>
+                  <p className={styles.groupCopy}>관리자는 뷰어 또는 에디터를 초대할 수 있습니다. 관리자 초대는 전체 관리자만 할 수 있습니다.</p>
                 </div>
               </div>
               <div className={styles.memberDraftRow}>
                 <label className={styles.field}>
-                  <span>Email</span>
+                  <span>이메일</span>
                   <input
                     autoComplete="email"
                     onChange={(event) => setInviteDraft((previous) => ({ ...previous, email: event.target.value }))}
@@ -980,7 +992,7 @@ export function AdminFoundationShell() {
                   />
                 </label>
                 <label className={styles.field}>
-                  <span>Role</span>
+                  <span>권한</span>
                   <select
                     onChange={(event) =>
                       setInviteDraft((previous) => ({
@@ -1004,30 +1016,30 @@ export function AdminFoundationShell() {
                     }}
                     type="button"
                   >
-                    {savingInvitation ? "Creating..." : "Create invite"}
+                    {savingInvitation ? "생성 중..." : "초대 만들기"}
                   </button>
                 </div>
               </div>
               {lastInviteUrl ? (
                 <label className={styles.field}>
-                  <span>New invite link</span>
+                  <span>새 초대 링크</span>
                   <input readOnly value={lastInviteUrl} />
                 </label>
               ) : null}
-              {invitations.length === 0 ? <p className={styles.emptyCopy}>No invitations yet.</p> : null}
+              {invitations.length === 0 ? <p className={styles.emptyCopy}>아직 초대가 없습니다.</p> : null}
               {invitations.map((invitation, index) => (
                 <div className={clsx(styles.memberRow, index === 0 && styles.memberRowFirst)} key={invitation.id}>
                   <label className={styles.field}>
-                    <span>Email</span>
+                    <span>이메일</span>
                     <input readOnly value={invitation.email} />
                   </label>
                   <label className={styles.field}>
-                    <span>Role</span>
+                    <span>권한</span>
                     <input readOnly value={projectRoleLabels[invitation.role]} />
                   </label>
                   <label className={styles.field}>
-                    <span>Status</span>
-                    <input readOnly value={`${invitation.status} / ${invitation.expiresAt.slice(0, 10)}`} />
+                    <span>상태</span>
+                    <input readOnly value={`${labelForRequestStatus(invitation.status)} / ${invitation.expiresAt.slice(0, 10)}`} />
                   </label>
                   <div className={styles.rowActionSlot}>
                     <button
@@ -1038,7 +1050,7 @@ export function AdminFoundationShell() {
                       }}
                       type="button"
                     >
-                      Revoke
+                      취소
                     </button>
                   </div>
                 </div>
@@ -1048,24 +1060,24 @@ export function AdminFoundationShell() {
             <div className={styles.membersGroup}>
               <div className={styles.groupHeader}>
                 <div>
-                  <h3 className={styles.groupTitle}>Access Requests</h3>
-                  <p className={styles.groupCopy}>Managers can approve viewer/editor access for this project.</p>
+                  <h3 className={styles.groupTitle}>접근 요청</h3>
+                  <p className={styles.groupCopy}>관리자는 이 프로젝트의 뷰어 또는 에디터 접근 요청을 승인할 수 있습니다.</p>
                 </div>
               </div>
-              {accessRequests.length === 0 ? <p className={styles.emptyCopy}>No access requests.</p> : null}
+              {accessRequests.length === 0 ? <p className={styles.emptyCopy}>접근 요청이 없습니다.</p> : null}
               {accessRequests.map((request, index) => (
                 <div className={clsx(styles.memberRow, index === 0 && styles.memberRowFirst)} key={request.id}>
                   <label className={styles.field}>
-                    <span>Email</span>
+                    <span>이메일</span>
                     <input readOnly value={request.email} />
                   </label>
                   <label className={styles.field}>
-                    <span>Requested</span>
+                    <span>요청 권한</span>
                     <input readOnly value={projectRoleLabels[request.requestedRole]} />
                   </label>
                   <label className={styles.field}>
-                    <span>Status</span>
-                    <input readOnly value={request.status} />
+                    <span>상태</span>
+                    <input readOnly value={labelForRequestStatus(request.status)} />
                   </label>
                   <div className={styles.rowActionSlot}>
                     {request.status === "pending" ? (
@@ -1078,7 +1090,7 @@ export function AdminFoundationShell() {
                           }}
                           type="button"
                         >
-                          Approve
+                          승인
                         </button>
                         <button
                           className={clsx(styles.button, styles.buttonSecondary, styles.rowActionButton)}
@@ -1088,7 +1100,7 @@ export function AdminFoundationShell() {
                           }}
                           type="button"
                         >
-                          Reject
+                          거절
                         </button>
                       </div>
                     ) : null}
@@ -1121,7 +1133,7 @@ export function AdminFoundationShell() {
                     await refreshWorkTypes();
                     setStatusMessage(`${labelForField(fieldKey)} 공통 정의를 추가했습니다.`);
                   })
-                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "공통 카테고리 추가에 실패했습니다."));
+                  .catch(() => setStatusMessage("공통 카테고리 추가에 실패했습니다."));
               }}
               onDraftChange={(next) => setNewGlobalDrafts((previous) => ({ ...previous, [fieldKey]: next }))}
               onSaveDefinition={saveCategoryDefinition}
@@ -1150,11 +1162,11 @@ export function AdminFoundationShell() {
                     await refreshWorkTypes();
                     setStatusMessage(`${labelForField(fieldKey)} 프로젝트 정의를 추가했습니다.`);
                   })
-                  .catch((error) => setStatusMessage(error instanceof Error ? error.message : "프로젝트 카테고리 추가에 실패했습니다."));
+                  .catch(() => setStatusMessage("프로젝트 카테고리 추가에 실패했습니다."));
               }}
               onDraftChange={(next) => setNewProjectDrafts((previous) => ({ ...previous, [fieldKey]: next }))}
               onSaveDefinition={saveCategoryDefinition}
-              title="프로젝트 오버라이드"
+              title="프로젝트별 정의"
             />
           </div>
         </SectionCard>

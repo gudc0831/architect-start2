@@ -391,28 +391,28 @@ type AdminActionAuditTaskSnapshot = {
 const evidenceOptions: Array<{ value: AssistantEvidenceKind; label: string }> = [
   { value: "central_knowledge", label: "중앙 WIKI" },
   { value: "regulation", label: "법규/기준" },
-  { value: "task", label: "Task 기록" },
+  { value: "task", label: "작업 기록" },
   { value: "project_document", label: "프로젝트 문서" },
   { value: "web_or_skill", label: "외부 웹/스킬" },
 ];
 
 const cleanupReviewCoveragePresetOptions: Array<{ value: CleanupReviewCoveragePreset; label: string }> = [
-  { value: "all", label: "All cleanup runs" },
-  { value: "reviewed", label: "Reviewed cleanup" },
-  { value: "stale_unreviewed", label: "Stale unreviewed" },
+  { value: "all", label: "전체 정리 실행" },
+  { value: "reviewed", label: "검토 완료 정리" },
+  { value: "stale_unreviewed", label: "오래된 미검토 정리" },
 ];
 
 const actionAuditOptions: Array<{ value: AssistantActionAuditAction | "all"; label: string }> = [
-  { value: "all", label: "All actions" },
-  { value: "task_update_applied", label: "Task update applied" },
-  { value: "follow_up_task_created", label: "Follow-up task created" },
+  { value: "all", label: "전체 작업" },
+  { value: "task_update_applied", label: "작업 기록 업데이트" },
+  { value: "follow_up_task_created", label: "후속 작업 생성" },
 ];
 
 const governanceNoteOptions: Array<{ value: GovernanceNoteCategory; label: string }> = [
-  { value: "review_note", label: "Review note" },
-  { value: "risk", label: "Risk" },
-  { value: "follow_up", label: "Follow-up" },
-  { value: "approval_context", label: "Approval context" },
+  { value: "review_note", label: "검토 메모" },
+  { value: "risk", label: "리스크" },
+  { value: "follow_up", label: "후속 조치" },
+  { value: "approval_context", label: "승인 맥락" },
 ];
 
 const defaultPolicy: AssistantPolicy = {
@@ -480,7 +480,7 @@ export function AssistantAdminShell() {
   const [governanceNoteText, setGovernanceNoteText] = useState("");
   const [cleanupReviewNoteCategory, setCleanupReviewNoteCategory] = useState<GovernanceNoteCategory>("review_note");
   const [cleanupReviewNoteText, setCleanupReviewNoteText] = useState("");
-  const [status, setStatus] = useState("Assistant 운영 데이터를 불러오는 중입니다.");
+  const [status, setStatus] = useState("AI 어시스턴트 운영 데이터를 불러오는 중입니다.");
   const [loading, setLoading] = useState(true);
   const [actionAuditLoading, setActionAuditLoading] = useState(false);
   const [actionAuditDetailLoading, setActionAuditDetailLoading] = useState(false);
@@ -604,36 +604,36 @@ export function AssistantAdminShell() {
   const cleanupReviewCoverageExportUrl = `/api/admin/assistant/cleanup-review-notes/coverage/export?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoverageJsonUrl = `/api/admin/assistant/cleanup-review-notes/coverage/json?${cleanupReviewNoteReportQuery}`;
   const cleanupReviewCoveragePackageUrl = `/api/admin/assistant/cleanup-review-notes/coverage/package?${cleanupReviewNoteReportQuery}`;
-  const cleanupReviewCoverageHandoffText = `cleanup-review-coverage?${cleanupReviewNoteReportQuery}`;
+  const cleanupReviewCoverageHandoffText = `정리 검토 범위 필터: ${cleanupReviewNoteReportQuery}`;
   const cleanupReviewActiveFilters = [
-    cleanupReviewNoteFilterCategory !== "all" ? `category ${governanceNoteLabel(cleanupReviewNoteFilterCategory)}` : null,
+    cleanupReviewNoteFilterCategory !== "all" ? `분류 ${governanceNoteLabel(cleanupReviewNoteFilterCategory)}` : null,
     cleanupReviewCoveragePreset !== "all"
-      ? `preset ${cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? cleanupReviewCoveragePreset}`
+      ? `프리셋 ${cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? cleanupReviewCoveragePreset}`
       : null,
-    cleanupReviewNoteReviewer.trim() ? `reviewer ${cleanupReviewNoteReviewer.trim()}` : null,
-    cleanupReviewNoteToken.trim() ? `token ${cleanupReviewNoteToken.trim()}` : null,
-    cleanupReviewNoteCleanupId.trim() ? `cleanup ${cleanupReviewNoteCleanupId.trim()}` : null,
-    cleanupReviewStaleDays !== 7 ? `stale ${cleanupReviewStaleDays} days` : null,
+    cleanupReviewNoteReviewer.trim() ? `검토자 ${cleanupReviewNoteReviewer.trim()}` : null,
+    cleanupReviewNoteToken.trim() ? `토큰 ${cleanupReviewNoteToken.trim()}` : null,
+    cleanupReviewNoteCleanupId.trim() ? `정리 ID ${cleanupReviewNoteCleanupId.trim()}` : null,
+    cleanupReviewStaleDays !== 7 ? `오래된 기준 ${cleanupReviewStaleDays}일` : null,
   ].filter((item): item is string => Boolean(item));
   const cleanupReviewCoverageGroups = useMemo(
     () => {
       const groups = [
         {
           key: "stale-unreviewed",
-          title: "Stale unreviewed queue",
-          description: "Unreviewed cleanup runs older than the active stale threshold.",
+          title: "오래된 미검토 큐",
+          description: "현재 기준일보다 오래되었지만 검토 메모가 없는 정리 실행입니다.",
           rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && item.isStale),
         },
         {
           key: "other-unreviewed",
-          title: "Other unreviewed queue",
-          description: "Cleanup runs that still need a review note but are not stale yet.",
+          title: "그 밖의 미검토 큐",
+          description: "아직 오래된 항목은 아니지만 검토 메모가 필요한 정리 실행입니다.",
           rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "unreviewed" && !item.isStale),
         },
         {
           key: "reviewed",
-          title: "Reviewed evidence queue",
-          description: "Cleanup runs that already have cleanup review evidence.",
+          title: "검토 완료 큐",
+          description: "정리 검토 근거가 이미 남아 있는 실행입니다.",
           rows: cleanupReviewCoverage.filter((item) => item.coverageStatus === "reviewed"),
         },
       ];
@@ -687,11 +687,11 @@ export function AssistantAdminShell() {
         setRetentionPreviewDays(policyData.retentionDays);
         setUsage(usageData);
         setAudit(auditData.events);
-        setStatus("Assistant 운영 데이터를 불러왔습니다.");
+        setStatus("AI 어시스턴트 운영 데이터를 불러왔습니다.");
       })
       .catch((error) => {
         if (active) {
-          setStatus(error instanceof Error ? error.message : "Assistant 운영 데이터를 불러오지 못했습니다.");
+          setStatus(error instanceof Error ? error.message : "AI 어시스턴트 운영 데이터를 불러오지 못했습니다.");
         }
       })
       .finally(() => {
@@ -880,7 +880,7 @@ export function AssistantAdminShell() {
       ]);
       setUsage(usageData);
       setAudit(auditData.events);
-      setStatus("Assistant 실행 정책을 저장했습니다.");
+      setStatus("AI 어시스턴트 실행 정책을 저장했습니다.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "정책 저장에 실패했습니다.");
     } finally {
@@ -920,7 +920,7 @@ export function AssistantAdminShell() {
       );
       setActionAuditDetail(detail);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assistant action audit 상세를 불러오지 못했습니다.");
+      setStatus(error instanceof Error ? error.message : "AI 어시스턴트 작업 감사 상세를 불러오지 못했습니다.");
     } finally {
       setActionAuditDetailLoading(false);
     }
@@ -928,7 +928,7 @@ export function AssistantAdminShell() {
 
   async function saveGovernanceNote() {
     if (!selectedActionAuditId || !governanceNoteText.trim()) {
-      setStatus("Governance note text is required.");
+      setStatus("거버넌스 메모 내용을 입력하세요.");
       return;
     }
 
@@ -951,9 +951,9 @@ export function AssistantAdminShell() {
           : current,
       );
       setGovernanceNoteText("");
-      setStatus("Governance note saved.");
+      setStatus("거버넌스 메모를 저장했습니다.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Governance note 저장에 실패했습니다.");
+      setStatus(error instanceof Error ? error.message : "거버넌스 메모 저장에 실패했습니다.");
     } finally {
       setGovernanceNoteSaving(false);
     }
@@ -975,7 +975,7 @@ export function AssistantAdminShell() {
       );
       setGovernanceReportDetail(detail);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assistant action audit ?곸꽭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
+      setStatus(error instanceof Error ? error.message : "AI 어시스턴트 작업 감사 상세를 불러오지 못했습니다.");
     } finally {
       setGovernanceReportDetailLoading(false);
     }
@@ -983,11 +983,11 @@ export function AssistantAdminShell() {
 
   async function runAuditRetentionCleanup() {
     if (!auditRetentionPreview) {
-      setStatus("Audit retention preview is required before cleanup.");
+      setStatus("정리 실행 전에 감사 보존 미리보기가 필요합니다.");
       return;
     }
     if (retentionCleanupConfirmation !== "DELETE_ASSISTANT_AUDIT_EVENTS") {
-      setStatus("Type DELETE_ASSISTANT_AUDIT_EVENTS to confirm cleanup.");
+      setStatus("정리를 확정하려면 DELETE_ASSISTANT_AUDIT_EVENTS를 입력하세요.");
       return;
     }
 
@@ -1014,9 +1014,9 @@ export function AssistantAdminShell() {
       setAudit(auditData.events);
       setAuditCleanupHistory(cleanupHistoryData.cleanups);
       setRetentionCleanupConfirmation("");
-      setStatus(`Assistant audit cleanup completed: ${result.deletedCount} deleted, ${result.skippedCount} skipped.`);
+      setStatus(`AI 어시스턴트 감사 정리 완료: ${result.deletedCount}개 삭제, ${result.skippedCount}개 건너뜀.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup failed.");
+      setStatus(error instanceof Error ? error.message : "AI 어시스턴트 감사 정리에 실패했습니다.");
     } finally {
       setAuditRetentionCleaning(false);
     }
@@ -1024,7 +1024,7 @@ export function AssistantAdminShell() {
 
   async function runAuditCleanupComparison() {
     if (!cleanupComparisonToken.trim()) {
-      setStatus("Cleanup preview token is required for comparison.");
+      setStatus("비교할 정리 미리보기 토큰을 입력하세요.");
       return;
     }
 
@@ -1034,10 +1034,10 @@ export function AssistantAdminShell() {
         `/api/admin/assistant/audit-cleanups/compare?${auditCleanupComparisonQuery}`,
       );
       setAuditCleanupComparison(comparison);
-      setStatus("Assistant audit cleanup comparison loaded.");
+      setStatus("AI 어시스턴트 감사 정리 비교 결과를 불러왔습니다.");
     } catch (error) {
       setAuditCleanupComparison(null);
-      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup comparison failed.");
+      setStatus(error instanceof Error ? error.message : "AI 어시스턴트 감사 정리 비교에 실패했습니다.");
     } finally {
       setAuditCleanupComparisonLoading(false);
     }
@@ -1062,7 +1062,7 @@ export function AssistantAdminShell() {
       );
       setAuditCleanupDetail(detail);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assistant audit cleanup detail failed.");
+      setStatus(error instanceof Error ? error.message : "AI 어시스턴트 감사 정리 상세를 불러오지 못했습니다.");
     } finally {
       setAuditCleanupDetailLoading(false);
     }
@@ -1070,11 +1070,11 @@ export function AssistantAdminShell() {
 
   async function saveCleanupReviewNote() {
     if (!selectedCleanupId) {
-      setStatus("Select a cleanup before adding a review note.");
+      setStatus("검토 메모를 추가할 정리를 먼저 선택하세요.");
       return;
     }
     if (!cleanupReviewNoteText.trim()) {
-      setStatus("Cleanup review note text is required.");
+      setStatus("정리 검토 메모 내용을 입력하세요.");
       return;
     }
 
@@ -1097,9 +1097,9 @@ export function AssistantAdminShell() {
           : current,
       );
       setCleanupReviewNoteText("");
-      setStatus("Cleanup review note saved.");
+      setStatus("정리 검토 메모를 저장했습니다.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Cleanup review note 저장에 실패했습니다.");
+      setStatus(error instanceof Error ? error.message : "정리 검토 메모 저장에 실패했습니다.");
     } finally {
       setCleanupReviewNoteSaving(false);
     }
@@ -1108,7 +1108,7 @@ export function AssistantAdminShell() {
   async function copyCleanupReviewCoverageHandoff() {
     try {
       await navigator.clipboard.writeText(cleanupReviewCoverageHandoffText);
-      setStatus("Cleanup coverage filter handoff copied.");
+      setStatus("정리 검토 범위 필터 인수인계를 복사했습니다.");
     } catch {
       setStatus(cleanupReviewCoverageHandoffText);
     }
@@ -1141,12 +1141,12 @@ export function AssistantAdminShell() {
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <p>Assistant Operations</p>
-          <h1>SaaS API Mode</h1>
+          <p>AI 어시스턴트 운영</p>
+          <h1>SaaS API 모드</h1>
           <span>{selectedProject?.name ?? "현재 프로젝트"} 기준 정책과 사용량을 관리합니다.</span>
         </div>
         <nav className={styles.headerActions} aria-label="관리 이동">
-          <a href="/daily">Daily</a>
+          <a href="/daily">일일 목록</a>
           <a href="/admin">관리 설정</a>
         </nav>
       </header>
@@ -1160,14 +1160,14 @@ export function AssistantAdminShell() {
           <div className={styles.sectionHeader}>
             <div>
               <h2>실행 정책</h2>
-              <p>서버에서 provider 호출 전에 적용되는 project scope 정책입니다.</p>
+              <p>서버에서 공급자(provider)를 호출하기 전에 적용되는 프로젝트 범위 정책입니다.</p>
             </div>
-            <span className={policy.enabled ? styles.badgeOn : styles.badgeOff}>{policy.enabled ? "enabled" : "disabled"}</span>
+            <span className={policy.enabled ? styles.badgeOn : styles.badgeOff}>{policy.enabled ? "사용 중" : "꺼짐"}</span>
           </div>
 
           <div className={styles.formGrid}>
             <label className={styles.toggleField}>
-              <span>SaaS API Mode</span>
+              <span>SaaS API 모드</span>
               <input
                 checked={policy.enabled}
                 onChange={(event) => setPolicy((current) => ({ ...current, enabled: event.target.checked }))}
@@ -1175,7 +1175,7 @@ export function AssistantAdminShell() {
               />
             </label>
             <label className={styles.field}>
-              <span>Provider</span>
+              <span>공급자</span>
               <select
                 value={policy.provider}
                 onChange={(event) =>
@@ -1191,11 +1191,11 @@ export function AssistantAdminShell() {
               </select>
             </label>
             <label className={styles.field}>
-              <span>Model</span>
+              <span>모델</span>
               <input value={policy.model} onChange={(event) => setPolicy((current) => ({ ...current, model: event.target.value }))} />
             </label>
             <label className={styles.field}>
-              <span>월 예산 cents</span>
+              <span>월 예산(센트)</span>
               <input
                 inputMode="numeric"
                 value={policy.monthlyBudgetCents}
@@ -1205,7 +1205,7 @@ export function AssistantAdminShell() {
               />
             </label>
             <label className={styles.field}>
-              <span>입력 token 제한</span>
+              <span>입력 토큰 제한</span>
               <input
                 inputMode="numeric"
                 value={policy.maxInputTokens}
@@ -1213,7 +1213,7 @@ export function AssistantAdminShell() {
               />
             </label>
             <label className={styles.field}>
-              <span>출력 token 제한</span>
+              <span>출력 토큰 제한</span>
               <input
                 inputMode="numeric"
                 value={policy.maxOutputTokens}
@@ -1255,7 +1255,7 @@ export function AssistantAdminShell() {
 
           <div className={styles.actions}>
             <button disabled={saving} onClick={() => void savePolicy()} type="button">
-              {saving ? "저장 중..." : "정책 저장"}
+              {saving ? "저장하고 있습니다..." : "정책 저장"}
             </button>
           </div>
         </section>
@@ -1264,7 +1264,7 @@ export function AssistantAdminShell() {
           <div className={styles.sectionHeader}>
             <div>
               <h2>월별 리포트</h2>
-              <p>성공, 차단, 실패 요청과 token/cost 추정치를 확인합니다.</p>
+              <p>성공, 차단, 실패 요청과 토큰/비용 추정치를 확인합니다.</p>
             </div>
             <label className={styles.monthPicker}>
               <span>월</span>
@@ -1277,23 +1277,23 @@ export function AssistantAdminShell() {
             <Metric label="성공" value={usage?.successCount ?? 0} />
             <Metric label="차단" value={usage?.blockedCount ?? 0} />
             <Metric label="실패" value={usage?.failedCount ?? 0} />
-            <Metric label="Input tokens" value={usage?.inputTokens ?? 0} />
-            <Metric label="Output tokens" value={usage?.outputTokens ?? 0} />
+            <Metric label="입력 토큰" value={usage?.inputTokens ?? 0} />
+            <Metric label="출력 토큰" value={usage?.outputTokens ?? 0} />
             <Metric label="예상 비용" value={`${usage?.estimatedCostCents ?? 0}c`} />
             <Metric label="예산 사용" value={`${budgetRatio}%`} />
           </div>
 
           <div className={styles.tableBlock}>
-            <h3>최근 usage events</h3>
+            <h3>최근 사용 이벤트</h3>
             <div className={styles.tableScroller}>
               <table>
                 <thead>
                   <tr>
                     <th>시간</th>
                     <th>상태</th>
-                    <th>Provider</th>
-                    <th>Tokens</th>
-                    <th>Decision</th>
+                    <th>공급자</th>
+                    <th>토큰</th>
+                    <th>정책 판단</th>
                     <th>오류</th>
                   </tr>
                 </thead>
@@ -1310,7 +1310,7 @@ export function AssistantAdminShell() {
                   ))}
                   {usage?.events.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>선택한 월의 usage event가 없습니다.</td>
+                      <td colSpan={6}>선택한 월의 사용 이벤트가 없습니다.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -1321,20 +1321,20 @@ export function AssistantAdminShell() {
           <div className={styles.tableBlock}>
             <div className={styles.actionAuditHeader}>
               <div>
-                <h3>Assistant action audits</h3>
-                <p>Approved assistant task changes with task, assistant record, actor, and daily task links.</p>
+                <h3>AI 어시스턴트 작업 감사</h3>
+                <p>승인된 AI 어시스턴트 작업 변경을 작업 기록, 어시스턴트 기록, 실행자, 일일 목록 링크와 함께 확인합니다.</p>
               </div>
               <div className={styles.actionAuditTools}>
-                <span>{actionAuditLoading ? "Loading" : `${actionAudits.length} records`}</span>
+                <span>{actionAuditLoading ? "불러오는 중" : `${actionAudits.length}개 기록`}</span>
                 <a download href={actionAuditExportUrl}>
-                  Export CSV
+                  CSV 내보내기
                 </a>
               </div>
             </div>
 
             <div className={styles.filterGrid}>
               <label className={styles.field}>
-                <span>Action</span>
+                <span>작업</span>
                 <select
                   value={actionAuditAction}
                   onChange={(event) => setActionAuditAction(event.target.value as AssistantActionAuditAction | "all")}
@@ -1347,25 +1347,25 @@ export function AssistantAdminShell() {
                 </select>
               </label>
               <label className={styles.field}>
-                <span>Task ID or title</span>
+                <span>작업 ID 또는 제목</span>
                 <input
-                  placeholder="001, task id, or title"
+                  placeholder="001, 작업 ID 또는 제목"
                   value={actionAuditTask}
                   onChange={(event) => setActionAuditTask(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Assistant record</span>
+                <span>어시스턴트 기록</span>
                 <input
-                  placeholder="assistant record id"
+                  placeholder="어시스턴트 기록 ID"
                   value={actionAuditRecordId}
                   onChange={(event) => setActionAuditRecordId(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Actor</span>
+                <span>실행자</span>
                 <input
-                  placeholder="profile id"
+                  placeholder="프로필 ID"
                   value={actionAuditActorId}
                   onChange={(event) => setActionAuditActorId(event.target.value)}
                 />
@@ -1378,27 +1378,27 @@ export function AssistantAdminShell() {
                   <header>
                     <div>
                       <strong>{actionAuditLabel(event.action)}</strong>
-                      <span>{formatDate(event.createdAt)} / actor {event.createdBy ?? "-"}</span>
+                      <span>{formatDate(event.createdAt)} / 실행자 {event.createdBy ?? "-"}</span>
                     </div>
                     <div className={styles.actionAuditCardActions}>
                       <button onClick={() => void openActionAuditDetail(event.id)} type="button">
-                        {selectedActionAuditId === event.id ? "Hide details" : "Review details"}
+                        {selectedActionAuditId === event.id ? "상세 닫기" : "상세 검토"}
                       </button>
-                      <a href={event.dailyTaskUrl}>Open task</a>
+                      <a href={event.dailyTaskUrl}>작업 열기</a>
                     </div>
                   </header>
                   <p>{formatActionAuditSummary(event)}</p>
                   <dl>
                     <div>
-                      <dt>Source task</dt>
+                      <dt>원본 작업</dt>
                       <dd>{formatTaskReference(event.sourceTaskLabel, event.sourceTaskId, event.sourceTaskTitle)}</dd>
                     </div>
                     <div>
-                      <dt>Target task</dt>
+                      <dt>대상 작업</dt>
                       <dd>{formatTaskReference(event.targetTaskLabel, event.targetTaskId, event.targetTaskTitle)}</dd>
                     </div>
                     <div>
-                      <dt>Created task</dt>
+                      <dt>생성 작업</dt>
                       <dd>
                         {event.createdTaskId
                           ? formatTaskReference(event.createdTaskLabel, event.createdTaskId, event.createdTaskTitle)
@@ -1406,7 +1406,7 @@ export function AssistantAdminShell() {
                       </dd>
                     </div>
                     <div>
-                      <dt>Assistant record</dt>
+                      <dt>어시스턴트 기록</dt>
                       <dd>{event.assistantRecordId}</dd>
                     </div>
                   </dl>
@@ -1427,7 +1427,7 @@ export function AssistantAdminShell() {
               ))}
               {actionAudits.length === 0 ? (
                 <p className={styles.empty}>
-                  {actionAuditLoading ? "Loading assistant action audits..." : "No assistant action audits match the current filters."}
+                  {actionAuditLoading ? "AI 어시스턴트 작업 감사를 불러오는 중입니다." : "현재 필터와 일치하는 AI 어시스턴트 작업 감사가 없습니다."}
                 </p>
               ) : null}
             </div>
@@ -1436,25 +1436,25 @@ export function AssistantAdminShell() {
           <div className={styles.tableBlock}>
             <div className={styles.actionAuditHeader}>
               <div>
-                <h3>Governance note report</h3>
-                <p>Append-only review notes across assistant action audits, filtered for operational review.</p>
+                <h3>거버넌스 메모 리포트</h3>
+                <p>AI 어시스턴트 작업 감사에 남긴 추가 전용 검토 메모를 운영 검토용으로 필터링합니다.</p>
               </div>
               <div className={styles.actionAuditTools}>
-                <span>{governanceNoteReportLoading ? "Loading" : `${governanceNoteReport.length} notes`}</span>
+                <span>{governanceNoteReportLoading ? "불러오는 중" : `${governanceNoteReport.length}개 메모`}</span>
                 <a download href={governanceNoteExportUrl}>
-                  Export notes CSV
+                  메모 CSV 내보내기
                 </a>
               </div>
             </div>
 
             <div className={styles.filterGrid}>
               <label className={styles.field}>
-                <span>Category</span>
+                <span>분류</span>
                 <select
                   value={governanceNoteFilterCategory}
                   onChange={(event) => setGovernanceNoteFilterCategory(event.target.value as GovernanceNoteCategory | "all")}
                 >
-                  <option value="all">All categories</option>
+                  <option value="all">전체 분류</option>
                   {governanceNoteOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -1463,25 +1463,25 @@ export function AssistantAdminShell() {
                 </select>
               </label>
               <label className={styles.field}>
-                <span>Reviewer</span>
+                <span>검토자</span>
                 <input
-                  placeholder="reviewer id"
+                  placeholder="검토자 ID"
                   value={governanceNoteReviewer}
                   onChange={(event) => setGovernanceNoteReviewer(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Task ID or title</span>
+                <span>작업 ID 또는 제목</span>
                 <input
-                  placeholder="001, task id, or title"
+                  placeholder="001, 작업 ID 또는 제목"
                   value={governanceNoteTask}
                   onChange={(event) => setGovernanceNoteTask(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Assistant record</span>
+                <span>어시스턴트 기록</span>
                 <input
-                  placeholder="assistant record id"
+                  placeholder="어시스턴트 기록 ID"
                   value={governanceNoteRecordId}
                   onChange={(event) => setGovernanceNoteRecordId(event.target.value)}
                 />
@@ -1494,31 +1494,31 @@ export function AssistantAdminShell() {
                   <header>
                     <div>
                       <strong>{governanceNoteLabel(note.category)}</strong>
-                      <span>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</span>
+                      <span>{formatDate(note.createdAt)} / 검토자 {note.reviewerId ?? "-"}</span>
                     </div>
                     <div className={styles.actionAuditCardActions}>
                       <button onClick={() => void openGovernanceReportDetail(note.sourceAuditId)} type="button">
-                        {selectedGovernanceReportAuditId === note.sourceAuditId ? "Hide audit" : "Review audit"}
+                        {selectedGovernanceReportAuditId === note.sourceAuditId ? "감사 닫기" : "감사 검토"}
                       </button>
-                      <a href={note.dailyTaskUrl}>Open daily detail</a>
+                      <a href={note.dailyTaskUrl}>일일 상세 열기</a>
                     </div>
                   </header>
                   <p>{note.note}</p>
                   <dl>
                     <div>
-                      <dt>Source audit</dt>
+                      <dt>원본 감사</dt>
                       <dd>{note.sourceAction} / {note.sourceAuditId}</dd>
                     </div>
                     <div>
-                      <dt>Assistant record</dt>
+                      <dt>어시스턴트 기록</dt>
                       <dd>{note.sourceAssistantRecordId}</dd>
                     </div>
                     <div>
-                      <dt>Source task</dt>
+                      <dt>원본 작업</dt>
                       <dd>{formatTaskReference(note.sourceTaskLabel, note.sourceTaskId, note.sourceTaskTitle)}</dd>
                     </div>
                     <div>
-                      <dt>Target task</dt>
+                      <dt>대상 작업</dt>
                       <dd>{formatTaskReference(note.targetTaskLabel, note.targetTaskId, note.targetTaskTitle)}</dd>
                     </div>
                   </dl>
@@ -1540,7 +1540,7 @@ export function AssistantAdminShell() {
               ))}
               {governanceNoteReport.length === 0 ? (
                 <p className={styles.empty}>
-                  {governanceNoteReportLoading ? "Loading governance notes..." : "No governance notes match the current filters."}
+                  {governanceNoteReportLoading ? "거버넌스 메모를 불러오는 중입니다." : "현재 필터와 일치하는 거버넌스 메모가 없습니다."}
                 </p>
               ) : null}
             </div>
@@ -1549,20 +1549,20 @@ export function AssistantAdminShell() {
           <div className={styles.tableBlock}>
             <div className={styles.actionAuditHeader}>
               <div>
-                <h3>Audit retention preview</h3>
-                <p>Read-only archive preview for assistant action audits and governance notes before cleanup is allowed.</p>
+                <h3>감사 보존 미리보기</h3>
+                <p>정리 허용 전에 AI 어시스턴트 작업 감사와 거버넌스 메모의 보관 대상을 읽기 전용으로 확인합니다.</p>
               </div>
               <div className={styles.actionAuditTools}>
-                <span>{auditRetentionLoading ? "Loading" : `${auditRetentionPreview?.eligibleCount ?? 0} eligible`}</span>
+                <span>{auditRetentionLoading ? "불러오는 중" : `${auditRetentionPreview?.eligibleCount ?? 0}개 대상`}</span>
                 <a download href={auditRetentionExportUrl}>
-                  Export archive preview
+                  보관 미리보기 내보내기
                 </a>
               </div>
             </div>
 
             <div className={styles.filterGrid}>
               <label className={styles.field}>
-                <span>Preview retention days</span>
+                <span>미리보기 보존 일수</span>
                 <input
                   inputMode="numeric"
                   min={0}
@@ -1572,27 +1572,27 @@ export function AssistantAdminShell() {
                   onChange={(event) => setRetentionPreviewDays(Math.max(0, Math.min(3650, Number(event.target.value || 0))))}
                 />
               </label>
-              <DetailBlock title="Policy retention">
-                <p>{auditRetentionPreview?.policyRetentionDays ?? policy.retentionDays} days</p>
+              <DetailBlock title="정책 보존 기간">
+                <p>{auditRetentionPreview?.policyRetentionDays ?? policy.retentionDays}일</p>
               </DetailBlock>
-              <DetailBlock title="Cutoff">
+              <DetailBlock title="기준 시각">
                 <p>{auditRetentionPreview ? formatDate(auditRetentionPreview.cutoffAt) : "-"}</p>
               </DetailBlock>
-              <DetailBlock title="Relevant events">
-                <p>{auditRetentionPreview?.totalRelevantEvents ?? 0} total / {auditRetentionPreview?.protectedCount ?? 0} protected</p>
+              <DetailBlock title="관련 이벤트">
+                <p>{auditRetentionPreview?.totalRelevantEvents ?? 0}개 전체 / {auditRetentionPreview?.protectedCount ?? 0}개 보호</p>
               </DetailBlock>
-              <DetailBlock title="Preview token">
+              <DetailBlock title="미리보기 토큰">
                 <p>{auditRetentionPreview?.archivePreviewToken ?? "-"}</p>
               </DetailBlock>
             </div>
 
             <div className={styles.cleanupPanel}>
               <div>
-                <h4>Guarded cleanup</h4>
-                <p>Requires this preview token and exact confirmation before deleting eligible assistant audit records.</p>
+                <h4>보호된 정리 실행</h4>
+                <p>대상 AI 어시스턴트 감사 기록을 삭제하려면 이 미리보기 토큰과 정확한 확인 문구가 필요합니다.</p>
               </div>
               <label className={styles.field}>
-                <span>Confirmation</span>
+                <span>확인 문구</span>
                 <input
                   value={retentionCleanupConfirmation}
                   placeholder="DELETE_ASSISTANT_AUDIT_EVENTS"
@@ -1609,12 +1609,12 @@ export function AssistantAdminShell() {
                 }
                 onClick={() => void runAuditRetentionCleanup()}
               >
-                {auditRetentionCleaning ? "Cleaning" : "Run cleanup"}
+                {auditRetentionCleaning ? "정리 중" : "정리 실행"}
               </button>
               {auditRetentionCleanupResult ? (
                 <p>
-                  Cleanup audit {auditRetentionCleanupResult.cleanupAuditId}: {auditRetentionCleanupResult.deletedCount} deleted /{" "}
-                  {auditRetentionCleanupResult.skippedCount} skipped.
+                  정리 감사 {auditRetentionCleanupResult.cleanupAuditId}: {auditRetentionCleanupResult.deletedCount}개 삭제 /{" "}
+                  {auditRetentionCleanupResult.skippedCount}개 건너뜀.
                 </p>
               ) : null}
             </div>
@@ -1623,11 +1623,11 @@ export function AssistantAdminShell() {
               <table>
                 <thead>
                   <tr>
-                    <th>Month</th>
-                    <th>Total</th>
-                    <th>Eligible</th>
-                    <th>Action audits</th>
-                    <th>Governance notes</th>
+                    <th>월</th>
+                    <th>전체</th>
+                    <th>대상</th>
+                    <th>작업 감사</th>
+                      <th>거버넌스 메모</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1642,7 +1642,7 @@ export function AssistantAdminShell() {
                   ))}
                   {auditRetentionPreview?.countsByMonth.length === 0 ? (
                     <tr>
-                      <td colSpan={5}>No assistant audit retention records are available.</td>
+                      <td colSpan={5}>AI 어시스턴트 감사 보존 기록이 없습니다.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -1653,28 +1653,28 @@ export function AssistantAdminShell() {
           <div className={styles.tableBlock}>
             <div className={styles.actionAuditHeader}>
               <div>
-                <h3>Cleanup history</h3>
-                <p>Executed assistant audit cleanup runs with preview token, cutoff, and deleted/skipped ids.</p>
+                <h3>정리 실행 이력</h3>
+                <p>실행된 AI 어시스턴트 감사 정리를 미리보기 토큰, 기준 시각, 삭제/건너뜀 ID와 함께 확인합니다.</p>
               </div>
               <div className={styles.actionAuditTools}>
-                <span>{auditCleanupHistoryLoading ? "Loading" : `${auditCleanupHistory.length} runs`}</span>
+                <span>{auditCleanupHistoryLoading ? "불러오는 중" : `${auditCleanupHistory.length}회 실행`}</span>
                 <a download href={auditCleanupHistoryExportUrl}>
-                  Export cleanup CSV
+                  정리 CSV 내보내기
                 </a>
               </div>
             </div>
 
             <div className={styles.filterGrid}>
               <label className={styles.field}>
-                <span>Actor</span>
+                <span>실행자</span>
                 <input
-                  placeholder="actor id"
+                  placeholder="실행자 ID"
                   value={cleanupHistoryActorId}
                   onChange={(event) => setCleanupHistoryActorId(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Cutoff</span>
+                <span>기준일</span>
                 <input
                   placeholder="2025-05-12"
                   value={cleanupHistoryCutoffAt}
@@ -1682,9 +1682,9 @@ export function AssistantAdminShell() {
                 />
               </label>
               <label className={styles.field}>
-                <span>Preview token</span>
+                <span>미리보기 토큰</span>
                 <input
-                  placeholder="archive preview token"
+                  placeholder="보관 미리보기 토큰"
                   value={cleanupHistoryToken}
                   onChange={(event) => setCleanupHistoryToken(event.target.value)}
                 />
@@ -1693,14 +1693,14 @@ export function AssistantAdminShell() {
 
             <div className={styles.cleanupPanel}>
               <div>
-                <h4>Dry-run comparison</h4>
-                <p>Compare a previous cleanup token with the current retention preview before another cleanup run.</p>
+                <h4>모의 실행 비교</h4>
+                <p>다음 정리 실행 전에 이전 정리 토큰과 현재 보존 미리보기를 비교합니다.</p>
               </div>
               <label className={styles.field}>
-                <span>Cleanup token</span>
+                <span>정리 토큰</span>
                 <input
                   value={cleanupComparisonToken}
-                  placeholder="previous cleanup token"
+                  placeholder="이전 정리 토큰"
                   onChange={(event) => setCleanupComparisonToken(event.target.value)}
                 />
               </label>
@@ -1709,27 +1709,27 @@ export function AssistantAdminShell() {
                 disabled={auditCleanupComparisonLoading || !cleanupComparisonToken.trim()}
                 onClick={() => void runAuditCleanupComparison()}
               >
-                {auditCleanupComparisonLoading ? "Comparing" : "Compare"}
+                {auditCleanupComparisonLoading ? "비교 중" : "비교"}
               </button>
               {auditCleanupComparison ? (
                 <a download href={auditCleanupComparisonExportUrl}>
-                  Export comparison JSON
+                  비교 JSON 내보내기
                 </a>
               ) : null}
             </div>
 
             {auditCleanupComparison ? (
               <div className={styles.filterGrid}>
-                <DetailBlock title="Current token">
+                <DetailBlock title="현재 토큰">
                   <p>{auditCleanupComparison.currentPreview.archivePreviewToken}</p>
                 </DetailBlock>
-                <DetailBlock title="Newly eligible">
+                <DetailBlock title="새 대상">
                   <p>{auditCleanupComparison.newlyEligibleIds.length}</p>
                 </DetailBlock>
-                <DetailBlock title="Previously deleted/skipped">
+                <DetailBlock title="이전 삭제/건너뜀">
                   <p>{auditCleanupComparison.previouslyDeletedEligibleIds.length} / {auditCleanupComparison.previouslySkippedEligibleIds.length}</p>
                 </DetailBlock>
-                <DetailBlock title="Still protected">
+                <DetailBlock title="계속 보호됨">
                   <p>{auditCleanupComparison.stillProtectedCount}</p>
                 </DetailBlock>
               </div>
@@ -1740,34 +1740,34 @@ export function AssistantAdminShell() {
                 <article className={styles.actionAuditCard} key={cleanup.id}>
                   <header>
                     <div>
-                      <strong>{cleanup.deletedCount} deleted / {cleanup.skippedCount} skipped</strong>
-                      <span>{formatDate(cleanup.createdAt)} / actor {cleanup.actorId ?? "-"}</span>
+                      <strong>{cleanup.deletedCount}개 삭제 / {cleanup.skippedCount}개 건너뜀</strong>
+                      <span>{formatDate(cleanup.createdAt)} / 실행자 {cleanup.actorId ?? "-"}</span>
                     </div>
                     <div className={styles.actionAuditCardActions}>
                       <button onClick={() => void openAuditCleanupDetail(cleanup.id)} type="button">
-                        {selectedCleanupId === cleanup.id ? "Hide cleanup" : "Review cleanup"}
+                        {selectedCleanupId === cleanup.id ? "정리 닫기" : "정리 검토"}
                       </button>
                       <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(cleanup.id)}/package?month=${encodeURIComponent(month)}`}>
-                        Export package
+                        패키지 내보내기
                       </a>
                     </div>
                   </header>
-                  <p>Token {cleanup.archivePreviewToken} / cutoff {formatDate(cleanup.cutoffAt)} / retention {cleanup.previewRetentionDays} days</p>
+                  <p>토큰 {cleanup.archivePreviewToken} / 기준 {formatDate(cleanup.cutoffAt)} / 보존 {cleanup.previewRetentionDays}일</p>
                   <dl>
                     <div>
-                      <dt>Cleanup audit</dt>
+                      <dt>정리 감사</dt>
                       <dd>{cleanup.id}</dd>
                     </div>
                     <div>
-                      <dt>Requested eligible</dt>
+                      <dt>요청 대상</dt>
                       <dd>{cleanup.requestedEligibleCount}</dd>
                     </div>
                     <div>
-                      <dt>Deleted ids</dt>
+                      <dt>삭제된 ID</dt>
                       <dd>{cleanup.deletedIds.length ? cleanup.deletedIds.join(", ") : "-"}</dd>
                     </div>
                     <div>
-                      <dt>Skipped ids</dt>
+                      <dt>건너뛴 ID</dt>
                       <dd>{cleanup.skippedIds.length ? cleanup.skippedIds.join(", ") : "-"}</dd>
                     </div>
                   </dl>
@@ -1787,7 +1787,7 @@ export function AssistantAdminShell() {
               ))}
               {auditCleanupHistory.length === 0 ? (
                 <p className={styles.empty}>
-                  {auditCleanupHistoryLoading ? "Loading cleanup history..." : "No cleanup history matches the current filters."}
+                  {auditCleanupHistoryLoading ? "정리 이력을 불러오는 중입니다." : "현재 필터와 일치하는 정리 이력이 없습니다."}
                 </p>
               ) : null}
             </div>
@@ -1796,52 +1796,52 @@ export function AssistantAdminShell() {
           <div className={styles.tableBlock}>
             <div className={styles.actionAuditHeader}>
               <div>
-                <h3>Cleanup review-note report</h3>
-                <p>Append-only review notes across cleanup runs, filtered for cleanup governance review.</p>
+                <h3>정리 검토 메모 리포트</h3>
+                <p>정리 실행에 남긴 추가 전용 검토 메모를 정리 거버넌스 검토용으로 필터링합니다.</p>
               </div>
               <div className={styles.actionAuditTools}>
-                <span>{cleanupReviewNoteReportLoading ? "Loading" : `${cleanupReviewNoteReport.length} notes`}</span>
+                <span>{cleanupReviewNoteReportLoading ? "불러오는 중" : `${cleanupReviewNoteReport.length}개 메모`}</span>
                 <a download href={cleanupReviewNoteExportUrl}>
-                  Export cleanup notes CSV
+                  정리 메모 CSV 내보내기
                 </a>
                 <a download href={cleanupReviewCoverageExportUrl}>
-                  Export coverage CSV
+                  검토 범위 CSV 내보내기
                 </a>
                 <a download href={cleanupReviewCoverageJsonUrl}>
-                  Export coverage JSON
+                  검토 범위 JSON 내보내기
                 </a>
                 <a download href={cleanupReviewCoveragePackageUrl}>
-                  Export rollup package
+                  묶음 패키지 내보내기
                 </a>
                 <button onClick={() => void copyCleanupReviewCoverageHandoff()} type="button">
-                  Copy filter handoff
+                  필터 인수인계 복사
                 </button>
                 <button onClick={resetCleanupReviewFilters} type="button">
-                  Clear cleanup filters
+                  정리 필터 초기화
                 </button>
                 <button onClick={showStaleUnreviewedCleanupCoverage} type="button">
-                  Show stale unreviewed
+                  오래된 미검토 보기
                 </button>
                 <button onClick={showReviewedCleanupCoverage} type="button">
-                  Show reviewed cleanup
+                  검토 완료 보기
                 </button>
                 <button
                   onClick={() => setCleanupReviewQueueDensity((current) => (current === "detailed" ? "compact" : "detailed"))}
                   type="button"
                 >
-                  {cleanupReviewQueueDensity === "detailed" ? "Compact queue" : "Detailed queue"}
+                  {cleanupReviewQueueDensity === "detailed" ? "간단히 보기" : "자세히 보기"}
                 </button>
               </div>
             </div>
 
             <div className={styles.filterGrid}>
               <label className={styles.field}>
-                <span>Category</span>
+                <span>분류</span>
                 <select
                   value={cleanupReviewNoteFilterCategory}
                   onChange={(event) => setCleanupReviewNoteFilterCategory(event.target.value as GovernanceNoteCategory | "all")}
                 >
-                  <option value="all">All categories</option>
+                  <option value="all">전체 분류</option>
                   {governanceNoteOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -1850,7 +1850,7 @@ export function AssistantAdminShell() {
                 </select>
               </label>
               <label className={styles.field}>
-                <span>Coverage preset</span>
+                <span>검토 범위 프리셋</span>
                 <select
                   value={cleanupReviewCoveragePreset}
                   onChange={(event) => setCleanupReviewCoveragePreset(event.target.value as CleanupReviewCoveragePreset)}
@@ -1863,31 +1863,31 @@ export function AssistantAdminShell() {
                 </select>
               </label>
               <label className={styles.field}>
-                <span>Reviewer</span>
+                <span>검토자</span>
                 <input
-                  placeholder="reviewer id"
+                  placeholder="검토자 ID"
                   value={cleanupReviewNoteReviewer}
                   onChange={(event) => setCleanupReviewNoteReviewer(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Preview token</span>
+                <span>미리보기 토큰</span>
                 <input
-                  placeholder="archive preview token"
+                  placeholder="보관 미리보기 토큰"
                   value={cleanupReviewNoteToken}
                   onChange={(event) => setCleanupReviewNoteToken(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Cleanup id</span>
+                <span>정리 ID</span>
                 <input
-                  placeholder="cleanup audit id"
+                  placeholder="정리 감사 ID"
                   value={cleanupReviewNoteCleanupId}
                   onChange={(event) => setCleanupReviewNoteCleanupId(event.target.value)}
                 />
               </label>
               <label className={styles.field}>
-                <span>Stale days</span>
+                <span>오래된 기준일</span>
                 <input
                   min={0}
                   max={3650}
@@ -1900,7 +1900,7 @@ export function AssistantAdminShell() {
             <div className={styles.quickFilterList}>
               {[0, 7, 30].map((days) => (
                 <button key={days} onClick={() => setCleanupReviewStaleDays(days)} type="button">
-                  {days} stale days
+                  {days}일 기준
                 </button>
               ))}
             </div>
@@ -1908,28 +1908,28 @@ export function AssistantAdminShell() {
               {cleanupReviewActiveFilters.length ? (
                 cleanupReviewActiveFilters.map((filter) => <span key={filter}>{filter}</span>)
               ) : (
-                <span>Default cleanup review scope</span>
+                <span>기본 정리 검토 범위</span>
               )}
             </div>
 
             <div className={styles.filterGrid}>
-              <Metric label="Cleanup notes" value={cleanupReviewNoteSummaryLoading ? "Loading" : cleanupReviewNoteSummary?.totalNotes ?? 0} />
-              <Metric label="Reviewed runs" value={cleanupReviewNoteSummary?.reviewedCleanupRuns ?? 0} />
-              <Metric label="Unreviewed runs" value={cleanupReviewNoteSummary?.unreviewedCleanupRuns ?? 0} />
-              <Metric label="Stale unreviewed" value={cleanupReviewNoteSummary?.staleUnreviewedCleanupRuns ?? 0} />
-              <Metric label="Total cleanup runs" value={cleanupReviewNoteSummary?.totalCleanupRuns ?? 0} />
+              <Metric label="정리 메모" value={cleanupReviewNoteSummaryLoading ? "불러오는 중" : cleanupReviewNoteSummary?.totalNotes ?? 0} />
+              <Metric label="검토 완료 실행" value={cleanupReviewNoteSummary?.reviewedCleanupRuns ?? 0} />
+              <Metric label="미검토 실행" value={cleanupReviewNoteSummary?.unreviewedCleanupRuns ?? 0} />
+              <Metric label="오래된 미검토" value={cleanupReviewNoteSummary?.staleUnreviewedCleanupRuns ?? 0} />
+              <Metric label="전체 정리 실행" value={cleanupReviewNoteSummary?.totalCleanupRuns ?? 0} />
               <Metric
-                label="Coverage preset"
-                value={cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? "All cleanup runs"}
+                label="검토 범위 프리셋"
+                value={cleanupReviewCoveragePresetOptions.find((option) => option.value === cleanupReviewCoveragePreset)?.label ?? "전체 정리 실행"}
               />
             </div>
 
             {cleanupReviewNoteSummary ? (
               <div className={styles.filterGrid}>
-                <DetailBlock title="Category counts">
+                <DetailBlock title="분류별 수">
                   <p>{cleanupReviewNoteSummary.categoryCounts.length ? cleanupReviewNoteSummary.categoryCounts.map((item) => `${governanceNoteLabel(item.category)} ${item.count}`).join(" / ") : "-"}</p>
                 </DetailBlock>
-                <DetailBlock title="Reviewer counts">
+                <DetailBlock title="검토자별 수">
                   {cleanupReviewNoteSummary.reviewerCounts.length ? (
                     <div className={styles.quickFilterList}>
                       {cleanupReviewNoteSummary.reviewerCounts.map((item) => (
@@ -1942,14 +1942,14 @@ export function AssistantAdminShell() {
                         </button>
                       ))}
                       <button onClick={() => setCleanupReviewNoteReviewer("")} type="button">
-                        All reviewers
+                        전체 검토자
                       </button>
                     </div>
                   ) : (
                     <p>-</p>
                   )}
                 </DetailBlock>
-                <DetailBlock title="Filter handoff">
+                <DetailBlock title="필터 인수인계">
                   <p>{cleanupReviewCoverageHandoffText}</p>
                 </DetailBlock>
               </div>
@@ -1966,36 +1966,36 @@ export function AssistantAdminShell() {
                     <div className={styles.cleanupQueueHeaderTools}>
                       <dl className={styles.cleanupQueueStats}>
                         <div>
-                          <dt>Runs</dt>
+                          <dt>실행</dt>
                           <dd>{group.rows.length}</dd>
                         </div>
                         <div>
-                          <dt>Notes</dt>
+                          <dt>메모</dt>
                           <dd>{group.stats.notes}</dd>
                         </div>
                         <div>
-                          <dt>Deleted</dt>
+                          <dt>삭제</dt>
                           <dd>{group.stats.deleted}</dd>
                         </div>
                         <div>
-                          <dt>Skipped</dt>
+                          <dt>건너뜀</dt>
                           <dd>{group.stats.skipped}</dd>
                         </div>
                       </dl>
                       <div className={styles.cleanupQueueActions}>
                         {group.key === "stale-unreviewed" ? (
                           <button onClick={showStaleUnreviewedCleanupCoverage} type="button">
-                            Focus stale
+                            오래된 항목 보기
                           </button>
                         ) : null}
                         {group.key === "reviewed" ? (
                           <button onClick={showReviewedCleanupCoverage} type="button">
-                            Focus reviewed
+                            검토 완료 보기
                           </button>
                         ) : null}
                         {group.key === "other-unreviewed" ? (
                           <button onClick={showAllCleanupCoverage} type="button">
-                            Show all coverage
+                            전체 검토 범위 보기
                           </button>
                         ) : null}
                       </div>
@@ -2006,48 +2006,48 @@ export function AssistantAdminShell() {
                       <article className={styles.actionAuditCard} key={item.cleanupId}>
                         <header>
                           <div>
-                            <strong>{item.coverageStatus === "reviewed" ? "Reviewed cleanup" : "Unreviewed cleanup"}</strong>
-                            <span>{formatDate(item.cleanupCreatedAt)} / actor {item.cleanupActorId ?? "-"}{item.isStale ? " / stale review alert" : ""}</span>
+                            <strong>{item.coverageStatus === "reviewed" ? "검토 완료 정리" : "미검토 정리"}</strong>
+                            <span>{formatDate(item.cleanupCreatedAt)} / 실행자 {item.cleanupActorId ?? "-"}{item.isStale ? " / 오래된 검토 알림" : ""}</span>
                           </div>
                           <div className={styles.actionAuditCardActions}>
                             <button onClick={() => void openAuditCleanupDetail(item.cleanupId)} type="button">
-                              {selectedCleanupId === item.cleanupId ? "Hide cleanup" : "Review cleanup"}
+                              {selectedCleanupId === item.cleanupId ? "정리 닫기" : "정리 검토"}
                             </button>
                             <button onClick={() => setCleanupReviewNoteToken(item.archivePreviewToken)} type="button">
-                              Focus token
+                              토큰 필터
                             </button>
                             <button onClick={() => setCleanupReviewNoteCleanupId(item.cleanupId)} type="button">
-                              Focus cleanup
+                              정리 필터
                             </button>
                             <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(item.cleanupId)}/package?month=${encodeURIComponent(month)}`}>
-                              Export package
+                              패키지 내보내기
                             </a>
                           </div>
                         </header>
-                        <p>Token {item.archivePreviewToken} / notes {item.noteCount} / latest {item.latestNoteCreatedAt ? formatDate(item.latestNoteCreatedAt) : "-"}</p>
+                        <p>토큰 {item.archivePreviewToken} / 메모 {item.noteCount}개 / 최근 {item.latestNoteCreatedAt ? formatDate(item.latestNoteCreatedAt) : "-"}</p>
                         <div className={styles.cleanupRowChips}>
-                          <span>{item.coverageStatus === "reviewed" ? "reviewed" : "unreviewed"}</span>
-                          <span>{item.isStale ? "stale" : "not stale"}</span>
-                          <span>{item.noteCount} notes</span>
-                          <span>{item.reviewerIds.length} reviewers</span>
-                          <span>{item.staleThresholdDays} day threshold</span>
+                          <span>{item.coverageStatus === "reviewed" ? "검토 완료" : "미검토"}</span>
+                          <span>{item.isStale ? "오래됨" : "기준 이내"}</span>
+                          <span>메모 {item.noteCount}개</span>
+                          <span>검토자 {item.reviewerIds.length}명</span>
+                          <span>{item.staleThresholdDays}일 기준</span>
                         </div>
                         {cleanupReviewQueueDensity === "detailed" ? (
                           <dl>
                             <div>
-                              <dt>Cleanup audit</dt>
+                              <dt>정리 감사</dt>
                               <dd>{item.cleanupId}</dd>
                             </div>
                             <div>
-                              <dt>Reviewers</dt>
+                              <dt>검토자</dt>
                               <dd>{item.reviewerIds.length ? item.reviewerIds.join(", ") : "-"}</dd>
                             </div>
                             <div>
-                              <dt>Cleanup counts</dt>
-                              <dd>{item.deletedCount} deleted / {item.skippedCount} skipped</dd>
+                              <dt>정리 수</dt>
+                              <dd>{item.deletedCount}개 삭제 / {item.skippedCount}개 건너뜀</dd>
                             </div>
                             <div>
-                              <dt>Cutoff</dt>
+                              <dt>기준 시각</dt>
                               <dd>{formatDate(item.cutoffAt)}</dd>
                             </div>
                           </dl>
@@ -2066,14 +2066,14 @@ export function AssistantAdminShell() {
                         ) : null}
                       </article>
                     )) : (
-                      <p className={styles.empty}>No cleanup runs in this queue.</p>
+                      <p className={styles.empty}>이 큐에는 정리 실행이 없습니다.</p>
                     )}
                   </div>
                 </section>
               ))}
               {cleanupReviewCoverage.length === 0 ? (
                 <p className={styles.empty}>
-                  {cleanupReviewCoverageLoading ? "Loading cleanup coverage..." : "No cleanup coverage rows match the current filters."}
+                  {cleanupReviewCoverageLoading ? "정리 검토 범위를 불러오는 중입니다." : "현재 필터와 일치하는 정리 검토 범위 행이 없습니다."}
                 </p>
               ) : null}
             </div>
@@ -2084,33 +2084,33 @@ export function AssistantAdminShell() {
                   <header>
                     <div>
                       <strong>{governanceNoteLabel(note.category)}</strong>
-                      <span>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</span>
+                      <span>{formatDate(note.createdAt)} / 검토자 {note.reviewerId ?? "-"}</span>
                     </div>
                     <div className={styles.actionAuditCardActions}>
                       <button onClick={() => void openAuditCleanupDetail(note.sourceCleanupId)} type="button">
-                        {selectedCleanupId === note.sourceCleanupId ? "Hide cleanup" : "Review cleanup"}
+                        {selectedCleanupId === note.sourceCleanupId ? "정리 닫기" : "정리 검토"}
                       </button>
                       <a download href={`/api/admin/assistant/audit-cleanups/${encodeURIComponent(note.sourceCleanupId)}/package?month=${encodeURIComponent(month)}`}>
-                        Export package
+                        패키지 내보내기
                       </a>
                     </div>
                   </header>
                   <p>{note.note}</p>
                   <dl>
                     <div>
-                      <dt>Cleanup audit</dt>
+                      <dt>정리 감사</dt>
                       <dd>{note.sourceCleanupId}</dd>
                     </div>
                     <div>
-                      <dt>Preview token</dt>
+                      <dt>미리보기 토큰</dt>
                       <dd>{note.sourceArchivePreviewToken}</dd>
                     </div>
                     <div>
-                      <dt>Cleanup counts</dt>
-                      <dd>{note.cleanupDeletedCount} deleted / {note.cleanupSkippedCount} skipped</dd>
+                      <dt>정리 수</dt>
+                      <dd>{note.cleanupDeletedCount}개 삭제 / {note.cleanupSkippedCount}개 건너뜀</dd>
                     </div>
                     <div>
-                      <dt>Cutoff</dt>
+                      <dt>기준 시각</dt>
                       <dd>{formatDate(note.cleanupCutoffAt)}</dd>
                     </div>
                   </dl>
@@ -2130,14 +2130,14 @@ export function AssistantAdminShell() {
               ))}
               {cleanupReviewNoteReport.length === 0 ? (
                 <p className={styles.empty}>
-                  {cleanupReviewNoteReportLoading ? "Loading cleanup review notes..." : "No cleanup review notes match the current filters."}
+                  {cleanupReviewNoteReportLoading ? "정리 검토 메모를 불러오는 중입니다." : "현재 필터와 일치하는 정리 검토 메모가 없습니다."}
                 </p>
               ) : null}
             </div>
           </div>
 
           <div className={styles.tableBlock}>
-            <h3>Audit timeline</h3>
+            <h3>감사 타임라인</h3>
             <div className={styles.timeline}>
               {audit.map((event) => (
                 <article key={event.id}>
@@ -2146,7 +2146,7 @@ export function AssistantAdminShell() {
                   <code>{formatMetadata(event.metadata)}</code>
                 </article>
               ))}
-              {audit.length === 0 ? <p className={styles.empty}>선택한 월의 audit event가 없습니다.</p> : null}
+              {audit.length === 0 ? <p className={styles.empty}>선택한 월의 감사 이벤트가 없습니다.</p> : null}
             </div>
           </div>
         </section>
@@ -2179,63 +2179,63 @@ function ActionAuditGovernanceDetail({
   showNoteForm?: boolean;
 }) {
   if (loading) {
-    return <p className={styles.detailLoading}>Loading governance detail...</p>;
+    return <p className={styles.detailLoading}>거버넌스 상세를 불러오는 중입니다...</p>;
   }
 
   if (!detail) {
-    return <p className={styles.detailLoading}>Governance detail is not available.</p>;
+    return <p className={styles.detailLoading}>거버넌스 상세를 사용할 수 없습니다.</p>;
   }
 
   const summary = detail.workSummaryDraft ?? detail.assistantRecord?.draftSummary ?? null;
   const packageUrl = `/api/admin/assistant/action-audits/${encodeURIComponent(detail.audit.id)}/package?month=${encodeURIComponent(month)}`;
 
   return (
-    <section className={styles.governanceDetail} aria-label="Assistant action governance detail">
+    <section className={styles.governanceDetail} aria-label="AI 어시스턴트 작업 거버넌스 상세">
       <div className={styles.governanceHeader}>
         <div>
-          <h4>Governance detail</h4>
+          <h4>거버넌스 상세</h4>
           <p>{detail.rawAuditEvent.eventType} / {detail.rawAuditEvent.targetType}:{detail.rawAuditEvent.targetId ?? "-"}</p>
         </div>
         <div className={styles.governanceHeaderActions}>
-          <a download href={packageUrl}>Export package</a>
-          <a href={detail.governance.dailyTaskUrl}>Open daily detail</a>
+          <a download href={packageUrl}>패키지 내보내기</a>
+          <a href={detail.governance.dailyTaskUrl}>일일 상세 열기</a>
         </div>
       </div>
 
       <div className={styles.governanceGrid}>
-        <DetailBlock title="Audit">
-          <p>Action: {actionAuditLabel(detail.audit.action)}</p>
-          <p>Actor: {detail.audit.createdBy ?? "-"}</p>
-          <p>Status: {detail.governance.statusTransition ?? "-"}</p>
-          <p>Marker: {detail.governance.decisionMarker ?? "-"}</p>
+        <DetailBlock title="감사">
+          <p>작업: {actionAuditLabel(detail.audit.action)}</p>
+          <p>실행자: {detail.audit.createdBy ?? "-"}</p>
+          <p>상태: {detail.governance.statusTransition ?? "-"}</p>
+          <p>마커: {detail.governance.decisionMarker ?? "-"}</p>
         </DetailBlock>
-        <DetailBlock title="Assistant record">
+        <DetailBlock title="어시스턴트 기록">
           <p>ID: {detail.assistantRecord?.id ?? detail.audit.assistantRecordId}</p>
-          <p>Mode: {detail.assistantRecord ? `${detail.assistantRecord.executionMode} / ${detail.assistantRecord.runtimeMode}` : "-"}</p>
-          <p>Confidence: {detail.assistantRecord ? `${detail.assistantRecord.confidenceScore}%` : "-"}</p>
-          <p>Evidence: {detail.assistantRecord?.evidence.length ?? 0}</p>
+          <p>모드: {detail.assistantRecord ? `${detail.assistantRecord.executionMode} / ${detail.assistantRecord.runtimeMode}` : "-"}</p>
+          <p>신뢰도: {detail.assistantRecord ? `${detail.assistantRecord.confidenceScore}%` : "-"}</p>
+          <p>근거: {detail.assistantRecord?.evidence.length ?? 0}</p>
         </DetailBlock>
-        <DetailBlock title="Closure fields">
-          <p>State: {detail.governance.closureState}</p>
-          <p>Conclusion: {summary?.conclusion || "-"}</p>
-          <p>Scope: {summary?.scope || "-"}</p>
-          <p>Follow-up: {summary?.followUpAction || "-"}</p>
-          <p>Tags: {summary?.tags?.join(", ") || "-"}</p>
+        <DetailBlock title="종료 검토 필드">
+          <p>상태: {detail.governance.closureState}</p>
+          <p>결론: {summary?.conclusion || "-"}</p>
+          <p>적용 범위: {summary?.scope || "-"}</p>
+          <p>후속 조치: {summary?.followUpAction || "-"}</p>
+          <p>태그: {summary?.tags?.join(", ") || "-"}</p>
         </DetailBlock>
-        <DetailBlock title="Task snapshots">
-          <TaskSnapshot label="Source" task={detail.tasks.source} />
-          <TaskSnapshot label="Target" task={detail.tasks.target} />
-          <TaskSnapshot label="Created" task={detail.tasks.created} />
+        <DetailBlock title="작업 스냅샷">
+          <TaskSnapshot label="원본" task={detail.tasks.source} />
+          <TaskSnapshot label="대상" task={detail.tasks.target} />
+          <TaskSnapshot label="생성" task={detail.tasks.created} />
         </DetailBlock>
       </div>
 
       <div className={styles.governanceNarrative}>
         <div>
-          <span>Task history</span>
-          <p>{detail.governance.taskHistory || "No status history was captured for the linked task snapshot."}</p>
+          <span>작업 이력</span>
+          <p>{detail.governance.taskHistory || "연결된 작업 스냅샷에 상태 이력이 저장되지 않았습니다."}</p>
         </div>
         <div>
-          <span>Provenance</span>
+          <span>출처</span>
           <ul>
             {detail.governance.provenance.map((item) => (
               <li key={item}>{item}</li>
@@ -2248,7 +2248,7 @@ function ActionAuditGovernanceDetail({
         {showNoteForm ? (
           <div className={styles.governanceNoteForm}>
             <label className={styles.field}>
-              <span>Note category</span>
+              <span>메모 분류</span>
               <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
                 {governanceNoteOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2258,33 +2258,33 @@ function ActionAuditGovernanceDetail({
               </select>
             </label>
             <label className={styles.field}>
-              <span>Governance note</span>
+              <span>거버넌스 메모</span>
               <textarea
                 maxLength={1200}
                 onChange={(event) => onNoteTextChange(event.target.value)}
-                placeholder="Append a governance review note"
+                placeholder="거버넌스 검토 메모 추가"
                 rows={3}
                 value={noteText}
               />
             </label>
             <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
-              {noteSaving ? "Saving..." : "Add note"}
+              {noteSaving ? "저장하고 있습니다..." : "메모 추가"}
             </button>
           </div>
         ) : null}
 
         <div className={styles.governanceNoteList}>
-          <span>Governance notes</span>
+          <span>거버넌스 메모</span>
           {detail.governanceNotes.length ? (
             detail.governanceNotes.map((note) => (
               <article key={note.id}>
                 <strong>{governanceNoteLabel(note.category)}</strong>
-                <small>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</small>
+                <small>{formatDate(note.createdAt)} / 검토자 {note.reviewerId ?? "-"}</small>
                 <p>{note.note}</p>
               </article>
             ))
           ) : (
-            <p>No governance notes have been added.</p>
+            <p>추가된 거버넌스 메모가 없습니다.</p>
           )}
         </div>
       </div>
@@ -2312,45 +2312,45 @@ function AuditCleanupDetailPanel({
   onSaveNote: () => void;
 }) {
   if (loading) {
-    return <p>Loading cleanup detail...</p>;
+    return <p>정리 상세를 불러오는 중입니다...</p>;
   }
 
   if (!detail) {
-    return <p>Cleanup detail is not available.</p>;
+    return <p>정리 상세를 사용할 수 없습니다.</p>;
   }
 
   return (
     <section className={styles.governanceDetail}>
       <div className={styles.governanceHeader}>
         <div>
-          <h4>Cleanup detail</h4>
+          <h4>정리 상세</h4>
           <p>{detail.rawAuditEvent.eventType} / {detail.rawAuditEvent.targetType}:{detail.rawAuditEvent.targetId ?? "-"}</p>
         </div>
       </div>
       <div className={styles.governanceGrid}>
-        <DetailBlock title="Preview token">
+        <DetailBlock title="미리보기 토큰">
           <p>{detail.retentionContext.archivePreviewToken}</p>
         </DetailBlock>
-        <DetailBlock title="Cutoff">
+        <DetailBlock title="기준 시각">
           <p>{formatDate(detail.retentionContext.cutoffAt)}</p>
         </DetailBlock>
-        <DetailBlock title="Requested eligible">
+        <DetailBlock title="요청 대상">
           <p>{detail.retentionContext.requestedEligibleCount}</p>
         </DetailBlock>
-        <DetailBlock title="Counts">
-          <p>{detail.cleanup.deletedCount} deleted / {detail.cleanup.skippedCount} skipped</p>
+        <DetailBlock title="수량">
+          <p>{detail.cleanup.deletedCount}개 삭제 / {detail.cleanup.skippedCount}개 건너뜀</p>
         </DetailBlock>
       </div>
-      <DetailBlock title="Deleted ids">
+      <DetailBlock title="삭제된 ID">
         <p>{detail.cleanup.deletedIds.length ? detail.cleanup.deletedIds.join(", ") : "-"}</p>
       </DetailBlock>
-      <DetailBlock title="Skipped ids">
+      <DetailBlock title="건너뛴 ID">
         <p>{detail.cleanup.skippedIds.length ? detail.cleanup.skippedIds.join(", ") : "-"}</p>
       </DetailBlock>
       <div className={styles.governanceNotes}>
         <div className={styles.governanceNoteForm}>
           <label className={styles.field}>
-            <span>Note category</span>
+            <span>메모 분류</span>
             <select value={noteCategory} onChange={(event) => onNoteCategoryChange(event.target.value as GovernanceNoteCategory)}>
               {governanceNoteOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -2360,35 +2360,35 @@ function AuditCleanupDetailPanel({
             </select>
           </label>
           <label className={styles.field}>
-            <span>Cleanup review note</span>
+            <span>정리 검토 메모</span>
             <textarea
               maxLength={1200}
               onChange={(event) => onNoteTextChange(event.target.value)}
-              placeholder="Append a cleanup review note"
+              placeholder="정리 검토 메모 추가"
               rows={3}
               value={noteText}
             />
           </label>
           <button disabled={noteSaving || !noteText.trim()} onClick={onSaveNote} type="button">
-            {noteSaving ? "Saving..." : "Add cleanup note"}
+            {noteSaving ? "저장하고 있습니다..." : "정리 메모 추가"}
           </button>
         </div>
         <div className={styles.governanceNoteList}>
-          <span>Cleanup review notes</span>
+          <span>정리 검토 메모</span>
           {detail.reviewNotes.length ? (
             detail.reviewNotes.map((note) => (
               <article key={note.id}>
                 <strong>{governanceNoteLabel(note.category)}</strong>
-                <small>{formatDate(note.createdAt)} / reviewer {note.reviewerId ?? "-"}</small>
+                <small>{formatDate(note.createdAt)} / 검토자 {note.reviewerId ?? "-"}</small>
                 <p>{note.note}</p>
               </article>
             ))
           ) : (
-            <p>No cleanup review notes have been added.</p>
+            <p>추가된 정리 검토 메모가 없습니다.</p>
           )}
         </div>
       </div>
-      <DetailBlock title="Raw metadata">
+      <DetailBlock title="원본 메타데이터">
         <pre>{JSON.stringify(detail.rawAuditEvent.metadata, null, 2)}</pre>
       </DetailBlock>
     </section>
@@ -2422,7 +2422,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 }
 
 function actionAuditLabel(action: AssistantActionAuditAction) {
-  return action === "follow_up_task_created" ? "Follow-up task created" : "Task update applied";
+  return action === "follow_up_task_created" ? "후속 작업 생성" : "작업 기록 업데이트";
 }
 
 function governanceNoteLabel(category: GovernanceNoteCategory) {
@@ -2441,16 +2441,16 @@ function formatActionAuditSummary(event: AdminActionAuditRecord) {
     return event.summary.followUpAction;
   }
   if (event.statusFrom || event.statusTo) {
-    return `Status ${event.statusFrom ?? "-"} -> ${event.statusTo ?? "-"}`;
+    return `상태 ${event.statusFrom ?? "-"} -> ${event.statusTo ?? "-"}`;
   }
-  return event.decisionMarker ?? "Assistant-approved task action";
+  return event.decisionMarker ?? "AI 어시스턴트 승인 작업";
 }
 
 async function readJson<T>(input: RequestInfo) {
   const response = await fetch(input, { cache: "no-store" });
   const json = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok || !json.data) {
-    throw new Error(json.error?.message || "Request failed");
+    throw new Error("요청에 실패했습니다. 관리자 권한과 네트워크 상태를 확인하세요.");
   }
   return json.data;
 }
@@ -2463,7 +2463,7 @@ async function writeJson<T>(input: RequestInfo, body: unknown, method = "PUT") {
   });
   const json = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok || !json.data) {
-    throw new Error(json.error?.message || "Request failed");
+    throw new Error("요청에 실패했습니다. 관리자 권한과 네트워크 상태를 확인하세요.");
   }
   return json.data;
 }

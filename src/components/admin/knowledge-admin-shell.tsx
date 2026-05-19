@@ -612,58 +612,125 @@ const scopeLabels: Record<Scope, string> = {
   project: "프로젝트 전용",
 };
 
+const cleanupStateLabels: Record<CandidateListItem["cleanupState"], string> = {
+  draft: "정리 초안",
+  approved: "정리 승인됨",
+  deferred: "정리 보류",
+};
+
 const candidateRiskFilterLabels: Record<CandidateRiskFilter, string> = {
-  all: "All risk",
-  low_confidence: "Low confidence",
-  unreviewed: "Unreviewed",
-  cleanup_approved: "Cleanup approved",
+  all: "전체 위험",
+  low_confidence: "낮은 신뢰도",
+  unreviewed: "미검토",
+  cleanup_approved: "정리 승인됨",
 };
 
 const candidateSortLabels: Record<CandidateSort, string> = {
-  newest: "Newest first",
-  low_confidence: "Low confidence first",
+  newest: "최신순",
+  low_confidence: "낮은 신뢰도 우선",
 };
 
 const evidenceSourceFilterLabels: Record<EvidenceSourceFilter, string> = {
-  all: "All evidence",
-  sourced: "Sourced",
-  unsourced: "Unsourced",
+  all: "전체 근거",
+  sourced: "출처 있음",
+  unsourced: "출처 없음",
 };
 
 const evidencePriorityFilterLabels: Record<EvidencePriorityFilter, string> = {
-  all: "All priorities",
-  high: "High priority",
-  normal: "Normal priority",
-  low: "Low priority",
+  all: "전체 우선순위",
+  high: "높은 우선순위",
+  normal: "보통 우선순위",
+  low: "낮은 우선순위",
 };
 
 const approvedSourceFilterLabels: Record<ApprovedSourceFilter, string> = {
-  all: "All source states",
-  sourced: "Has source refs",
-  unsourced: "No source refs",
+  all: "전체 출처 상태",
+  sourced: "출처 참조 있음",
+  unsourced: "출처 참조 없음",
 };
 
 const approvedSortLabels: Record<ApprovedSort, string> = {
-  newest: "Newest approved",
-  title: "Title A-Z",
-  source_count: "Most source refs",
+  newest: "최근 승인순",
+  title: "제목 가나다순",
+  source_count: "출처 참조 많은순",
 };
 
 const approvedExportFormatLabels: Record<ApprovedExportFormat, string> = {
-  json: "JSON package",
-  markdown: "Markdown package",
+  json: "JSON 패키지",
+  markdown: "Markdown 패키지",
 };
 
 const approvedExportScopeLabels: Record<ApprovedExportScope, string> = {
-  visible: "Visible items",
-  selected: "Selected item",
+  visible: "현재 보이는 항목",
+  selected: "선택한 항목",
 };
 
 const approvedSyncTargetLabels: Record<ApprovedSyncTarget, string> = {
-  portable_archive: "Portable archive",
-  obsidian: "Obsidian vault",
-  notion: "Notion import",
-  assistant_retrieval: "Assistant retrieval",
+  portable_archive: "휴대용 아카이브",
+  obsidian: "Obsidian 저장소",
+  notion: "Notion 가져오기",
+  assistant_retrieval: "AI 어시스턴트 검색 색인",
+};
+
+const approvedSyncRunStatusLabels: Record<ApprovedSyncRunStatus, string> = {
+  dry_run: "사전 실행",
+  blocked: "차단됨",
+  simulated: "시뮬레이션 완료",
+  provider_blocked: "제공자 실행 차단",
+  provider_ready: "제공자 실행 준비됨",
+};
+
+const approvedProviderExecutionStatusLabels: Record<ApprovedProviderExecution["status"], string> = {
+  executed: "실행됨",
+  preflight_recorded: "사전 점검 기록됨",
+};
+
+const approvedProviderArtifactTypeLabels: Record<ApprovedProviderExecution["artifactType"], string> = {
+  portable_archive_manifest: "휴대용 아카이브 명세",
+  obsidian_markdown_manifest: "Obsidian Markdown 명세",
+  obsidian_live_write_preflight: "Obsidian 실시간 쓰기 사전 점검",
+};
+
+const approvedProviderAdapterLabels: Record<ApprovedSyncTargetConfig["adapter"], string> = {
+  portable_archive: "휴대용 아카이브",
+  markdown_files: "Markdown 파일",
+  notion_blocks: "Notion 블록",
+  retrieval_index: "검색 색인",
+};
+
+const approvedProviderCredentialStatusLabels: Record<ApprovedSyncTargetConfig["credentialStatus"], string> = {
+  not_required: "필요 없음",
+  missing: "누락",
+  configured: "설정됨",
+};
+
+const approvedProviderCredentialSourceLabels: Record<ApprovedSyncTargetConfig["credentialSource"], string> = {
+  not_required: "필요 없음",
+  target_config: "대상 설정",
+  server_env: "서버 환경변수",
+  secret_manager: "시크릿 관리자",
+  missing: "누락",
+};
+
+const approvedProviderCredentialStoreLabels: Record<ApprovedSyncTargetConfig["credentialStore"], string> = {
+  none: "없음",
+  target_config: "대상 설정",
+  server_env: "서버 환경변수",
+  secret_manager: "시크릿 관리자",
+  missing: "누락",
+};
+
+const approvedProviderPlanStatusLabels: Record<ApprovedSyncTargetConfig["rollbackPlanStatus"], string> = {
+  not_required: "필요 없음",
+  configured: "설정됨",
+  missing: "누락",
+};
+
+const approvedProviderReconciliationIntentLabels: Record<ApprovedProviderReconciliationOperation["intent"], string> = {
+  create: "생성",
+  update: "수정",
+  delete: "삭제",
+  noop: "변경 없음",
 };
 
 const approvedSyncConfirmationText = "SYNC_APPROVED_WIKI";
@@ -671,37 +738,37 @@ const approvedProviderPreviewConfirmationText = "PREVIEW_APPROVED_WIKI_SYNC";
 const approvedProviderExecutionConfirmationText = "EXECUTE_APPROVED_WIKI_SYNC";
 const approvedSyncHistoryStorageKey = "architect.approvedWikiSyncHistory.v1";
 const providerExecutionPackageReviewNoteCategories: { value: ProviderExecutionPackageReviewNoteCategory; label: string }[] = [
-  { value: "review_note", label: "Review note" },
-  { value: "risk", label: "Risk" },
-  { value: "follow_up", label: "Follow-up" },
-  { value: "approval_context", label: "Approval context" },
+  { value: "review_note", label: "검토 메모" },
+  { value: "risk", label: "위험" },
+  { value: "follow_up", label: "후속 조치" },
+  { value: "approval_context", label: "승인 맥락" },
 ];
 const providerExecutionPackageReviewCoverageStatusLabels: Record<ProviderExecutionPackageReviewCoverageStatus, string> = {
-  reviewed: "Reviewed",
-  unreviewed: "Unreviewed",
-  stale_unreviewed: "Stale unreviewed",
+  reviewed: "검토됨",
+  unreviewed: "미검토",
+  stale_unreviewed: "오래된 미검토",
 };
 
 const regulationGovernanceStatusLabels: Record<RegulationGovernanceRefreshStatus, string> = {
-  scheduled: "Scheduled",
-  due: "Due soon",
-  overdue: "Overdue",
+  scheduled: "예정됨",
+  due: "곧 갱신 필요",
+  overdue: "기한 초과",
 };
 const regulationGovernanceSourceReviewStateOptions: { value: RegulationGovernanceSourceReviewState; label: string }[] = [
-  { value: "reviewed", label: "Reviewed" },
-  { value: "needs_follow_up", label: "Needs follow-up" },
-  { value: "blocked", label: "Blocked" },
+  { value: "reviewed", label: "검토됨" },
+  { value: "needs_follow_up", label: "후속 조치 필요" },
+  { value: "blocked", label: "차단됨" },
 ];
 const regulationGovernanceSourceReviewStateLabels: Record<RegulationGovernanceSourceReviewState, string> = {
-  reviewed: "Reviewed",
-  needs_follow_up: "Needs follow-up",
-  blocked: "Blocked",
+  reviewed: "검토됨",
+  needs_follow_up: "후속 조치 필요",
+  blocked: "차단됨",
 };
 const regulationSourceReviewCoverageLabels: Record<RegulationSourceReviewCoveragePreset, string> = {
-  all: "All source reviews",
-  reviewed: "Reviewed",
-  unreviewed: "Unreviewed",
-  stale: "Stale",
+  all: "전체 출처 검토",
+  reviewed: "검토됨",
+  unreviewed: "미검토",
+  stale: "오래됨",
 };
 
 export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellProps) {
@@ -837,11 +904,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const activeCandidateFilterChips = useMemo(() => {
     const search = candidateSearch.trim();
     return [
-      `State: ${filter === "all" ? "All" : stateLabels[filter]}`,
-      `Risk: ${candidateRiskFilterLabels[riskFilter]}`,
-      `Sort: ${candidateSortLabels[candidateSort]}`,
-      search ? `Search: ${search}` : "Search: none",
-      `Showing: ${visibleCandidates.length}/${candidates.length}`,
+      `상태: ${filter === "all" ? "전체" : stateLabels[filter]}`,
+      `리스크: ${candidateRiskFilterLabels[riskFilter]}`,
+      `정렬: ${candidateSortLabels[candidateSort]}`,
+      search ? `검색: ${search}` : "검색: 없음",
+      `표시: ${visibleCandidates.length}/${candidates.length}`,
     ];
   }, [candidateSearch, candidateSort, candidates.length, filter, riskFilter, visibleCandidates.length]);
   const candidateStateCounts = useMemo(
@@ -883,11 +950,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   );
   const draftReadiness = useMemo(
     () => [
-      { label: "Title", ready: Boolean(draft.title.trim()) },
-      { label: "Summary", ready: Boolean(draft.summary.trim()) },
-      { label: "Body", ready: Boolean(draft.bodyMarkdown.trim()) },
-      { label: "Tags", ready: draftTags.length > 0 },
-      { label: "Evidence", ready: Boolean(detail?.evidence.length) },
+      { label: "제목", ready: Boolean(draft.title.trim()) },
+      { label: "요약", ready: Boolean(draft.summary.trim()) },
+      { label: "본문", ready: Boolean(draft.bodyMarkdown.trim()) },
+      { label: "태그", ready: draftTags.length > 0 },
+      { label: "근거", ready: Boolean(detail?.evidence.length) },
     ],
     [detail?.evidence.length, draft.bodyMarkdown, draft.summary, draft.title, draftTags.length],
   );
@@ -897,12 +964,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
 
     return [
-      { label: "Title", dirty: draft.title !== originalDraft.title },
-      { label: "Summary", dirty: draft.summary !== originalDraft.summary },
-      { label: "Body", dirty: draft.bodyMarkdown !== originalDraft.bodyMarkdown },
-      { label: "Tags", dirty: draftTags.join("|") !== splitTags(originalDraft.tagsText).join("|") },
-      { label: "Scope", dirty: draft.scope !== originalDraft.scope },
-      { label: "Rejection reason", dirty: draft.rejectionReason.trim() !== originalDraft.rejectionReason.trim() },
+      { label: "제목", dirty: draft.title !== originalDraft.title },
+      { label: "요약", dirty: draft.summary !== originalDraft.summary },
+      { label: "본문", dirty: draft.bodyMarkdown !== originalDraft.bodyMarkdown },
+      { label: "태그", dirty: draftTags.join("|") !== splitTags(originalDraft.tagsText).join("|") },
+      { label: "범위", dirty: draft.scope !== originalDraft.scope },
+      { label: "반려 사유", dirty: draft.rejectionReason.trim() !== originalDraft.rejectionReason.trim() },
     ];
   }, [draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.title, draftTags, originalDraft]);
   const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
@@ -958,9 +1025,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const activeEvidenceFilterChips = useMemo(() => {
     const total = detail?.evidence.length ?? 0;
     return [
-      `Source: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
-      `Priority: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
-      `Visible: ${visibleEvidence.length}/${total}`,
+      `출처: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
+      `우선순위: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
+      `표시: ${visibleEvidence.length}/${total}`,
     ];
   }, [detail?.evidence.length, evidencePriorityFilter, evidenceSourceFilter, visibleEvidence.length]);
   const visibleEvidenceSummary = useMemo(() => {
@@ -1058,8 +1125,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => readChecklistStatus(
       approvalPackageQualityReadyCount,
       approvalPackageQuality.length,
-      "Package quality complete",
-      "Package quality review needed",
+      "패키지 품질 완료",
+      "패키지 품질 검토 필요",
     ),
     [approvalPackageQuality.length, approvalPackageQualityReadyCount],
   );
@@ -1094,8 +1161,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     () => readChecklistStatus(
       finalReviewReadyCount,
       finalReviewChecklist.length,
-      "Final closeout ready",
-      "Final closeout needs review",
+      "최종 검토 마감 준비됨",
+      "최종 검토 마감 검토 필요",
     ),
     [finalReviewChecklist.length, finalReviewReadyCount],
   );
@@ -1177,12 +1244,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const activeApprovedFilterChips = useMemo(() => {
     const search = approvedSearch.trim();
     return [
-      `Scope: ${approvedScopeFilter === "all" ? "All scopes" : scopeLabels[approvedScopeFilter]}`,
-      `Tag: ${approvedTagFilter}`,
-      `Source: ${approvedSourceFilterLabels[approvedSourceFilter]}`,
-      `Sort: ${approvedSortLabels[approvedSort]}`,
-      search ? `Search: ${search}` : "Search: none",
-      `Showing: ${visibleApprovedItems.length}/${approvedItems.length}`,
+      `범위: ${approvedScopeFilter === "all" ? "전체 범위" : scopeLabels[approvedScopeFilter]}`,
+      `태그: ${approvedTagFilter === "all" ? "전체" : approvedTagFilter}`,
+      `출처: ${approvedSourceFilterLabels[approvedSourceFilter]}`,
+      `정렬: ${approvedSortLabels[approvedSort]}`,
+      search ? `검색: ${search}` : "검색: 없음",
+      `표시: ${visibleApprovedItems.length}/${approvedItems.length}`,
     ];
   }, [
     approvedItems.length,
@@ -1244,40 +1311,40 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     );
     return [
       {
-        label: "Manifest validation",
+        label: "명세 검증",
         detail: regulationGovernance.valid
-          ? "Seed package and governance manifest pass the offline validator."
-          : `${regulationGovernance.errors.length} blocking issue(s) require review.`,
+          ? "시드 패키지와 거버넌스 명세가 오프라인 검증을 통과했습니다."
+          : `차단 이슈 ${regulationGovernance.errors.length}개를 검토해야 합니다.`,
         ready: regulationGovernance.valid,
       },
       {
-        label: "Production import gate",
+        label: "프로덕션 가져오기 게이트",
         detail: regulationGovernance.productionImport.enabled
-          ? "Production import is enabled for this package."
-          : regulationGovernance.productionImport.blockedReason ?? "Production import is blocked until review context is recorded.",
+          ? "이 패키지는 프로덕션 가져오기가 활성화되어 있습니다."
+          : regulationGovernance.productionImport.blockedReason ?? "검토 맥락이 기록될 때까지 프로덕션 가져오기가 차단됩니다.",
         ready: !regulationGovernance.productionImport.enabled && Boolean(regulationGovernance.productionImport.blockedReason),
       },
       {
-        label: "Refresh schedule",
-        detail: `${regulationGovernance.statusCounts.overdue} overdue / ${regulationGovernance.statusCounts.due} due soon / ${regulationGovernance.statusCounts.scheduled} scheduled source(s).`,
+        label: "갱신 일정",
+        detail: `기한 초과 ${regulationGovernance.statusCounts.overdue}개 / 곧 갱신 필요 ${regulationGovernance.statusCounts.due}개 / 예정된 출처 ${regulationGovernance.statusCounts.scheduled}개.`,
         ready: regulationGovernance.statusCounts.overdue === 0,
       },
       {
-        label: "Verification checklist",
-        detail: `${checklistCount} checklist item(s) are attached across ${regulationGovernance.sourceCount} official source(s).`,
+        label: "검증 체크리스트",
+        detail: `공식 출처 ${regulationGovernance.sourceCount}개에 체크리스트 ${checklistCount}개가 연결되어 있습니다.`,
         ready: checklistCount >= regulationGovernance.sourceCount,
       },
       {
-        label: "Source review coverage",
-        detail: `${regulationGovernance.sourceReviewSummary.reviewedSourceCount}/${regulationGovernance.sourceCount} source(s) reviewed; ${regulationGovernance.sourceReviewSummary.followUpSourceCount} need follow-up and ${regulationGovernance.sourceReviewSummary.blockedSourceCount} are blocked.`,
+        label: "출처 검토 커버리지",
+        detail: `출처 ${regulationGovernance.sourceReviewSummary.reviewedSourceCount}/${regulationGovernance.sourceCount}개 검토됨; 후속 조치 ${regulationGovernance.sourceReviewSummary.followUpSourceCount}개, 차단 ${regulationGovernance.sourceReviewSummary.blockedSourceCount}개.`,
         ready: regulationGovernance.sourceReviewSummary.reviewedSourceCount === regulationGovernance.sourceCount &&
           regulationGovernance.sourceReviewSummary.blockedSourceCount === 0,
       },
       {
-        label: "Reviewer acknowledgement",
+        label: "검토자 확인",
         detail: regulationGovernance.acknowledgementSummary.latestAcknowledgedAt
-          ? `Latest acknowledgement ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)} by ${regulationGovernance.acknowledgementSummary.latestReviewerId ?? "unknown reviewer"}.`
-          : "No persisted governance acknowledgement has been recorded for this package.",
+          ? `최신 확인: ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)} / ${regulationGovernance.acknowledgementSummary.latestReviewerId ?? "알 수 없는 검토자"}.`
+          : "이 패키지에 저장된 거버넌스 확인이 없습니다.",
         ready: Boolean(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt),
       },
     ];
@@ -1340,20 +1407,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     return [
       {
         key: "stale",
-        title: "Stale review queue",
-        description: "Unreviewed packages older than the active stale threshold.",
+        title: "오래된 검토 큐",
+        description: "현재 오래됨 기준을 넘긴 미검토 패키지입니다.",
         rows: coverage.filter((item) => item.coverageStatus === "stale_unreviewed"),
       },
       {
         key: "unreviewed",
-        title: "Unreviewed queue",
-        description: "Packages that still need a matching review note.",
+        title: "미검토 큐",
+        description: "아직 연결된 검토 메모가 필요한 패키지입니다.",
         rows: coverage.filter((item) => item.coverageStatus === "unreviewed"),
       },
       {
         key: "reviewed",
-        title: "Reviewed queue",
-        description: "Packages with retained review notes in the active scope.",
+        title: "검토 완료 큐",
+        description: "현재 범위에 보존된 검토 메모가 있는 패키지입니다.",
         rows: coverage.filter((item) => item.coverageStatus === "reviewed"),
       },
     ];
@@ -1361,30 +1428,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   const providerExecutionPackageCoverageDominantQueueChip = useMemo(() => {
     const [dominantGroup] = [...providerExecutionPackageReviewCoverageGroups].sort((first, second) => second.rows.length - first.rows.length);
     if (!dominantGroup || dominantGroup.rows.length === 0) {
-      return "Dominant queue none";
+      return "주요 큐 없음";
     }
-    return `Dominant queue ${dominantGroup.title} (${dominantGroup.rows.length})`;
+    return `주요 큐 ${dominantGroup.title} (${dominantGroup.rows.length})`;
   }, [providerExecutionPackageReviewCoverageGroups]);
   const providerExecutionPackageCoverageEmptyQueueChip = useMemo(() => {
     const emptyQueueCount = providerExecutionPackageReviewCoverageGroups.filter((group) => group.rows.length === 0).length;
-    return `Empty queues ${emptyQueueCount}/${providerExecutionPackageReviewCoverageGroups.length}`;
+    return `빈 큐 ${emptyQueueCount}/${providerExecutionPackageReviewCoverageGroups.length}`;
   }, [providerExecutionPackageReviewCoverageGroups]);
   const providerExecutionPackageCoverageReviewNeededChip = useMemo(() => {
     const totals = approvedProviderExecutionReviewReport?.summary.coverageGroupTotals;
     if (!totals) {
-      return "Needs review unavailable";
+      return "검토 필요 정보 없음";
     }
-    return `Needs review ${totals.unreviewedCount}`;
+    return `검토 필요 ${totals.unreviewedCount}`;
   }, [approvedProviderExecutionReviewReport]);
   const providerExecutionPackageCoverageStalePriorityChip = useMemo(() => {
     const report = approvedProviderExecutionReviewReport;
     if (!report) {
-      return "Priority stale unavailable";
+      return "오래됨 우선순위 정보 없음";
     }
     const staleCount = report.summary.coverageGroupTotals.staleUnreviewedCount;
     return staleCount > 0
-      ? `Priority stale ${staleCount} over ${report.filters.staleDays}d`
-      : `Priority no stale packages over ${report.filters.staleDays}d`;
+      ? `오래됨 우선 ${staleCount}개 / ${report.filters.staleDays}일 초과`
+      : `${report.filters.staleDays}일 초과 오래된 패키지 없음`;
   }, [approvedProviderExecutionReviewReport]);
   const providerExecutionPackageReviewActiveFilterLabels = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
@@ -1392,30 +1459,30 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     const { filters } = approvedProviderExecutionReviewReport;
     return [
-      `review ${filters.coveragePreset}`,
-      filters.packageDigest ? `digest ${filters.packageDigest.slice(0, 12)}` : null,
-      filters.reviewerId ? `reviewer ${filters.reviewerId}` : null,
-      filters.category !== "all" ? `note type ${getProviderExecutionPackageReviewNoteCategoryLabel(filters.category)}` : null,
-      filters.executionId ? `execution ${filters.executionId}` : null,
-      `stale ${filters.staleDays} day(s)`,
+      `검토 ${providerExecutionPackageReviewCoverageStatusLabels[filters.coveragePreset as ProviderExecutionPackageReviewCoverageStatus] ?? "모두"}`,
+      filters.packageDigest ? `패키지 해시 ${filters.packageDigest.slice(0, 12)}` : null,
+      filters.reviewerId ? `검토자 ${filters.reviewerId}` : null,
+      filters.category !== "all" ? `메모 유형 ${getProviderExecutionPackageReviewNoteCategoryLabel(filters.category)}` : null,
+      filters.executionId ? `실행 ${filters.executionId}` : null,
+      `오래됨 기준 ${filters.staleDays}일`,
     ].filter((label): label is string => Boolean(label));
   }, [approvedProviderExecutionReviewReport]);
   const providerExecutionPackageCoverageGroupSummary = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
-      return "Provider execution package review report is not loaded.";
+      return "제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.";
     }
     const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
     return [
-      "# Provider execution package coverage group summary",
-      `- Filters: ${providerExecutionPackageReviewActiveFilterLabels.join(", ")}`,
-      `- Visible packages: ${totals.totalCount}`,
-      `- Reviewed packages: ${totals.reviewedCount}`,
-      `- Unreviewed packages: ${totals.unreviewedCount}`,
-      `- Stale unreviewed packages: ${totals.staleUnreviewedCount}`,
-      `- Visible review notes: ${totals.noteCount}`,
+      "# 제공자 실행 패키지 검토 범위 그룹 요약",
+      `- 필터: ${providerExecutionPackageReviewActiveFilterLabels.join(", ")}`,
+      `- 표시 패키지: ${totals.totalCount}`,
+      `- 검토 완료 패키지: ${totals.reviewedCount}`,
+      `- 미검토 패키지: ${totals.unreviewedCount}`,
+      `- 오래된 미검토 패키지: ${totals.staleUnreviewedCount}`,
+      `- 표시 검토 메모: ${totals.noteCount}`,
       "",
-      "## Groups",
-      ...providerExecutionPackageReviewCoverageGroups.map((group) => `- ${group.title}: ${group.rows.length} package(s)`),
+      "## 그룹",
+      ...providerExecutionPackageReviewCoverageGroups.map((group) => `- ${group.title}: ${group.rows.length}개 패키지`),
     ].join("\n");
   }, [
     approvedProviderExecutionReviewReport,
@@ -1424,50 +1491,50 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   ]);
   const providerExecutionPackageCoverageGroupSummarySizeChips = useMemo(
     () => [
-      `Summary lines ${providerExecutionPackageCoverageGroupSummary.split("\n").length}`,
-      `Summary chars ${providerExecutionPackageCoverageGroupSummary.length}`,
+      `요약 줄 ${providerExecutionPackageCoverageGroupSummary.split("\n").length}`,
+      `요약 글자 ${providerExecutionPackageCoverageGroupSummary.length}`,
     ],
     [providerExecutionPackageCoverageGroupSummary],
   );
   const providerExecutionPackageCoverageGroupSummaryNextDownloadFilename = useMemo(
     () => approvedProviderExecutionReviewReport
       ? createProviderExecutionPackageCoverageSummaryFilename(approvedProviderExecutionReviewReport.generatedAt)
-      : "Next filename unavailable",
+      : "다음 파일명 없음",
     [approvedProviderExecutionReviewReport],
   );
   const providerExecutionPackageCoverageGroupSummaryResetConfirmation = approvedProviderExecutionCoverageSummaryResetAt
-    ? `Last local reset ${approvedProviderExecutionCoverageSummaryResetAt}`
-    : "Local reset not run";
+    ? `마지막 로컬 초기화 ${approvedProviderExecutionCoverageSummaryResetAt}`
+    : "로컬 초기화 전";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationTitle = approvedProviderExecutionCoverageSummaryResetAt
-    ? `Last local reset was recorded at ${approvedProviderExecutionCoverageSummaryResetAt}. Reset summary status replaces this browser-only timestamp.`
-    : "Local reset has not run in this browser session.";
+    ? `마지막 로컬 초기화가 ${approvedProviderExecutionCoverageSummaryResetAt}에 기록됐습니다. 요약 상태 초기화는 이 브라우저 전용 시각을 갱신합니다.`
+    : "이 브라우저 세션에서는 아직 로컬 초기화를 실행하지 않았습니다.";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopiedAtTitle =
     approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
-      ? `Reset confirmation was copied locally at ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}. Reset summary status clears this browser-only copied-at indicator.`
-      : "Reset confirmation copied-at is pending until Copy reset confirmation succeeds locally.";
+      ? `초기화 확인 문구가 ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}에 로컬로 복사됐습니다. 요약 상태 초기화는 이 브라우저 전용 복사 시각을 지웁니다.`
+      : "초기화 확인 문구 복사가 로컬에서 성공할 때까지 복사 시각은 대기 상태입니다.";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyStatusTitle =
     approvedProviderExecutionCoverageSummaryCopiedResetConfirmation
-      ? "Reset confirmation text was copied locally for handoff. Reset summary status clears this browser-only copy status."
-      : "Reset confirmation copy status is pending until Copy reset confirmation succeeds locally.";
+      ? "초기화 확인 문구가 전달 자료용으로 로컬 복사됐습니다. 요약 상태 초기화는 이 브라우저 전용 복사 상태를 지웁니다."
+      : "초기화 확인 문구 복사가 로컬에서 성공할 때까지 복사 상태는 대기 중입니다.";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyFreshness =
     !approvedProviderExecutionCoverageSummaryResetAt
-      ? "Reset confirmation copy freshness pending"
+      ? "초기화 확인 문구 복사 최신성 대기"
       : approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
-        ? "Reset confirmation copy current"
-        : "Reset confirmation copy refresh needed";
+        ? "초기화 확인 문구 복사 최신"
+        : "초기화 확인 문구 다시 복사 필요";
   const providerExecutionPackageCoverageGroupSummaryResetConfirmationFreshnessTitle =
-    "Pending before reset; refresh needed after reset until the latest reset confirmation is copied; current after Copy reset confirmation.";
+    "초기화 전에는 대기 상태입니다. 초기화 후 최신 확인 문구를 복사해야 최신 상태가 됩니다.";
   const providerExecutionPackageCoverageSummaryCountChips = useMemo(() => {
     if (!approvedProviderExecutionReviewReport) {
       return [];
     }
     const totals = approvedProviderExecutionReviewReport.summary.coverageGroupTotals;
     return [
-      `Visible ${totals.totalCount}`,
-      `Reviewed ${totals.reviewedCount}`,
-      `Unreviewed ${totals.unreviewedCount}`,
-      `Stale ${totals.staleUnreviewedCount}`,
-      `Notes ${totals.noteCount}`,
+      `표시 ${totals.totalCount}`,
+      `검토됨 ${totals.reviewedCount}`,
+      `미검토 ${totals.unreviewedCount}`,
+      `오래됨 ${totals.staleUnreviewedCount}`,
+      `메모 ${totals.noteCount}`,
     ];
   }, [approvedProviderExecutionReviewReport]);
   const hasCustomCandidateFilters =
@@ -1519,7 +1586,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Approved WIKI sync history could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "승인된 WIKI 동기화 이력을 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1540,7 +1607,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Approved WIKI sync target config could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "승인된 WIKI 동기화 대상 설정을 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1562,7 +1629,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Regulation governance report could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "규정 거버넌스 리포트를 불러오지 못했습니다.");
       })
       .finally(() => {
         if (active) {
@@ -1590,7 +1657,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Regulation source-review coverage could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "규정 출처 검토 범위를 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1611,7 +1678,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "File-analysis chunk debug report could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "파일 분석 청크 디버그 리포트를 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1636,7 +1703,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Knowledge operational reports could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "지식 운영 리포트를 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1660,7 +1727,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Provider execution package history could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "제공자 실행 패키지 이력을 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1683,7 +1750,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         if (!active) {
           return;
         }
-        setStatus(error instanceof Error ? error.message : "Provider execution package review report could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1729,7 +1796,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           return;
         }
         setApprovedItemsLoaded(true);
-        setStatus(error instanceof Error ? error.message : "Approved WIKI items could not be loaded.");
+        setStatus(error instanceof Error ? error.message : "승인된 WIKI 항목을 불러오지 못했습니다.");
       });
 
     return () => {
@@ -1795,7 +1862,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       }
     } catch (error) {
       setApprovedItemsLoaded(true);
-      setStatus(error instanceof Error ? error.message : "Approved WIKI items could not be loaded.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 항목을 불러오지 못했습니다.");
     }
   }
 
@@ -1805,9 +1872,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       const data = await readJson<RegulationGovernanceReport>("/api/admin/knowledge/regulation-governance");
       setRegulationGovernance(data);
       await refreshRegulationSourceReviewCoverage();
-      setStatus(`Regulation governance loaded: ${data.sourceCount} source(s), ${data.statusCounts.overdue} overdue.`);
+      setStatus(`규정 거버넌스를 불러왔습니다: 출처 ${data.sourceCount}개, 기한 초과 ${data.statusCounts.overdue}개.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Regulation governance report could not be loaded.");
+      setStatus(error instanceof Error ? error.message : "규정 거버넌스 리포트를 불러오지 못했습니다.");
     } finally {
       setRegulationGovernanceLoading(false);
     }
@@ -1824,9 +1891,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       const data = await readJson<FileAnalysisChunkDebugReport>(`/api/admin/knowledge/file-analysis-chunks?${fileChunkDebugQueryString}`);
       setFileChunkDebug(data);
-      setStatus(`File-analysis chunks loaded: ${data.database.totalChunks} chunk(s), ${data.database.missingEmbeddings} missing embedding(s).`);
+      setStatus(`파일 분석 청크를 불러왔습니다: 청크 ${data.database.totalChunks}개, 임베딩 누락 ${data.database.missingEmbeddings}개.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "File-analysis chunk debug report could not be loaded.");
+      setStatus(error instanceof Error ? error.message : "파일 분석 청크 디버그 리포트를 불러오지 못했습니다.");
     }
   }
 
@@ -1834,33 +1901,33 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       const data = await readJson<KnowledgeExternalSyncWorkerReport>("/api/admin/knowledge/sync-worker");
       setKnowledgeSyncWorker(data);
-      setStatus(`Knowledge sync worker loaded: ${data.queue.pendingProviderReadyAudits} pending provider-ready audit(s).`);
+      setStatus(`지식 동기화 worker를 불러왔습니다: 제공자 실행 가능 audit ${data.queue.pendingProviderReadyAudits}개 대기 중.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Knowledge sync worker report could not be loaded.");
+      setStatus(error instanceof Error ? error.message : "지식 동기화 worker 리포트를 불러오지 못했습니다.");
     }
   }
 
   async function copyRegulationGovernanceReport() {
     if (!regulationGovernance) {
-      setStatus("Regulation governance report is not loaded.");
+      setStatus("규정 거버넌스 리포트를 아직 불러오지 못했습니다.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(createRegulationGovernanceReport(regulationGovernance));
-      setStatus("Regulation governance report copied.");
+      setStatus("규정 거버넌스 리포트를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the regulation governance panel manually.");
+      setStatus("클립보드 복사에 실패했습니다. 규정 거버넌스 패널을 직접 확인하세요.");
     }
   }
 
   async function saveRegulationGovernanceAcknowledgement() {
     if (!regulationGovernance) {
-      setStatus("Regulation governance report is not loaded.");
+      setStatus("규정 거버넌스 리포트를 아직 불러오지 못했습니다.");
       return;
     }
     if (!regulationGovernanceAcknowledgementNote.trim()) {
-      setStatus("Regulation governance acknowledgement note is required.");
+      setStatus("규정 거버넌스 확인 메모가 필요합니다.");
       return;
     }
 
@@ -1874,9 +1941,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setRegulationGovernance(data);
       await refreshRegulationSourceReviewCoverage();
       setRegulationGovernanceAcknowledgementNote("");
-      setStatus(`Regulation governance acknowledgement saved for ${data.packageId}.`);
+      setStatus(`${data.packageId} 규정 거버넌스 확인 메모를 저장했습니다.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Regulation governance acknowledgement could not be saved.");
+      setStatus(error instanceof Error ? error.message : "규정 거버넌스 확인 메모를 저장하지 못했습니다.");
     } finally {
       setRegulationGovernanceAcknowledgementSaving(false);
     }
@@ -1884,12 +1951,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
   async function saveRegulationGovernanceSourceReview(sourceId: string) {
     if (!regulationGovernance) {
-      setStatus("Regulation governance report is not loaded.");
+      setStatus("규정 거버넌스 리포트를 아직 불러오지 못했습니다.");
       return;
     }
     const note = regulationGovernanceSourceReviewNotes[sourceId]?.trim() ?? "";
     if (!note) {
-      setStatus("Regulation governance source review note is required.");
+      setStatus("규정 거버넌스 출처 검토 메모가 필요합니다.");
       return;
     }
 
@@ -1910,9 +1977,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         ...current,
         [sourceId]: "",
       }));
-      setStatus(`Regulation governance source review saved for ${sourceId}.`);
+      setStatus(`${sourceId} 출처 검토를 저장했습니다.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Regulation governance source review could not be saved.");
+      setStatus(error instanceof Error ? error.message : "규정 거버넌스 출처 검토를 저장하지 못했습니다.");
     } finally {
       setRegulationGovernanceSourceReviewSaving("");
     }
@@ -1924,7 +1991,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
 
     setDraft(createDraftFromDetail(detail));
-    setStatus("Draft restored from selected candidate.");
+    setStatus("선택한 후보에서 초안을 복원했습니다.");
   }
 
   function applyRejectionReasonPreset(preset: RejectionReasonPreset) {
@@ -1932,20 +1999,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       ...current,
       rejectionReason: preset.reason,
     }));
-    setStatus(`Rejection reason preset applied: ${preset.label}`);
+    setStatus(`반려 사유 프리셋을 적용했습니다: ${preset.label}`);
   }
 
   async function copyDraftMarkdown() {
     if (!draft.bodyMarkdown.trim()) {
-      setStatus("No Markdown body to copy.");
+      setStatus("복사할 Markdown 본문이 없습니다.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(draft.bodyMarkdown);
-      setStatus("Markdown draft copied.");
+      setStatus("Markdown 초안을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Select the Markdown body manually.");
+      setStatus("클립보드 복사에 실패했습니다. Markdown 본문을 직접 선택하세요.");
     }
   }
 
@@ -1956,9 +2023,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     try {
       await navigator.clipboard.writeText(createSourceHandoff(detail, draft, evidenceKindCounts));
-      setStatus("Source handoff copied.");
+      setStatus("출처 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Use the source chips to assemble the handoff manually.");
+      setStatus("클립보드 복사에 실패했습니다. 출처 칩을 보고 전달 자료를 직접 구성하세요.");
     }
   }
 
@@ -1971,9 +2038,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       await navigator.clipboard.writeText(
         createApprovalChecklist(detail, draftReadiness, approvalGuardrails, evidenceKindCounts),
       );
-      setStatus("Approval checklist copied.");
+      setStatus("승인 체크리스트를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the guardrails manually.");
+      setStatus("클립보드 복사에 실패했습니다. guardrail을 직접 확인하세요.");
     }
   }
 
@@ -1985,27 +2052,27 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge approval risk summary",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Warning groups: ${approvalRiskWarningGroupCount}/${approvalRiskGroups.length}`,
-          `- Warnings: ${guardrailWarningCount}`,
+          "# 지식 승인 리스크 요약",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 경고 그룹: ${approvalRiskWarningGroupCount}/${approvalRiskGroups.length}`,
+          `- 경고: ${guardrailWarningCount}`,
           "",
           ...approvalRiskGroups.flatMap((group) => [
             `## ${group.label}`,
-            `- Warnings: ${group.warningCount}`,
-            `- Ready: ${group.readyCount}`,
+            `- 경고: ${group.warningCount}`,
+            `- 준비됨: ${group.readyCount}`,
             ...group.items
               .filter((item) => item.tone === "warning")
               .map((item) => `- ${item.label}: ${item.detail}`),
-            group.warningCount ? "" : "- No warnings",
+            group.warningCount ? "" : "- 경고 없음",
             "",
           ]),
         ].join("\n"),
       );
-      setStatus("Approval risk summary copied.");
+      setStatus("승인 리스크 요약을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approval risk summary manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인 리스크 요약을 직접 확인하세요.");
     }
   }
 
@@ -2015,39 +2082,39 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
 
     const activeLabel = approvalRiskFilter === "all"
-      ? "All risk groups"
+      ? "전체 리스크 그룹"
       : approvalRiskGroups.find((group) => group.key === approvalRiskFilter)?.label ?? approvalRiskFilter;
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge approval risk filter handoff",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Active risk group: ${activeLabel}`,
-          `- Showing: ${visibleApprovalRiskGroups.length}/${approvalRiskGroups.length}`,
+          "# 지식 승인 리스크 필터 전달 자료",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 활성 리스크 그룹: ${activeLabel}`,
+          `- 표시: ${visibleApprovalRiskGroups.length}/${approvalRiskGroups.length}`,
           "",
           ...visibleApprovalRiskGroups.flatMap((group) => [
             `## ${group.label}`,
-            `- Warnings: ${group.warningCount}`,
-            `- Ready: ${group.readyCount}`,
+            `- 경고: ${group.warningCount}`,
+            `- 준비됨: ${group.readyCount}`,
             ...(
               group.warningCount
                 ? group.items
                   .filter((item) => item.tone === "warning")
-                  .map((item) => `- Warning: ${item.label} - ${item.detail}`)
-                : [`- No ${group.label.toLowerCase()} warnings in the current draft.`]
+                  .map((item) => `- 경고: ${item.label} - ${item.detail}`)
+                : [`- 현재 초안에는 ${group.label} 경고가 없습니다.`]
             ),
             ...group.items
               .filter((item) => item.tone === "ready")
               .slice(0, 4)
-              .map((item) => `- Ready: ${item.label}`),
+              .map((item) => `- 준비됨: ${item.label}`),
             "",
           ]),
         ].join("\n"),
       );
-      setStatus("Approval risk filter handoff copied.");
+      setStatus("승인 리스크 필터 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the active risk filter chips manually.");
+      setStatus("클립보드 복사에 실패했습니다. 활성 리스크 필터 칩을 직접 확인하세요.");
     }
   }
 
@@ -2068,9 +2135,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           reviewStatus,
         ),
       );
-      setStatus("Approval decision note copied.");
+      setStatus("승인 결정 메모를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approval decision context manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인 결정 맥락을 직접 확인하세요.");
     }
   }
 
@@ -2081,24 +2148,24 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     const reason = draft.rejectionReason.trim();
     if (!reason) {
-      setStatus("No rejection reason to copy.");
+      setStatus("복사할 반려 사유가 없습니다.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge rejection reason",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Review status: ${reviewStatus.label}`,
+          "# 지식 반려 사유",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 검토 상태: ${reviewStatus.label}`,
           "",
           reason,
         ].join("\n"),
       );
-      setStatus("Rejection reason copied.");
+      setStatus("반려 사유를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the rejection reason manually.");
+      setStatus("클립보드 복사에 실패했습니다. 반려 사유를 직접 확인하세요.");
     }
   }
 
@@ -2109,9 +2176,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     try {
       await navigator.clipboard.writeText(createApprovalBlockerHandoff(detail, approvalGuardrails, approvalRiskGroups));
-      setStatus("Approval blockers copied.");
+      setStatus("승인 차단 조건을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approval submit guardrails manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인 제출 guardrail을 직접 확인하세요.");
     }
   }
 
@@ -2132,9 +2199,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           reviewStatus,
         ),
       );
-      setStatus("Approval package copied.");
+      setStatus("승인 패키지를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approval package context manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인 패키지 맥락을 직접 확인하세요.");
     }
   }
 
@@ -2147,9 +2214,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       await navigator.clipboard.writeText(
         createApprovalPackageQualityReport(detail, approvalPackageQuality, approvalPackageQualityStatus),
       );
-      setStatus("Approval package quality copied.");
+      setStatus("승인 패키지 품질을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the package quality checks manually.");
+      setStatus("클립보드 복사에 실패했습니다. 패키지 품질 점검을 직접 확인하세요.");
     }
   }
 
@@ -2169,9 +2236,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           finalReviewNextAction,
         ),
       );
-      setStatus("Final review closeout copied.");
+      setStatus("최종 검토 마감을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the final closeout checks manually.");
+      setStatus("클립보드 복사에 실패했습니다. 최종 검토 마감 점검을 직접 확인하세요.");
     }
   }
 
@@ -2179,18 +2246,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge candidate queue handoff",
-          `- State: ${filter === "all" ? "All" : stateLabels[filter]}`,
-          `- Risk: ${candidateRiskFilterLabels[riskFilter]}`,
-          `- Sort: ${candidateSortLabels[candidateSort]}`,
-          `- Search: ${candidateSearch.trim() || "none"}`,
-          `- Showing: ${visibleCandidates.length}/${candidates.length}`,
-          `- Selected: ${selectedCandidate ? `${selectedCandidate.title} (${selectedCandidate.id})` : "none"}`,
+          "# 지식 후보 큐 전달 자료",
+          `- 상태: ${filter === "all" ? "전체" : stateLabels[filter]}`,
+          `- 리스크: ${candidateRiskFilterLabels[riskFilter]}`,
+          `- 정렬: ${candidateSortLabels[candidateSort]}`,
+          `- 검색: ${candidateSearch.trim() || "없음"}`,
+          `- 표시: ${visibleCandidates.length}/${candidates.length}`,
+          `- 선택: ${selectedCandidate ? `${selectedCandidate.title} (${selectedCandidate.id})` : "없음"}`,
         ].join("\n"),
       );
-      setStatus("Candidate filter handoff copied.");
+      setStatus("후보 필터 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the active filter chips manually.");
+      setStatus("클립보드 복사에 실패했습니다. 활성 필터 칩을 직접 확인하세요.");
     }
   }
 
@@ -2202,20 +2269,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge evidence filter handoff",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Source filter: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
-          `- Priority filter: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
-          `- Visible evidence: ${visibleEvidence.length}/${detail.evidence.length}`,
+          "# 지식 근거 필터 전달 자료",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 출처 필터: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
+          `- 우선순위 필터: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
+          `- 표시된 근거: ${visibleEvidence.length}/${detail.evidence.length}`,
           "",
-          "Visible evidence",
-          ...visibleEvidence.map((item) => `- ${item.title} (${item.kind}, ${readEvidencePriorityTier(item.priority)}, priority ${item.priority})`),
+          "표시된 근거",
+          ...visibleEvidence.map((item) => `- ${item.title} (${item.kind}, ${readEvidencePriorityTier(item.priority)}, 우선순위 ${item.priority})`),
         ].join("\n"),
       );
-      setStatus("Evidence filter handoff copied.");
+      setStatus("근거 필터 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the evidence filter chips manually.");
+      setStatus("클립보드 복사에 실패했습니다. 근거 필터 칩을 직접 확인하세요.");
     }
   }
 
@@ -2228,18 +2295,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge dirty draft summary",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Changed fields: ${changedFields.length}/${draftDirtyStates.length}`,
-          `- Fields: ${changedFields.join(", ") || "none"}`,
-          `- Scope: ${scopeLabels[draft.scope]}`,
-          `- Tags: ${draftTags.join(", ") || "none"}`,
+          "# 지식 초안 변경 요약",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 변경된 필드: ${changedFields.length}/${draftDirtyStates.length}`,
+          `- 필드: ${changedFields.join(", ") || "없음"}`,
+          `- 범위: ${scopeLabels[draft.scope]}`,
+          `- 태그: ${draftTags.join(", ") || "없음"}`,
         ].join("\n"),
       );
-      setStatus("Dirty draft summary copied.");
+      setStatus("초안 변경 요약을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the dirty-state indicators manually.");
+      setStatus("클립보드 복사에 실패했습니다. 변경 상태 표시를 직접 확인하세요.");
     }
   }
 
@@ -2251,21 +2318,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge Markdown outline",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Headings: ${markdownOutline.length}`,
+          "# 지식 Markdown 개요",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 제목: ${markdownOutline.length}`,
           "",
           ...(
             markdownOutline.length
               ? markdownOutline.map((heading) => `- H${heading.level} L${heading.line}: ${heading.text}`)
-              : ["- No Markdown headings"]
+              : ["- Markdown 제목 없음"]
           ),
         ].join("\n"),
       );
-      setStatus("Markdown outline copied.");
+      setStatus("Markdown 개요를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the Markdown outline manually.");
+      setStatus("클립보드 복사에 실패했습니다. Markdown 개요를 직접 확인하세요.");
     }
   }
 
@@ -2277,18 +2344,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge Markdown structure summary",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Headings: ${markdownStructureSummary.headings}`,
-          `- Paragraphs: ${markdownStructureSummary.paragraphs}`,
-          `- List items: ${markdownStructureSummary.listItems}`,
-          `- Non-empty lines: ${markdownStructureSummary.lines}`,
+          "# 지식 Markdown 구조 요약",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 제목: ${markdownStructureSummary.headings}`,
+          `- 문단: ${markdownStructureSummary.paragraphs}`,
+          `- 목록 항목: ${markdownStructureSummary.listItems}`,
+          `- 비어 있지 않은 줄: ${markdownStructureSummary.lines}`,
         ].join("\n"),
       );
-      setStatus("Markdown structure summary copied.");
+      setStatus("Markdown 구조 요약을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the Markdown structure summary manually.");
+      setStatus("클립보드 복사에 실패했습니다. Markdown 구조 요약을 직접 확인하세요.");
     }
   }
 
@@ -2300,21 +2367,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge Markdown WIKI links",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- WIKI links: ${markdownWikiLinks.length}`,
+          "# 지식 Markdown WIKI 링크",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- WIKI 링크: ${markdownWikiLinks.length}`,
           "",
           ...(
             markdownWikiLinks.length
-              ? markdownWikiLinks.map((link) => `- L${link.line}: [[${link.target}]]${link.label !== link.target ? ` as ${link.label}` : ""}`)
-              : ["- No Markdown WIKI links"]
+              ? markdownWikiLinks.map((link) => `- L${link.line}: [[${link.target}]]${link.label !== link.target ? ` 표시명 ${link.label}` : ""}`)
+              : ["- Markdown WIKI 링크 없음"]
           ),
         ].join("\n"),
       );
-      setStatus("Markdown WIKI links copied.");
+      setStatus("Markdown WIKI 링크를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the Markdown WIKI link preview manually.");
+      setStatus("클립보드 복사에 실패했습니다. Markdown WIKI 링크 미리보기를 직접 확인하세요.");
     }
   }
 
@@ -2326,22 +2393,22 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge draft tag handoff",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Tags: ${draftTags.length}`,
-          `- Duplicate tags: ${duplicateDraftTags.join(", ") || "none"}`,
+          "# 지식 초안 태그 전달 자료",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 태그: ${draftTags.length}`,
+          `- 중복 태그: ${duplicateDraftTags.join(", ") || "없음"}`,
           "",
           ...(
             draftTags.length
               ? draftTags.map((tag) => `- ${tag}`)
-              : ["- No draft tags"]
+              : ["- 초안 태그 없음"]
           ),
         ].join("\n"),
       );
-      setStatus("Draft tag handoff copied.");
+      setStatus("초안 태그 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the draft tag preview manually.");
+      setStatus("클립보드 복사에 실패했습니다. 초안 태그 미리보기를 직접 확인하세요.");
     }
   }
 
@@ -2353,19 +2420,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       await navigator.clipboard.writeText(
         [
-          "# Knowledge publication scope handoff",
-          `- Candidate: ${detail.title} (${detail.id})`,
-          `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-          `- Current scope: ${scopeLabels[draft.scope]}`,
-          `- Original scope: ${originalDraft ? scopeLabels[originalDraft.scope] : "unknown"}`,
-          `- Scope changed: ${scopeReview.changed ? "yes" : "no"}`,
-          `- Scope review: ${scopeReview.label}`,
-          `- Review note: ${scopeReview.detail}`,
+          "# 지식 공개 범위 전달 자료",
+          `- 후보: ${detail.title} (${detail.id})`,
+          `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+          `- 현재 범위: ${scopeLabels[draft.scope]}`,
+          `- 원래 범위: ${originalDraft ? scopeLabels[originalDraft.scope] : "알 수 없음"}`,
+          `- 범위 변경: ${scopeReview.changed ? "예" : "아니오"}`,
+          `- 범위 검토: ${scopeReview.label}`,
+          `- 검토 메모: ${scopeReview.detail}`,
         ].join("\n"),
       );
-      setStatus("Publication scope handoff copied.");
+      setStatus("공개 범위 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the publication scope preview manually.");
+      setStatus("클립보드 복사에 실패했습니다. 공개 범위 미리보기를 직접 확인하세요.");
     }
   }
 
@@ -2460,9 +2527,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     try {
       await navigator.clipboard.writeText(selectedApprovedItem.bodyMarkdown);
-      setStatus("Approved WIKI Markdown copied.");
+      setStatus("승인된 WIKI Markdown을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approved Markdown preview manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인된 Markdown 미리보기를 직접 확인하세요.");
     }
   }
 
@@ -2473,9 +2540,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     try {
       await navigator.clipboard.writeText(createApprovedItemHandoff(selectedApprovedItem, approvedQualityChecks));
-      setStatus("Approved WIKI item handoff copied.");
+      setStatus("승인된 WIKI 항목 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approved WIKI detail manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인된 WIKI 상세를 직접 확인하세요.");
     }
   }
 
@@ -2484,9 +2551,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       await navigator.clipboard.writeText(
         createApprovedSearchHandoff(visibleApprovedItems, activeApprovedFilterChips, approvedSourceCoverage),
       );
-      setStatus("Approved WIKI search handoff copied.");
+      setStatus("승인된 WIKI 검색 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approved WIKI filters manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인된 WIKI 필터를 직접 확인하세요.");
     }
   }
 
@@ -2497,18 +2564,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
     try {
       await navigator.clipboard.writeText(createApprovedSourcePackage(selectedApprovedItem));
-      setStatus("Approved WIKI source package copied.");
+      setStatus("승인된 WIKI 출처 패키지를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the source references manually.");
+      setStatus("클립보드 복사에 실패했습니다. 출처 참조를 직접 확인하세요.");
     }
   }
 
   async function copyApprovedIndexPackage() {
     try {
       await navigator.clipboard.writeText(createApprovedIndexPackage(visibleApprovedItems, activeApprovedFilterChips));
-      setStatus("Approved WIKI index package copied.");
+      setStatus("승인된 WIKI 색인 패키지를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the approved WIKI list manually.");
+      setStatus("클립보드 복사에 실패했습니다. 승인된 WIKI 목록을 직접 확인하세요.");
     }
   }
 
@@ -2523,9 +2590,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           approvedExportFormat,
         ),
       );
-      setStatus("Approved WIKI sync manifest copied.");
+      setStatus("승인된 WIKI 동기화 명세를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the export readiness panel manually.");
+      setStatus("클립보드 복사에 실패했습니다. 내보내기 준비 패널을 직접 확인하세요.");
     }
   }
 
@@ -2540,9 +2607,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           approvedExportFormat,
         ),
       );
-      setStatus("Approved WIKI export checklist copied.");
+      setStatus("승인된 WIKI 내보내기 체크리스트를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the export checklist manually.");
+      setStatus("클립보드 복사에 실패했습니다. 내보내기 체크리스트를 직접 확인하세요.");
     }
   }
 
@@ -2560,7 +2627,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       content,
       mimeType,
     );
-    setStatus(`Approved WIKI ${approvedExportFormatLabels[approvedExportFormat]} downloaded.`);
+    setStatus(`승인된 WIKI ${approvedExportFormatLabels[approvedExportFormat]}를 다운로드했습니다.`);
   }
 
   async function recordApprovedSyncDryRun() {
@@ -2579,9 +2646,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         ),
       );
       setApprovedSyncHistory((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
-      setStatus("Approved WIKI sync dry-run persisted to server audit history.");
+      setStatus("승인된 WIKI 동기화 사전 실행을 서버 감사 이력에 저장했습니다.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Approved WIKI sync dry-run could not be persisted.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 동기화 사전 실행을 저장하지 못했습니다.");
     }
   }
 
@@ -2602,35 +2669,35 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       );
       setApprovedSyncHistory((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
       if (run.status === "provider_ready") {
-        setStatus("Approved WIKI provider sync passed server guard and is ready for configured provider execution.");
+        setStatus("승인된 WIKI 제공자 동기화가 서버 보호 조건을 통과했고 설정된 제공자 실행 준비가 끝났습니다.");
         return;
       }
       if (run.status === "provider_blocked") {
-        setStatus("Approved WIKI sync audit persisted; provider execution is blocked until target configuration is enabled.");
+        setStatus("승인된 WIKI 동기화 감사를 저장했습니다. 대상 설정이 켜질 때까지 제공자 실행은 차단됩니다.");
         return;
       }
       setStatus(
         run.status === "blocked"
-          ? "Approved WIKI guarded sync blocked and persisted to server audit history."
-          : "Approved WIKI guarded sync audit persisted.",
+          ? "승인된 WIKI 보호 동기화가 차단되었고 서버 감사 이력에 저장됐습니다."
+          : "승인된 WIKI 보호 동기화 감사를 저장했습니다.",
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Approved WIKI guarded sync could not be persisted.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 보호 동기화를 저장하지 못했습니다.");
     }
   }
 
   async function copyApprovedSyncHistoryReport() {
     try {
       await navigator.clipboard.writeText(createApprovedSyncHistoryReport(approvedSyncHistory));
-      setStatus("Approved WIKI sync history report copied.");
+      setStatus("승인된 WIKI 동기화 이력 리포트를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the sync history manually.");
+      setStatus("클립보드 복사에 실패했습니다. 동기화 이력을 직접 확인하세요.");
     }
   }
 
   function clearApprovedSyncHistory() {
     setApprovedSyncHistory([]);
-    setStatus("Approved WIKI sync history cleared from the local view. Server audit history remains append-only.");
+    setStatus("로컬 화면의 승인된 WIKI 동기화 이력을 지웠습니다. 서버 audit 이력은 추가 전용으로 유지됩니다.");
   }
 
   async function saveApprovedSyncTargetConfig() {
@@ -2650,15 +2717,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         config,
         ...current.filter((item) => item.target !== config.target),
       ]);
-      setStatus(`Approved WIKI sync target config saved for ${config.label}.`);
+      setStatus(`승인된 WIKI 동기화 대상 설정을 저장했습니다: ${config.label}`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Approved WIKI sync target config could not be saved.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 동기화 대상 설정을 저장하지 못했습니다.");
     }
   }
 
   async function createApprovedProviderPreview() {
     if (!providerPreviewAudit) {
-      setStatus("Create a provider-ready sync audit before requesting a provider preview.");
+      setStatus("제공자 미리보기를 요청하기 전에 제공자 실행 가능 동기화 audit을 먼저 만드세요.");
       return;
     }
     try {
@@ -2670,9 +2737,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         },
       );
       setApprovedProviderPreview(preview);
-      setStatus("Approved WIKI provider dry-run preview created.");
+      setStatus("승인된 WIKI 제공자 사전 실행 미리보기를 만들었습니다.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Approved WIKI provider preview could not be created.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 제공자 미리보기를 만들지 못했습니다.");
     }
   }
 
@@ -2682,15 +2749,15 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     try {
       await navigator.clipboard.writeText(createApprovedProviderPreviewReport(approvedProviderPreview));
-      setStatus("Approved WIKI provider preview copied.");
+      setStatus("승인된 WIKI 제공자 미리보기를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the provider preview manually.");
+      setStatus("클립보드 복사에 실패했습니다. 제공자 미리보기를 직접 확인하세요.");
     }
   }
 
   async function executeApprovedProviderAdapter() {
     if (!approvedProviderPreview) {
-      setStatus("Create a fresh provider preview before guarded execution.");
+      setStatus("보호 실행 전에 최신 제공자 미리보기를 먼저 만드세요.");
       return;
     }
     try {
@@ -2703,9 +2770,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       );
       setApprovedProviderExecution(execution);
       setApprovedProviderExecutions((current) => [execution, ...current.filter((item) => item.id !== execution.id)].slice(0, 50));
-      setStatus("Approved WIKI provider adapter execution recorded to server audit history.");
+      setStatus("승인된 WIKI 제공자 어댑터 실행을 서버 감사 이력에 기록했습니다.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Approved WIKI provider execution could not be recorded.");
+      setStatus(error instanceof Error ? error.message : "승인된 WIKI 제공자 실행을 기록하지 못했습니다.");
     }
   }
 
@@ -2715,9 +2782,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     }
     try {
       await navigator.clipboard.writeText(createApprovedProviderExecutionReport(approvedProviderExecution));
-      setStatus("Approved WIKI provider execution report copied.");
+      setStatus("승인된 WIKI 제공자 실행 리포트를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review the provider execution manually.");
+      setStatus("클립보드 복사에 실패했습니다. 제공자 실행 결과를 직접 확인하세요.");
     }
   }
 
@@ -2728,9 +2795,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       const attachment = await readTextAttachment(`/api/admin/knowledge/provider-executions/${encodeURIComponent(approvedProviderExecution.id)}/package`);
       await navigator.clipboard.writeText(attachment.text);
-      setStatus(`Approved WIKI provider execution package copied (${attachment.digest.slice(0, 12)} digest).`);
+      setStatus(`승인된 WIKI 제공자 실행 패키지를 복사했습니다 (${attachment.digest.slice(0, 12)} 해시).`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Provider execution package could not be copied.");
+      setStatus(error instanceof Error ? error.message : "제공자 실행 패키지를 복사하지 못했습니다.");
     }
   }
 
@@ -2741,19 +2808,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     try {
       const attachment = await readTextAttachment(`/api/admin/knowledge/provider-executions/${encodeURIComponent(approvedProviderExecution.id)}/package`);
       downloadTextFile(attachment.filename, attachment.text, "application/json");
-      setStatus(`Approved WIKI provider execution package downloaded (${attachment.digest.slice(0, 12)} digest).`);
+      setStatus(`승인된 WIKI 제공자 실행 패키지를 다운로드했습니다 (${attachment.digest.slice(0, 12)} 해시).`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Provider execution package could not be downloaded.");
+      setStatus(error instanceof Error ? error.message : "제공자 실행 패키지를 다운로드하지 못했습니다.");
     }
   }
 
   async function saveApprovedProviderExecutionPackageReviewNote() {
     if (!approvedProviderExecution) {
-      setStatus("Select a provider execution package before adding a review note.");
+      setStatus("검토 메모를 추가하기 전에 제공자 실행 패키지를 선택하세요.");
       return;
     }
     if (!approvedProviderExecutionReviewNoteText.trim()) {
-      setStatus("Provider execution package review note text is required.");
+      setStatus("제공자 실행 패키지 검토 메모 내용을 입력해야 합니다.");
       return;
     }
 
@@ -2782,14 +2849,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
       setApprovedProviderExecution((current) => (current ? applyNote(current) : current));
       setApprovedProviderExecutions((current) => current.map(applyNote));
       setApprovedProviderExecutionReviewNoteText("");
-      setStatus("Provider execution package review note saved.");
+      setStatus("제공자 실행 패키지 검토 메모를 저장했습니다.");
       readJson<ProviderExecutionPackageReviewNoteReport>(
         `/api/admin/knowledge/provider-execution-package-review-notes?${providerExecutionPackageReviewReportQuery}`,
       )
         .then(setApprovedProviderExecutionReviewReport)
         .catch(() => undefined);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Provider execution package review note could not be saved.");
+      setStatus(error instanceof Error ? error.message : "제공자 실행 패키지 검토 메모를 저장하지 못했습니다.");
     } finally {
       setApprovedProviderExecutionReviewNoteSaving(false);
     }
@@ -2798,43 +2865,43 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
   function downloadApprovedProviderExecutionPackageReviewNotesCsv() {
     const url = `/api/admin/knowledge/provider-execution-package-review-notes/export?${providerExecutionPackageReviewReportQuery}`;
     window.location.href = url;
-    setStatus("Provider execution package review-note CSV export started.");
+    setStatus("제공자 실행 패키지 검토 메모 CSV 내보내기를 시작했습니다.");
   }
 
   async function copyApprovedProviderExecutionPackageReviewHandoff() {
     try {
       await navigator.clipboard.writeText(createProviderExecutionPackageReviewHandoff(approvedProviderExecutionReviewReport));
-      setStatus("Provider execution package review handoff copied.");
+      setStatus("제공자 실행 패키지 검토 전달 자료를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review package filters manually.");
+      setStatus("클립보드 복사에 실패했습니다. 패키지 필터를 직접 확인하세요.");
     }
   }
 
   async function copyApprovedProviderExecutionPackageCoverageGroupSummary() {
     if (!approvedProviderExecutionReviewReport) {
-      setStatus("Provider execution package review report is not loaded.");
+      setStatus("제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.");
       return;
     }
     try {
       await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummary);
       setApprovedProviderExecutionCoverageSummaryCopied(true);
-      setStatus("Provider execution package coverage group summary copied.");
+      setStatus("제공자 실행 패키지 검토 범위 그룹 요약을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review coverage group summary manually.");
+      setStatus("클립보드 복사에 실패했습니다. 검토 범위 그룹 요약을 직접 확인하세요.");
     }
   }
 
   async function copyApprovedProviderExecutionPackageCoverageGroupSummaryFilename() {
     if (!approvedProviderExecutionReviewReport) {
-      setStatus("Provider execution package review report is not loaded.");
+      setStatus("제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.");
       return;
     }
     try {
       await navigator.clipboard.writeText(providerExecutionPackageCoverageGroupSummaryNextDownloadFilename);
       setApprovedProviderExecutionCoverageSummaryCopiedFilename(providerExecutionPackageCoverageGroupSummaryNextDownloadFilename);
-      setStatus("Provider execution package coverage group summary filename copied.");
+      setStatus("제공자 실행 패키지 검토 범위 그룹 요약 파일명을 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review coverage group summary filename manually.");
+      setStatus("클립보드 복사에 실패했습니다. 검토 범위 그룹 요약 파일명을 직접 확인하세요.");
     }
   }
 
@@ -2845,21 +2912,21 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         providerExecutionPackageCoverageGroupSummaryResetConfirmation,
       );
       setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt(new Date().toISOString());
-      setStatus("Provider execution package coverage group summary reset confirmation copied.");
+      setStatus("제공자 실행 패키지 검토 범위 그룹 요약 초기화 확인 문구를 복사했습니다.");
     } catch {
-      setStatus("Clipboard copy failed. Review coverage group summary reset confirmation manually.");
+      setStatus("클립보드 복사에 실패했습니다. 검토 범위 그룹 요약 초기화 확인 문구를 직접 확인하세요.");
     }
   }
 
   function downloadApprovedProviderExecutionPackageCoverageGroupSummary() {
     if (!approvedProviderExecutionReviewReport) {
-      setStatus("Provider execution package review report is not loaded.");
+      setStatus("제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.");
       return;
     }
     const filename = providerExecutionPackageCoverageGroupSummaryNextDownloadFilename;
     downloadTextFile(filename, providerExecutionPackageCoverageGroupSummary, "text/markdown");
     setApprovedProviderExecutionCoverageSummaryDownloadFilename(filename);
-    setStatus("Provider execution package coverage group summary downloaded.");
+    setStatus("제공자 실행 패키지 검토 범위 그룹 요약을 다운로드했습니다.");
   }
 
   function resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus() {
@@ -2869,33 +2936,33 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
     setApprovedProviderExecutionCoverageSummaryCopiedResetConfirmation("");
     setApprovedProviderExecutionCoverageSummaryResetConfirmationCopiedAt("");
     setApprovedProviderExecutionCoverageSummaryResetAt(new Date().toISOString());
-    setStatus("Provider execution package coverage group summary local status reset.");
+    setStatus("제공자 실행 패키지 검토 범위 그룹 요약의 로컬 상태를 초기화했습니다.");
   }
 
   function clearApprovedProviderExecutionReviewShortcutFilters() {
     setApprovedProviderExecutionDigestFilter("");
     setApprovedProviderExecutionReviewCategoryFilter("all");
     setApprovedProviderExecutionReviewReviewerFilter("");
-    setStatus("Provider execution package review shortcut filters cleared.");
+    setStatus("제공자 실행 패키지 검토 바로가기 필터를 지웠습니다.");
   }
 
   function showApprovedProviderExecutionReviewCoverageGroup(preset: ProviderExecutionPackageReviewCoveragePreset) {
     setApprovedProviderExecutionReviewCoveragePreset(preset);
-    setStatus(`Provider execution package review coverage filter set to ${preset}.`);
+    setStatus(`제공자 실행 패키지 검토 범위 필터를 ${providerExecutionPackageReviewCoverageStatusLabels[preset as ProviderExecutionPackageReviewCoverageStatus] ?? "전체"}로 설정했습니다.`);
   }
 
   return (
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <p>Knowledge Admin</p>
+          <p>지식 관리</p>
           <h1>WIKI 후보 검토</h1>
         </div>
         <a className={styles.secondaryLink} href="/admin">관리 설정</a>
       </header>
 
       <div className={styles.layout}>
-        <aside className={styles.queue} aria-label="Knowledge candidates">
+        <aside className={styles.queue} aria-label="지식 후보 목록">
           <div className={styles.queueHeader}>
             <h2>후보 목록</h2>
             <select
@@ -2909,25 +2976,25 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               <option value="all">전체</option>
             </select>
           </div>
-          <div className={styles.queueCounts} aria-label="Knowledge candidate state counts">
-            <span>Candidate {candidateStateCounts.candidate}</span>
-            <span>Approved {candidateStateCounts.approved}</span>
-            <span>Rejected {candidateStateCounts.rejected}</span>
-            <span>All {candidateStateCounts.all}</span>
+          <div className={styles.queueCounts} aria-label="지식 후보 상태별 개수">
+            <span>후보 {candidateStateCounts.candidate}</span>
+            <span>승인됨 {candidateStateCounts.approved}</span>
+            <span>반려됨 {candidateStateCounts.rejected}</span>
+            <span>전체 {candidateStateCounts.all}</span>
           </div>
-          <div className={styles.queueCounts} aria-label="Knowledge candidate risk totals">
-            <span>Low confidence {candidateRiskCounts.lowConfidence}</span>
-            <span>Unreviewed {candidateRiskCounts.unreviewed}</span>
-            <span>Cleanup approved {candidateRiskCounts.cleanupApproved}</span>
-            <span>Risk groups 3</span>
+          <div className={styles.queueCounts} aria-label="지식 후보 리스크 합계">
+            <span>낮은 신뢰도 {candidateRiskCounts.lowConfidence}</span>
+            <span>미검토 {candidateRiskCounts.unreviewed}</span>
+            <span>정리 승인됨 {candidateRiskCounts.cleanupApproved}</span>
+            <span>위험 그룹 3</span>
           </div>
-          <div className={styles.queueCounts} aria-label="Knowledge visible candidate risk totals">
-            <span>Visible low {visibleCandidateRiskCounts.lowConfidence}</span>
-            <span>Visible unreviewed {visibleCandidateRiskCounts.unreviewed}</span>
-            <span>Visible cleanup {visibleCandidateRiskCounts.cleanupApproved}</span>
-            <span>Visible {visibleCandidates.length}</span>
+          <div className={styles.queueCounts} aria-label="현재 표시된 지식 후보 리스크 합계">
+            <span>현재 낮은 신뢰도 {visibleCandidateRiskCounts.lowConfidence}</span>
+            <span>현재 미검토 {visibleCandidateRiskCounts.unreviewed}</span>
+            <span>현재 정리 승인 {visibleCandidateRiskCounts.cleanupApproved}</span>
+            <span>현재 표시 {visibleCandidates.length}</span>
           </div>
-          <div className={styles.queueQuickFilters} aria-label="Knowledge candidate quick filters">
+          <div className={styles.queueQuickFilters} aria-label="지식 후보 빠른 필터">
             {(["candidate", "approved", "rejected", "all"] as Array<CandidateState | "all">).map((value) => (
               <button
                 className={filter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
@@ -2935,11 +3002,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 onClick={() => setFilter(value)}
                 type="button"
               >
-                {value === "all" ? "All" : stateLabels[value]}
+                {value === "all" ? "모두" : stateLabels[value]}
               </button>
             ))}
           </div>
-          <div className={styles.queueQuickFilters} aria-label="Knowledge candidate risk quick filters">
+          <div className={styles.queueQuickFilters} aria-label="지식 후보 리스크 빠른 필터">
             {(["all", "low_confidence", "unreviewed", "cleanup_approved"] as CandidateRiskFilter[]).map((value) => (
               <button
                 className={riskFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
@@ -2958,12 +3025,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           </div>
           <div className={styles.queueFilterActions}>
             <button disabled={!hasCustomCandidateFilters} onClick={clearCandidateFilters} type="button">
-              Clear candidate filters
+              후보 필터 지우기
             </button>
-            <button onClick={copyCandidateFilterHandoff} type="button">Copy filter handoff</button>
+            <button onClick={copyCandidateFilterHandoff} type="button">필터 전달 자료 복사</button>
           </div>
           <label className={styles.queueSort}>
-            Sort candidates
+            후보 정렬
             <select
               aria-label="Knowledge candidate sort"
               onChange={(event) => setCandidateSort(event.target.value as CandidateSort)}
@@ -2977,14 +3044,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
           <div className={styles.queueSelectionSummary} aria-label="Knowledge candidate selection summary">
             {selectedCandidate ? (
               <>
-                <span>{selectedCandidateIndex >= 0 ? `Selected ${selectedCandidateIndex + 1}/${visibleCandidates.length}` : "Selected outside filters"}</span>
+                <span>{selectedCandidateIndex >= 0 ? `선택됨 ${selectedCandidateIndex + 1}/${visibleCandidates.length}` : "필터 밖 항목 선택됨"}</span>
                 <strong>{selectedCandidate.title}</strong>
                 {selectedCandidateIndex < 0 ? (
-                  <button onClick={revealSelectedCandidate} type="button">Show selected candidate</button>
+                  <button onClick={revealSelectedCandidate} type="button">선택 후보 보기</button>
                 ) : null}
               </>
             ) : (
-              <span>No selected candidate</span>
+              <span>선택한 후보 없음</span>
             )}
           </div>
           <div className={styles.queueDensity} aria-label="Knowledge candidate queue density controls">
@@ -2993,26 +3060,26 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               onClick={() => setCandidateQueueCompact(false)}
               type="button"
             >
-              Detailed queue
+              자세한 큐
             </button>
             <button
               className={candidateQueueCompact ? styles.queueQuickFilterActive : styles.queueQuickFilter}
               onClick={() => setCandidateQueueCompact(true)}
               type="button"
             >
-              Compact queue
+              압축 큐
             </button>
           </div>
           <label className={styles.queueSearch}>
-            Search candidates
+            후보 검색
             <div>
               <input
                 onChange={(event) => setCandidateSearch(event.target.value)}
-                placeholder="Title, task, project, tag"
+                placeholder="제목, 작업, 프로젝트, 태그"
                 value={candidateSearch}
               />
               <button disabled={!candidateSearch.trim()} onClick={() => setCandidateSearch("")} type="button">
-                Clear
+                지우기
               </button>
             </div>
           </label>
@@ -3029,9 +3096,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <strong>{candidate.title}</strong>
                 {candidateQueueCompact ? null : <small>{candidate.projectName} / {candidate.taskIssueId}</small>}
                 <span className={styles.candidateRiskChips}>
-                  <span>Confidence {readConfidenceBand(candidate.confidenceScore)}</span>
-                  <span>{candidate.reviewedAt ? "Reviewed" : "Unreviewed"}</span>
-                  <span>Cleanup {candidate.cleanupState}</span>
+                  <span>신뢰도 {readConfidenceBand(candidate.confidenceScore)}</span>
+                  <span>{candidate.reviewedAt ? "검토됨" : "미검토"}</span>
+                  <span>정리 상태 {cleanupStateLabels[candidate.cleanupState]}</span>
                 </span>
               </button>
             )) : (
@@ -3061,7 +3128,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </div>
                     <div>
                       <dt>정리 상태</dt>
-                      <dd>{detail.cleanupState}</dd>
+                      <dd>{cleanupStateLabels[detail.cleanupState]}</dd>
                     </div>
                     <div>
                       <dt>신뢰도</dt>
@@ -3106,11 +3173,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ))}
                   </div>
                   <div className={styles.sourceChips} aria-label="Knowledge visible evidence summary">
-                    <span>Visible sourced {visibleEvidenceSummary.sourced}</span>
-                    <span>Visible unsourced {visibleEvidenceSummary.unsourced}</span>
-                    <span>Visible high {visibleEvidenceSummary.high}</span>
-                    <span>Visible normal {visibleEvidenceSummary.normal}</span>
-                    <span>Visible low {visibleEvidenceSummary.low}</span>
+                    <span>표시된 출처 있음 {visibleEvidenceSummary.sourced}</span>
+                    <span>표시된 출처 없음 {visibleEvidenceSummary.unsourced}</span>
+                    <span>표시된 높은 우선순위 {visibleEvidenceSummary.high}</span>
+                    <span>표시된 보통 우선순위 {visibleEvidenceSummary.normal}</span>
+                    <span>표시된 낮은 우선순위 {visibleEvidenceSummary.low}</span>
                   </div>
                   <div className={styles.evidenceFilters}>
                     <button
@@ -3119,28 +3186,28 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       onClick={clearEvidenceFilters}
                       type="button"
                     >
-                      Clear evidence filters
+                      근거 필터 지우기
                     </button>
                     <button className={styles.queueQuickFilter} onClick={copyEvidenceFilterHandoff} type="button">
-                      Copy evidence filter handoff
+                      근거 필터 전달 자료 복사
                     </button>
                   </div>
                   <div className={styles.evidenceList}>
                     {visibleEvidence.length ? visibleEvidence.map((evidence) => (
                       <article className={styles.evidence} key={evidence.id}>
                         <span>{evidence.kind}</span>
-                        <span>{readEvidencePriorityTier(evidence.priority)} / Priority {evidence.priority}</span>
+                        <span>{readEvidencePriorityTier(evidence.priority)} / 우선순위 {evidence.priority}</span>
                         <strong>{evidence.title}</strong>
                         <p>{evidence.excerpt}</p>
                         {evidence.sourceUrl ? (
                           <a href={evidence.sourceUrl} rel="noreferrer" target="_blank">
-                            source
+                            출처
                           </a>
                         ) : null}
                       </article>
                     )) : (
                       <p className={styles.empty}>
-                        No evidence matches {evidenceSourceFilterLabels[evidenceSourceFilter]} and {evidencePriorityFilterLabels[evidencePriorityFilter]}. Clear evidence filters to restore rows.
+                        {evidenceSourceFilterLabels[evidenceSourceFilter]} 및 {evidencePriorityFilterLabels[evidencePriorityFilter]} 조건과 일치하는 근거가 없습니다. 행을 다시 보려면 근거 필터를 지우세요.
                       </p>
                     )}
                   </div>
@@ -3150,24 +3217,24 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
               <section className={styles.editor}>
                 <div className={styles.editorHeader}>
                   <div>
-                    <p>WIKI Draft</p>
+                    <p>WIKI 초안</p>
                     <h3>승인 전 편집</h3>
                   </div>
                   <div className={styles.editorTools}>
-                    <button onClick={resetDraft} type="button">Reset draft</button>
+                    <button onClick={resetDraft} type="button">초안 초기화</button>
                     <button disabled={!draft.bodyMarkdown.trim()} onClick={copyDraftMarkdown} type="button">
-                      Copy Markdown
+                      Markdown 복사
                     </button>
-                    <button onClick={copyMarkdownOutline} type="button">Copy Markdown outline</button>
-                    <button onClick={copyMarkdownStructureSummary} type="button">Copy Markdown structure</button>
-                    <button onClick={copyMarkdownWikiLinks} type="button">Copy WIKI links</button>
-                    <button onClick={copyDraftTagHandoff} type="button">Copy draft tags</button>
-                    <button onClick={copyScopeHandoff} type="button">Copy scope handoff</button>
-                    <button onClick={copySourceHandoff} type="button">Copy source handoff</button>
-                    <button onClick={copyApprovalChecklist} type="button">Copy approval checklist</button>
-                    <button onClick={copyApprovalRiskSummary} type="button">Copy risk summary</button>
-                    <button onClick={copyApprovalDecisionNote} type="button">Copy decision note</button>
-                    <button onClick={copyDirtyDraftSummary} type="button">Copy dirty draft summary</button>
+                    <button onClick={copyMarkdownOutline} type="button">Markdown 개요 복사</button>
+                    <button onClick={copyMarkdownStructureSummary} type="button">Markdown 구조 복사</button>
+                    <button onClick={copyMarkdownWikiLinks} type="button">WIKI 링크 복사</button>
+                    <button onClick={copyDraftTagHandoff} type="button">초안 태그 복사</button>
+                    <button onClick={copyScopeHandoff} type="button">범위 전달 자료 복사</button>
+                    <button onClick={copySourceHandoff} type="button">출처 전달 자료 복사</button>
+                    <button onClick={copyApprovalChecklist} type="button">승인 체크리스트 복사</button>
+                    <button onClick={copyApprovalRiskSummary} type="button">리스크 요약 복사</button>
+                    <button onClick={copyApprovalDecisionNote} type="button">결정 메모 복사</button>
+                    <button onClick={copyDirtyDraftSummary} type="button">초안 변경 요약 복사</button>
                     <select
                       aria-label="공개 범위"
                       value={draft.scope}
@@ -3183,11 +3250,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   className={dirtyDraftCount ? styles.reviewBannerWarning : styles.reviewBannerReady}
                   aria-label="Knowledge dirty draft reset warning"
                 >
-                  <strong>{dirtyDraftCount ? "Draft has unsaved edits" : "Draft matches selected candidate"}</strong>
+                  <strong>{dirtyDraftCount ? "초안에 저장되지 않은 수정이 있습니다" : "초안이 선택된 후보와 일치합니다"}</strong>
                   <p>
                     {dirtyDraftCount
-                      ? `Reset draft will discard ${dirtyDraftCount} changed field${dirtyDraftCount === 1 ? "" : "s"}.`
-                      : "Reset draft will keep the current values unchanged."}
+                      ? `초안을 초기화하면 변경된 필드 ${dirtyDraftCount}개가 원래 값으로 돌아갑니다.`
+                      : "초안을 초기화해도 현재 값은 그대로 유지됩니다."}
                   </p>
                 </section>
                 <section
@@ -3197,89 +3264,89 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   <strong>{reviewStatus.label}</strong>
                   <p>{reviewStatus.detail}</p>
                 </section>
-                <div className={styles.sourceChips} aria-label="Knowledge draft source references">
-                  <span>Task {detail.taskIssueId}</span>
-                  <span>Record {detail.id.slice(0, 8)}</span>
-                  <span>{detail.evidence.length} evidence</span>
-                  <span>Scope {scopeLabels[draft.scope]}</span>
+                <div className={styles.sourceChips} aria-label="지식 초안 출처 참조">
+                  <span>작업 {detail.taskIssueId}</span>
+                  <span>기록 {detail.id.slice(0, 8)}</span>
+                  <span>근거 {detail.evidence.length}개</span>
+                  <span>범위 {scopeLabels[draft.scope]}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge draft freshness">
-                  <span>Created {formatDate(detail.createdAt)}</span>
-                  <span>Updated {formatDate(detail.updatedAt)}</span>
-                  <span>Reviewed {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
+                <div className={styles.sourceChips} aria-label="지식 초안 갱신 정보">
+                  <span>생성 {formatDate(detail.createdAt)}</span>
+                  <span>수정 {formatDate(detail.updatedAt)}</span>
+                  <span>검토 {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge draft approval summary">
-                  <span>State {stateLabels[detail.state]}</span>
-                  <span>Cleanup {detail.cleanupState}</span>
-                  <span>Confidence {detail.confidenceScore}%</span>
-                  <span>Review {detail.review?.status ?? "pending"}</span>
+                <div className={styles.sourceChips} aria-label="지식 초안 승인 요약">
+                  <span>상태 {stateLabels[detail.state]}</span>
+                  <span>정리 {cleanupStateLabels[detail.cleanupState]}</span>
+                  <span>신뢰도 {detail.confidenceScore}%</span>
+                  <span>검토 {detail.review?.status ?? "pending"}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge publication scope preview">
-                  <span>Current scope {scopeLabels[draft.scope]}</span>
+                <div className={styles.sourceChips} aria-label="지식 공개 범위 미리보기">
+                  <span>현재 범위 {scopeLabels[draft.scope]}</span>
                   <span>{scopeReview.label}</span>
-                  <span>{scopeReview.changed ? "Scope changed" : "Scope unchanged"}</span>
+                  <span>{scopeReview.changed ? "범위 변경됨" : "범위 변경 없음"}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge evidence kind rollup">
+                <div className={styles.sourceChips} aria-label="지식 근거 유형 요약">
                   {evidenceKindCounts.length ? (
                     evidenceKindCounts.map(([kind, count]) => <span key={kind}>{kind} {count}</span>)
                   ) : (
-                    <span>No evidence kinds</span>
+                    <span>근거 유형 없음</span>
                   )}
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge evidence priority rollup">
+                <div className={styles.sourceChips} aria-label="지식 근거 우선순위 요약">
                   {evidencePriorityCounts.length ? (
                     evidencePriorityCounts.map(([tier, count]) => <span key={tier}>{tier} {count}</span>)
                   ) : (
-                    <span>No evidence priority</span>
+                    <span>근거 우선순위 없음</span>
                   )}
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge evidence source coverage">
-                  <span>Sourced {evidenceSourceCoverage.sourced}</span>
-                  <span>Unsourced {evidenceSourceCoverage.unsourced}</span>
-                  <span>Total evidence {evidenceSourceCoverage.total}</span>
+                <div className={styles.sourceChips} aria-label="지식 근거 출처 검토 범위">
+                  <span>출처 있음 {evidenceSourceCoverage.sourced}</span>
+                  <span>출처 없음 {evidenceSourceCoverage.unsourced}</span>
+                  <span>전체 근거 {evidenceSourceCoverage.total}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge draft length counters">
-                  <span>Title {draft.title.trim().length} chars</span>
-                  <span>Summary {draft.summary.trim().length} chars</span>
-                  <span>Body {draft.bodyMarkdown.trim().length} chars</span>
-                  <span>Tags {draftTags.length}</span>
+                <div className={styles.sourceChips} aria-label="지식 초안 길이 카운터">
+                  <span>제목 {draft.title.trim().length}자</span>
+                  <span>요약 {draft.summary.trim().length}자</span>
+                  <span>본문 {draft.bodyMarkdown.trim().length}자</span>
+                  <span>태그 {draftTags.length}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge draft dirty-state indicators">
-                  <span>Changed {dirtyDraftCount}/{draftDirtyStates.length}</span>
+                <div className={styles.sourceChips} aria-label="지식 초안 변경 상태 표시">
+                  <span>변경 {dirtyDraftCount}/{draftDirtyStates.length}</span>
                   {draftDirtyStates.map((item) => (
-                    <span key={item.label}>{item.dirty ? "Changed" : "Original"} {item.label}</span>
+                    <span key={item.label}>{item.dirty ? "변경됨" : "원본"} {item.label}</span>
                   ))}
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge draft tag preview">
+                <div className={styles.sourceChips} aria-label="지식 초안 태그 미리보기">
                   {draftTags.length ? (
                     draftTags.map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)
                   ) : (
-                    <span>No draft tags</span>
+                    <span>초안 태그 없음</span>
                   )}
                   {duplicateDraftTags.map((tag) => (
-                    <span key={`duplicate-${tag}`}>Duplicate {tag}</span>
+                    <span key={`duplicate-${tag}`}>중복 {tag}</span>
                   ))}
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge guardrail summary">
-                  <span>Guardrails {guardrailWarningCount} warnings</span>
-                  <span>Risk groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
-                  <span>Readiness {readyReadinessCount}/{draftReadiness.length}</span>
-                  <span>Confidence {detail ? readConfidenceBand(detail.confidenceScore) : "unknown"}</span>
+                <div className={styles.sourceChips} aria-label="지식 guardrail 요약">
+                  <span>Guardrail 경고 {guardrailWarningCount}개</span>
+                  <span>리스크 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
+                  <span>준비 상태 {readyReadinessCount}/{draftReadiness.length}</span>
+                  <span>신뢰도 {detail ? readConfidenceBand(detail.confidenceScore) : "확인 불가"}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge approval decision note context">
+                <div className={styles.sourceChips} aria-label="지식 승인 결정 메모 맥락">
                   <span>{approvalDecisionMode.label}</span>
                   <span>{approvalDecisionMode.detail}</span>
-                  <span>Scope {scopeLabels[draft.scope]}</span>
-                  <span>Review {reviewStatus.label}</span>
+                  <span>범위 {scopeLabels[draft.scope]}</span>
+                  <span>검토 {reviewStatus.label}</span>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge approval risk summary">
+                <div className={styles.sourceChips} aria-label="지식 승인 리스크 요약">
                   {approvalRiskGroups.map((group) => (
                     <span key={group.key}>
-                      {group.label} {group.warningCount} warnings
+                      {group.label} 경고 {group.warningCount}개
                     </span>
                   ))}
                 </div>
-                <div className={styles.queueQuickFilters} aria-label="Knowledge approval risk filter shortcuts">
+                <div className={styles.queueQuickFilters} aria-label="지식 승인 리스크 필터 바로가기">
                   {(["all", "scope", "metadata", "structure", "evidence", "state"] as ApprovalRiskFilter[]).map((value) => (
                     <button
                       className={approvalRiskFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
@@ -3287,7 +3354,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       onClick={() => setApprovalRiskFilter(value)}
                       type="button"
                     >
-                      {value === "all" ? "All risk groups" : approvalRiskGroups.find((group) => group.key === value)?.label ?? value}
+                      {value === "all" ? "전체 리스크 그룹" : approvalRiskGroups.find((group) => group.key === value)?.label ?? value}
                     </button>
                   ))}
                   <button
@@ -3296,20 +3363,20 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     onClick={clearApprovalRiskFilter}
                     type="button"
                   >
-                    Clear risk group
+                    리스크 그룹 지우기
                   </button>
                   <button className={styles.queueQuickFilter} onClick={copyApprovalRiskFilterHandoff} type="button">
-                    Copy risk filter
+                    리스크 필터 복사
                   </button>
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge active approval risk filter chips">
+                <div className={styles.sourceChips} aria-label="지식 승인 리스크 활성 필터 칩">
                   <span>
-                    Risk group {approvalRiskFilter === "all" ? "All risk groups" : approvalRiskGroups.find((group) => group.key === approvalRiskFilter)?.label ?? approvalRiskFilter}
+                    리스크 그룹 {approvalRiskFilter === "all" ? "전체 리스크 그룹" : approvalRiskGroups.find((group) => group.key === approvalRiskFilter)?.label ?? approvalRiskFilter}
                   </span>
-                  <span>Showing {visibleApprovalRiskGroups.length}/{approvalRiskGroups.length}</span>
+                  <span>표시 {visibleApprovalRiskGroups.length}/{approvalRiskGroups.length}</span>
                 </div>
-                <section className={styles.guardrails} aria-label="Knowledge approval risk groups">
-                  <h4>Approval risk groups</h4>
+                <section className={styles.guardrails} aria-label="지식 승인 리스크 그룹">
+                  <h4>승인 리스크 그룹</h4>
                   <div>
                     {visibleApprovalRiskGroups.map((group) => (
                       <article
@@ -3317,7 +3384,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         key={group.key}
                       >
                         <strong>{group.label}</strong>
-                        <p>{group.warningCount} warnings / {group.readyCount} ready notes</p>
+                        <p>경고 {group.warningCount}개 / 준비 메모 {group.readyCount}개</p>
                         {group.warningCount ? (
                           <ul>
                             {group.items.filter((item) => item.tone === "warning").map((item) => (
@@ -3325,11 +3392,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             ))}
                           </ul>
                         ) : (
-                          <p>No {group.label.toLowerCase()} warnings in the current draft.</p>
+                          <p>현재 초안에는 {group.label.toLowerCase()} 경고가 없습니다.</p>
                         )}
                         {group.readyCount ? (
                           <p>
-                            Ready: {group.items
+                            준비됨: {group.items
                               .filter((item) => item.tone === "ready")
                               .map((item) => item.label)
                               .slice(0, 4)
@@ -3340,8 +3407,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ))}
                   </div>
                 </section>
-                <section className={styles.guardrails} aria-label="Knowledge approval guardrail notes">
-                  <h4>Approval guardrails</h4>
+                <section className={styles.guardrails} aria-label="지식 승인 가드레일 메모">
+                  <h4>승인 가드레일</h4>
                   <div>
                     {approvalGuardrails.map((item) => (
                       <article
@@ -3354,8 +3421,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     ))}
                   </div>
                 </section>
-                <section className={styles.guardrails} aria-label="Knowledge approval package quality checks">
-                  <h4>Approval package quality</h4>
+                <section className={styles.guardrails} aria-label="지식 승인 패키지 품질 점검">
+                  <h4>승인 패키지 품질</h4>
                   <div>
                     {approvalPackageQuality.map((item) => (
                       <article
@@ -3369,7 +3436,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </div>
                 </section>
                 <section className={styles.guardrails} aria-label="Knowledge final review closeout checklist">
-                  <h4>Final review closeout</h4>
+                  <h4>최종 검토 마감</h4>
                   <div>
                     {finalReviewChecklist.map((item) => (
                       <article
@@ -3392,7 +3459,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <div className={styles.readinessList} aria-label="Knowledge draft readiness">
                   {draftReadiness.map((item) => (
                     <span className={item.ready ? styles.readinessReady : styles.readinessMissing} key={item.label}>
-                      {item.ready ? "Ready" : "Missing"} {item.label}
+                      {item.ready ? "준비됨" : "누락"} {item.label}
                     </span>
                   ))}
                 </div>
@@ -3427,12 +3494,12 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   aria-label="Knowledge draft Markdown preview"
                 >
                   <div className={styles.markdownPreviewHeader}>
-                    <h4>Markdown preview</h4>
+                    <h4>Markdown 미리보기</h4>
                     <button onClick={() => setPreviewCompact((current) => !current)} type="button">
-                      {previewCompact ? "Expanded preview" : "Compact preview"}
+                      {previewCompact ? "넓게 보기" : "압축 보기"}
                     </button>
                   </div>
-                  <pre>{draft.bodyMarkdown.trim() || "No Markdown body yet."}</pre>
+                  <pre>{draft.bodyMarkdown.trim() || "아직 Markdown 본문이 없습니다."}</pre>
                 </section>
                 <div className={styles.sourceChips} aria-label="Knowledge Markdown outline preview">
                   {markdownOutline.length ? (
@@ -3442,14 +3509,14 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </span>
                     ))
                   ) : (
-                    <span>No Markdown headings</span>
+                    <span>Markdown 제목 없음</span>
                   )}
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
-                  <span>Headings {markdownStructureSummary.headings}</span>
-                  <span>Paragraphs {markdownStructureSummary.paragraphs}</span>
-                  <span>List items {markdownStructureSummary.listItems}</span>
-                  <span>Lines {markdownStructureSummary.lines}</span>
+                  <span>제목 {markdownStructureSummary.headings}</span>
+                  <span>문단 {markdownStructureSummary.paragraphs}</span>
+                  <span>목록 항목 {markdownStructureSummary.listItems}</span>
+                  <span>줄 {markdownStructureSummary.lines}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge Markdown WIKI link preview">
                   {markdownWikiLinks.length ? (
@@ -3459,29 +3526,29 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </span>
                     ))
                   ) : (
-                    <span>No Markdown WIKI links</span>
+                    <span>Markdown WIKI 링크 없음</span>
                   )}
                 </div>
               </section>
 
               <footer className={styles.footer}>
                 <div className={styles.sourceChips} aria-label="Knowledge approval submit guardrails">
-                  <span>Approval blockers {guardrailWarningCount}</span>
-                  <span>{guardrailWarningCount ? "Resolve before approval" : "Ready to approve"}</span>
-                  <span>Warning groups {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
+                  <span>승인 차단 조건 {guardrailWarningCount}</span>
+                  <span>{guardrailWarningCount ? "승인 전 해결 필요" : "승인 준비됨"}</span>
+                  <span>경고 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge approval package summary">
-                  <span>Package sections {approvalPackageSections}</span>
-                  <span>Draft {draft.bodyMarkdown.trim().length} chars</span>
-                  <span>Evidence {detail.evidence.length}</span>
+                  <span>패키지 섹션 {approvalPackageSections}</span>
+                  <span>초안 {draft.bodyMarkdown.trim().length}자</span>
+                  <span>근거 {detail.evidence.length}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge approval package quality summary">
-                  <span>Package quality {approvalPackageQualityReadyCount}/{approvalPackageQuality.length}</span>
+                  <span>패키지 품질 {approvalPackageQualityReadyCount}/{approvalPackageQuality.length}</span>
                   <span>{approvalPackageQualityStatus.label}</span>
-                  <span>Missing {approvalPackageQualityMissingCount}</span>
+                  <span>누락 {approvalPackageQualityMissingCount}</span>
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge final review closeout summary">
-                  <span>Final closeout {finalReviewReadyCount}/{finalReviewChecklist.length}</span>
+                  <span>최종 검토 마감 {finalReviewReadyCount}/{finalReviewChecklist.length}</span>
                   <span>{finalReviewStatus.label}</span>
                   <span>{finalReviewNextAction}</span>
                 </div>
@@ -3498,9 +3565,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   ))}
                 </div>
                 <div className={styles.sourceChips} aria-label="Knowledge rejection reason draft status">
-                  <span>Reason presets {rejectionReasonPresets.length}</span>
-                  <span>Reason {draft.rejectionReason.trim() ? "filled" : "empty"}</span>
-                  <span>{draft.rejectionReason.trim().length} chars</span>
+                  <span>사유 프리셋 {rejectionReasonPresets.length}</span>
+                  <span>사유 {draft.rejectionReason.trim() ? "입력됨" : "비어 있음"}</span>
+                  <span>{draft.rejectionReason.trim().length}자</span>
                 </div>
                 <label>
                   반려 사유
@@ -3512,25 +3579,25 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </label>
                 <div className={styles.actions}>
                   <button onClick={copyApprovalPackage} type="button">
-                    Copy approval package
+                    승인 패키지 복사
                   </button>
                   <button onClick={copyApprovalPackageQuality} type="button">
-                    Copy package quality
+                    패키지 품질 복사
                   </button>
                   <button onClick={copyFinalReviewCloseout} type="button">
-                    Copy final closeout
+                    최종 검토 마감 복사
                   </button>
                   <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
-                    Copy approval blockers
+                    승인 차단 조건 복사
                   </button>
                   <button disabled={!draft.rejectionReason.trim()} onClick={copyRejectionReason} type="button">
-                    Copy rejection reason
+                    반려 사유 복사
                   </button>
                   <button disabled={busy} onClick={rejectCandidate} type="button">반려</button>
                   <button
                     disabled={busy}
                     onClick={approveCandidate}
-                    title={guardrailWarningCount ? `${guardrailWarningCount} active guardrail warning(s) remain` : "No active guardrail warnings"}
+                    title={guardrailWarningCount ? `활성 가드레일 경고 ${guardrailWarningCount}개가 남아 있습니다.` : "활성 가드레일 경고가 없습니다."}
                     type="button"
                   >
                     WIKI 지식 승인
@@ -3542,43 +3609,43 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
             <p className={styles.empty}>선택된 후보가 없습니다.</p>
           )}
 
-          <section className={styles.editor} aria-label="Approved WIKI knowledge readback">
+          <section className={styles.editor} aria-label="승인된 WIKI 지식 읽기">
             <div className={styles.editorHeader}>
               <div>
-                <p>Approved WIKI</p>
-                <h3>Approved item readback</h3>
+                <p>승인된 WIKI</p>
+                <h3>승인 항목 확인</h3>
               </div>
               <div className={styles.editorTools}>
-                <button onClick={refreshApprovedItems} type="button">Refresh approved</button>
+                <button onClick={refreshApprovedItems} type="button">승인 항목 새로고침</button>
                 <button disabled={!selectedApprovedItem} onClick={copyApprovedMarkdown} type="button">
-                  Copy approved Markdown
+                  승인 Markdown 복사
                 </button>
                 <button disabled={!selectedApprovedItem} onClick={copyApprovedItemHandoff} type="button">
-                  Copy item handoff
+                  항목 전달 자료 복사
                 </button>
-                <button onClick={copyApprovedSearchHandoff} type="button">Copy search handoff</button>
+                <button onClick={copyApprovedSearchHandoff} type="button">검색 전달 자료 복사</button>
                 <button disabled={!selectedApprovedItem} onClick={copyApprovedSourcePackage} type="button">
-                  Copy source package
+                  출처 패키지 복사
                 </button>
-                <button onClick={copyApprovedIndexPackage} type="button">Copy index package</button>
+                <button onClick={copyApprovedIndexPackage} type="button">색인 패키지 복사</button>
               </div>
             </div>
 
-            <div className={styles.sourceChips} aria-label="Approved WIKI summary counts">
-              <span>Total {approvedItems.length}</span>
-              <span>Visible {visibleApprovedItems.length}</span>
-              <span>Sourced {approvedSourceCoverage.sourced}</span>
-              <span>Unsourced {approvedSourceCoverage.unsourced}</span>
-              <span>Tags {approvedTagOptions.length}</span>
-              <span>{approvedItemsLoaded ? "Loaded" : "Loading"}</span>
+            <div className={styles.sourceChips} aria-label="Approved WIKI 요약 개수">
+              <span>전체 {approvedItems.length}</span>
+              <span>표시 {visibleApprovedItems.length}</span>
+              <span>출처 있음 {approvedSourceCoverage.sourced}</span>
+              <span>출처 없음 {approvedSourceCoverage.unsourced}</span>
+              <span>태그 {approvedTagOptions.length}</span>
+              <span>{approvedItemsLoaded ? "불러옴" : "불러오는 중"}</span>
             </div>
-            <div className={styles.sourceChips} aria-label="Approved WIKI scope counts">
-              <span>Admin only {approvedScopeCounts.admin_only}</span>
-              <span>Organization {approvedScopeCounts.organization}</span>
-              <span>Project members {approvedScopeCounts.project_members}</span>
-              <span>Project {approvedScopeCounts.project}</span>
+            <div className={styles.sourceChips} aria-label="Approved WIKI 범위별 개수">
+              <span>관리자 전용 {approvedScopeCounts.admin_only}</span>
+              <span>조직 {approvedScopeCounts.organization}</span>
+              <span>프로젝트 멤버 {approvedScopeCounts.project_members}</span>
+              <span>프로젝트 전용 {approvedScopeCounts.project}</span>
             </div>
-            <div className={styles.queueFilterSummary} aria-label="Approved WIKI active filter chips">
+            <div className={styles.queueFilterSummary} aria-label="Approved WIKI 활성 필터 칩">
               {activeApprovedFilterChips.map((chip) => (
                 <span key={chip}>{chip}</span>
               ))}
@@ -3586,43 +3653,43 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
 
             <div className={styles.approvedToolbar}>
               <label>
-                Search approved
+                승인 항목 검색
                 <input
                   onChange={(event) => setApprovedSearch(event.target.value)}
-                  placeholder="Title, body, tag, source id"
+                  placeholder="제목, 본문, 태그, 출처 ID"
                   value={approvedSearch}
                 />
               </label>
               <label>
-                Scope
+                범위
                 <select
-                  aria-label="Approved WIKI scope filter"
+                  aria-label="Approved WIKI 범위 필터"
                   onChange={(event) => setApprovedScopeFilter(event.target.value as Scope | "all")}
                   value={approvedScopeFilter}
                 >
-                  <option value="all">All scopes</option>
+                  <option value="all">전체 범위</option>
                   {Object.entries(scopeLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
                 </select>
               </label>
               <label>
-                Tag
+                태그
                 <select
-                  aria-label="Approved WIKI tag filter"
+                  aria-label="Approved WIKI 태그 필터"
                   onChange={(event) => setApprovedTagFilter(event.target.value)}
                   value={approvedTagFilter}
                 >
-                  <option value="all">All tags</option>
+                  <option value="all">전체 태그</option>
                   {approvedTagOptions.map((tag) => (
                     <option key={tag} value={tag}>{tag}</option>
                   ))}
                 </select>
               </label>
               <label>
-                Source
+                출처
                 <select
-                  aria-label="Approved WIKI source filter"
+                  aria-label="Approved WIKI 출처 필터"
                   onChange={(event) => setApprovedSourceFilter(event.target.value as ApprovedSourceFilter)}
                   value={approvedSourceFilter}
                 >
@@ -3632,9 +3699,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </select>
               </label>
               <label>
-                Sort
+                정렬
                 <select
-                  aria-label="Approved WIKI sort"
+                  aria-label="Approved WIKI 정렬"
                   onChange={(event) => setApprovedSort(event.target.value as ApprovedSort)}
                   value={approvedSort}
                 >
@@ -3655,33 +3722,33 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 onClick={clearApprovedFilters}
                 type="button"
               >
-                Clear approved filters
+                승인 항목 필터 지우기
               </button>
             </div>
 
-            <section className={styles.exportPanel} aria-label="Approved WIKI export sync readiness">
+            <section className={styles.exportPanel} aria-label="Approved WIKI 내보내기 및 동기화 준비 상태">
               <div className={styles.exportHeader}>
                 <div>
-                  <p>Export / Sync</p>
-                  <h4>Approved package readiness</h4>
+                  <p>내보내기 / 동기화</p>
+                  <h4>승인 패키지 준비 상태</h4>
                 </div>
                 <div className={styles.editorTools}>
                   <button disabled={!approvedExportItems.length} onClick={copyApprovedSyncManifest} type="button">
-                    Copy sync manifest
+                    동기화 명세 복사
                   </button>
                   <button disabled={!approvedExportItems.length} onClick={copyApprovedExportChecklist} type="button">
-                    Copy export checklist
+                    내보내기 체크리스트 복사
                   </button>
                   <button disabled={!approvedExportItems.length} onClick={downloadApprovedExport} type="button">
-                    Download package
+                    패키지 다운로드
                   </button>
                 </div>
               </div>
               <div className={styles.approvedToolbar}>
                 <label>
-                  Export scope
+                  내보내기 범위
                   <select
-                    aria-label="Approved WIKI export scope"
+                    aria-label="Approved WIKI 내보내기 범위"
                     onChange={(event) => setApprovedExportScope(event.target.value as ApprovedExportScope)}
                     value={approvedExportScope}
                   >
@@ -3691,9 +3758,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </select>
                 </label>
                 <label>
-                  Package format
+                  패키지 형식
                   <select
-                    aria-label="Approved WIKI export format"
+                    aria-label="Approved WIKI 내보내기 형식"
                     onChange={(event) => setApprovedExportFormat(event.target.value as ApprovedExportFormat)}
                     value={approvedExportFormat}
                   >
@@ -3703,9 +3770,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   </select>
                 </label>
                 <label>
-                  Sync target
+                  동기화 대상
                   <select
-                    aria-label="Approved WIKI sync target"
+                    aria-label="Approved WIKI 동기화 대상"
                     onChange={(event) => setApprovedSyncTarget(event.target.value as ApprovedSyncTarget)}
                     value={approvedSyncTarget}
                   >
@@ -3716,16 +3783,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </label>
               </div>
               <div className={styles.sourceChips} aria-label="Approved WIKI export stats">
-                <span>Items {approvedExportItems.length}</span>
-                <span>Sourced {approvedExportStats.sourced}</span>
-                <span>Unsourced {approvedExportStats.unsourced}</span>
-                <span>Tags {approvedExportStats.tags}</span>
-                <span>Body {approvedExportStats.bodyChars} chars</span>
-                <span>Format {approvedExportFormatLabels[approvedExportFormat]}</span>
-                <span>Target {approvedSyncTargetLabels[approvedSyncTarget]}</span>
+                <span>항목 {approvedExportItems.length}</span>
+                <span>출처 있음 {approvedExportStats.sourced}</span>
+                <span>출처 없음 {approvedExportStats.unsourced}</span>
+                <span>태그 {approvedExportStats.tags}</span>
+                <span>본문 {approvedExportStats.bodyChars}자</span>
+                <span>형식 {approvedExportFormatLabels[approvedExportFormat]}</span>
+                <span>대상 {approvedSyncTargetLabels[approvedSyncTarget]}</span>
               </div>
               <section className={styles.guardrails} aria-label="Approved WIKI export readiness checks">
-                <h4>Export readiness checks</h4>
+                <h4>내보내기 준비 점검</h4>
                 <div>
                   {approvedExportReadiness.map((item) => (
                     <article
@@ -3738,129 +3805,129 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   ))}
                 </div>
               </section>
-              <div className={styles.sourceChips} aria-label="Approved WIKI export readiness summary">
-                <span>Readiness {approvedExportReadyCount}/{approvedExportReadiness.length}</span>
-                <span>{approvedExportReadyCount === approvedExportReadiness.length ? "Ready to export" : "Review before sync"}</span>
-                <span>File {approvedSyncPackageName}</span>
+              <div className={styles.sourceChips} aria-label="Approved WIKI 내보내기 준비 요약">
+                <span>준비 상태 {approvedExportReadyCount}/{approvedExportReadiness.length}</span>
+                <span>{approvedExportReadyCount === approvedExportReadiness.length ? "내보내기 가능" : "동기화 전 검토 필요"}</span>
+                <span>파일 {approvedSyncPackageName}</span>
               </div>
-              <section className={styles.syncRunPanel} aria-label="Approved WIKI guarded sync execution">
+              <section className={styles.syncRunPanel} aria-label="Approved WIKI 보호된 동기화 실행">
                 <div className={styles.exportHeader}>
                   <div>
-                    <p>Guarded execution</p>
-                    <h4>Dry-run and server audit history</h4>
+                    <p>보호된 실행</p>
+                    <h4>사전 실행 및 서버 감사 이력</h4>
                   </div>
                   <div className={styles.editorTools}>
                     <button disabled={!approvedExportItems.length} onClick={recordApprovedSyncDryRun} type="button">
-                      Preview sync dry-run
+                      동기화 사전 실행 미리보기
                     </button>
                     <button disabled={!approvedExportItems.length} onClick={runGuardedApprovedSync} type="button">
-                      Run guarded sync
+                      보호된 동기화 실행
                     </button>
                     <button disabled={!approvedSyncHistory.length} onClick={copyApprovedSyncHistoryReport} type="button">
-                      Copy sync history
+                      동기화 이력 복사
                     </button>
                     <button disabled={!approvedSyncHistory.length} onClick={clearApprovedSyncHistory} type="button">
-                      Clear local history
+                      로컬 이력 지우기
                     </button>
                   </div>
                 </div>
-                <div className={styles.sourceChips} aria-label="Approved WIKI guarded sync summary">
-                  <span>Confirmation {approvedSyncConfirmation.trim() === approvedSyncConfirmationText ? "matched" : "required"}</span>
-                  <span>Server audit {approvedSyncHistory.length}</span>
-                  <span>Last {latestApprovedSyncRun ? latestApprovedSyncRun.status : "none"}</span>
-                  <span>{approvedSyncCanRun ? "Guard open" : "Guard closed"}</span>
+                <div className={styles.sourceChips} aria-label="Approved WIKI 보호된 동기화 요약">
+                  <span>확인 문구 {approvedSyncConfirmation.trim() === approvedSyncConfirmationText ? "일치" : "필요"}</span>
+                  <span>서버 감사 {approvedSyncHistory.length}</span>
+                  <span>최근 {latestApprovedSyncRun ? approvedSyncRunStatusLabels[latestApprovedSyncRun.status] : "없음"}</span>
+                  <span>{approvedSyncCanRun ? "보호 조건 열림" : "보호 조건 닫힘"}</span>
                 </div>
                 <label className={styles.syncConfirmation}>
-                  Sync confirmation
+                  동기화 확인 문구
                   <input
-                    aria-label="Approved WIKI sync confirmation"
+                    aria-label="Approved WIKI 동기화 확인 문구"
                     onChange={(event) => setApprovedSyncConfirmation(event.target.value)}
                     placeholder={approvedSyncConfirmationText}
                     value={approvedSyncConfirmation}
                   />
                 </label>
-                <div className={styles.syncWarnings} aria-label="Approved WIKI sync dry-run warnings">
+                <div className={styles.syncWarnings} aria-label="Approved WIKI 동기화 사전 실행 경고">
                   {approvedSyncDryRunWarnings.length ? approvedSyncDryRunWarnings.map((warning) => (
                     <span key={warning}>{warning}</span>
-                  )) : <span>No dry-run warnings for the current package.</span>}
+                  )) : <span>현재 패키지에 사전 실행 경고가 없습니다.</span>}
                 </div>
-                <div className={styles.syncHistory} aria-label="Approved WIKI sync history">
+                <div className={styles.syncHistory} aria-label="Approved WIKI 동기화 이력">
                   {approvedSyncHistory.length ? approvedSyncHistory.slice(0, 5).map((run) => (
                     <article key={run.id}>
-                      <strong>{run.status} / {approvedSyncTargetLabels[run.target]}</strong>
+                      <strong>{approvedSyncRunStatusLabels[run.status]} / {approvedSyncTargetLabels[run.target]}</strong>
                       <p>{formatDate(run.createdAt)} / {run.packageName}</p>
-                      <span>{run.readyCount}/{run.readinessCount} ready</span>
-                      <span>{run.itemCount} items</span>
-                      <span>{run.sourceReferences} source refs</span>
-                      <span>{run.unsourced} unsourced</span>
-                      <span>{run.providerConfigured ? "provider configured" : "provider blocked"}</span>
+                      <span>{run.readyCount}/{run.readinessCount} 준비됨</span>
+                      <span>항목 {run.itemCount}개</span>
+                      <span>출처 참조 {run.sourceReferences}개</span>
+                      <span>출처 없음 {run.unsourced}개</span>
+                      <span>{run.providerConfigured ? "제공자 설정됨" : "제공자 차단됨"}</span>
                     </article>
-                  )) : <p className={styles.empty}>No server sync audit history has been recorded yet.</p>}
+                  )) : <p className={styles.empty}>아직 서버 동기화 audit 이력이 없습니다.</p>}
                 </div>
-                <section className={styles.syncTargetPanel} aria-label="Approved WIKI provider target configuration">
+                <section className={styles.syncTargetPanel} aria-label="Approved WIKI provider 대상 설정">
                   <div className={styles.exportHeader}>
                     <div>
-                      <p>Provider target</p>
-                      <h4>Configuration and dry-run adapter</h4>
+                    <p>제공자 대상</p>
+                    <h4>설정 및 사전 실행 어댑터</h4>
                     </div>
                     <div className={styles.editorTools}>
                       <button onClick={saveApprovedSyncTargetConfig} type="button">
-                        Save target config
+                        대상 설정 저장
                       </button>
                       <button disabled={!providerPreviewAudit} onClick={createApprovedProviderPreview} type="button">
-                        Create provider preview
+                        제공자 미리보기 생성
                       </button>
                       <button disabled={!approvedProviderPreview} onClick={copyApprovedProviderPreview} type="button">
-                        Copy provider preview
+                        제공자 미리보기 복사
                       </button>
                       <button disabled={!approvedProviderPreview} onClick={executeApprovedProviderAdapter} type="button">
-                        Execute adapter
+                        어댑터 실행
                       </button>
                       <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecution} type="button">
-                        Copy execution
+                        실행 결과 복사
                       </button>
                       <button disabled={!approvedProviderExecution} onClick={copyApprovedProviderExecutionPackage} type="button">
-                        Copy execution package
+                        실행 패키지 복사
                       </button>
                       <button disabled={!approvedProviderExecution} onClick={downloadApprovedProviderExecutionPackage} type="button">
-                        Download execution package
+                        실행 패키지 다운로드
                       </button>
                     </div>
                   </div>
-                  <div className={styles.sourceChips} aria-label="Approved WIKI sync target config summary">
+                  <div className={styles.sourceChips} aria-label="Approved WIKI 동기화 대상 설정 요약">
                     <span>{selectedApprovedSyncTargetConfig?.label ?? approvedSyncTargetLabels[approvedSyncTarget]}</span>
-                    <span>{approvedSyncTargetEnabled ? "Target enabled" : "Target disabled"}</span>
-                    <span>{approvedSyncTargetDryRunOnly ? "Dry-run only" : "Execution allowed"}</span>
-                    <span>Adapter {selectedApprovedSyncTargetConfig?.adapter ?? "pending"}</span>
-                    <span>Credential {selectedApprovedSyncTargetConfig?.credentialStatus ?? "not saved"}</span>
-                    <span>Source {selectedApprovedSyncTargetConfig?.credentialSource ?? "not saved"}</span>
-                    <span>Scope {selectedApprovedSyncTargetConfig?.credentialScope ?? approvedSyncTarget}</span>
-                    <span>Store {selectedApprovedSyncTargetConfig?.credentialStore ?? "not saved"}</span>
-                    <span>{selectedApprovedSyncTargetConfig?.remoteWriteReady ? "Remote write ready" : "Remote write blocked"}</span>
-                    <span>Live flag {selectedApprovedSyncTargetConfig?.liveWriteFeatureFlagEnabled ? "enabled" : "disabled"}</span>
-                    <span>Rollback {selectedApprovedSyncTargetConfig?.rollbackPlanStatus ?? "not saved"}</span>
-                    <span>Reconcile {selectedApprovedSyncTargetConfig?.reconciliationPlanStatus ?? "not saved"}</span>
-                    <span>Inventory {selectedApprovedSyncTargetConfig?.inventoryEntryCount ?? 0}</span>
-                    <span>{providerPreviewAudit ? "Provider-ready audit available" : "No provider-ready audit"}</span>
+                    <span>{approvedSyncTargetEnabled ? "대상 사용 중" : "대상 꺼짐"}</span>
+                    <span>{approvedSyncTargetDryRunOnly ? "사전 실행 전용" : "실행 허용"}</span>
+                    <span>어댑터 {selectedApprovedSyncTargetConfig ? approvedProviderAdapterLabels[selectedApprovedSyncTargetConfig.adapter] : "미저장"}</span>
+                    <span>인증 정보 {selectedApprovedSyncTargetConfig ? approvedProviderCredentialStatusLabels[selectedApprovedSyncTargetConfig.credentialStatus] : "미저장"}</span>
+                    <span>인증 출처 {selectedApprovedSyncTargetConfig ? approvedProviderCredentialSourceLabels[selectedApprovedSyncTargetConfig.credentialSource] : "미저장"}</span>
+                    <span>범위 {selectedApprovedSyncTargetConfig ? approvedSyncTargetLabels[selectedApprovedSyncTargetConfig.credentialScope] : approvedSyncTargetLabels[approvedSyncTarget]}</span>
+                    <span>인증 저장소 {selectedApprovedSyncTargetConfig ? approvedProviderCredentialStoreLabels[selectedApprovedSyncTargetConfig.credentialStore] : "미저장"}</span>
+                    <span>{selectedApprovedSyncTargetConfig?.remoteWriteReady ? "원격 쓰기 준비됨" : "원격 쓰기 차단됨"}</span>
+                    <span>실행 플래그 {selectedApprovedSyncTargetConfig?.liveWriteFeatureFlagEnabled ? "사용 중" : "꺼짐"}</span>
+                    <span>롤백 {selectedApprovedSyncTargetConfig ? approvedProviderPlanStatusLabels[selectedApprovedSyncTargetConfig.rollbackPlanStatus] : "미저장"}</span>
+                    <span>대조 {selectedApprovedSyncTargetConfig ? approvedProviderPlanStatusLabels[selectedApprovedSyncTargetConfig.reconciliationPlanStatus] : "미저장"}</span>
+                    <span>인벤토리 {selectedApprovedSyncTargetConfig?.inventoryEntryCount ?? 0}</span>
+                    <span>{providerPreviewAudit ? "제공자 실행 가능 감사 있음" : "제공자 실행 가능 감사 없음"}</span>
                   </div>
-                  <div className={styles.syncWarnings} aria-label="Approved WIKI remote write blockers">
+                  <div className={styles.syncWarnings} aria-label="Approved WIKI 원격 쓰기 차단 조건">
                     {selectedApprovedSyncTargetConfig?.credentialLastValidatedAt ? (
-                      <span>Credential validated {formatDate(selectedApprovedSyncTargetConfig.credentialLastValidatedAt)}</span>
+                      <span>인증 정보 검증 {formatDate(selectedApprovedSyncTargetConfig.credentialLastValidatedAt)}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.credentialRotationDueAt ? (
-                      <span>Rotation due {formatDate(selectedApprovedSyncTargetConfig.credentialRotationDueAt)}</span>
+                      <span>교체 예정 {formatDate(selectedApprovedSyncTargetConfig.credentialRotationDueAt)}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.rollbackPlanRef ? (
-                      <span>Rollback {selectedApprovedSyncTargetConfig.rollbackPlanRef}</span>
+                      <span>롤백 {selectedApprovedSyncTargetConfig.rollbackPlanRef}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.reconciliationPlanRef ? (
-                      <span>Reconciliation {selectedApprovedSyncTargetConfig.reconciliationPlanRef}</span>
+                      <span>대조 {selectedApprovedSyncTargetConfig.reconciliationPlanRef}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.liveWriteFeatureFlag ? (
-                      <span>{selectedApprovedSyncTargetConfig.liveWriteFeatureFlag} {selectedApprovedSyncTargetConfig.liveWriteFeatureFlagEnabled ? "enabled" : "disabled"}</span>
+                      <span>{selectedApprovedSyncTargetConfig.liveWriteFeatureFlag} {selectedApprovedSyncTargetConfig.liveWriteFeatureFlagEnabled ? "사용 중" : "꺼짐"}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.inventoryImportedAt ? (
-                      <span>Inventory imported {formatDate(selectedApprovedSyncTargetConfig.inventoryImportedAt)}</span>
+                      <span>인벤토리 가져옴 {formatDate(selectedApprovedSyncTargetConfig.inventoryImportedAt)}</span>
                     ) : null}
                     {selectedApprovedSyncTargetConfig?.inventoryWarnings.map((warning) => (
                       <span key={warning}>{warning}</span>
@@ -3869,7 +3936,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       ? selectedApprovedSyncTargetConfig.remoteWriteBlockers.map((blocker) => (
                         <span key={blocker}>{blocker}</span>
                       ))
-                      : <span>Remote write prerequisites are ready, but live provider writes remain disabled.</span>}
+                      : <span>원격 쓰기 전제 조건은 준비됐지만 실제 제공자 쓰기는 아직 꺼져 있습니다.</span>}
                   </div>
                   <div className={styles.syncTargetControls}>
                     <label>
@@ -3878,7 +3945,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         onChange={(event) => setApprovedSyncTargetEnabled(event.target.checked)}
                         type="checkbox"
                       />
-                      Target enabled
+                      대상 사용
                     </label>
                     <label>
                       <input
@@ -3886,19 +3953,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         onChange={(event) => setApprovedSyncTargetDryRunOnly(event.target.checked)}
                         type="checkbox"
                       />
-                      Dry-run only
+                      사전 실행 전용
                     </label>
                     <label>
-                      Credential reference
+                      인증 정보 참조
                       <input
                         aria-label="Approved WIKI sync target credential reference"
                         onChange={(event) => setApprovedSyncTargetCredentialRef(event.target.value)}
-                        placeholder="server secret reference only"
+                        placeholder="서버 secret 참조만 입력"
                         value={approvedSyncTargetCredentialRef}
                       />
                     </label>
                     <label>
-                      Provider preview confirmation
+                      제공자 미리보기 확인 문구
                       <input
                         aria-label="Approved WIKI provider preview confirmation"
                         onChange={(event) => setApprovedProviderPreviewConfirmation(event.target.value)}
@@ -3907,7 +3974,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       />
                     </label>
                     <label>
-                      Provider execution confirmation
+                      제공자 실행 확인 문구
                       <input
                         aria-label="Approved WIKI provider execution confirmation"
                         onChange={(event) => setApprovedProviderExecutionConfirmation(event.target.value)}
@@ -3916,16 +3983,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       />
                     </label>
                     <label>
-                      Target notes
+                      대상 메모
                       <input
                         aria-label="Approved WIKI sync target notes"
                         onChange={(event) => setApprovedSyncTargetNotes(event.target.value)}
-                        placeholder="Optional provider target notes"
+                        placeholder="선택 사항 제공자 대상 메모"
                         value={approvedSyncTargetNotes}
                       />
                     </label>
                     <label>
-                      Obsidian inventory manifest
+                      Obsidian 인벤토리 명세
                       <textarea
                         aria-label="Approved WIKI Obsidian inventory manifest"
                         onChange={(event) => setApprovedSyncTargetInventoryManifest(event.target.value)}
@@ -3935,8 +4002,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </label>
                   </div>
                   {approvedProviderPreview ? (
-                    <div className={styles.providerPreview} aria-label="Approved WIKI provider preview">
-                      <strong>{approvedProviderPreview.destination} / {approvedProviderPreview.status}</strong>
+                    <div className={styles.providerPreview} aria-label="Approved WIKI provider 미리보기">
+                      <strong>{approvedProviderPreview.destination} / 사전 실행 미리보기</strong>
                       <p>{approvedProviderPreview.packageName}</p>
                       <div>
                         {approvedProviderPreview.operations.map((operation) => (
@@ -3954,13 +4021,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </div>
                   ) : null}
                   {approvedProviderExecution ? (
-                    <div className={styles.providerPreview} aria-label="Approved WIKI provider execution">
-                      <strong>{approvedProviderExecution.destination} / {approvedProviderExecution.status}</strong>
+                    <div className={styles.providerPreview} aria-label="Approved WIKI provider 실행">
+                      <strong>{approvedProviderExecution.destination} / {approvedProviderExecutionStatusLabels[approvedProviderExecution.status]}</strong>
                       <p>{approvedProviderExecution.artifactName}</p>
                       <div>
-                        <span>{approvedProviderExecution.itemCount} item(s)</span>
-                        <span>{approvedProviderExecution.artifactType}</span>
-                        <span>{approvedProviderExecution.contentDigest.slice(0, 16)} digest</span>
+                        <span>항목 {approvedProviderExecution.itemCount}개</span>
+                        <span>{approvedProviderArtifactTypeLabels[approvedProviderExecution.artifactType]}</span>
+                        <span>{approvedProviderExecution.contentDigest.slice(0, 16)} 해시</span>
                       </div>
                       <div>
                         {approvedProviderExecution.warnings.map((warning) => (
@@ -3973,16 +4040,16 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       {approvedProviderExecution.liveWritePreflight ? (
                         <ProviderLiveWritePreflightView preflight={approvedProviderExecution.liveWritePreflight} />
                       ) : null}
-                      <div className={styles.sourceChips} aria-label="Approved WIKI provider execution package review note summary">
-                        <span>Review notes {approvedProviderExecution.packageReview.reviewNoteCount}</span>
-                        <span>{approvedProviderExecution.packageReview.latestReviewNoteAt ? `Latest ${formatDate(approvedProviderExecution.packageReview.latestReviewNoteAt)}` : "No notes yet"}</span>
-                        <span>{approvedProviderExecution.packageReview.packageDigest.slice(0, 16)} package digest</span>
+                      <div className={styles.sourceChips} aria-label="Approved WIKI provider 실행 패키지 검토 메모 요약">
+                        <span>검토 메모 {approvedProviderExecution.packageReview.reviewNoteCount}개</span>
+                        <span>{approvedProviderExecution.packageReview.latestReviewNoteAt ? `최근 ${formatDate(approvedProviderExecution.packageReview.latestReviewNoteAt)}` : "아직 메모 없음"}</span>
+                        <span>{approvedProviderExecution.packageReview.packageDigest.slice(0, 16)} 패키지 해시</span>
                       </div>
-                      <div className={styles.reviewNoteForm} aria-label="Approved WIKI provider execution package review note form">
+                      <div className={styles.reviewNoteForm} aria-label="Approved WIKI provider 실행 패키지 검토 메모 양식">
                         <label>
-                          Category
+                          분류
                           <select
-                            aria-label="Provider execution package review note category"
+                            aria-label="Provider 실행 패키지 검토 메모 분류"
                             onChange={(event) => setApprovedProviderExecutionReviewNoteCategory(event.target.value as ProviderExecutionPackageReviewNoteCategory)}
                             value={approvedProviderExecutionReviewNoteCategory}
                           >
@@ -3992,11 +4059,11 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           </select>
                         </label>
                         <label>
-                          Review note
+                          검토 메모
                           <textarea
-                            aria-label="Provider execution package review note text"
+                            aria-label="Provider 실행 패키지 검토 메모 내용"
                             onChange={(event) => setApprovedProviderExecutionReviewNoteText(event.target.value)}
-                            placeholder="Append package review context without changing immutable package evidence"
+                            placeholder="변경 불가 패키지 근거는 유지하고 검토 맥락만 추가"
                             value={approvedProviderExecutionReviewNoteText}
                           />
                         </label>
@@ -4005,116 +4072,116 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           onClick={saveApprovedProviderExecutionPackageReviewNote}
                           type="button"
                         >
-                          {approvedProviderExecutionReviewNoteSaving ? "Saving..." : "Add review note"}
+                          {approvedProviderExecutionReviewNoteSaving ? "저장하고 있습니다..." : "검토 메모 추가"}
                         </button>
                       </div>
-                      <div className={styles.reviewNotes} aria-label="Approved WIKI provider execution package review notes">
+                      <div className={styles.reviewNotes} aria-label="Approved WIKI provider 실행 패키지 검토 메모">
                         {approvedProviderExecution.packageReviewNotes.length ? approvedProviderExecution.packageReviewNotes.map((note) => (
                           <article key={note.id}>
                             <strong>{getProviderExecutionPackageReviewNoteCategoryLabel(note.category)}</strong>
                             <p>{note.note}</p>
-                            <span>{formatDate(note.createdAt)} / {note.reviewerId ?? "unknown reviewer"}</span>
-                            <span>{note.packageDigest.slice(0, 16)} package digest</span>
+                            <span>{formatDate(note.createdAt)} / {note.reviewerId ?? "알 수 없는 검토자"}</span>
+                            <span>{note.packageDigest.slice(0, 16)} 패키지 해시</span>
                           </article>
-                        )) : <p className={styles.empty}>No package review notes have been added.</p>}
+                        )) : <p className={styles.empty}>아직 패키지 검토 메모가 없습니다.</p>}
                       </div>
                     </div>
                   ) : null}
-                  <section className={styles.providerPreview} aria-label="Approved WIKI provider execution package history">
-                    <strong>Execution package review history</strong>
-                    <div className={styles.sourceChips} aria-label="Approved WIKI provider execution package history summary">
-                      <span>Packages {approvedProviderExecutions.length}</span>
-                      <span>Visible {visibleApprovedProviderExecutions.length}</span>
-                      <span>Source append-only audit</span>
-                      <span>Local downloads not tracked</span>
+                  <section className={styles.providerPreview} aria-label="Approved WIKI provider 실행 패키지 이력">
+                    <strong>실행 패키지 검토 이력</strong>
+                    <div className={styles.sourceChips} aria-label="Approved WIKI provider 실행 패키지 이력 요약">
+                      <span>패키지 {approvedProviderExecutions.length}개</span>
+                      <span>표시 {visibleApprovedProviderExecutions.length}개</span>
+                      <span>출처 append-only audit</span>
+                      <span>로컬 다운로드는 추적하지 않음</span>
                     </div>
-                    <div className={styles.approvedToolbar} aria-label="Approved WIKI provider execution package history filters">
+                    <div className={styles.approvedToolbar} aria-label="Approved WIKI provider 실행 패키지 이력 필터">
                       <label>
-                        Target
+                        대상
                         <select
-                          aria-label="Provider execution package target filter"
+                          aria-label="Provider 실행 패키지 대상 필터"
                           onChange={(event) => setApprovedProviderExecutionTargetFilter(event.target.value as ApprovedSyncTarget | "all")}
                           value={approvedProviderExecutionTargetFilter}
                         >
-                          <option value="all">All targets</option>
+                          <option value="all">전체 대상</option>
                           {(["portable_archive", "obsidian", "notion", "assistant_retrieval"] as ApprovedSyncTarget[]).map((target) => (
                             <option key={target} value={target}>{approvedSyncTargetLabels[target]}</option>
                           ))}
                         </select>
                       </label>
                       <label>
-                        Status
+                        상태
                         <select
-                          aria-label="Provider execution package status filter"
+                          aria-label="Provider 실행 패키지 상태 필터"
                           onChange={(event) => setApprovedProviderExecutionStatusFilter(event.target.value as ApprovedProviderExecution["status"] | "all")}
                           value={approvedProviderExecutionStatusFilter}
                         >
-                          <option value="all">All statuses</option>
-                          <option value="executed">executed</option>
-                          <option value="preflight_recorded">preflight_recorded</option>
+                          <option value="all">전체 상태</option>
+                          <option value="executed">{approvedProviderExecutionStatusLabels.executed}</option>
+                          <option value="preflight_recorded">{approvedProviderExecutionStatusLabels.preflight_recorded}</option>
                         </select>
                       </label>
                       <label>
-                        Artifact
+                        산출물
                         <select
-                          aria-label="Provider execution package artifact filter"
+                          aria-label="제공자 실행 패키지 산출물 필터"
                           onChange={(event) => setApprovedProviderExecutionArtifactFilter(event.target.value as ApprovedProviderExecution["artifactType"] | "all")}
                           value={approvedProviderExecutionArtifactFilter}
                         >
-                          <option value="all">All artifacts</option>
-                          <option value="portable_archive_manifest">portable_archive_manifest</option>
-                          <option value="obsidian_markdown_manifest">obsidian_markdown_manifest</option>
-                          <option value="obsidian_live_write_preflight">obsidian_live_write_preflight</option>
+                          <option value="all">전체 산출물</option>
+                          <option value="portable_archive_manifest">{approvedProviderArtifactTypeLabels.portable_archive_manifest}</option>
+                          <option value="obsidian_markdown_manifest">{approvedProviderArtifactTypeLabels.obsidian_markdown_manifest}</option>
+                          <option value="obsidian_live_write_preflight">{approvedProviderArtifactTypeLabels.obsidian_live_write_preflight}</option>
                         </select>
                       </label>
                       <label>
-                        Digest
+                        패키지 해시
                         <input
-                          aria-label="Provider execution package digest filter"
+                          aria-label="제공자 실행 패키지 해시 필터"
                           onChange={(event) => setApprovedProviderExecutionDigestFilter(event.target.value)}
-                          placeholder="package digest prefix"
+                          placeholder="패키지 해시 접두어"
                           value={approvedProviderExecutionDigestFilter}
                         />
                       </label>
                       <label>
-                        Review
+                        검토
                         <select
-                          aria-label="Provider execution package review coverage filter"
+                          aria-label="제공자 실행 패키지 검토 범위 필터"
                           onChange={(event) => setApprovedProviderExecutionReviewCoveragePreset(event.target.value as ProviderExecutionPackageReviewCoveragePreset)}
                           value={approvedProviderExecutionReviewCoveragePreset}
                         >
-                          <option value="all">All review states</option>
-                          <option value="reviewed">Reviewed</option>
-                          <option value="unreviewed">Unreviewed</option>
-                          <option value="stale_unreviewed">Stale unreviewed</option>
+                          <option value="all">전체 검토 상태</option>
+                          <option value="reviewed">검토됨</option>
+                          <option value="unreviewed">미검토</option>
+                          <option value="stale_unreviewed">오래된 미검토</option>
                         </select>
                       </label>
                       <label>
-                        Reviewer
+                        검토자
                         <input
-                          aria-label="Provider execution package review reviewer filter"
+                          aria-label="제공자 실행 패키지 검토자 필터"
                           onChange={(event) => setApprovedProviderExecutionReviewReviewerFilter(event.target.value)}
-                          placeholder="reviewer id"
+                          placeholder="검토자 ID"
                           value={approvedProviderExecutionReviewReviewerFilter}
                         />
                       </label>
                       <label>
-                        Note type
+                        메모 유형
                         <select
-                          aria-label="Provider execution package review note category filter"
+                          aria-label="제공자 실행 패키지 검토 메모 유형 필터"
                           onChange={(event) => setApprovedProviderExecutionReviewCategoryFilter(event.target.value as ProviderExecutionPackageReviewNoteCategory | "all")}
                           value={approvedProviderExecutionReviewCategoryFilter}
                         >
-                          <option value="all">All note types</option>
+                          <option value="all">전체 메모 유형</option>
                           {providerExecutionPackageReviewNoteCategories.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
                       <label>
-                        Stale days
+                        오래됨 기준일
                         <input
-                          aria-label="Provider execution package review stale days"
+                          aria-label="제공자 실행 패키지 오래됨 기준일"
                           min={0}
                           max={365}
                           onChange={(event) => setApprovedProviderExecutionReviewStaleDays(Number.parseInt(event.target.value, 10) || 0)}
@@ -4123,124 +4190,124 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         />
                       </label>
                       <button onClick={downloadApprovedProviderExecutionPackageReviewNotesCsv} type="button">
-                        Export notes CSV
+                        메모 CSV 내보내기
                       </button>
                       <button onClick={copyApprovedProviderExecutionPackageReviewHandoff} type="button">
-                        Copy review handoff
+                        검토 전달 자료 복사
                       </button>
                     </div>
                     <div className={styles.sourceChips} aria-label="Provider execution package review shortcut reset chips">
                       {approvedProviderExecutionDigestFilter.trim() ? (
                         <button onClick={() => setApprovedProviderExecutionDigestFilter("")} type="button">
-                          Clear digest {approvedProviderExecutionDigestFilter.trim().slice(0, 12)}
+                          패키지 해시 지우기 {approvedProviderExecutionDigestFilter.trim().slice(0, 12)}
                         </button>
                       ) : null}
                       {approvedProviderExecutionReviewCategoryFilter !== "all" ? (
                         <button onClick={() => setApprovedProviderExecutionReviewCategoryFilter("all")} type="button">
-                          Clear note type {getProviderExecutionPackageReviewNoteCategoryLabel(approvedProviderExecutionReviewCategoryFilter)}
+                          메모 유형 지우기 {getProviderExecutionPackageReviewNoteCategoryLabel(approvedProviderExecutionReviewCategoryFilter)}
                         </button>
                       ) : null}
                       {approvedProviderExecutionReviewReviewerFilter.trim() ? (
                         <button onClick={() => setApprovedProviderExecutionReviewReviewerFilter("")} type="button">
-                          Clear reviewer {approvedProviderExecutionReviewReviewerFilter.trim()}
+                          검토자 지우기 {approvedProviderExecutionReviewReviewerFilter.trim()}
                         </button>
                       ) : null}
                       {hasProviderExecutionReviewShortcutFilters ? (
                         <button onClick={clearApprovedProviderExecutionReviewShortcutFilters} type="button">
-                          Clear review shortcuts
+                          검토 바로가기 지우기
                         </button>
                       ) : (
-                        <span>No shortcut filters active</span>
+                        <span>활성화된 바로가기 필터 없음</span>
                       )}
                     </div>
-                    <div className={styles.handoffPreview} aria-label="Provider execution package review handoff preview">
+                    <div className={styles.handoffPreview} aria-label="Provider 실행 패키지 검토 전달 자료 미리보기">
                       <div className={styles.handoffPreviewHeader}>
-                        <strong>Active review handoff preview</strong>
-                        <span>Read-only preview before copy</span>
+                        <strong>활성 검토 전달 자료 미리보기</strong>
+                        <span>복사 전 읽기 전용 미리보기</span>
                       </div>
                       {approvedProviderExecutionReviewReport ? (
                         <>
-                          <div className={styles.sourceChips} aria-label="Provider execution package review handoff active filters">
-                            <span>Coverage {approvedProviderExecutionReviewReport.filters.coveragePreset}</span>
-                            <span>Stale days {approvedProviderExecutionReviewReport.filters.staleDays}</span>
+                          <div className={styles.sourceChips} aria-label="Provider 실행 패키지 검토 전달 자료 활성 필터">
+                            <span>검토 범위 {approvedProviderExecutionReviewReport.filters.coveragePreset}</span>
+                            <span>오래됨 기준일 {approvedProviderExecutionReviewReport.filters.staleDays}</span>
                             <span>
-                              Note type{" "}
+                              메모 유형{" "}
                               {approvedProviderExecutionReviewReport.filters.category === "all"
-                                ? "all"
+                                ? "모두"
                                 : getProviderExecutionPackageReviewNoteCategoryLabel(approvedProviderExecutionReviewReport.filters.category)}
                             </span>
-                            <span>Reviewer {approvedProviderExecutionReviewReport.filters.reviewerId ?? "all"}</span>
-                            <span>Digest {approvedProviderExecutionReviewReport.filters.packageDigest?.slice(0, 16) ?? "all"}</span>
+                            <span>검토자 {approvedProviderExecutionReviewReport.filters.reviewerId ?? "모두"}</span>
+                            <span>패키지 해시 {approvedProviderExecutionReviewReport.filters.packageDigest?.slice(0, 16) ?? "모두"}</span>
                           </div>
-                          <div className={styles.sourceChips} aria-label="Provider execution package review handoff summary counts">
-                            <span>Packages {approvedProviderExecutionReviewReport.summary.packageCount}</span>
-                            <span>Reviewed {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
-                            <span>Unreviewed {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
-                            <span>Stale {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
-                            <span>Notes {approvedProviderExecutionReviewReport.summary.noteCount}</span>
+                          <div className={styles.sourceChips} aria-label="Provider 실행 패키지 검토 전달 자료 요약 개수">
+                            <span>패키지 {approvedProviderExecutionReviewReport.summary.packageCount}</span>
+                            <span>검토됨 {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
+                            <span>미검토 {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
+                            <span>오래됨 {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
+                            <span>메모 {approvedProviderExecutionReviewReport.summary.noteCount}</span>
                           </div>
                           <div className={styles.handoffPreviewGrid}>
-                            <div aria-label="Provider execution package review handoff reviewer counts">
-                              <strong>Reviewer counts</strong>
+                            <div aria-label="Provider 실행 패키지 검토 전달 자료 검토자별 개수">
+                              <strong>검토자별 수</strong>
                               {approvedProviderExecutionReviewReport.summary.reviewerCounts.length ? (
                                 approvedProviderExecutionReviewReport.summary.reviewerCounts.slice(0, 4).map((item) => (
-                                  <span key={item.reviewerId ?? "unknown"}>{item.reviewerId ?? "unknown"}: {item.count}</span>
+                                  <span key={item.reviewerId ?? "unknown"}>{item.reviewerId ?? "확인 불가"}: {item.count}</span>
                                 ))
                               ) : (
-                                <span>none</span>
+                                <span>없음</span>
                               )}
                             </div>
-                            <div aria-label="Provider execution package review handoff category counts">
-                              <strong>Note category counts</strong>
+                            <div aria-label="Provider 실행 패키지 검토 전달 자료 유형별 개수">
+                              <strong>메모 유형별 수</strong>
                               {approvedProviderExecutionReviewReport.summary.categoryCounts.length ? (
                                 approvedProviderExecutionReviewReport.summary.categoryCounts.map((item) => (
                                   <span key={item.category}>{getProviderExecutionPackageReviewNoteCategoryLabel(item.category)}: {item.count}</span>
                                 ))
                               ) : (
-                                <span>none</span>
+                                <span>없음</span>
                               )}
                             </div>
                           </div>
-                          <div className={styles.reviewNotes} aria-label="Provider execution package review handoff coverage preview">
+                          <div className={styles.reviewNotes} aria-label="Provider 실행 패키지 검토 전달 자료 검토 범위 미리보기">
                             {approvedProviderExecutionReviewReport.coverage.slice(0, 4).map((item) => (
                               <article key={item.executionId}>
-                                <strong>{item.coverageStatus} / {approvedSyncTargetLabels[item.target]}</strong>
+                                <strong>{providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} / {approvedSyncTargetLabels[item.target]}</strong>
                                 <p>{item.packageFilename}</p>
-                                <span>{item.noteCount} note(s)</span>
-                                <span>{item.packageDigest.slice(0, 16)} digest</span>
+                                <span>메모 {item.noteCount}개</span>
+                                <span>{item.packageDigest.slice(0, 16)} 해시</span>
                               </article>
                             ))}
                           </div>
-                          <pre aria-label="Provider execution package review handoff markdown preview">
+                          <pre aria-label="Provider 실행 패키지 검토 전달 자료 Markdown 미리보기">
                             {providerExecutionPackageReviewHandoffPreview}
                           </pre>
                         </>
                       ) : (
-                        <p>Provider execution package review report is not loaded.</p>
+                        <p>제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.</p>
                       )}
                     </div>
                     {approvedProviderExecutionReviewReport ? (
-                      <div className={styles.providerReviewReport} aria-label="Approved WIKI provider execution package review report">
+                      <div className={styles.providerReviewReport} aria-label="Approved WIKI provider 실행 패키지 검토 리포트">
                         <div className={styles.sourceChips}>
-                          <span>Reviewed {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
-                          <span>Unreviewed {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
-                          <span>Stale {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
-                          <span>Notes {approvedProviderExecutionReviewReport.summary.noteCount}</span>
+                          <span>검토됨 {approvedProviderExecutionReviewReport.summary.reviewedCount}</span>
+                          <span>미검토 {approvedProviderExecutionReviewReport.summary.unreviewedCount}</span>
+                          <span>오래됨 {approvedProviderExecutionReviewReport.summary.staleUnreviewedCount}</span>
+                          <span>메모 {approvedProviderExecutionReviewReport.summary.noteCount}</span>
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package reviewer quick filters">
+                        <div className={styles.sourceChips} aria-label="Provider 실행 패키지 검토자 빠른 필터">
                           {approvedProviderExecutionReviewReport.summary.reviewerCounts.length ? approvedProviderExecutionReviewReport.summary.reviewerCounts.slice(0, 4).map((item) => (
                             <button
                               key={item.reviewerId ?? "unknown"}
                               onClick={() => setApprovedProviderExecutionReviewReviewerFilter(item.reviewerId ?? "")}
                               type="button"
                             >
-                              {item.reviewerId ?? "unknown"} ({item.count})
+                              {item.reviewerId ?? "확인 불가"} ({item.count})
                             </button>
-                          )) : <span>No reviewers yet</span>}
+                          )) : <span>아직 검토자 없음</span>}
                         </div>
-                        <div className={styles.sourceChips} aria-label="Provider execution package note category quick filters">
+                        <div className={styles.sourceChips} aria-label="Provider 실행 패키지 메모 유형 빠른 필터">
                           <button onClick={() => setApprovedProviderExecutionReviewCategoryFilter("all")} type="button">
-                            All note types
+                            전체 메모 유형
                           </button>
                           {approvedProviderExecutionReviewReport.summary.categoryCounts.map((item) => (
                             <button
@@ -4252,41 +4319,41 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </button>
                           ))}
                         </div>
-                        <div className={styles.coverageGroupTotals} aria-label="Provider execution package coverage queue group totals">
+                        <div className={styles.coverageGroupTotals} aria-label="Provider 실행 패키지 검토 범위 큐 그룹 합계">
                           <article>
-                            <strong>All visible</strong>
-                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.totalCount} package(s)</span>
-                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.noteCount} note(s)</span>
+                            <strong>현재 표시 전체</strong>
+                            <span>패키지 {approvedProviderExecutionReviewReport.summary.coverageGroupTotals.totalCount}개</span>
+                            <span>메모 {approvedProviderExecutionReviewReport.summary.coverageGroupTotals.noteCount}개</span>
                           </article>
                           <article>
-                            <strong>Reviewed</strong>
-                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.reviewedCount} package(s)</span>
-                            <span>Has package review notes</span>
+                            <strong>검토됨</strong>
+                            <span>패키지 {approvedProviderExecutionReviewReport.summary.coverageGroupTotals.reviewedCount}개</span>
+                            <span>패키지 검토 메모 있음</span>
                             <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("reviewed")} type="button">
-                              Focus reviewed
+                              검토됨 보기
                             </button>
                           </article>
                           <article>
-                            <strong>Unreviewed</strong>
-                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.unreviewedCount} package(s)</span>
-                            <span>No matching review notes</span>
+                            <strong>미검토</strong>
+                            <span>패키지 {approvedProviderExecutionReviewReport.summary.coverageGroupTotals.unreviewedCount}개</span>
+                            <span>일치하는 검토 메모 없음</span>
                             <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("unreviewed")} type="button">
-                              Focus unreviewed
+                              미검토 보기
                             </button>
                           </article>
                           <article>
-                            <strong>Stale</strong>
-                            <span>{approvedProviderExecutionReviewReport.summary.coverageGroupTotals.staleUnreviewedCount} package(s)</span>
-                            <span>{approvedProviderExecutionReviewReport.filters.staleDays} day threshold</span>
+                            <strong>오래됨</strong>
+                            <span>패키지 {approvedProviderExecutionReviewReport.summary.coverageGroupTotals.staleUnreviewedCount}개</span>
+                            <span>{approvedProviderExecutionReviewReport.filters.staleDays}일 기준</span>
                             <button onClick={() => showApprovedProviderExecutionReviewCoverageGroup("stale_unreviewed")} type="button">
-                              Focus stale
+                              오래됨 보기
                             </button>
                           </article>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage queue density controls"
-                          title="Queue density controls change only local grouped coverage queue spacing for review scanning."
+                          aria-label="제공자 실행 패키지 검토 범위 큐 밀도 설정"
+                          title="큐 밀도 설정은 검토 스캔을 위한 로컬 그룹 큐 간격만 바꿉니다."
                         >
                           {(["comfortable", "compact"] as ProviderExecutionPackageReviewQueueDensity[]).map((density) => (
                             <button
@@ -4295,38 +4362,38 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                               onClick={() => setApprovedProviderExecutionReviewQueueDensity(density)}
                               type="button"
                             >
-                              {density === "comfortable" ? "Comfortable queue" : "Compact queue"}
+                              {density === "comfortable" ? "넓은 큐" : "압축 큐"}
                             </button>
                           ))}
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary local handoff actions"
-                          title="Local handoff actions copy, download, and reset browser-only provider execution package coverage summary status."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 로컬 인수인계 작업"
+                          title="로컬 전달 작업은 브라우저 전용 provider 실행 패키지 검토 범위 요약 상태를 복사, 다운로드, 초기화합니다."
                         >
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
-                            Copy group summary
+                            그룹 요약 복사
                           </button>
                           <button onClick={downloadApprovedProviderExecutionPackageCoverageGroupSummary} type="button">
-                            Download group summary
+                            그룹 요약 다운로드
                           </button>
                           <button onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryFilename} type="button">
-                            Copy filename
+                            파일명 복사
                           </button>
                           <button
                             onClick={copyApprovedProviderExecutionPackageCoverageGroupSummaryResetConfirmation}
                             type="button"
                           >
-                            Copy reset confirmation
+                            초기화 확인 문구 복사
                           </button>
                           <button onClick={resetApprovedProviderExecutionPackageCoverageGroupSummaryStatus} type="button">
-                            Reset summary status
+                            요약 상태 초기화
                           </button>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary filter chips"
-                          title="Summary filter chips show the active provider execution package review scope used by the preview and local handoffs."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 필터 칩"
+                          title="요약 필터 칩은 미리보기와 로컬 전달 작업에 쓰이는 활성 provider 실행 패키지 검토 범위를 표시합니다."
                         >
                           {providerExecutionPackageReviewActiveFilterLabels.map((label) => (
                             <span key={label}>{label}</span>
@@ -4334,8 +4401,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary count chips"
-                          title="Summary count chips show visible, reviewed, unreviewed, stale, and note totals used by the copied Markdown summary."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 개수 칩"
+                          title="요약 개수 칩은 복사되는 Markdown 요약에 쓰이는 표시, 검토됨, 미검토, 오래됨, 메모 합계를 표시합니다."
                         >
                           {providerExecutionPackageCoverageSummaryCountChips.map((label) => (
                             <span key={label}>{label}</span>
@@ -4343,97 +4410,96 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary download status chip"
-                          title="Download status is browser-only and updates after Download group summary creates the local Markdown file."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 다운로드 상태 칩"
+                          title="다운로드 상태는 브라우저 전용이며 그룹 요약 다운로드가 로컬 Markdown 파일을 만든 뒤 갱신됩니다."
                         >
                           <span>
                             {approvedProviderExecutionCoverageSummaryDownloadFilename
-                              ? `Downloaded ${approvedProviderExecutionCoverageSummaryDownloadFilename}`
-                              : "Download pending"}
+                              ? `다운로드됨 ${approvedProviderExecutionCoverageSummaryDownloadFilename}`
+                              : "다운로드 대기"}
                           </span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary copy status chip"
-                          title="Copy status is browser-only and updates after Copy group summary succeeds locally."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 복사 상태 칩"
+                          title="복사 상태는 브라우저 전용이며 그룹 요약 복사가 로컬에서 성공한 뒤 갱신됩니다."
                         >
-                          <span>{approvedProviderExecutionCoverageSummaryCopied ? "Copied group summary" : "Copy pending"}</span>
+                          <span>{approvedProviderExecutionCoverageSummaryCopied ? "그룹 요약 복사됨" : "복사 대기"}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary filename copy status chip"
-                          title="Filename copy status is browser-only and updates after Copy filename succeeds locally."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 파일명 복사 상태 칩"
+                          title="파일명 복사 상태는 브라우저 전용이며 파일명 복사가 로컬에서 성공한 뒤 갱신됩니다."
                         >
                           <span>
                             {approvedProviderExecutionCoverageSummaryCopiedFilename
-                              ? `Copied filename ${approvedProviderExecutionCoverageSummaryCopiedFilename}`
-                              : "Filename copy pending"}
+                              ? `파일명 복사됨 ${approvedProviderExecutionCoverageSummaryCopiedFilename}`
+                              : "파일명 복사 대기"}
                           </span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary reset explanation chip"
-                          title="Reset status affects browser-only summary copy, filename copy, reset-confirmation copy, copied-at, and download indicators only."
+                          aria-label="Provider 실행 패키지 검토 범위 요약 초기화 설명 칩"
+                          title="상태 초기화는 브라우저 전용 요약 복사, 파일명 복사, 초기화 확인 문구 복사, 복사 시각, 다운로드 표시만 바꿉니다."
                         >
                           <span>
-                            Reset clears browser-only summary copy, filename copy, reset-confirmation copy, copied-at, and
-                            download status
+                            초기화는 브라우저 전용 요약 복사, 파일명 복사, 초기화 확인 문구 복사, 복사 시각, 다운로드 상태를 지웁니다.
                           </span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary reset confirmation chip"
+                          aria-label="Provider 실행 패키지 검토 범위 요약 초기화 확인 문구 칩"
                           title={providerExecutionPackageCoverageGroupSummaryResetConfirmationTitle}
                         >
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmation}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary reset confirmation copy status chip"
+                          aria-label="Provider 실행 패키지 검토 범위 요약 초기화 확인 문구 복사 상태 칩"
                           title={providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyStatusTitle}
                         >
                           <span>
                             {approvedProviderExecutionCoverageSummaryCopiedResetConfirmation
-                              ? `Copied reset confirmation ${approvedProviderExecutionCoverageSummaryCopiedResetConfirmation}`
-                              : "Reset confirmation copy pending"}
+                              ? `초기화 확인 문구 복사됨 ${approvedProviderExecutionCoverageSummaryCopiedResetConfirmation}`
+                              : "초기화 확인 문구 복사 대기"}
                           </span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary reset confirmation copied-at chip"
+                          aria-label="Provider 실행 패키지 검토 범위 요약 초기화 확인 문구 복사 시각 칩"
                           title={providerExecutionPackageCoverageGroupSummaryResetConfirmationCopiedAtTitle}
                         >
                           <span>
                             {approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt
-                              ? `Reset confirmation copied at ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}`
-                              : "Reset confirmation copied-at pending"}
+                              ? `초기화 확인 문구 복사 시각 ${approvedProviderExecutionCoverageSummaryResetConfirmationCopiedAt}`
+                              : "초기화 확인 문구 복사 시각 대기"}
                           </span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary reset confirmation freshness chip"
+                          aria-label="Provider 실행 패키지 검토 범위 요약 초기화 확인 문구 최신성 칩"
                           title={providerExecutionPackageCoverageGroupSummaryResetConfirmationFreshnessTitle}
                         >
                           <span>{providerExecutionPackageCoverageGroupSummaryResetConfirmationCopyFreshness}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary generated-at chip"
-                          title="Generated-at is the provider review report timestamp used by the visible preview and local handoff actions."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 생성 시각 칩"
+                          title="생성 시각은 미리보기와 로컬 전달 작업에 쓰이는 제공자 검토 리포트 시각입니다."
                         >
-                          <span>Generated {approvedProviderExecutionReviewReport.generatedAt}</span>
+                          <span>생성 {approvedProviderExecutionReviewReport.generatedAt}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary next download filename chip"
-                          title="Next file is the Markdown filename used by Download group summary and Copy filename local handoffs."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 다음 다운로드 파일명 칩"
+                          title="다음 파일은 그룹 요약 다운로드와 파일명 복사 로컬 전달 작업에 쓰이는 Markdown 파일명입니다."
                         >
-                          <span>Next file {providerExecutionPackageCoverageGroupSummaryNextDownloadFilename}</span>
+                          <span>다음 파일 {providerExecutionPackageCoverageGroupSummaryNextDownloadFilename}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary Markdown size chips"
-                          title="Line and character counts are computed from the exact Markdown preview text used for copy and download."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 Markdown 크기 칩"
+                          title="줄 수와 글자 수는 복사와 다운로드에 쓰이는 Markdown 미리보기 본문 기준입니다."
                         >
                           {providerExecutionPackageCoverageGroupSummarySizeChips.map((label) => (
                             <span key={label}>{label}</span>
@@ -4441,42 +4507,42 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary dominant queue chip"
-                          title="Dominant queue identifies the currently largest visible provider execution package coverage queue."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 주요 큐 칩"
+                          title="주요 큐는 현재 표시된 제공자 실행 패키지 검토 범위 큐 중 가장 큰 큐입니다."
                         >
                           <span>{providerExecutionPackageCoverageDominantQueueChip}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary empty queue count chip"
-                          title="Empty queue count shows how many visible provider execution package coverage queues have no packages under the active filters."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 빈 큐 개수 칩"
+                          title="빈 큐 수는 활성 필터에서 패키지가 없는 표시 큐 개수입니다."
                         >
                           <span>{providerExecutionPackageCoverageEmptyQueueChip}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary review-needed chip"
-                          title="Review-needed count shows visible provider execution packages that still have no matching review note."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 검토 필요 칩"
+                          title="검토 필요 수는 아직 연결된 검토 메모가 없는 표시 패키지 개수입니다."
                         >
                           <span>{providerExecutionPackageCoverageReviewNeededChip}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary stale priority chip"
-                          title="Stale priority shows whether visible unreviewed provider execution packages exceed the active stale-day threshold."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 오래됨 우선순위 칩"
+                          title="오래됨 우선순위는 표시된 미검토 제공자 실행 패키지가 기준일을 넘었는지 보여줍니다."
                         >
                           <span>{providerExecutionPackageCoverageStalePriorityChip}</span>
                         </div>
                         <div
                           className={styles.sourceChips}
-                          aria-label="Provider execution package coverage summary local-only handoff chip"
-                          title="Local handoff only means copy and download actions do not create a server archive or mutate provider review state."
+                          aria-label="제공자 실행 패키지 검토 범위 요약 로컬 전용 인수인계 칩"
+                          title="로컬 전달 전용은 복사와 다운로드가 서버 아카이브를 만들거나 제공자 검토 상태를 바꾸지 않는다는 뜻입니다."
                         >
-                          <span>Local handoff only, not server archived</span>
+                          <span>로컬 전달 전용, 서버 아카이브 없음</span>
                         </div>
                         <pre
                           className={styles.coverageGroupSummaryPreview}
-                          aria-label="Provider execution package coverage group summary preview"
+                          aria-label="제공자 실행 패키지 검토 범위 그룹 요약 미리보기"
                         >
                           {providerExecutionPackageCoverageGroupSummary}
                         </pre>
@@ -4484,76 +4550,76 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                           className={`${styles.coverageGroupQueues} ${
                             approvedProviderExecutionReviewQueueDensity === "compact" ? styles.coverageGroupQueuesCompact : ""
                           }`}
-                          aria-label="Provider execution package coverage queue groups"
-                          title="Grouped coverage queues show visible provider execution package review-state buckets under the active filters."
+                          aria-label="제공자 실행 패키지 검토 범위 큐 그룹"
+                          title="그룹화된 검토 범위 큐는 활성 필터 기준의 제공자 실행 패키지 검토 상태 묶음을 표시합니다."
                         >
                           {approvedProviderExecutionReviewReport.coverage.length === 0 ? (
                             <p
                               className={styles.coverageQueueEmptyState}
-                              title="Queue empty state appears when no provider execution packages match the active coverage filters."
+                              title="활성 검토 범위 필터와 일치하는 제공자 실행 패키지가 없을 때 표시됩니다."
                             >
-                              No provider execution packages match the active coverage filters: {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.
+                              활성 검토 범위 필터와 일치하는 제공자 실행 패키지가 없습니다: {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.
                             </p>
                           ) : null}
                           {providerExecutionPackageReviewCoverageGroups.map((group) => (
                             <section
                               key={group.key}
                               className={styles.coverageGroupQueue}
-                              title={`${group.title} queue shows ${group.rows.length} visible provider execution package(s) for this review-state bucket.`}
+                              title={`${group.title} 큐는 이 검토 상태 묶음의 표시 패키지 ${group.rows.length}개를 보여줍니다.`}
                             >
                               <header>
                                 <strong>{group.title}</strong>
                                 <span
-                                  title={`${group.title} count is ${group.rows.length} visible provider execution package(s) under the active filters.`}
+                                  title={`${group.title} 수는 활성 필터 아래 표시되는 제공자 실행 패키지 ${group.rows.length}개입니다.`}
                                 >
-                                  {group.rows.length} package(s)
+                                  {group.rows.length}개 패키지
                                 </span>
                                 <p>{group.description}</p>
                               </header>
                               <div
                                 className={styles.reviewNotes}
                                 aria-label={`${group.title} rows`}
-                                title={`${group.title} rows show the first visible provider execution packages in this review-state bucket.`}
+                                title={`${group.title} 행은 이 검토 상태 묶음의 첫 표시 제공자 실행 패키지를 보여줍니다.`}
                               >
                                 {group.rows.length ? group.rows.slice(0, 4).map((item) => (
                                   <article
                                     key={item.executionId}
-                                    title={`${item.packageFilename} is in the ${providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} queue for ${approvedSyncTargetLabels[item.target]}.`}
+                                    title={`${item.packageFilename}은 ${approvedSyncTargetLabels[item.target]} 대상의 ${providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} 큐에 있습니다.`}
                                   >
-                                    <strong title="Queue row status pairs review coverage state with the provider sync target.">
+                                    <strong title="큐 행 상태는 검토 범위 상태와 제공자 동기화 대상을 함께 표시합니다.">
                                       {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]} / {approvedSyncTargetLabels[item.target]}
                                     </strong>
-                                    <p title="Package filename identifies the local provider execution package evidence file for this queue row.">
+                                    <p title="패키지 파일명은 이 큐 행의 로컬 제공자 실행 패키지 근거 파일을 식별합니다.">
                                       {item.packageFilename}
                                     </p>
                                     <div
                                       className={styles.sourceChips}
-                                      aria-label="Provider execution package coverage row chips"
-                                      title="Coverage row chips summarize state, review-note count, target, and latest-review or stale-threshold details."
+                                      aria-label="제공자 실행 패키지 검토 범위 행 칩"
+                                      title="Coverage 행 칩은 상태, 검토 메모 수, 대상, 최근 검토 또는 오래됨 기준 정보를 요약합니다."
                                     >
-                                      <span>State {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]}</span>
-                                      <span>{item.noteCount} note(s)</span>
-                                      <span>Target {approvedSyncTargetLabels[item.target]}</span>
+                                      <span>상태 {providerExecutionPackageReviewCoverageStatusLabels[item.coverageStatus]}</span>
+                                      <span>메모 {item.noteCount}개</span>
+                                      <span>대상 {approvedSyncTargetLabels[item.target]}</span>
                                       <span
                                         title={
                                           item.latestReviewNoteAt
-                                            ? "Latest-review chip shows the most recent review note date for this provider execution package."
-                                            : "Stale-threshold chip shows the active stale-day threshold for unreviewed provider execution packages."
+                                            ? "최근 검토 칩은 이 제공자 실행 패키지의 최신 검토 메모 날짜를 표시합니다."
+                                            : "오래됨 기준 칩은 미검토 제공자 실행 패키지의 활성 기준일을 표시합니다."
                                         }
                                       >
-                                        {item.latestReviewNoteAt ? `Latest ${formatDate(item.latestReviewNoteAt)}` : `Stale threshold ${item.staleDays} day(s)`}
+                                        {item.latestReviewNoteAt ? `최근 ${formatDate(item.latestReviewNoteAt)}` : `오래됨 기준 ${item.staleDays}일`}
                                       </span>
                                     </div>
                                     <button
                                       onClick={() => setApprovedProviderExecutionDigestFilter(item.packageDigest)}
-                                      title="Focus digest filters the provider execution package review surface to this package digest without mutating review state."
+                                      title="이 패키지 해시로 제공자 실행 패키지 검토 화면을 필터링합니다. 검토 상태는 변경하지 않습니다."
                                       type="button"
                                     >
-                                      Focus digest {item.packageDigest.slice(0, 12)}
+                                      패키지 해시 보기 {item.packageDigest.slice(0, 12)}
                                     </button>
                                   </article>
                                 )) : (
-                                  <p>No provider execution packages match this review group under {providerExecutionPackageReviewActiveFilterLabels.join(", ")}.</p>
+                                  <p>{providerExecutionPackageReviewActiveFilterLabels.join(", ")} 조건에서 이 검토 그룹과 일치하는 제공자 실행 패키지가 없습니다.</p>
                                 )}
                               </div>
                             </section>
@@ -4564,42 +4630,42 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     <div className={styles.syncHistory} aria-label="Approved WIKI provider execution package rows">
                       {visibleApprovedProviderExecutions.length ? visibleApprovedProviderExecutions.slice(0, 8).map((execution) => (
                         <article key={execution.id}>
-                          <strong>{execution.status} / {approvedSyncTargetLabels[execution.target]}</strong>
+                          <strong>{approvedProviderExecutionStatusLabels[execution.status]} / {approvedSyncTargetLabels[execution.target]}</strong>
                           <p>{formatDate(execution.createdAt)} / {execution.packageReview.filename}</p>
-                          <span>{execution.artifactType}</span>
-                          <span>{execution.packageReview.packageDigest.slice(0, 16)} package digest</span>
-                          <span>{execution.packageReview.available ? "package available" : "package unavailable"}</span>
-                          <span>{execution.packageReview.retentionLabel}</span>
-                          <span>{execution.packageReview.immutable ? "immutable evidence" : "mutable evidence"}</span>
-                          <span>{execution.packageReview.localDownloadTracked ? "local download tracked" : "local download separate"}</span>
-                          <span>{execution.packageReview.reviewNoteCount} review note(s)</span>
-                          <span>{execution.packageReview.latestReviewNoteAt ? `latest ${formatDate(execution.packageReview.latestReviewNoteAt)}` : "unreviewed package"}</span>
+                          <span>{approvedProviderArtifactTypeLabels[execution.artifactType]}</span>
+                          <span>{execution.packageReview.packageDigest.slice(0, 16)} 패키지 해시</span>
+                          <span>{execution.packageReview.available ? "패키지 사용 가능" : "패키지 사용 불가"}</span>
+                          <span>서버 audit 보존</span>
+                          <span>{execution.packageReview.immutable ? "변경 불가 근거" : "변경 가능 근거"}</span>
+                          <span>{execution.packageReview.localDownloadTracked ? "로컬 다운로드 추적됨" : "로컬 다운로드 별도"}</span>
+                          <span>검토 메모 {execution.packageReview.reviewNoteCount}개</span>
+                          <span>{execution.packageReview.latestReviewNoteAt ? `최근 ${formatDate(execution.packageReview.latestReviewNoteAt)}` : "미검토 패키지"}</span>
                           <button onClick={() => setApprovedProviderExecutionDigestFilter(execution.packageReview.packageDigest)} type="button">
-                            Focus digest
+                            패키지 해시 보기
                           </button>
                           <button onClick={() => setApprovedProviderExecution(execution)} type="button">
-                            Review package
+                            패키지 검토
                           </button>
                         </article>
-                      )) : <p className={styles.empty}>No provider execution packages match the current filters.</p>}
+                      )) : <p className={styles.empty}>현재 필터와 일치하는 제공자 실행 패키지가 없습니다.</p>}
                     </div>
                   </section>
                 </section>
               </section>
             </section>
 
-            <section className={styles.exportPanel} aria-label="Knowledge operational validation">
+            <section className={styles.exportPanel} aria-label="Knowledge 운영 검증">
               <div className={styles.exportHeader}>
                 <div>
-                  <p>Operational validation</p>
-                  <h4>Chunks, sync worker, and capabilities</h4>
+                  <p>운영 검증</p>
+                  <h4>청크, 동기화 worker, 권한</h4>
                 </div>
                 <div className={styles.exportActions}>
                   <button onClick={refreshFileChunkDebug} type="button">
-                    Refresh chunks
+                    청크 새로고침
                   </button>
                   <button onClick={refreshKnowledgeSyncWorker} type="button">
-                    Refresh sync worker
+                    동기화 worker 새로고침
                   </button>
                 </div>
               </div>
@@ -4607,115 +4673,115 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 <input
                   aria-label="Chunk debug query"
                   onChange={(event) => setFileChunkDebugQuery(event.target.value)}
-                  placeholder="FTS query for chunk retrieval debug"
+                  placeholder="청크 검색 디버그용 FTS 질의"
                   value={fileChunkDebugQuery}
                 />
                 <button onClick={refreshFileChunkDebug} type="button">
-                  Run query
+                  질의 실행
                 </button>
               </div>
               <div className={styles.sourceChips} aria-label="Knowledge capability migration state">
-                <span>{knowledgeCapabilityReport?.allowed ? "Knowledge admin allowed" : "Knowledge admin blocked"}</span>
-                <span>Mapping {knowledgeCapabilityReport?.mapping ?? "unknown"}</span>
-                <span>Capabilities {knowledgeCapabilityReport?.capabilities.length ?? 0}</span>
+                <span>{knowledgeCapabilityReport?.allowed ? "지식 관리자 허용됨" : "지식 관리자 차단됨"}</span>
+                <span>매핑 {knowledgeCapabilityReport?.mapping ?? "알 수 없음"}</span>
+                <span>권한 {knowledgeCapabilityReport?.capabilities.length ?? 0}</span>
                 <span>
-                  Capability table {knowledgeCapabilityReport?.migration.profileCapabilityTableReady ? "ready" : "pending"}
+                  권한 테이블 {knowledgeCapabilityReport?.migration.profileCapabilityTableReady ? "준비됨" : "대기 중"}
                 </span>
               </div>
-              <div className={styles.sourceChips} aria-label="File-analysis chunk coverage summary">
-                <span>{fileChunkDebug?.database.available ? "Chunk DB available" : "Chunk DB unavailable"}</span>
-                <span>Total {fileChunkDebug?.database.totalChunks ?? 0}</span>
-                <span>Embedded {fileChunkDebug?.database.embeddedChunks ?? 0}</span>
-                <span>Missing {fileChunkDebug?.database.missingEmbeddings ?? 0}</span>
-                <span>Retrieval hits {fileChunkDebug?.retrieval.length ?? 0}</span>
+              <div className={styles.sourceChips} aria-label="파일 분석 청크 검토 범위 요약">
+                <span>{fileChunkDebug?.database.available ? "청크 DB 사용 가능" : "청크 DB 사용 불가"}</span>
+                <span>전체 {fileChunkDebug?.database.totalChunks ?? 0}</span>
+                <span>임베딩됨 {fileChunkDebug?.database.embeddedChunks ?? 0}</span>
+                <span>누락 {fileChunkDebug?.database.missingEmbeddings ?? 0}</span>
+                <span>검색 결과 {fileChunkDebug?.retrieval.length ?? 0}</span>
               </div>
               {fileChunkDebug?.blockers.length ? (
-                <div className={styles.syncWarnings} aria-label="File-analysis chunk debug blockers">
+                <div className={styles.syncWarnings} aria-label="파일 분석 청크 디버그 차단 항목">
                   {fileChunkDebug.blockers.map((blocker) => (
                     <span key={blocker}>{blocker}</span>
                   ))}
                 </div>
               ) : null}
-              <div className={styles.syncHistory} aria-label="File-analysis chunk coverage rows">
+              <div className={styles.syncHistory} aria-label="파일 분석 청크 검토 범위 행">
                 {fileChunkDebug?.coverage.length ? fileChunkDebug.coverage.map((group) => (
                   <article key={`${group.sourceType}:${group.verificationState}`}>
                     <strong>{group.sourceType} / {group.verificationState}</strong>
-                    <span>Total {group.totalChunks}</span>
-                    <span>Embedded {group.embeddedChunks}</span>
-                    <span>Missing {group.missingEmbeddings}</span>
+                    <span>전체 {group.totalChunks}</span>
+                    <span>임베딩됨 {group.embeddedChunks}</span>
+                    <span>누락 {group.missingEmbeddings}</span>
                   </article>
-                )) : <p className={styles.empty}>No chunk coverage rows are available.</p>}
+                )) : <p className={styles.empty}>사용 가능한 청크 검토 범위 행이 없습니다.</p>}
               </div>
-              <div className={styles.syncHistory} aria-label="File-analysis retrieval debug hits">
+              <div className={styles.syncHistory} aria-label="파일 분석 검색 디버그 결과">
                 {fileChunkDebug?.retrieval.length ? fileChunkDebug.retrieval.slice(0, 5).map((hit) => (
                   <article key={hit.id}>
-                    <strong>{hit.fileName} / chunk {hit.chunkIndex}</strong>
+                    <strong>{hit.fileName} / 청크 {hit.chunkIndex}</strong>
                     <span>FTS {hit.ftsRank.toFixed(4)}</span>
-                    <span>{hit.vectorReady ? "Vector ready" : "No embedding"}</span>
+                    <span>{hit.vectorReady ? "벡터 준비됨" : "임베딩 없음"}</span>
                     <p>{hit.preview}</p>
                   </article>
-                )) : <p className={styles.empty}>No retrieval debug hits for the active query.</p>}
+                )) : <p className={styles.empty}>현재 질의의 검색 디버그 결과가 없습니다.</p>}
               </div>
               <div className={styles.sourceChips} aria-label="Approved WIKI sync worker summary">
-                <span>Pending {knowledgeSyncWorker?.queue.pendingProviderReadyAudits ?? 0}</span>
-                <span>Previews {knowledgeSyncWorker?.queue.pendingPreviewCount ?? 0}</span>
-                <span>Executions {knowledgeSyncWorker?.queue.executionCount ?? 0}</span>
-                <span>{knowledgeSyncWorker?.dryRun ? "Dry-run/preflight only" : "Execution enabled"}</span>
+                <span>대기 {knowledgeSyncWorker?.queue.pendingProviderReadyAudits ?? 0}</span>
+                <span>미리보기 {knowledgeSyncWorker?.queue.pendingPreviewCount ?? 0}</span>
+                <span>실행 {knowledgeSyncWorker?.queue.executionCount ?? 0}</span>
+                <span>{knowledgeSyncWorker?.dryRun ? "사전 실행/사전 점검 전용" : "실행 활성화"}</span>
               </div>
               <div className={styles.syncHistory} aria-label="Approved WIKI sync worker next actions">
                 {knowledgeSyncWorker?.nextActions.length ? knowledgeSyncWorker.nextActions.slice(0, 5).map((action) => (
                   <article key={action.auditId}>
                     <strong>{action.action} / {approvedSyncTargetLabels[action.target]}</strong>
                     <p>{action.packageName}</p>
-                    <span>{action.blockers.length} blocker(s)</span>
+                    <span>차단 조건 {action.blockers.length}개</span>
                   </article>
-                )) : <p className={styles.empty}>No provider-ready sync audits are queued.</p>}
+                )) : <p className={styles.empty}>대기 중인 제공자 실행 가능 동기화 audit이 없습니다.</p>}
               </div>
             </section>
 
-            <section className={styles.exportPanel} aria-label="Regulation legal-source governance refresh">
+            <section className={styles.exportPanel} aria-label="규정 공식 출처 거버넌스 갱신">
               <div className={styles.exportHeader}>
                 <div>
-                  <p>Legal source governance</p>
-                  <h4>Offline refresh review</h4>
+                  <p>법규 출처 거버넌스</p>
+                  <h4>오프라인 갱신 검토</h4>
                 </div>
                 <div className={styles.editorTools}>
                   <button disabled={regulationGovernanceLoading} onClick={refreshRegulationGovernance} type="button">
-                    Refresh governance
+                    거버넌스 새로고침
                   </button>
                   <button disabled={!regulationGovernance} onClick={copyRegulationGovernanceReport} type="button">
-                    Copy governance report
+                    거버넌스 리포트 복사
                   </button>
                 </div>
               </div>
               {regulationGovernance ? (
                 <>
-                  <div className={styles.sourceChips} aria-label="Regulation governance summary">
-                    <span>Package {regulationGovernance.packageId}</span>
-                    <span>As of {regulationGovernance.asOf}</span>
-                    <span>Sources {regulationGovernance.sourceCount}</span>
-                    <span>Documents {regulationGovernance.documentCount}</span>
-                    <span>{regulationGovernance.packageDigest.slice(0, 16)} package digest</span>
-                    <span>Ready {regulationGovernanceReadyCount}/{regulationGovernanceChecks.length}</span>
-                    <span>Source reviews {regulationGovernance.sourceReviewSummary.count}</span>
-                    <span>{regulationGovernance.sourceReviewSummary.reviewedSourceCount}/{regulationGovernance.sourceCount} sources reviewed</span>
-                    <span>{regulationGovernance.sourceReviewSummary.latestReviewedAt ? `Latest source review ${formatDate(regulationGovernance.sourceReviewSummary.latestReviewedAt)}` : "No source review"}</span>
-                    <span>Acknowledgements {regulationGovernance.acknowledgementSummary.count}</span>
-                    <span>{regulationGovernance.acknowledgementSummary.latestAcknowledgedAt ? `Latest ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)}` : "No acknowledgement"}</span>
-                    <span>{regulationGovernance.productionImport.enabled ? "Production import enabled" : "Production import blocked"}</span>
-                    <span>{regulationGovernance.productionImportPreflight.status === "ready" ? "Production preflight ready" : "Production preflight blocked"}</span>
+                  <div className={styles.sourceChips} aria-label="규정 거버넌스 요약">
+                    <span>패키지 {regulationGovernance.packageId}</span>
+                    <span>기준일 {regulationGovernance.asOf}</span>
+                    <span>출처 {regulationGovernance.sourceCount}</span>
+                    <span>문서 {regulationGovernance.documentCount}</span>
+                    <span>{regulationGovernance.packageDigest.slice(0, 16)} 패키지 해시</span>
+                    <span>준비 {regulationGovernanceReadyCount}/{regulationGovernanceChecks.length}</span>
+                    <span>출처 검토 {regulationGovernance.sourceReviewSummary.count}</span>
+                    <span>{regulationGovernance.sourceReviewSummary.reviewedSourceCount}/{regulationGovernance.sourceCount}개 출처 검토됨</span>
+                    <span>{regulationGovernance.sourceReviewSummary.latestReviewedAt ? `최신 출처 검토 ${formatDate(regulationGovernance.sourceReviewSummary.latestReviewedAt)}` : "출처 검토 없음"}</span>
+                    <span>확인 기록 {regulationGovernance.acknowledgementSummary.count}</span>
+                    <span>{regulationGovernance.acknowledgementSummary.latestAcknowledgedAt ? `최신 확인 ${formatDate(regulationGovernance.acknowledgementSummary.latestAcknowledgedAt)}` : "확인 기록 없음"}</span>
+                    <span>{regulationGovernance.productionImport.enabled ? "프로덕션 가져오기 활성화" : "프로덕션 가져오기 차단됨"}</span>
+                    <span>{regulationGovernance.productionImportPreflight.status === "ready" ? "프로덕션 사전 점검 준비됨" : "프로덕션 사전 점검 차단됨"}</span>
                   </div>
-                  <div className={styles.syncWarnings} aria-label="Regulation production import preflight">
+                  <div className={styles.syncWarnings} aria-label="규정 프로덕션 가져오기 사전 점검">
                     {regulationGovernance.productionImportPreflight.blockers.length ? regulationGovernance.productionImportPreflight.blockers.map((blocker) => (
-                      <span key={blocker}>Preflight blocker: {blocker}</span>
-                    )) : <span>Production import preflight has no blockers.</span>}
+                      <span key={blocker}>사전 점검 차단: {blocker}</span>
+                    )) : <span>프로덕션 가져오기 사전 점검에 차단 항목이 없습니다.</span>}
                     {regulationGovernance.productionImportPreflight.warnings.map((warning) => (
-                      <span key={warning}>Preflight warning: {warning}</span>
+                      <span key={warning}>사전 점검 경고: {warning}</span>
                     ))}
                   </div>
-                  <div className={styles.reviewNoteForm} aria-label="Regulation source-review coverage filters">
+                  <div className={styles.reviewNoteForm} aria-label="규정 출처 검토 범위 필터">
                     <label>
-                      Source-review coverage
+                      출처 검토 범위
                       <select
                         onChange={(event) => setRegulationSourceReviewCoveragePreset(event.target.value as RegulationSourceReviewCoveragePreset)}
                         value={regulationSourceReviewCoveragePreset}
@@ -4728,7 +4794,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </select>
                     </label>
                     <label>
-                      Stale days
+                      오래됨 기준일
                       <input
                         min={0}
                         onChange={(event) => setRegulationSourceReviewStaleDays(Math.max(0, Number.parseInt(event.target.value, 10) || 0))}
@@ -4740,19 +4806,19 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       download
                       href={`/api/admin/knowledge/regulation-governance/source-review-coverage/export?${regulationSourceReviewCoverageQuery}`}
                     >
-                      Download source-review CSV
+                      출처 검토 CSV 다운로드
                     </a>
                   </div>
-                  <div className={styles.sourceChips} aria-label="Regulation source-review coverage summary">
-                    <span>Reviewed {regulationSourceReviewCoverage?.summary.reviewedSourceCount ?? 0}</span>
-                    <span>Unreviewed {regulationSourceReviewCoverage?.summary.unreviewedSourceCount ?? 0}</span>
-                    <span>Stale {regulationSourceReviewCoverage?.summary.staleSourceCount ?? 0}</span>
-                    <span>Blocked {regulationSourceReviewCoverage?.summary.blockedSourceCount ?? 0}</span>
-                    <span>Follow-up {regulationSourceReviewCoverage?.summary.followUpSourceCount ?? 0}</span>
-                    <span>{regulationSourceReviewCoverage?.packageDigest.slice(0, 16) ?? "No"} coverage digest</span>
+                  <div className={styles.sourceChips} aria-label="규정 출처 검토 범위 요약">
+                    <span>검토됨 {regulationSourceReviewCoverage?.summary.reviewedSourceCount ?? 0}</span>
+                    <span>미검토 {regulationSourceReviewCoverage?.summary.unreviewedSourceCount ?? 0}</span>
+                    <span>오래됨 {regulationSourceReviewCoverage?.summary.staleSourceCount ?? 0}</span>
+                    <span>차단됨 {regulationSourceReviewCoverage?.summary.blockedSourceCount ?? 0}</span>
+                    <span>후속 조치 {regulationSourceReviewCoverage?.summary.followUpSourceCount ?? 0}</span>
+                    <span>{regulationSourceReviewCoverage?.packageDigest.slice(0, 16) ?? "없음"} 검토 범위 해시</span>
                   </div>
-                  <section className={styles.guardrails} aria-label="Regulation governance checks">
-                    <h4>Governance checks</h4>
+                  <section className={styles.guardrails} aria-label="규정 거버넌스 점검">
+                    <h4>거버넌스 점검</h4>
                     <div>
                       {regulationGovernanceChecks.map((item) => (
                         <article
@@ -4766,26 +4832,26 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                     </div>
                   </section>
                   {(regulationGovernance.errors.length || regulationGovernance.warnings.length) ? (
-                    <div className={styles.syncWarnings} aria-label="Regulation governance warnings">
+                    <div className={styles.syncWarnings} aria-label="규정 거버넌스 경고">
                       {regulationGovernance.errors.map((error) => (
-                        <span key={`error-${error}`}>Error: {error}</span>
+                        <span key={`error-${error}`}>오류: {error}</span>
                       ))}
                       {regulationGovernance.warnings.map((warning) => (
-                        <span key={`warning-${warning}`}>Warning: {warning}</span>
+                        <span key={`warning-${warning}`}>경고: {warning}</span>
                       ))}
                     </div>
                   ) : (
-                    <div className={styles.syncWarnings} aria-label="Regulation governance warnings">
-                      <span>No blocking governance errors in the offline manifest.</span>
+                    <div className={styles.syncWarnings} aria-label="규정 거버넌스 경고">
+                      <span>오프라인 명세에 차단 수준의 거버넌스 오류가 없습니다.</span>
                     </div>
                   )}
-                  <div className={styles.reviewNoteForm} aria-label="Regulation governance acknowledgement form">
+                  <div className={styles.reviewNoteForm} aria-label="규정 거버넌스 확인 기록 양식">
                     <label>
-                      Reviewer acknowledgement
+                          검토자 확인
                       <textarea
-                        aria-label="Regulation governance acknowledgement note"
+                        aria-label="규정 거버넌스 확인 메모"
                         onChange={(event) => setRegulationGovernanceAcknowledgementNote(event.target.value)}
-                        placeholder="Record reviewer context for this governance package and current validation snapshot"
+                        placeholder="이 거버넌스 패키지와 현재 검증 스냅샷에 대한 검토자 맥락을 기록하세요"
                         value={regulationGovernanceAcknowledgementNote}
                       />
                     </label>
@@ -4794,52 +4860,52 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       onClick={saveRegulationGovernanceAcknowledgement}
                       type="button"
                     >
-                      {regulationGovernanceAcknowledgementSaving ? "Saving..." : "Record acknowledgement"}
+                      {regulationGovernanceAcknowledgementSaving ? "저장하고 있습니다..." : "확인 기록"}
                     </button>
                   </div>
-                  <div className={styles.reviewNotes} aria-label="Regulation governance acknowledgement records">
+                  <div className={styles.reviewNotes} aria-label="규정 거버넌스 확인 기록">
                     {regulationGovernance.acknowledgements.length ? regulationGovernance.acknowledgements.map((acknowledgement) => (
                       <article key={acknowledgement.id}>
-                        <strong>{formatDate(acknowledgement.createdAt)} / {acknowledgement.reviewerId ?? "unknown reviewer"}</strong>
+                        <strong>{formatDate(acknowledgement.createdAt)} / {acknowledgement.reviewerId ?? "알 수 없는 검토자"}</strong>
                         <p>{acknowledgement.note}</p>
-                        <span>{acknowledgement.packageDigest.slice(0, 16)} package digest</span>
-                        <span>As of {acknowledgement.asOf}</span>
-                        <span>{acknowledgement.sourceCount} source(s)</span>
-                        <span>{acknowledgement.documentCount} document(s)</span>
-                        <span>{acknowledgement.statusCounts.overdue} overdue</span>
-                        <span>{acknowledgement.productionImportEnabled ? "production import enabled" : "production import blocked"}</span>
+                        <span>{acknowledgement.packageDigest.slice(0, 16)} 패키지 해시</span>
+                        <span>기준일 {acknowledgement.asOf}</span>
+                        <span>출처 {acknowledgement.sourceCount}개</span>
+                        <span>문서 {acknowledgement.documentCount}개</span>
+                        <span>기한 초과 {acknowledgement.statusCounts.overdue}개</span>
+                        <span>{acknowledgement.productionImportEnabled ? "프로덕션 가져오기 활성화" : "프로덕션 가져오기 차단됨"}</span>
                       </article>
-                    )) : <p className={styles.empty}>No governance acknowledgements have been recorded.</p>}
+                    )) : <p className={styles.empty}>기록된 거버넌스 확인이 없습니다.</p>}
                   </div>
-                  <div className={styles.syncHistory} aria-label="Regulation source-review coverage rows">
+                  <div className={styles.syncHistory} aria-label="규정 출처 검토 범위 행">
                     {regulationSourceReviewCoverage?.sources.length ? regulationSourceReviewCoverage.sources.map((source) => (
                       <article key={source.sourceId}>
                         <strong>{source.sourceName}</strong>
                         <p>{source.officialUrl}</p>
                         <span>{regulationSourceReviewCoverageLabels[source.coverageStatus]}</span>
-                        <span>{source.reviewCount} review(s)</span>
-                        <span>{source.latestReviewerId ?? "no reviewer"}</span>
-                        <span>{source.latestReviewedAt ? `Latest ${formatDate(source.latestReviewedAt)}` : "No latest review"}</span>
-                        <span>{source.packageDigest.slice(0, 16)} package digest</span>
+                        <span>검토 {source.reviewCount}개</span>
+                        <span>{source.latestReviewerId ?? "검토자 없음"}</span>
+                        <span>{source.latestReviewedAt ? `최신 ${formatDate(source.latestReviewedAt)}` : "최신 검토 없음"}</span>
+                        <span>{source.packageDigest.slice(0, 16)} 패키지 해시</span>
                       </article>
-                    )) : <p className={styles.empty}>No source-review coverage rows match the active filters.</p>}
+                    )) : <p className={styles.empty}>현재 필터와 일치하는 출처 검토 커버리지 행이 없습니다.</p>}
                   </div>
-                  <div className={styles.syncHistory} aria-label="Regulation governance source refresh rows">
+                  <div className={styles.syncHistory} aria-label="규정 거버넌스 출처 갱신 행">
                     {regulationGovernance.sources.map((source) => (
                       <article key={source.sourceId}>
                         <strong>{source.sourceName}</strong>
                         <p>{source.publisher} / {source.sourceId}</p>
                         <span>{regulationGovernanceStatusLabels[source.refreshStatus]}</span>
-                        <span>Refresh due {source.refreshDueAt || "missing"}</span>
-                        <span>{source.daysUntilDue === null ? "Due date invalid" : `${source.daysUntilDue} day(s) left`}</span>
-                        <span>{source.documentCount} document(s)</span>
-                        <span>{source.adminReviewRequiredCount} admin review required</span>
-                        <span>{source.verificationChecklist.length} checklist item(s)</span>
-                        <span>{source.reviewSummary.count} source review(s)</span>
-                        <span>{source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "Unreviewed"}</span>
+                        <span>갱신 기한 {source.refreshDueAt || "없음"}</span>
+                        <span>{source.daysUntilDue === null ? "기한 날짜가 올바르지 않음" : `${source.daysUntilDue}일 남음`}</span>
+                        <span>문서 {source.documentCount}개</span>
+                        <span>관리자 검토 필요 {source.adminReviewRequiredCount}개</span>
+                        <span>체크리스트 {source.verificationChecklist.length}개</span>
+                        <span>출처 검토 {source.reviewSummary.count}개</span>
+                        <span>{source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "미검토"}</span>
                         <div className={styles.sourceReviewForm}>
                           <label>
-                            Review state
+                            검토 상태
                             <select
                               onChange={(event) => {
                                 setRegulationGovernanceSourceReviewStates((current) => ({
@@ -4857,7 +4923,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             </select>
                           </label>
                           <label>
-                            Source review note
+                            출처 검토 메모
                             <textarea
                               onChange={(event) => {
                                 setRegulationGovernanceSourceReviewNotes((current) => ({
@@ -4865,7 +4931,7 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                                   [source.sourceId]: event.target.value,
                                 }));
                               }}
-                              placeholder="Record source-specific official URL, refresh, checklist, or follow-up review context"
+                              placeholder="출처별 공식 URL, 갱신, 체크리스트 또는 후속 검토 맥락을 기록하세요"
                               value={regulationGovernanceSourceReviewNotes[source.sourceId] ?? ""}
                             />
                           </label>
@@ -4877,18 +4943,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                             onClick={() => void saveRegulationGovernanceSourceReview(source.sourceId)}
                             type="button"
                           >
-                            {regulationGovernanceSourceReviewSaving === source.sourceId ? "Saving..." : "Record source review"}
+                            {regulationGovernanceSourceReviewSaving === source.sourceId ? "저장하고 있습니다..." : "출처 검토 기록"}
                           </button>
                         </div>
                         <div className={styles.sourceReviewNotes} aria-label={`${source.sourceName} source review records`}>
                           {source.reviews.length ? source.reviews.slice(0, 2).map((review) => (
                             <article key={review.id}>
                               <strong>
-                                {regulationGovernanceSourceReviewStateLabels[review.reviewState]} / {formatDate(review.createdAt)} / {review.reviewerId ?? "unknown reviewer"}
+                                {regulationGovernanceSourceReviewStateLabels[review.reviewState]} / {formatDate(review.createdAt)} / {review.reviewerId ?? "알 수 없는 검토자"}
                               </strong>
                               <p>{review.note}</p>
                             </article>
-                          )) : <p className={styles.empty}>No source-specific review has been recorded.</p>}
+                          )) : <p className={styles.empty}>기록된 출처별 검토가 없습니다.</p>}
                         </div>
                       </article>
                     ))}
@@ -4896,13 +4962,13 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 </>
               ) : (
                 <p className={styles.empty}>
-                  {regulationGovernanceLoading ? "Loading regulation governance..." : "Regulation governance report is not loaded."}
+                  {regulationGovernanceLoading ? "규정 거버넌스를 불러오는 중입니다..." : "규정 거버넌스 리포트를 아직 불러오지 못했습니다."}
                 </p>
               )}
             </section>
 
             <div className={styles.approvedGrid}>
-              <div className={styles.approvedList} aria-label="Approved WIKI visible items">
+              <div className={styles.approvedList} aria-label="Approved WIKI 표시 항목">
                 {visibleApprovedItems.length ? visibleApprovedItems.map((item) => (
                   <button
                     className={selectedApprovedItem?.id === item.id ? styles.candidateActive : styles.candidate}
@@ -4912,18 +4978,18 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                   >
                     <span>{scopeLabels[item.scope]}</span>
                     <strong>{item.title}</strong>
-                    <small>{formatDate(item.approvedAt)} / {item.sourceReferences.length} source refs</small>
+                    <small>{formatDate(item.approvedAt)} / 출처 참조 {item.sourceReferences.length}개</small>
                     <span className={styles.candidateRiskChips}>
-                      <span>Tags {item.tags.length}</span>
-                      <span>Record {item.sourceRecordId.slice(0, 8)}</span>
-                      <span>Task {item.sourceTaskId.slice(0, 8)}</span>
+                      <span>태그 {item.tags.length}</span>
+                      <span>기록 {item.sourceRecordId.slice(0, 8)}</span>
+                      <span>작업 {item.sourceTaskId.slice(0, 8)}</span>
                     </span>
                   </button>
                 )) : (
                   <p className={styles.empty}>
                     {approvedItemsLoaded
-                      ? "No approved WIKI items match the current filters."
-                      : "Approved WIKI items are loading."}
+                      ? "현재 필터와 일치하는 승인된 WIKI 항목이 없습니다."
+                      : "승인된 WIKI 항목을 불러오는 중입니다."}
                   </p>
                 )}
               </div>
@@ -4932,35 +4998,35 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                 {selectedApprovedItem ? (
                   <>
                     <div>
-                      <p>Selected approved item</p>
+                      <p>선택한 승인 항목</p>
                       <h4>{selectedApprovedItem.title}</h4>
                     </div>
                     <p>{selectedApprovedItem.summary}</p>
                     <dl className={styles.meta}>
                       <div>
-                        <dt>Scope</dt>
+                        <dt>범위</dt>
                         <dd>{scopeLabels[selectedApprovedItem.scope]}</dd>
                       </div>
                       <div>
-                        <dt>Approved</dt>
-                        <dd>{formatDate(selectedApprovedItem.approvedAt)} by {selectedApprovedItem.approvedBy}</dd>
+                        <dt>승인</dt>
+                        <dd>{formatDate(selectedApprovedItem.approvedAt)} / {selectedApprovedItem.approvedBy}</dd>
                       </div>
                       <div>
-                        <dt>Source</dt>
+                        <dt>출처</dt>
                         <dd>{selectedApprovedItem.sourceRecordId}</dd>
                       </div>
                       <div>
-                        <dt>Task</dt>
+                        <dt>작업</dt>
                         <dd>{selectedApprovedItem.sourceTaskId}</dd>
                       </div>
                     </dl>
                     <div className={styles.sourceChips} aria-label="Approved WIKI selected tags">
                       {selectedApprovedItem.tags.length ? selectedApprovedItem.tags.map((tag) => (
                         <span key={tag}>{tag}</span>
-                      )) : <span>No tags</span>}
+                      )) : <span>태그 없음</span>}
                     </div>
                     <section className={styles.guardrails} aria-label="Approved WIKI quality checks">
-                      <h4>Approved item quality</h4>
+                      <h4>승인 항목 품질</h4>
                       <div>
                         {approvedQualityChecks.map((item) => (
                           <article
@@ -4974,9 +5040,9 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       </div>
                     </section>
                     <div className={styles.sourceChips} aria-label="Approved WIKI quality summary">
-                      <span>Quality {approvedQualityReadyCount}/{approvedQualityChecks.length}</span>
-                      <span>Sources {selectedApprovedItem.sourceReferences.length}</span>
-                      <span>Body {selectedApprovedItem.bodyMarkdown.trim().length} chars</span>
+                      <span>품질 {approvedQualityReadyCount}/{approvedQualityChecks.length}</span>
+                      <span>출처 {selectedApprovedItem.sourceReferences.length}</span>
+                      <span>본문 {selectedApprovedItem.bodyMarkdown.trim().length}자</span>
                     </div>
                     <section
                       className={[
@@ -4986,32 +5052,32 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
                       aria-label="Approved WIKI Markdown preview"
                     >
                       <div className={styles.markdownPreviewHeader}>
-                        <h4>Approved Markdown</h4>
+                        <h4>승인 Markdown</h4>
                         <button onClick={() => setApprovedPreviewCompact((current) => !current)} type="button">
-                          {approvedPreviewCompact ? "Expanded preview" : "Compact preview"}
+                          {approvedPreviewCompact ? "넓게 보기" : "압축 보기"}
                         </button>
                       </div>
-                      <pre>{selectedApprovedItem.bodyMarkdown.trim() || "No approved Markdown body."}</pre>
+                      <pre>{selectedApprovedItem.bodyMarkdown.trim() || "승인된 Markdown 본문이 없습니다."}</pre>
                     </section>
                     <section className={styles.guardrails} aria-label="Approved WIKI source references">
-                      <h4>Source references</h4>
+                      <h4>출처 참조</h4>
                       <div>
                         {selectedApprovedItem.sourceReferences.length ? selectedApprovedItem.sourceReferences.map((reference) => (
                           <article className={styles.guardrailReady} key={reference.id}>
-                            <strong>{reference.kind} / priority {reference.priority}: {reference.title}</strong>
-                            <p>{reference.sourceUrl ?? "No source URL"} - {reference.excerpt}</p>
+                            <strong>{reference.kind} / 우선순위 {reference.priority}: {reference.title}</strong>
+                            <p>{reference.sourceUrl ?? "출처 URL 없음"} - {reference.excerpt}</p>
                           </article>
                         )) : (
                           <article className={styles.guardrailWarning}>
-                            <strong>No source references</strong>
-                            <p>This approved item can still be read, but retrieval handoff should flag missing source references.</p>
+                            <strong>출처 참조 없음</strong>
+                            <p>승인 항목은 읽을 수 있지만, 검색 전달 자료에서 누락된 출처 참조를 표시해야 합니다.</p>
                           </article>
                         )}
                       </div>
                     </section>
                   </>
                 ) : (
-                  <p className={styles.empty}>Approve a Knowledge candidate to populate this readback surface.</p>
+                  <p className={styles.empty}>지식 후보를 승인하면 이 확인 영역에 표시됩니다.</p>
                 )}
               </div>
             </div>
@@ -5101,21 +5167,21 @@ function readScopeReview(scope: Scope, originalScope: Scope | null) {
   const changed = Boolean(originalScope && originalScope !== scope);
   if (scope === "organization") {
     return {
-      label: "Organization-wide scope",
-      detail: "This draft will be visible at organization scope. Confirm it is reusable beyond one project.",
+      label: "조직 전체 범위",
+      detail: "이 초안은 조직 범위에 표시됩니다. 한 프로젝트를 넘어 재사용 가능한 내용인지 확인하세요.",
       changed,
     };
   }
   if (scope === "admin_only") {
     return {
-      label: "Admin-only scope",
-      detail: "This draft remains limited to admins until it is ready for broader publication.",
+      label: "관리자 전용 범위",
+      detail: "이 초안은 더 넓게 공개할 준비가 될 때까지 관리자에게만 제한됩니다.",
       changed,
     };
   }
   return {
-    label: "Restricted scope",
-    detail: "This draft is limited to project or project-member scope.",
+    label: "제한된 범위",
+    detail: "이 초안은 프로젝트 또는 프로젝트 멤버 범위로 제한됩니다.",
     changed,
   };
 }
@@ -5184,16 +5250,16 @@ function createSourceHandoff(
   evidenceKindCounts: Array<[string, number]>,
 ) {
   return [
-    "Knowledge candidate handoff",
-    `Record: ${detail.id}`,
-    `Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `Project: ${detail.projectName}`,
-    `State: ${detail.state}`,
-    `Review: ${detail.review?.status ?? "pending"}`,
-    `Scope: ${draft.scope}`,
-    `Confidence: ${detail.confidenceScore}%`,
-    `Evidence: ${detail.evidence.length}`,
-    `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "지식 후보 전달 자료",
+    `기록: ${detail.id}`,
+    `작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `프로젝트: ${detail.projectName}`,
+    `상태: ${stateLabels[detail.state]}`,
+    `검토: ${detail.review?.status ?? "대기"}`,
+    `범위: ${scopeLabels[draft.scope]}`,
+    `신뢰도: ${detail.confidenceScore}%`,
+    `근거: ${detail.evidence.length}`,
+    `근거 유형: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "없음"}`,
   ].join("\n");
 }
 
@@ -5204,18 +5270,18 @@ function createApprovalChecklist(
   evidenceKindCounts: Array<[string, number]>,
 ) {
   return [
-    "Knowledge approval checklist",
-    `Record: ${detail.id}`,
-    `Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `State: ${detail.state}`,
-    `Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
-    `Evidence: ${detail.evidence.length}`,
-    `Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "지식 승인 체크리스트",
+    `기록: ${detail.id}`,
+    `작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `상태: ${stateLabels[detail.state]}`,
+    `신뢰도: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `근거: ${detail.evidence.length}`,
+    `근거 유형: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "없음"}`,
     "",
-    "Readiness",
-    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Missing"} ${item.label}`),
+    "준비 상태",
+    ...readiness.map((item) => `- ${item.ready ? "준비됨" : "누락"} ${item.label}`),
     "",
-    "Guardrails",
+    "가드레일",
     ...guardrails.map((item) => `- ${item.tone}: ${item.label} - ${item.detail}`),
   ].join("\n");
 }
@@ -5231,42 +5297,42 @@ function createApprovalDecisionNote(
 ) {
   const warnings = guardrails.filter((item) => item.tone === "warning");
   const readyItems = guardrails.filter((item) => item.tone === "ready");
-  const decisionLabel = warnings.length ? "Blocker review" : "Approve-ready review";
+  const decisionLabel = warnings.length ? "차단 조건 검토" : "승인 준비 검토";
   const decisionGuidance = warnings.length
-    ? "Resolve or explicitly accept warning items before final approval."
-    : "Confirm final audience and evidence policy before approving the WIKI item.";
+    ? "최종 승인 전에 경고 항목을 해결하거나 명시적으로 수용하세요."
+    : "WIKI 항목을 승인하기 전에 최종 대상과 근거 정책을 확인하세요.";
 
   return [
-    "# Knowledge approval decision note",
-    `- Candidate: ${detail.title} (${detail.id})`,
-    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `- Project: ${detail.projectName}`,
-    `- Proposed decision context: ${decisionLabel}`,
-    `- Current candidate state: ${detail.state}`,
-    `- Review status: ${reviewStatus.label}`,
-    `- Publication scope: ${scopeLabels[draft.scope]}`,
-    `- Rejection reason draft: ${draft.rejectionReason.trim() || "none"}`,
-    `- Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
-    `- Readiness: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
-    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
-    `- Evidence: ${detail.evidence.length}`,
-    `- Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "# 지식 승인 결정 메모",
+    `- 후보: ${detail.title} (${detail.id})`,
+    `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- 프로젝트: ${detail.projectName}`,
+    `- 제안된 결정 맥락: ${decisionLabel}`,
+    `- 현재 후보 상태: ${stateLabels[detail.state]}`,
+    `- 검토 상태: ${reviewStatus.label}`,
+    `- 공개 범위: ${scopeLabels[draft.scope]}`,
+    `- 반려 사유 초안: ${draft.rejectionReason.trim() || "없음"}`,
+    `- 신뢰도: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `- 준비 상태: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
+    `- 경고 그룹: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    `- 근거: ${detail.evidence.length}`,
+    `- 근거 유형: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "없음"}`,
     "",
-    "## Decision guidance",
+    "## 결정 가이드",
     `- ${decisionGuidance}`,
     "",
-    "## Blocking warnings",
+    "## 차단 경고",
     ...(warnings.length
       ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
-      : ["- No blocking warnings"]),
+      : ["- 차단 경고 없음"]),
     "",
-    "## Ready checks",
+    "## 준비된 점검",
     ...(readyItems.length
       ? readyItems.map((item) => `- ${item.label}: ${item.detail}`)
-      : ["- No ready checks recorded"]),
+      : ["- 기록된 준비 점검 없음"]),
     "",
-    "## Risk groups",
-    ...riskGroups.map((group) => `- ${group.label}: ${group.warningCount} warnings, ${group.readyCount} ready notes`),
+    "## 리스크 그룹",
+    ...riskGroups.map((group) => `- ${group.label}: 경고 ${group.warningCount}개, 준비 메모 ${group.readyCount}개`),
   ].join("\n");
 }
 
@@ -5275,15 +5341,15 @@ function buildRejectionReasonPresets(guardrails: ApprovalGuardrail[]): Rejection
   if (!warnings.length) {
     return [
       {
-        label: "Manual review reason",
-        reason: "No active approval guardrail blockers are present. Add a manual rejection reason before rejecting.",
+        label: "수동 검토 사유",
+        reason: "활성 승인 가드레일 차단 조건이 없습니다. 반려하려면 수동 반려 사유를 추가하세요.",
       },
     ];
   }
 
   return warnings.slice(0, 5).map((item) => ({
     label: item.label,
-    reason: `Reject until resolved: ${item.label}. ${item.detail}`,
+    reason: `해결 전까지 반려: ${item.label}. ${item.detail}`,
   }));
 }
 
@@ -5294,15 +5360,15 @@ function createApprovalBlockerHandoff(
 ) {
   const warnings = guardrails.filter((item) => item.tone === "warning");
   return [
-    "# Knowledge approval blockers",
-    `- Candidate: ${detail.title} (${detail.id})`,
-    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `- Warning count: ${warnings.length}`,
-    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    "# 지식 승인 차단 조건",
+    `- 후보: ${detail.title} (${detail.id})`,
+    `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- 경고 수: ${warnings.length}`,
+    `- 경고 그룹: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
     "",
     ...(warnings.length
       ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
-      : ["- No active approval blockers"]),
+      : ["- 활성 승인 차단 조건 없음"]),
   ].join("\n");
 }
 
@@ -5317,39 +5383,39 @@ function createApprovalPackage(
 ) {
   const warnings = guardrails.filter((item) => item.tone === "warning");
   return [
-    "# Knowledge approval package",
-    `- Candidate: ${detail.title} (${detail.id})`,
-    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `- Project: ${detail.projectName}`,
-    `- Review status: ${reviewStatus.label}`,
-    `- Confidence: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
-    `- Readiness: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
-    `- Warning groups: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
-    `- Evidence kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
+    "# 지식 승인 패키지",
+    `- 후보: ${detail.title} (${detail.id})`,
+    `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- 프로젝트: ${detail.projectName}`,
+    `- 검토 상태: ${reviewStatus.label}`,
+    `- 신뢰도: ${detail.confidenceScore}% (${readConfidenceBand(detail.confidenceScore)})`,
+    `- 준비 상태: ${readiness.filter((item) => item.ready).length}/${readiness.length}`,
+    `- 경고 그룹: ${riskGroups.filter((group) => group.warningCount > 0).length}/${riskGroups.length}`,
+    `- 근거 유형: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "없음"}`,
     "",
-    "## Draft",
-    `- Title: ${draft.title}`,
-    `- Summary: ${draft.summary}`,
-    `- Scope: ${scopeLabels[draft.scope]}`,
-    `- Tags: ${draft.tagsText || "none"}`,
+    "## 초안",
+    `- 제목: ${draft.title}`,
+    `- 요약: ${draft.summary}`,
+    `- 범위: ${scopeLabels[draft.scope]}`,
+    `- 태그: ${draft.tagsText || "없음"}`,
     "",
-    draft.bodyMarkdown.trim() || "No Markdown body.",
+    draft.bodyMarkdown.trim() || "Markdown 본문 없음.",
     "",
-    "## Decision",
+    "## 결정",
     warnings.length
-      ? "- Decision context: Blocker review"
-      : "- Decision context: Approve-ready review",
-    `- Rejection reason draft: ${draft.rejectionReason.trim() || "none"}`,
+      ? "- 결정 맥락: 차단 조건 검토"
+      : "- 결정 맥락: 승인 준비 검토",
+    `- 반려 사유 초안: ${draft.rejectionReason.trim() || "없음"}`,
     "",
-    "## Blockers",
+    "## 차단 조건",
     ...(warnings.length
       ? warnings.map((item) => `- ${item.label}: ${item.detail}`)
-      : ["- No active approval blockers"]),
+      : ["- 활성 승인 차단 조건 없음"]),
     "",
-    "## Evidence",
+    "## 근거",
     ...(detail.evidence.length
-      ? detail.evidence.map((item) => `- ${item.kind} / priority ${item.priority}: ${item.title}${item.sourceUrl ? ` (${item.sourceUrl})` : ""}`)
-      : ["- No evidence rows"]),
+      ? detail.evidence.map((item) => `- ${item.kind} / 우선순위 ${item.priority}: ${item.title}${item.sourceUrl ? ` (${item.sourceUrl})` : ""}`)
+      : ["- 근거 행 없음"]),
   ].join("\n");
 }
 
@@ -5366,56 +5432,56 @@ function buildApprovalPackageQuality(
   if (!detail) {
     return [
       {
-        label: "Candidate loaded",
-        detail: "Select a candidate before building an approval package.",
+        label: "후보 불러옴",
+        detail: "승인 패키지를 만들기 전에 후보를 선택하세요.",
         ready: false,
       },
     ];
   }
 
-  const draftFieldReadiness = readiness.filter((item) => item.label !== "Evidence");
+  const draftFieldReadiness = readiness.filter((item) => item.label !== "근거");
   const missingDraftFields = draftFieldReadiness.filter((item) => !item.ready).map((item) => item.label);
   const warningCount = guardrails.filter((item) => item.tone === "warning").length;
 
   return [
     {
-      label: "Draft section",
+      label: "초안 섹션",
       detail: missingDraftFields.length
-        ? `Missing draft fields before handoff: ${missingDraftFields.join(", ")}.`
-        : `Draft section includes title, summary, body, scope, and tags (${draft.tagsText || "none"}).`,
+        ? `전달 자료 작성 전 누락된 초안 필드: ${missingDraftFields.join(", ")}.`
+        : `초안 섹션에 제목, 요약, 본문, 범위, 태그가 포함됩니다 (${draft.tagsText || "없음"}).`,
       ready: !missingDraftFields.length,
     },
     {
-      label: "Decision section",
+      label: "결정 섹션",
       detail: reviewStatus.tone === "ready"
         ? `${reviewStatus.label}: ${reviewStatus.detail}`
-        : `${reviewStatus.label}: ${reviewStatus.detail} Capture the decision path before final approval.`,
+        : `${reviewStatus.label}: ${reviewStatus.detail} 최종 승인 전 결정 경로를 기록하세요.`,
       ready: reviewStatus.tone === "ready",
     },
     {
-      label: "Blocker section",
+      label: "차단 조건 섹션",
       detail: warningCount
-        ? `${warningCount} blocker warnings are included for explicit reviewer handling.`
-        : "No active blockers; the package records a clear blocker state.",
+        ? `검토자가 명시적으로 처리할 차단 조건 경고 ${warningCount}개가 포함됩니다.`
+        : "활성 차단 조건이 없으며, 패키지에 명확한 차단 상태가 기록됩니다.",
       ready: Boolean(guardrails.length && riskGroups.length),
     },
     {
-      label: "Evidence section",
+      label: "근거 섹션",
       detail: detail.evidence.length
-        ? `${detail.evidence.length} evidence rows included; kinds: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}.`
-        : "No evidence rows are available for this package.",
+        ? `근거 ${detail.evidence.length}개 포함; 유형: ${evidenceKindCounts.map(([kind, count]) => `${kind} ${count}`).join(", ") || "없음"}.`
+        : "이 패키지에 사용할 근거 행이 없습니다.",
       ready: detail.evidence.length > 0,
     },
     {
-      label: "Source coverage",
+      label: "출처 검토 범위",
       detail: evidenceSourceCoverage.unsourced
-        ? `${evidenceSourceCoverage.unsourced}/${evidenceSourceCoverage.total} evidence rows have no source URL. Confirm whether the excerpt is sufficient.`
-        : `All ${evidenceSourceCoverage.total} evidence rows include source URLs.`,
+        ? `${evidenceSourceCoverage.total}개 근거 중 ${evidenceSourceCoverage.unsourced}개에 출처 URL이 없습니다. 발췌만으로 충분한지 확인하세요.`
+        : `모든 근거 ${evidenceSourceCoverage.total}개에 출처 URL이 있습니다.`,
       ready: evidenceSourceCoverage.total > 0 && evidenceSourceCoverage.unsourced === 0,
     },
     {
-      label: "Risk group coverage",
-      detail: `${riskGroups.length} approval risk groups are represented in the package review.`,
+      label: "리스크 그룹 검토 범위",
+      detail: `패키지 검토에 승인 리스크 그룹 ${riskGroups.length}개가 반영됩니다.`,
       ready: riskGroups.length >= 5,
     },
   ];
@@ -5428,15 +5494,15 @@ function createApprovalPackageQualityReport(
 ) {
   const readyCount = quality.filter((item) => item.ready).length;
   return [
-    "# Knowledge approval package quality",
-    `- Candidate: ${detail.title} (${detail.id})`,
-    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `- Package status: ${status.label}`,
-    `- Ready checks: ${readyCount}/${quality.length}`,
-    `- Missing checks: ${quality.length - readyCount}`,
+    "# 지식 승인 패키지 품질",
+    `- 후보: ${detail.title} (${detail.id})`,
+    `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- 패키지 상태: ${status.label}`,
+    `- 준비된 점검: ${readyCount}/${quality.length}`,
+    `- 누락 점검: ${quality.length - readyCount}`,
     "",
-    "## Quality checks",
-    ...quality.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "## 품질 점검",
+    ...quality.map((item) => `- ${item.ready ? "준비됨" : "검토 필요"}: ${item.label} - ${item.detail}`),
   ].join("\n");
 }
 
@@ -5451,33 +5517,33 @@ function buildFinalReviewChecklist(
   const reason = rejectionReason.trim();
   return [
     {
-      label: "Candidate context",
+      label: "후보 맥락",
       detail: detail
-        ? `${detail.taskIssueId} / ${detail.projectName} is loaded for final review.`
-        : "No candidate is loaded.",
+        ? `${detail.taskIssueId} / ${detail.projectName} 후보를 최종 검토용으로 불러왔습니다.`
+        : "불러온 후보가 없습니다.",
       ready: Boolean(detail),
     },
     {
-      label: "Package quality",
+      label: "패키지 품질",
       detail: packageStatus.detail,
       ready: packageStatus.tone === "ready",
     },
     {
-      label: "Blocker decision path",
+      label: "차단 조건 결정 경로",
       detail: warningCount
-        ? `${warningCount} warnings across ${warningGroupCount} groups. ${reason ? "Rejection reason is drafted." : "Resolve warnings or draft a rejection reason."}`
-        : "No active blocker warnings remain.",
+        ? `${warningGroupCount}개 그룹에 경고 ${warningCount}개가 있습니다. ${reason ? "반려 사유가 작성됐습니다." : "경고를 해결하거나 반려 사유를 작성하세요."}`
+        : "활성 차단 조건 경고가 없습니다.",
       ready: warningCount === 0 || Boolean(reason),
     },
     {
-      label: "Evidence handoff",
+      label: "근거 전달 자료",
       detail: detail?.evidence.length
-        ? `${detail.evidence.length} evidence rows are available for final handoff.`
-        : "Evidence is missing from the final handoff.",
+        ? `최종 전달 자료에 사용할 근거 ${detail.evidence.length}개가 있습니다.`
+        : "최종 전달 자료에 근거가 없습니다.",
       ready: Boolean(detail?.evidence.length),
     },
     {
-      label: "Next action",
+      label: "다음 조치",
       detail: nextAction,
       ready: true,
     },
@@ -5495,62 +5561,62 @@ function createFinalReviewCloseout(
   const packageReadyCount = packageQuality.filter((item) => item.ready).length;
   const finalReadyCount = finalChecklist.filter((item) => item.ready).length;
   return [
-    "# Knowledge final review closeout",
-    `- Candidate: ${detail.title} (${detail.id})`,
-    `- Task: ${detail.taskIssueId} - ${detail.taskTitle}`,
-    `- Project: ${detail.projectName}`,
-    `- Package quality: ${packageStatus.label} (${packageReadyCount}/${packageQuality.length})`,
-    `- Final closeout: ${finalStatus.label} (${finalReadyCount}/${finalChecklist.length})`,
-    `- Next action: ${nextAction}`,
+    "# 지식 최종 검토 마감",
+    `- 후보: ${detail.title} (${detail.id})`,
+    `- 작업: ${detail.taskIssueId} - ${detail.taskTitle}`,
+    `- 프로젝트: ${detail.projectName}`,
+    `- 패키지 품질: ${packageStatus.label} (${packageReadyCount}/${packageQuality.length})`,
+    `- 최종 마감: ${finalStatus.label} (${finalReadyCount}/${finalChecklist.length})`,
+    `- 다음 조치: ${nextAction}`,
     "",
-    "## Package quality checks",
-    ...packageQuality.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "## 패키지 품질 점검",
+    ...packageQuality.map((item) => `- ${item.ready ? "준비됨" : "검토 필요"}: ${item.label} - ${item.detail}`),
     "",
-    "## Final checklist",
-    ...finalChecklist.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "## 최종 체크리스트",
+    ...finalChecklist.map((item) => `- ${item.ready ? "준비됨" : "검토 필요"}: ${item.label} - ${item.detail}`),
   ].join("\n");
 }
 
 function buildApprovedItemQuality(item: ApprovedKnowledgeItem): ReviewChecklistItem[] {
   return [
     {
-      label: "Metadata",
+      label: "메타데이터",
       detail: item.title && item.summary
-        ? "Title and summary are available for readback."
-        : "Title or summary is missing from the approved item.",
+        ? "확인용 제목과 요약을 사용할 수 있습니다."
+        : "승인 항목에 제목 또는 요약이 없습니다.",
       ready: Boolean(item.title && item.summary),
     },
     {
-      label: "Markdown body",
+      label: "Markdown 본문",
       detail: item.bodyMarkdown.trim()
-        ? `${item.bodyMarkdown.trim().length} Markdown characters are available.`
-        : "Approved Markdown body is empty.",
+        ? `Markdown 본문 ${item.bodyMarkdown.trim().length}자를 사용할 수 있습니다.`
+        : "승인된 Markdown 본문이 비어 있습니다.",
       ready: Boolean(item.bodyMarkdown.trim()),
     },
     {
-      label: "Tags",
+      label: "태그",
       detail: item.tags.length
-        ? `${item.tags.length} tags are available for search and retrieval grouping.`
-        : "No tags are available for this approved item.",
+        ? `검색과 retrieval 그룹핑에 사용할 태그 ${item.tags.length}개가 있습니다.`
+        : "이 승인 항목에 사용할 태그가 없습니다.",
       ready: item.tags.length > 0,
     },
     {
-      label: "Publication scope",
-      detail: `Approved publication scope is ${scopeLabels[item.scope]}.`,
+      label: "공개 범위",
+      detail: `승인된 공개 범위는 ${scopeLabels[item.scope]}입니다.`,
       ready: Boolean(item.scope),
     },
     {
-      label: "Source lineage",
+      label: "출처 계보",
       detail: item.sourceRecordId && item.sourceTaskId
-        ? `Source record ${item.sourceRecordId} and task ${item.sourceTaskId} are linked.`
-        : "Source record or source task id is missing.",
+        ? `출처 기록 ${item.sourceRecordId}와 작업 ${item.sourceTaskId}가 연결되어 있습니다.`
+        : "출처 기록 또는 출처 작업 ID가 누락됐습니다.",
       ready: Boolean(item.sourceRecordId && item.sourceTaskId),
     },
     {
-      label: "Source references",
+      label: "출처 참조",
       detail: item.sourceReferences.length
-        ? `${item.sourceReferences.length} source reference rows are attached.`
-        : "No source references are attached; retrieval handoff should flag this item.",
+        ? `출처 참조 ${item.sourceReferences.length}개가 연결되어 있습니다.`
+        : "연결된 출처 참조가 없습니다. retrieval 전달 자료에서 이 항목을 표시해야 합니다.",
       ready: item.sourceReferences.length > 0,
     },
   ];
@@ -5559,25 +5625,25 @@ function buildApprovedItemQuality(item: ApprovedKnowledgeItem): ReviewChecklistI
 function createApprovedItemHandoff(item: ApprovedKnowledgeItem, quality: ReviewChecklistItem[]) {
   const readyCount = quality.filter((check) => check.ready).length;
   return [
-    "# Approved WIKI item handoff",
-    `- Item: ${item.title} (${item.id})`,
-    `- Scope: ${scopeLabels[item.scope]}`,
-    `- Approved: ${item.approvedAt} by ${item.approvedBy}`,
-    `- Source record: ${item.sourceRecordId}`,
-    `- Source task: ${item.sourceTaskId}`,
-    `- Source project: ${item.sourceProjectId}`,
-    `- Tags: ${item.tags.join(", ") || "none"}`,
-    `- Source references: ${item.sourceReferences.length}`,
-    `- Quality: ${readyCount}/${quality.length}`,
+    "# 승인된 WIKI 항목 전달 자료",
+    `- 항목: ${item.title} (${item.id})`,
+    `- 범위: ${scopeLabels[item.scope]}`,
+    `- 승인: ${item.approvedAt} / ${item.approvedBy}`,
+    `- 출처 기록: ${item.sourceRecordId}`,
+    `- 출처 작업: ${item.sourceTaskId}`,
+    `- 출처 프로젝트: ${item.sourceProjectId}`,
+    `- 태그: ${item.tags.join(", ") || "없음"}`,
+    `- 출처 참조: ${item.sourceReferences.length}`,
+    `- 품질: ${readyCount}/${quality.length}`,
     "",
-    "## Summary",
-    item.summary || "No summary.",
+    "## 요약",
+    item.summary || "요약 없음.",
     "",
-    "## Quality checks",
-    ...quality.map((check) => `- ${check.ready ? "Ready" : "Review"}: ${check.label} - ${check.detail}`),
+    "## 품질 점검",
+    ...quality.map((check) => `- ${check.ready ? "준비됨" : "검토 필요"}: ${check.label} - ${check.detail}`),
     "",
     "## Markdown",
-    item.bodyMarkdown.trim() || "No approved Markdown body.",
+    item.bodyMarkdown.trim() || "승인된 Markdown 본문 없음.",
   ].join("\n");
 }
 
@@ -5587,60 +5653,60 @@ function createApprovedSearchHandoff(
   sourceCoverage: { sourced: number; unsourced: number; total: number },
 ) {
   return [
-    "# Approved WIKI search handoff",
-    `- Visible items: ${items.length}`,
-    `- Source coverage: ${sourceCoverage.sourced}/${sourceCoverage.total} sourced, ${sourceCoverage.unsourced} unsourced`,
+    "# 승인된 WIKI 검색 전달 자료",
+    `- 표시 항목: ${items.length}`,
+    `- 출처 검토 범위: 출처 있음 ${sourceCoverage.sourced}/${sourceCoverage.total}, 출처 없음 ${sourceCoverage.unsourced}`,
     "",
-    "## Filters",
+    "## 필터",
     ...filterChips.map((chip) => `- ${chip}`),
     "",
-    "## Visible items",
+    "## 표시 항목",
     ...(items.length
-      ? items.map((item) => `- ${item.title} (${item.id}) / scope ${item.scope} / tags ${item.tags.join(", ") || "none"}`)
-      : ["- No approved WIKI items in the current filter scope."]),
+      ? items.map((item) => `- ${item.title} (${item.id}) / 범위 ${scopeLabels[item.scope]} / 태그 ${item.tags.join(", ") || "없음"}`)
+      : ["- 현재 필터 범위에 승인된 WIKI 항목이 없습니다."]),
   ].join("\n");
 }
 
 function createApprovedSourcePackage(item: ApprovedKnowledgeItem) {
   return [
-    "# Approved WIKI source package",
-    `- Item: ${item.title} (${item.id})`,
-    `- Source record: ${item.sourceRecordId}`,
-    `- Source task: ${item.sourceTaskId}`,
-    `- Source project: ${item.sourceProjectId}`,
-    `- References: ${item.sourceReferences.length}`,
+    "# 승인된 WIKI 출처 패키지",
+    `- 항목: ${item.title} (${item.id})`,
+    `- 출처 기록: ${item.sourceRecordId}`,
+    `- 출처 작업: ${item.sourceTaskId}`,
+    `- 출처 프로젝트: ${item.sourceProjectId}`,
+    `- 참조: ${item.sourceReferences.length}`,
     "",
     ...(item.sourceReferences.length
       ? item.sourceReferences.map((reference) => [
         `## ${reference.title}`,
-        `- Kind: ${reference.kind}`,
-        `- Priority: ${reference.priority}`,
-        `- Source URL: ${reference.sourceUrl ?? "none"}`,
-        `- Excerpt: ${reference.excerpt || "none"}`,
+        `- 유형: ${reference.kind}`,
+        `- 우선순위: ${reference.priority}`,
+        `- 출처 URL: ${reference.sourceUrl ?? "없음"}`,
+        `- 발췌: ${reference.excerpt || "없음"}`,
         "",
       ].join("\n"))
-      : ["- No source references attached."]),
+      : ["- 연결된 출처 참조가 없습니다."]),
   ].join("\n");
 }
 
 function createApprovedIndexPackage(items: ApprovedKnowledgeItem[], filterChips: string[]) {
   return [
-    "# Approved WIKI index package",
-    `- Items: ${items.length}`,
+    "# 승인된 WIKI 색인 패키지",
+    `- 항목: ${items.length}`,
     "",
-    "## Filter scope",
+    "## 필터 범위",
     ...filterChips.map((chip) => `- ${chip}`),
     "",
-    "## Index",
+    "## 색인",
     ...(items.length
       ? items.map((item) => [
         `- ${item.title} (${item.id})`,
-        `  - Scope: ${item.scope}`,
-        `  - Approved: ${item.approvedAt}`,
-        `  - Tags: ${item.tags.join(", ") || "none"}`,
-        `  - Source refs: ${item.sourceReferences.length}`,
+        `  - 범위: ${scopeLabels[item.scope]}`,
+        `  - 승인: ${item.approvedAt}`,
+        `  - 태그: ${item.tags.join(", ") || "없음"}`,
+        `  - 출처 참조: ${item.sourceReferences.length}`,
       ].join("\n"))
-      : ["- No approved WIKI items in the current filter scope."]),
+      : ["- 현재 필터 범위에 승인된 WIKI 항목이 없습니다."]),
   ].join("\n");
 }
 
@@ -5679,40 +5745,40 @@ function buildApprovedExportReadiness(
   const stats = readApprovedExportStats(items);
   return [
     {
-      label: "Export scope",
+      label: "내보내기 범위",
       detail: items.length
-        ? `${items.length} approved WIKI item(s) are included in the ${approvedExportFormatLabels[format]}.`
-        : "No approved WIKI items are included in the current export scope.",
+        ? `승인된 WIKI 항목 ${items.length}개가 ${approvedExportFormatLabels[format]}에 포함됩니다.`
+        : "현재 내보내기 범위에 승인된 WIKI 항목이 없습니다.",
       ready: items.length > 0,
     },
     {
-      label: "Filter manifest",
-      detail: `${filterChips.length} active filter chip(s) will be included so the export can be reproduced.`,
+      label: "필터 명세",
+      detail: `내보내기 재현을 위해 활성 필터 칩 ${filterChips.length}개가 포함됩니다.`,
       ready: filterChips.length > 0,
     },
     {
-      label: "Source lineage",
+      label: "출처 계보",
       detail: stats.unsourced
-        ? `${stats.unsourced}/${stats.items} item(s) have no source references.`
-        : `${stats.sourced}/${stats.items} item(s) include source references.`,
+        ? `${stats.items}개 중 ${stats.unsourced}개 항목에 출처 참조가 없습니다.`
+        : `${stats.items}개 중 ${stats.sourced}개 항목이 출처 참조를 포함합니다.`,
       ready: stats.items > 0 && stats.unsourced === 0,
     },
     {
-      label: "Tag coverage",
+      label: "태그 검토 범위",
       detail: stats.tags
-        ? `${stats.tags} unique tag(s) are available for sync grouping.`
-        : "No tags are available for sync grouping.",
+        ? `동기화 그룹핑에 사용할 고유 태그 ${stats.tags}개가 있습니다.`
+        : "동기화 그룹핑에 사용할 태그가 없습니다.",
       ready: stats.tags > 0,
     },
     {
-      label: "Body content",
+      label: "본문 내용",
       detail: stats.bodyChars
-        ? `${stats.bodyChars} total Markdown character(s) are available.`
-        : "Export scope has no Markdown body content.",
+        ? `Markdown 본문 총 ${stats.bodyChars}자를 사용할 수 있습니다.`
+        : "내보내기 범위에 Markdown 본문 내용이 없습니다.",
       ready: stats.bodyChars > 0,
     },
     {
-      label: "Target profile",
+      label: "대상 프로필",
       detail: readApprovedSyncTargetGuidance(target, format),
       ready: true,
     },
@@ -5755,36 +5821,36 @@ function createApprovedExportMarkdown(
   stats: ReturnType<typeof readApprovedExportStats>,
 ) {
   return [
-    "# Approved WIKI export",
-    `- Generated: ${new Date().toISOString()}`,
-    `- Sync target: ${approvedSyncTargetLabels[target]}`,
-    `- Items: ${stats.items}`,
-    `- Source references: ${stats.sourceReferences}`,
-    `- Unique tags: ${stats.tags}`,
-    `- Body characters: ${stats.bodyChars}`,
+    "# 승인된 WIKI 내보내기",
+    `- 생성 시각: ${new Date().toISOString()}`,
+    `- 동기화 대상: ${approvedSyncTargetLabels[target]}`,
+    `- 항목: ${stats.items}`,
+    `- 출처 참조: ${stats.sourceReferences}`,
+    `- 고유 태그: ${stats.tags}`,
+    `- 본문 글자 수: ${stats.bodyChars}`,
     "",
-    "## Filter scope",
+    "## 필터 범위",
     ...filterChips.map((chip) => `- ${chip}`),
     "",
     ...items.flatMap((item) => [
       `## ${item.title}`,
       `- ID: ${item.id}`,
-      `- Scope: ${item.scope}`,
-      `- Approved: ${item.approvedAt} by ${item.approvedBy}`,
-      `- Source record: ${item.sourceRecordId}`,
-      `- Source task: ${item.sourceTaskId}`,
-      `- Source project: ${item.sourceProjectId}`,
-      `- Tags: ${item.tags.join(", ") || "none"}`,
-      `- Source references: ${item.sourceReferences.length}`,
+      `- 범위: ${scopeLabels[item.scope]}`,
+      `- 승인: ${item.approvedAt} / ${item.approvedBy}`,
+      `- 출처 기록: ${item.sourceRecordId}`,
+      `- 출처 작업: ${item.sourceTaskId}`,
+      `- 출처 프로젝트: ${item.sourceProjectId}`,
+      `- 태그: ${item.tags.join(", ") || "없음"}`,
+      `- 출처 참조: ${item.sourceReferences.length}`,
       "",
-      item.summary || "No summary.",
+      item.summary || "요약 없음.",
       "",
-      item.bodyMarkdown.trim() || "No approved Markdown body.",
+      item.bodyMarkdown.trim() || "승인된 Markdown 본문 없음.",
       "",
-      "### Sources",
+      "### 출처",
       ...(item.sourceReferences.length
-        ? item.sourceReferences.map((reference) => `- ${reference.kind} / priority ${reference.priority}: ${reference.title}${reference.sourceUrl ? ` (${reference.sourceUrl})` : ""}`)
-        : ["- No source references attached."]),
+        ? item.sourceReferences.map((reference) => `- ${reference.kind} / 우선순위 ${reference.priority}: ${reference.title}${reference.sourceUrl ? ` (${reference.sourceUrl})` : ""}`)
+        : ["- 연결된 출처 참조가 없습니다."]),
       "",
     ]),
   ].join("\n");
@@ -5799,22 +5865,22 @@ function createApprovedSyncManifest(
 ) {
   const readyCount = readiness.filter((item) => item.ready).length;
   return [
-    "# Approved WIKI sync manifest",
-    `- Target: ${approvedSyncTargetLabels[target]}`,
-    `- Format: ${approvedExportFormatLabels[format]}`,
-    `- Items: ${items.length}`,
-    `- Readiness: ${readyCount}/${readiness.length}`,
+    "# 승인된 WIKI 동기화 명세",
+    `- 대상: ${approvedSyncTargetLabels[target]}`,
+    `- 형식: ${approvedExportFormatLabels[format]}`,
+    `- 항목: ${items.length}`,
+    `- 준비 상태: ${readyCount}/${readiness.length}`,
     "",
-    "## Filter scope",
+    "## 필터 범위",
     ...filterChips.map((chip) => `- ${chip}`),
     "",
-    "## Readiness",
-    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "## 준비 상태",
+    ...readiness.map((item) => `- ${item.ready ? "준비됨" : "검토 필요"}: ${item.label} - ${item.detail}`),
     "",
-    "## Item manifest",
+    "## 항목 명세",
     ...(items.length
-      ? items.map((item) => `- ${item.title} (${item.id}) / ${item.scope} / ${item.tags.join(", ") || "no tags"}`)
-      : ["- No approved WIKI items selected for sync."]),
+      ? items.map((item) => `- ${item.title} (${item.id}) / ${scopeLabels[item.scope]} / ${item.tags.join(", ") || "태그 없음"}`)
+      : ["- 동기화 대상으로 선택된 승인 WIKI 항목이 없습니다."]),
   ].join("\n");
 }
 
@@ -5826,20 +5892,20 @@ function createApprovedExportChecklist(
   format: ApprovedExportFormat,
 ) {
   return [
-    "# Approved WIKI export checklist",
-    `- Target: ${approvedSyncTargetLabels[target]}`,
-    `- Format: ${approvedExportFormatLabels[format]}`,
-    `- Items: ${stats.items}`,
-    `- Source references: ${stats.sourceReferences}`,
-    `- Unique tags: ${stats.tags}`,
+    "# 승인된 WIKI 내보내기 체크리스트",
+    `- 대상: ${approvedSyncTargetLabels[target]}`,
+    `- 형식: ${approvedExportFormatLabels[format]}`,
+    `- 항목: ${stats.items}`,
+    `- 출처 참조: ${stats.sourceReferences}`,
+    `- 고유 태그: ${stats.tags}`,
     "",
-    "## Checks",
-    ...readiness.map((item) => `- ${item.ready ? "Ready" : "Review"}: ${item.label} - ${item.detail}`),
+    "## 점검",
+    ...readiness.map((item) => `- ${item.ready ? "준비됨" : "검토 필요"}: ${item.label} - ${item.detail}`),
     "",
-    "## Included items",
+    "## 포함 항목",
     ...(items.length
       ? items.map((item) => `- ${item.title} (${item.id})`)
-      : ["- No items included"]),
+      : ["- 포함된 항목 없음"]),
   ].join("\n");
 }
 
@@ -5852,16 +5918,16 @@ function buildApprovedSyncDryRunWarnings(
   const warnings: string[] = [];
   const notReady = readiness.filter((item) => !item.ready);
   if (!items.length) {
-    warnings.push("No approved WIKI items are selected for sync.");
+    warnings.push("동기화 대상으로 선택된 승인 WIKI 항목이 없습니다.");
   }
   for (const item of notReady) {
     warnings.push(`${item.label}: ${item.detail}`);
   }
   if (target !== "portable_archive") {
-    warnings.push("External provider execution is not connected yet; this records a guarded local simulation only.");
+    warnings.push("외부 제공자 실행은 아직 연결되지 않았습니다. 현재는 보호된 로컬 시뮬레이션만 기록합니다.");
   }
   if (target === "obsidian" && format === "json") {
-    warnings.push("Obsidian target usually expects Markdown files; JSON keeps metadata for a later conversion step.");
+    warnings.push("Obsidian 대상은 보통 Markdown 파일을 기대합니다. JSON은 후속 변환을 위한 메타데이터 보존용입니다.");
   }
   return warnings;
 }
@@ -5911,7 +5977,7 @@ function createApprovedSyncRun({
     readinessCount: readiness.length,
     sourceReferences: stats.sourceReferences,
     unsourced: stats.unsourced,
-    confirmation: confirmation.trim() === approvedSyncConfirmationText ? "matched" : "missing_or_mismatch",
+    confirmation: confirmation.trim() === approvedSyncConfirmationText ? "일치" : "누락 또는 불일치",
     packageName,
     dryRunWarnings,
   };
@@ -5941,113 +6007,113 @@ function createApprovedSyncAuditPayload(
 
 function createApprovedSyncHistoryReport(history: ApprovedSyncRun[]) {
   return [
-    "# Approved WIKI guarded sync history",
-    `- Generated: ${new Date().toISOString()}`,
-    `- Runs: ${history.length}`,
+    "# 승인된 WIKI 보호 동기화 이력",
+    `- 생성 시각: ${new Date().toISOString()}`,
+    `- 실행: ${history.length}`,
     "",
     ...(history.length
       ? history.map((run) => [
         `## ${run.createdAt}`,
-        `- Status: ${run.status}`,
-        `- Target: ${approvedSyncTargetLabels[run.target]}`,
-        `- Format: ${approvedExportFormatLabels[run.format]}`,
-        `- Scope: ${approvedExportScopeLabels[run.scope]}`,
-        `- Package: ${run.packageName}`,
-        `- Items: ${run.itemCount}`,
-        `- Readiness: ${run.readyCount}/${run.readinessCount}`,
-        `- Source references: ${run.sourceReferences}`,
-        `- Unsourced: ${run.unsourced}`,
-        `- Confirmation: ${run.confirmation}`,
-        `- Provider configured: ${run.providerConfigured ? "yes" : "no"}`,
-        `- Provider execution enabled: ${run.providerExecutionEnabled ? "yes" : "no"}`,
+        `- 상태: ${approvedSyncRunStatusLabels[run.status]}`,
+        `- 대상: ${approvedSyncTargetLabels[run.target]}`,
+        `- 형식: ${approvedExportFormatLabels[run.format]}`,
+        `- 범위: ${approvedExportScopeLabels[run.scope]}`,
+        `- 패키지: ${run.packageName}`,
+        `- 항목: ${run.itemCount}`,
+        `- 준비 상태: ${run.readyCount}/${run.readinessCount}`,
+        `- 출처 참조: ${run.sourceReferences}`,
+        `- 출처 없음: ${run.unsourced}`,
+        `- 확인 문구: ${run.confirmation}`,
+        `- 제공자 설정됨: ${run.providerConfigured ? "예" : "아니오"}`,
+        `- 제공자 실행 활성화: ${run.providerExecutionEnabled ? "예" : "아니오"}`,
         "",
-        "### Dry-run warnings",
-        ...(run.dryRunWarnings.length ? run.dryRunWarnings.map((warning) => `- ${warning}`) : ["- none"]),
+        "### 사전 실행 경고",
+        ...(run.dryRunWarnings.length ? run.dryRunWarnings.map((warning) => `- ${warning}`) : ["- 없음"]),
       ].join("\n"))
-      : ["- No guarded sync history has been recorded locally."]),
+      : ["- 로컬에 기록된 보호 동기화 이력이 없습니다."]),
   ].join("\n");
 }
 
 function createRegulationGovernanceReport(report: RegulationGovernanceReport) {
   return [
-    "# Regulation legal-source governance report",
-    `- Package: ${report.packageId}`,
-    `- Package digest: ${report.packageDigest}`,
-    `- Generated at: ${new Date().toISOString()}`,
-    `- As of: ${report.asOf}`,
-    `- Valid: ${report.valid ? "yes" : "no"}`,
-    `- Production import: ${report.productionImport.enabled ? "enabled" : "blocked"}`,
-    `- Required review: ${report.productionImport.requiredReview}`,
-    `- Blocked reason: ${report.productionImport.blockedReason ?? "-"}`,
-    `- Production preflight: ${report.productionImportPreflight.status}`,
-    `- Preflight can import: ${report.productionImportPreflight.canImport ? "yes" : "no"}`,
-    `- Refresh cadence: ${report.refreshPolicy.cadenceDays} day(s)`,
-    `- Stale after: ${report.refreshPolicy.staleAfterDays} day(s)`,
-    `- Sources: ${report.sourceCount}`,
-    `- Documents: ${report.documentCount}`,
+    "# 규정 공식 출처 거버넌스 리포트",
+    `- 패키지: ${report.packageId}`,
+    `- 패키지 해시: ${report.packageDigest}`,
+    `- 생성 시각: ${new Date().toISOString()}`,
+    `- 기준 시각: ${report.asOf}`,
+    `- 유효 여부: ${report.valid ? "예" : "아니오"}`,
+    `- 프로덕션 가져오기: ${report.productionImport.enabled ? "활성화" : "차단"}`,
+    `- 필수 검토: ${report.productionImport.requiredReview}`,
+    `- 차단 사유: ${report.productionImport.blockedReason ?? "-"}`,
+    `- 프로덕션 사전 점검: ${report.productionImportPreflight.status}`,
+    `- 사전 점검 가져오기 가능: ${report.productionImportPreflight.canImport ? "예" : "아니오"}`,
+    `- 갱신 주기: ${report.refreshPolicy.cadenceDays}일`,
+    `- 오래됨 기준: ${report.refreshPolicy.staleAfterDays}일`,
+    `- 출처: ${report.sourceCount}`,
+    `- 문서: ${report.documentCount}`,
     "",
-    "## Refresh summary",
-    `- Scheduled: ${report.statusCounts.scheduled}`,
-    `- Due soon: ${report.statusCounts.due}`,
-    `- Overdue: ${report.statusCounts.overdue}`,
+    "## 갱신 요약",
+    `- 예정됨: ${report.statusCounts.scheduled}`,
+    `- 기한 임박: ${report.statusCounts.due}`,
+    `- 기한 초과: ${report.statusCounts.overdue}`,
     "",
-    "## Source reviews",
-    `- Review records: ${report.sourceReviewSummary.count}`,
-    `- Reviewed sources: ${report.sourceReviewSummary.reviewedSourceCount}/${report.sourceCount}`,
-    `- Unreviewed sources: ${report.sourceReviewSummary.unreviewedSourceCount}`,
-    `- Needs follow-up: ${report.sourceReviewSummary.followUpSourceCount}`,
-    `- Blocked: ${report.sourceReviewSummary.blockedSourceCount}`,
-    `- Latest: ${report.sourceReviewSummary.latestReviewedAt ?? "-"}`,
-    `- Latest reviewer: ${report.sourceReviewSummary.latestReviewerId ?? "-"}`,
+    "## 출처 검토",
+    `- 검토 기록: ${report.sourceReviewSummary.count}`,
+    `- 검토된 출처: ${report.sourceReviewSummary.reviewedSourceCount}/${report.sourceCount}`,
+    `- 미검토 출처: ${report.sourceReviewSummary.unreviewedSourceCount}`,
+    `- 후속 조치 필요: ${report.sourceReviewSummary.followUpSourceCount}`,
+    `- 차단됨: ${report.sourceReviewSummary.blockedSourceCount}`,
+    `- 최신 검토: ${report.sourceReviewSummary.latestReviewedAt ?? "-"}`,
+    `- 최신 검토자: ${report.sourceReviewSummary.latestReviewerId ?? "-"}`,
     "",
-    "## Production import preflight",
-    `- Acknowledgements: ${report.productionImportPreflight.acknowledgementCount}`,
-    `- Source coverage: ${report.productionImportPreflight.sourceReviewCoverage.reviewedSourceCount}/${report.productionImportPreflight.sourceReviewCoverage.requiredSourceCount}`,
-    `- Blocked source reviews: ${report.productionImportPreflight.sourceReviewCoverage.blockedSourceCount}`,
-    `- Follow-up source reviews: ${report.productionImportPreflight.sourceReviewCoverage.followUpSourceCount}`,
+    "## 프로덕션 가져오기 사전 점검",
+    `- 확인 기록: ${report.productionImportPreflight.acknowledgementCount}`,
+    `- 출처 검토 범위: ${report.productionImportPreflight.sourceReviewCoverage.reviewedSourceCount}/${report.productionImportPreflight.sourceReviewCoverage.requiredSourceCount}`,
+    `- 차단된 출처 검토: ${report.productionImportPreflight.sourceReviewCoverage.blockedSourceCount}`,
+    `- 후속 출처 검토: ${report.productionImportPreflight.sourceReviewCoverage.followUpSourceCount}`,
     ...(report.productionImportPreflight.blockers.length
-      ? report.productionImportPreflight.blockers.map((blocker) => `- Blocker: ${blocker}`)
-      : ["- Blocker: none"]),
+      ? report.productionImportPreflight.blockers.map((blocker) => `- 차단 조건: ${blocker}`)
+      : ["- 차단 조건: 없음"]),
     ...(report.productionImportPreflight.warnings.length
-      ? report.productionImportPreflight.warnings.map((warning) => `- Warning: ${warning}`)
-      : ["- Warning: none"]),
+      ? report.productionImportPreflight.warnings.map((warning) => `- 경고: ${warning}`)
+      : ["- 경고: 없음"]),
     "",
-    "## Acknowledgements",
-    `- Count: ${report.acknowledgementSummary.count}`,
-    `- Latest: ${report.acknowledgementSummary.latestAcknowledgedAt ?? "-"}`,
-    `- Latest reviewer: ${report.acknowledgementSummary.latestReviewerId ?? "-"}`,
+    "## 확인 기록",
+    `- 개수: ${report.acknowledgementSummary.count}`,
+    `- 최신 확인: ${report.acknowledgementSummary.latestAcknowledgedAt ?? "-"}`,
+    `- 최신 검토자: ${report.acknowledgementSummary.latestReviewerId ?? "-"}`,
     ...(report.acknowledgements.length
-      ? report.acknowledgements.map((acknowledgement) => `- ${acknowledgement.createdAt} / ${acknowledgement.reviewerId ?? "unknown"} / ${acknowledgement.note}`)
-      : ["- none"]),
+      ? report.acknowledgements.map((acknowledgement) => `- ${acknowledgement.createdAt} / ${acknowledgement.reviewerId ?? "알 수 없음"} / ${acknowledgement.note}`)
+      : ["- 없음"]),
     "",
-    "## Errors",
-    ...(report.errors.length ? report.errors.map((error) => `- ${error}`) : ["- none"]),
+    "## 오류",
+    ...(report.errors.length ? report.errors.map((error) => `- ${error}`) : ["- 없음"]),
     "",
-    "## Warnings",
-    ...(report.warnings.length ? report.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "## 경고",
+    ...(report.warnings.length ? report.warnings.map((warning) => `- ${warning}`) : ["- 없음"]),
     "",
-    "## Sources",
+    "## 출처",
     ...report.sources.flatMap((source) => [
       `### ${source.sourceName}`,
-      `- Source id: ${source.sourceId}`,
-      `- Publisher: ${source.publisher}`,
-      `- Official URL: ${source.officialUrl}`,
-      `- Refresh: ${regulationGovernanceStatusLabels[source.refreshStatus]} / ${source.refreshDueAt || "missing"}`,
-      `- Days until due: ${source.daysUntilDue ?? "invalid"}`,
-      `- Documents: ${source.documentCount}`,
-      `- Admin review required: ${source.adminReviewRequiredCount}`,
-      `- Approved documents: ${source.approvedDocumentCount}`,
-      `- Source review count: ${source.reviewSummary.count}`,
-      `- Latest source review: ${source.reviewSummary.latestReviewedAt ?? "-"}`,
-      `- Latest source review state: ${source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "-"}`,
-      "- Verification checklist:",
+      `- 출처 ID: ${source.sourceId}`,
+      `- 발행처: ${source.publisher}`,
+      `- 공식 URL: ${source.officialUrl}`,
+      `- 갱신: ${regulationGovernanceStatusLabels[source.refreshStatus]} / ${source.refreshDueAt || "누락"}`,
+      `- 남은 일수: ${source.daysUntilDue ?? "잘못된 날짜"}`,
+      `- 문서: ${source.documentCount}`,
+      `- 관리자 검토 필요: ${source.adminReviewRequiredCount}`,
+      `- 승인 문서: ${source.approvedDocumentCount}`,
+      `- 출처 검토 수: ${source.reviewSummary.count}`,
+      `- 최신 출처 검토: ${source.reviewSummary.latestReviewedAt ?? "-"}`,
+      `- 최신 출처 검토 상태: ${source.reviewSummary.latestReviewState ? regulationGovernanceSourceReviewStateLabels[source.reviewSummary.latestReviewState] : "-"}`,
+      "- 검증 체크리스트:",
       ...(source.verificationChecklist.length
         ? source.verificationChecklist.map((item) => `  - ${item}`)
-        : ["  - missing"]),
-      "- Source review records:",
+        : ["  - 누락"]),
+      "- 출처 검토 기록:",
       ...(source.reviews.length
-        ? source.reviews.map((review) => `  - ${review.createdAt} / ${regulationGovernanceSourceReviewStateLabels[review.reviewState]} / ${review.reviewerId ?? "unknown"} / ${review.note}`)
-        : ["  - none"]),
+        ? source.reviews.map((review) => `  - ${review.createdAt} / ${regulationGovernanceSourceReviewStateLabels[review.reviewState]} / ${review.reviewerId ?? "알 수 없음"} / ${review.note}`)
+        : ["  - 없음"]),
       "",
     ]),
   ].join("\n");
@@ -6058,16 +6124,16 @@ function ProviderReconciliationPackageView({ packageData }: { packageData: Appro
     <section aria-label="Approved WIKI provider reconciliation package">
       <strong>{packageData.packageName}</strong>
       <div>
-        <span>{packageData.summary.total} path(s)</span>
-        <span>Create {packageData.summary.create}</span>
-        <span>Update {packageData.summary.update}</span>
-        <span>Delete {packageData.summary.delete}</span>
-        <span>Noop {packageData.summary.noop}</span>
+        <span>경로 {packageData.summary.total}개</span>
+        <span>생성 {packageData.summary.create}</span>
+        <span>수정 {packageData.summary.update}</span>
+        <span>삭제 {packageData.summary.delete}</span>
+        <span>변경 없음 {packageData.summary.noop}</span>
       </div>
       <div>
         {packageData.operations.slice(0, 8).map((operation) => (
           <span key={`${operation.intent}:${operation.path}`}>
-            {operation.intent} {operation.path} / {operation.itemId.slice(0, 8)}
+            {approvedProviderReconciliationIntentLabels[operation.intent]} {operation.path} / {operation.itemId.slice(0, 8)}
           </span>
         ))}
       </div>
@@ -6083,30 +6149,30 @@ function ProviderReconciliationPackageView({ packageData }: { packageData: Appro
 function ProviderLiveWritePreflightView({ preflight }: { preflight: ApprovedProviderLiveWritePreflight }) {
   return (
     <section aria-label="Approved WIKI Obsidian live-write preflight">
-      <strong>Obsidian live-write preflight</strong>
+      <strong>Obsidian live-write 사전 점검</strong>
       <div>
-        <span>{preflight.featureFlag} {preflight.featureFlagEnabled ? "enabled" : "disabled"}</span>
-        <span>{preflight.mutationReady ? "Mutation ready" : "Mutation blocked"}</span>
-        <span>{preflight.operationCount} mutation(s)</span>
-        <span>Create {preflight.summary.create}</span>
-        <span>Update {preflight.summary.update}</span>
-        <span>Delete {preflight.summary.delete}</span>
+        <span>{preflight.featureFlag} {preflight.featureFlagEnabled ? "사용 중" : "꺼짐"}</span>
+        <span>{preflight.mutationReady ? "변경 준비됨" : "변경 차단됨"}</span>
+        <span>변경 작업 {preflight.operationCount}개</span>
+        <span>생성 {preflight.summary.create}</span>
+        <span>수정 {preflight.summary.update}</span>
+        <span>삭제 {preflight.summary.delete}</span>
       </div>
       <div>
-        <span>Rollback {preflight.rollbackPlanRef ?? "missing"}</span>
-        <span>Reconciliation {preflight.reconciliationPlanRef ?? "missing"}</span>
+        <span>롤백 {preflight.rollbackPlanRef ?? "누락"}</span>
+        <span>대조 {preflight.reconciliationPlanRef ?? "누락"}</span>
       </div>
       <div>
         {preflight.operations.slice(0, 8).map((operation) => (
           <span key={`${operation.intent}:${operation.path}`}>
-            {operation.intent} {operation.path} / {operation.itemId.slice(0, 8)}
+            {approvedProviderReconciliationIntentLabels[operation.intent]} {operation.path} / {operation.itemId.slice(0, 8)}
           </span>
         ))}
       </div>
       <div>
         {preflight.blockers.length ? preflight.blockers.map((blocker) => (
           <span key={blocker}>{blocker}</span>
-        )) : <span>No preflight blockers.</span>}
+        )) : <span>사전 점검 차단 조건이 없습니다.</span>}
       </div>
       <div>
         {preflight.warnings.map((warning) => (
@@ -6119,21 +6185,21 @@ function ProviderLiveWritePreflightView({ preflight }: { preflight: ApprovedProv
 
 function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
   return [
-    "# Approved WIKI provider preview",
-    `- Preview id: ${preview.id}`,
-    `- Export audit id: ${preview.auditId}`,
-    `- Target: ${approvedSyncTargetLabels[preview.target]}`,
-    `- Destination: ${preview.destination}`,
-    `- Status: ${preview.status}`,
-    `- Package: ${preview.packageName}`,
-    `- Created: ${preview.createdAt}`,
-    `- Created by: ${preview.createdBy ?? "unknown"}`,
+    "# 승인된 WIKI 제공자 미리보기",
+    `- 미리보기 ID: ${preview.id}`,
+    `- 내보내기 감사 ID: ${preview.auditId}`,
+    `- 대상: ${approvedSyncTargetLabels[preview.target]}`,
+    `- 목적지: ${preview.destination}`,
+    `- 상태: ${preview.status}`,
+    `- 패키지: ${preview.packageName}`,
+    `- 생성: ${preview.createdAt}`,
+    `- 생성자: ${preview.createdBy ?? "알 수 없음"}`,
     "",
-    "## Operations",
+    "## 작업",
     ...preview.operations.map((operation) => `- ${operation}`),
     "",
-    "## Warnings",
-    ...(preview.warnings.length ? preview.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "## 경고",
+    ...(preview.warnings.length ? preview.warnings.map((warning) => `- ${warning}`) : ["- 없음"]),
     "",
     ...formatApprovedProviderReconciliationPackage(preview.reconciliationPackage),
   ].join("\n");
@@ -6141,23 +6207,23 @@ function createApprovedProviderPreviewReport(preview: ApprovedProviderPreview) {
 
 function createApprovedProviderExecutionReport(execution: ApprovedProviderExecution) {
   return [
-    "# Approved WIKI provider execution",
-    `- Execution id: ${execution.id}`,
-    `- Preview id: ${execution.previewId}`,
-    `- Export audit id: ${execution.auditId}`,
-    `- Target: ${approvedSyncTargetLabels[execution.target]}`,
-    `- Destination: ${execution.destination}`,
-    `- Status: ${execution.status}`,
-    `- Package: ${execution.packageName}`,
-    `- Artifact: ${execution.artifactName}`,
-    `- Artifact type: ${execution.artifactType}`,
-    `- Items: ${execution.itemCount}`,
-    `- Digest: ${execution.contentDigest}`,
-    `- Created: ${execution.createdAt}`,
-    `- Created by: ${execution.createdBy ?? "unknown"}`,
+    "# 승인된 WIKI 제공자 실행",
+    `- 실행 ID: ${execution.id}`,
+    `- 미리보기 ID: ${execution.previewId}`,
+    `- 내보내기 감사 ID: ${execution.auditId}`,
+    `- 대상: ${approvedSyncTargetLabels[execution.target]}`,
+    `- 목적지: ${execution.destination}`,
+    `- 상태: ${approvedProviderExecutionStatusLabels[execution.status]}`,
+    `- 패키지: ${execution.packageName}`,
+    `- 산출물: ${execution.artifactName}`,
+    `- 산출물 유형: ${approvedProviderArtifactTypeLabels[execution.artifactType]}`,
+    `- 항목: ${execution.itemCount}`,
+    `- 해시: ${execution.contentDigest}`,
+    `- 생성: ${execution.createdAt}`,
+    `- 생성자: ${execution.createdBy ?? "알 수 없음"}`,
     "",
-    "## Warnings",
-    ...(execution.warnings.length ? execution.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "## 경고",
+    ...(execution.warnings.length ? execution.warnings.map((warning) => `- ${warning}`) : ["- 없음"]),
     "",
     ...formatApprovedProviderReconciliationPackage(execution.reconciliationPackage),
     "",
@@ -6167,35 +6233,35 @@ function createApprovedProviderExecutionReport(execution: ApprovedProviderExecut
 
 function createProviderExecutionPackageReviewHandoff(report: ProviderExecutionPackageReviewNoteReport | null) {
   if (!report) {
-    return "Provider execution package review report is not loaded.";
+    return "제공자 실행 패키지 검토 리포트를 불러오지 못했습니다.";
   }
   return [
-    "# Provider execution package review handoff",
-    `- Generated: ${report.generatedAt}`,
-    `- Coverage preset: ${report.filters.coveragePreset}`,
-    `- Stale days: ${report.filters.staleDays}`,
-    `- Category: ${report.filters.category}`,
-    `- Reviewer: ${report.filters.reviewerId ?? "all"}`,
-    `- Package digest: ${report.filters.packageDigest ?? "all"}`,
-    `- Execution id: ${report.filters.executionId ?? "all"}`,
-    `- Packages: ${report.summary.packageCount}`,
-    `- Reviewed: ${report.summary.reviewedCount}`,
-    `- Unreviewed: ${report.summary.unreviewedCount}`,
-    `- Stale unreviewed: ${report.summary.staleUnreviewedCount}`,
-    `- Notes: ${report.summary.noteCount}`,
+    "# 제공자 실행 패키지 검토 전달 자료",
+    `- 생성 시각: ${report.generatedAt}`,
+    `- 검토 범위 프리셋: ${report.filters.coveragePreset}`,
+    `- 오래됨 기준일: ${report.filters.staleDays}`,
+    `- 분류: ${report.filters.category}`,
+    `- 검토자: ${report.filters.reviewerId ?? "전체"}`,
+    `- 패키지 해시: ${report.filters.packageDigest ?? "전체"}`,
+    `- 실행 ID: ${report.filters.executionId ?? "전체"}`,
+    `- 패키지: ${report.summary.packageCount}`,
+    `- 검토됨: ${report.summary.reviewedCount}`,
+    `- 미검토: ${report.summary.unreviewedCount}`,
+    `- 오래된 미검토: ${report.summary.staleUnreviewedCount}`,
+    `- 메모: ${report.summary.noteCount}`,
     "",
-    "## Reviewer counts",
+    "## 검토자별 수",
     ...(report.summary.reviewerCounts.length
-      ? report.summary.reviewerCounts.map((item) => `- ${item.reviewerId ?? "unknown"}: ${item.count}`)
-      : ["- none"]),
+      ? report.summary.reviewerCounts.map((item) => `- ${item.reviewerId ?? "알 수 없음"}: ${item.count}`)
+      : ["- 없음"]),
     "",
-    "## Note category counts",
+    "## 메모 유형별 수",
     ...(report.summary.categoryCounts.length
       ? report.summary.categoryCounts.map((item) => `- ${getProviderExecutionPackageReviewNoteCategoryLabel(item.category)}: ${item.count}`)
-      : ["- none"]),
+      : ["- 없음"]),
     "",
-    "## Coverage",
-    ...(report.coverage.slice(0, 10).map((item) => `- ${item.coverageStatus}: ${item.executionId} (${item.noteCount} note(s), ${item.packageDigest.slice(0, 16)} digest)`)),
+    "## 검토 범위",
+    ...(report.coverage.slice(0, 10).map((item) => `- ${item.coverageStatus}: ${item.executionId} (메모 ${item.noteCount}개, ${item.packageDigest.slice(0, 16)} 해시)`)),
   ].join("\n");
 }
 
@@ -6205,56 +6271,56 @@ function getProviderExecutionPackageReviewNoteCategoryLabel(category: ProviderEx
 
 function formatApprovedProviderReconciliationPackage(packageData: ApprovedProviderReconciliationPackage | null) {
   if (!packageData) {
-    return ["## Reconciliation package", "- none"];
+    return ["## 대조 패키지", "- 없음"];
   }
   return [
-    "## Reconciliation package",
-    `- Package: ${packageData.packageName}`,
-    `- Generated: ${packageData.generatedAt}`,
-    `- Target: ${approvedSyncTargetLabels[packageData.target]}`,
-    `- Total: ${packageData.summary.total}`,
-    `- Create: ${packageData.summary.create}`,
-    `- Update: ${packageData.summary.update}`,
-    `- Delete: ${packageData.summary.delete}`,
-    `- Noop: ${packageData.summary.noop}`,
+    "## 대조 패키지",
+    `- 패키지: ${packageData.packageName}`,
+    `- 생성: ${packageData.generatedAt}`,
+    `- 대상: ${approvedSyncTargetLabels[packageData.target]}`,
+    `- 전체: ${packageData.summary.total}`,
+    `- 생성: ${packageData.summary.create}`,
+    `- 수정: ${packageData.summary.update}`,
+    `- 삭제: ${packageData.summary.delete}`,
+    `- 변경 없음: ${packageData.summary.noop}`,
     "",
-    "### Operations",
+    "### 작업",
     ...(packageData.operations.length
-      ? packageData.operations.map((operation) => `- ${operation.intent} ${operation.path} (${operation.itemId}, task ${operation.sourceTaskId}, digest ${operation.contentDigest.slice(0, 16)})`)
-      : ["- none"]),
+      ? packageData.operations.map((operation) => `- ${approvedProviderReconciliationIntentLabels[operation.intent]} ${operation.path} (${operation.itemId}, 작업 ${operation.sourceTaskId}, 해시 ${operation.contentDigest.slice(0, 16)})`)
+      : ["- 없음"]),
     "",
-    "### Reconciliation warnings",
-    ...(packageData.warnings.length ? packageData.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "### 대조 경고",
+    ...(packageData.warnings.length ? packageData.warnings.map((warning) => `- ${warning}`) : ["- 없음"]),
   ];
 }
 
 function formatApprovedProviderLiveWritePreflight(preflight: ApprovedProviderLiveWritePreflight | null) {
   if (!preflight) {
-    return ["## Obsidian live-write preflight", "- none"];
+    return ["## Obsidian 실시간 쓰기 사전 점검", "- 없음"];
   }
   return [
-    "## Obsidian live-write preflight",
-    `- Generated: ${preflight.generatedAt}`,
-    `- Feature flag: ${preflight.featureFlag}`,
-    `- Feature flag enabled: ${preflight.featureFlagEnabled ? "yes" : "no"}`,
-    `- Mutation ready: ${preflight.mutationReady ? "yes" : "no"}`,
-    `- Rollback plan: ${preflight.rollbackPlanRef ?? "missing"}`,
-    `- Reconciliation plan: ${preflight.reconciliationPlanRef ?? "missing"}`,
-    `- Mutations: ${preflight.operationCount}`,
-    `- Create: ${preflight.summary.create}`,
-    `- Update: ${preflight.summary.update}`,
-    `- Delete: ${preflight.summary.delete}`,
+    "## Obsidian 실시간 쓰기 사전 점검",
+    `- 생성: ${preflight.generatedAt}`,
+    `- 기능 플래그: ${preflight.featureFlag}`,
+    `- 기능 플래그 활성화: ${preflight.featureFlagEnabled ? "예" : "아니오"}`,
+    `- 변경 준비됨: ${preflight.mutationReady ? "예" : "아니오"}`,
+    `- 롤백 계획: ${preflight.rollbackPlanRef ?? "누락"}`,
+    `- 대조 계획: ${preflight.reconciliationPlanRef ?? "누락"}`,
+    `- 변경 작업: ${preflight.operationCount}`,
+    `- 생성: ${preflight.summary.create}`,
+    `- 수정: ${preflight.summary.update}`,
+    `- 삭제: ${preflight.summary.delete}`,
     "",
-    "### Mutation operations",
+    "### 변경 작업",
     ...(preflight.operations.length
-      ? preflight.operations.map((operation) => `- ${operation.intent} ${operation.path} (${operation.itemId}, task ${operation.sourceTaskId})`)
-      : ["- none"]),
+      ? preflight.operations.map((operation) => `- ${approvedProviderReconciliationIntentLabels[operation.intent]} ${operation.path} (${operation.itemId}, 작업 ${operation.sourceTaskId})`)
+      : ["- 없음"]),
     "",
-    "### Preflight blockers",
-    ...(preflight.blockers.length ? preflight.blockers.map((blocker) => `- ${blocker}`) : ["- none"]),
+    "### 사전 점검 차단 조건",
+    ...(preflight.blockers.length ? preflight.blockers.map((blocker) => `- ${blocker}`) : ["- 없음"]),
     "",
-    "### Preflight warnings",
-    ...(preflight.warnings.length ? preflight.warnings.map((warning) => `- ${warning}`) : ["- none"]),
+    "### 사전 점검 경고",
+    ...(preflight.warnings.length ? preflight.warnings.map((warning) => `- ${warning}`) : ["- 없음"]),
   ];
 }
 
@@ -6316,16 +6382,16 @@ function isApprovedSyncRun(value: unknown): value is ApprovedSyncRun {
 function readApprovedSyncTargetGuidance(target: ApprovedSyncTarget, format: ApprovedExportFormat) {
   if (target === "obsidian") {
     return format === "markdown"
-      ? "Markdown package is ready for Obsidian-style vault import."
-      : "JSON package preserves metadata; convert bodyMarkdown to files before Obsidian import.";
+      ? "Markdown 패키지는 Obsidian vault 가져오기에 바로 사용할 수 있습니다."
+      : "JSON 패키지는 메타데이터를 보존합니다. Obsidian으로 가져오기 전 bodyMarkdown을 파일로 변환하세요.";
   }
   if (target === "notion") {
-    return "Package includes title, summary, tags, scope, Markdown body, and lineage for Notion import mapping.";
+    return "Notion 가져오기 매핑에 필요한 제목, 요약, 태그, 범위, Markdown 본문, 출처 계보를 포함합니다.";
   }
   if (target === "assistant_retrieval") {
-    return "Package preserves tags, scope, source lineage, and source references for retrieval indexing.";
+    return "검색 색인화를 위해 태그, 범위, 출처 계보, 출처 참조를 보존합니다.";
   }
-  return "Portable archive keeps a stable metadata and Markdown package for later sync tooling.";
+  return "휴대용 아카이브는 후속 동기화 도구를 위해 안정적인 메타데이터와 Markdown 패키지를 유지합니다.";
 }
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {
@@ -6353,14 +6419,14 @@ function readChecklistStatus(
   if (totalCount > 0 && readyCount === totalCount) {
     return {
       label: readyLabel,
-      detail: `${readyCount}/${totalCount} checks are ready.`,
+      detail: `${readyCount}/${totalCount}개 점검이 준비됐습니다.`,
       tone: "ready",
     };
   }
 
   return {
     label: warningLabel,
-    detail: `${readyCount}/${totalCount} checks are ready; review ${Math.max(totalCount - readyCount, 0)} item(s).`,
+    detail: `${readyCount}/${totalCount}개 점검이 준비됐습니다. ${Math.max(totalCount - readyCount, 0)}개 항목을 검토하세요.`,
     tone: "warning",
   };
 }
@@ -6371,24 +6437,24 @@ function readFinalReviewNextAction(
   rejectionReason: string,
 ) {
   if (packageStatus.tone === "warning") {
-    return "Review package quality before final action";
+    return "최종 처리 전 패키지 품질을 검토하세요";
   }
   if (warningCount > 0 && !rejectionReason.trim()) {
-    return "Resolve blockers or draft rejection reason";
+    return "차단 조건을 해결하거나 반려 사유를 작성하세요";
   }
   if (warningCount > 0) {
-    return "Reject or resolve blockers before approval";
+    return "승인 전 반려하거나 차단 조건을 해결하세요";
   }
-  return "Ready for WIKI approval";
+  return "WIKI 승인 준비됨";
 }
 
 function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGroup[] {
   const groups: ApprovalRiskGroup[] = [
-    { key: "scope", label: "Scope", readyCount: 0, warningCount: 0, items: [] },
-    { key: "metadata", label: "Metadata", readyCount: 0, warningCount: 0, items: [] },
-    { key: "structure", label: "Structure", readyCount: 0, warningCount: 0, items: [] },
-    { key: "evidence", label: "Evidence", readyCount: 0, warningCount: 0, items: [] },
-    { key: "state", label: "State", readyCount: 0, warningCount: 0, items: [] },
+    { key: "scope", label: "범위", readyCount: 0, warningCount: 0, items: [] },
+    { key: "metadata", label: "메타데이터", readyCount: 0, warningCount: 0, items: [] },
+    { key: "structure", label: "구조", readyCount: 0, warningCount: 0, items: [] },
+    { key: "evidence", label: "근거", readyCount: 0, warningCount: 0, items: [] },
+    { key: "state", label: "상태", readyCount: 0, warningCount: 0, items: [] },
   ];
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
   for (const guardrail of guardrails) {
@@ -6404,16 +6470,16 @@ function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGr
 }
 
 function readApprovalRiskGroupKey(label: string): ApprovalRiskGroup["key"] {
-  if (label.includes("scope") || label.includes("Scope")) {
+  if (label.includes("scope") || label.includes("Scope") || label.includes("범위")) {
     return "scope";
   }
-  if (label.includes("Markdown")) {
+  if (label.includes("Markdown") || label.includes("구조")) {
     return "structure";
   }
-  if (label.includes("evidence") || label.includes("Evidence") || label.includes("priority")) {
+  if (label.includes("evidence") || label.includes("Evidence") || label.includes("priority") || label.includes("근거") || label.includes("우선순위")) {
     return "evidence";
   }
-  if (label.includes("confidence") || label.includes("Confidence") || label.includes("State")) {
+  if (label.includes("confidence") || label.includes("Confidence") || label.includes("State") || label.includes("신뢰도") || label.includes("상태")) {
     return "state";
   }
   return "metadata";
@@ -6437,14 +6503,14 @@ function buildApprovalGuardrails(
 
   if (missing.length) {
     guardrails.push({
-      label: "Missing readiness",
-      detail: `Review ${missing.join(", ")} before approval.`,
+      label: "준비 항목 누락",
+      detail: `승인 전 ${missing.join(", ")} 항목을 검토하세요.`,
       tone: "warning",
     });
   } else {
     guardrails.push({
-      label: "Draft fields ready",
-      detail: "Required draft fields and evidence are present.",
+      label: "초안 필드 준비됨",
+      detail: "필수 초안 필드와 근거가 있습니다.",
       tone: "ready",
     });
   }
@@ -6455,56 +6521,56 @@ function buildApprovalGuardrails(
 
   if (draftScope === "organization") {
     guardrails.push({
-      label: "Organization scope review",
-      detail: "Publication scope is organization-wide. Confirm this knowledge should be shared across the organization.",
+      label: "조직 범위 검토",
+      detail: "공개 범위가 조직 전체입니다. 이 지식이 조직 전체에 공유되어야 하는지 확인하세요.",
       tone: "warning",
     });
   } else {
     guardrails.push({
-      label: "Restricted scope selected",
-      detail: `Publication scope is ${scopeLabels[draftScope]}.`,
+      label: "제한 범위 선택됨",
+      detail: `공개 범위는 ${scopeLabels[draftScope]}입니다.`,
       tone: "ready",
     });
   }
 
   if (originalScope && originalScope !== draftScope) {
     guardrails.push({
-      label: "Publication scope changed",
-      detail: `Scope changed from ${scopeLabels[originalScope]} to ${scopeLabels[draftScope]}. Confirm the new audience before approval.`,
+      label: "공개 범위 변경됨",
+      detail: `범위가 ${scopeLabels[originalScope]}에서 ${scopeLabels[draftScope]}로 변경됐습니다. 승인 전 새 대상을 확인하세요.`,
       tone: "warning",
     });
   } else if (originalScope) {
     guardrails.push({
-      label: "Publication scope unchanged",
-      detail: `Scope remains ${scopeLabels[draftScope]}.`,
+      label: "공개 범위 변경 없음",
+      detail: `범위가 ${scopeLabels[draftScope]}로 유지됩니다.`,
       tone: "ready",
     });
   }
 
   if (draftTags.length >= 2) {
     guardrails.push({
-      label: "Tag coverage ready",
-      detail: `${draftTags.length} draft tags are present for retrieval and WIKI grouping.`,
+      label: "태그 검토 범위 준비됨",
+      detail: `검색과 WIKI 그룹핑에 사용할 초안 태그 ${draftTags.length}개가 있습니다.`,
       tone: "ready",
     });
   } else {
     guardrails.push({
-      label: "Tag coverage limited",
-      detail: `${draftTags.length}/2 recommended draft tags are present. Add tags before approval when possible.`,
+      label: "태그 검토 범위 제한됨",
+      detail: `권장 초안 태그 2개 중 ${draftTags.length}개가 있습니다. 가능하면 승인 전 태그를 추가하세요.`,
       tone: "warning",
     });
   }
 
   if (duplicateDraftTags.length) {
     guardrails.push({
-      label: "Duplicate draft tags",
-      detail: `Remove duplicate tag values before approval: ${duplicateDraftTags.join(", ")}.`,
+      label: "중복 초안 태그",
+      detail: `승인 전 중복 태그 값을 제거하세요: ${duplicateDraftTags.join(", ")}.`,
       tone: "warning",
     });
   } else if (draftTags.length) {
     guardrails.push({
-      label: "Draft tags unique",
-      detail: "Draft tags do not contain duplicates.",
+      label: "초안 태그 중복 없음",
+      detail: "초안 태그에 중복이 없습니다.",
       tone: "ready",
     });
   }
@@ -6512,42 +6578,42 @@ function buildApprovalGuardrails(
   if (bodyMarkdown.trim()) {
     if (markdownOutline.length) {
       guardrails.push({
-        label: "Markdown outline present",
-        detail: `${markdownOutline.length} Markdown headings are present.`,
+        label: "Markdown 개요 있음",
+        detail: `Markdown 제목 ${markdownOutline.length}개가 있습니다.`,
         tone: "ready",
       });
     } else {
       guardrails.push({
-        label: "Markdown headings missing",
-        detail: "Draft body has Markdown content but no headings. Confirm structure before approval.",
+        label: "Markdown 제목 누락",
+        detail: "초안 본문에 Markdown 내용은 있지만 제목이 없습니다. 승인 전 구조를 확인하세요.",
         tone: "warning",
       });
     }
 
     if (markdownStructureSummary.listItems) {
       guardrails.push({
-        label: "Markdown list structure present",
-        detail: `${markdownStructureSummary.listItems} Markdown list items are present.`,
+        label: "Markdown 목록 구조 있음",
+        detail: `Markdown 목록 항목 ${markdownStructureSummary.listItems}개가 있습니다.`,
         tone: "ready",
       });
     } else {
       guardrails.push({
-        label: "Markdown list structure missing",
-        detail: "Draft body has no Markdown list items. Confirm action or context extraction before approval.",
+        label: "Markdown 목록 구조 누락",
+        detail: "초안 본문에 Markdown 목록 항목이 없습니다. 승인 전 작업 또는 맥락 추출을 확인하세요.",
         tone: "warning",
       });
     }
 
     if (markdownWikiLinks.length) {
       guardrails.push({
-        label: "Markdown WIKI links present",
-        detail: `${markdownWikiLinks.length} Markdown WIKI links are present.`,
+        label: "Markdown WIKI 링크 있음",
+        detail: `Markdown WIKI 링크 ${markdownWikiLinks.length}개가 있습니다.`,
         tone: "ready",
       });
     } else {
       guardrails.push({
-        label: "Markdown WIKI links missing",
-        detail: "Draft body has no [[WIKI links]]. Confirm whether this item should connect to existing knowledge.",
+        label: "Markdown WIKI 링크 누락",
+        detail: "초안 본문에 [[WIKI 링크]]가 없습니다. 기존 지식과 연결해야 하는 항목인지 확인하세요.",
         tone: "warning",
       });
     }
@@ -6556,36 +6622,36 @@ function buildApprovalGuardrails(
   const changedDraftFields = draftDirtyStates.filter((item) => item.dirty).map((item) => item.label);
   if (changedDraftFields.length) {
     guardrails.push({
-      label: "Edited draft fields",
-      detail: `Approval will use edited draft fields: ${changedDraftFields.join(", ")}.`,
+      label: "수정된 초안 필드",
+      detail: `승인 시 수정된 초안 필드를 사용합니다: ${changedDraftFields.join(", ")}.`,
       tone: "warning",
     });
   } else {
     guardrails.push({
-      label: "Draft unchanged",
-      detail: "Draft fields match the selected candidate draft.",
+      label: "초안 변경 없음",
+      detail: "초안 필드가 선택한 후보 초안과 같습니다.",
       tone: "ready",
     });
   }
 
   if (detail.confidenceScore < 60) {
     guardrails.push({
-      label: "Low confidence",
-      detail: `Confidence is ${detail.confidenceScore}%. Confirm evidence before approval.`,
+      label: "낮은 신뢰도",
+      detail: `신뢰도는 ${detail.confidenceScore}%입니다. 승인 전 근거를 확인하세요.`,
       tone: "warning",
     });
   } else {
     guardrails.push({
-      label: "Confidence acceptable",
-      detail: `Confidence is ${detail.confidenceScore}%.`,
+      label: "신뢰도 허용",
+      detail: `신뢰도는 ${detail.confidenceScore}%입니다.`,
       tone: "ready",
     });
   }
 
   if (detail.state !== "candidate" && detail.state !== "pending_review") {
     guardrails.push({
-      label: "State review",
-      detail: `Candidate is currently ${detail.state}. Confirm this item should be edited again.`,
+      label: "상태 검토",
+      detail: `후보의 현재 상태는 ${stateLabels[detail.state]}입니다. 이 항목을 다시 편집해야 하는지 확인하세요.`,
       tone: "warning",
     });
   }
@@ -6595,27 +6661,27 @@ function buildApprovalGuardrails(
     const highPriorityCount = detail.evidence.filter((item) => item.priority <= 3).length;
     if (unsourcedCount) {
       guardrails.push({
-        label: "Unsourced evidence",
-        detail: `${unsourcedCount}/${detail.evidence.length} evidence rows do not include source URLs.`,
+        label: "출처 없는 근거",
+        detail: `${detail.evidence.length}개 근거 중 ${unsourcedCount}개에 출처 URL이 없습니다.`,
         tone: "warning",
       });
     } else {
       guardrails.push({
-        label: "Evidence sources present",
-        detail: "Every evidence row includes a source URL.",
+        label: "근거 출처 있음",
+        detail: "모든 근거 행에 출처 URL이 있습니다.",
         tone: "ready",
       });
     }
     if (highPriorityCount) {
       guardrails.push({
-        label: "High-priority evidence present",
-        detail: `${highPriorityCount}/${detail.evidence.length} evidence rows are high priority.`,
+        label: "높은 우선순위 근거 있음",
+        detail: `${detail.evidence.length}개 근거 중 ${highPriorityCount}개가 높은 우선순위입니다.`,
         tone: "ready",
       });
     } else {
       guardrails.push({
-        label: "No high-priority evidence",
-        detail: "Evidence is present, but none is high priority. Confirm support before approval.",
+        label: "높은 우선순위 근거 없음",
+        detail: "근거는 있지만 높은 우선순위 근거가 없습니다. 승인 전 뒷받침이 충분한지 확인하세요.",
         tone: "warning",
       });
     }
@@ -6636,12 +6702,12 @@ function readConfidenceBand(score: number) {
 
 function readEvidencePriorityTier(priority: number) {
   if (priority <= 3) {
-    return "High priority";
+    return "높은 우선순위";
   }
   if (priority <= 5) {
-    return "Normal priority";
+    return "보통 우선순위";
   }
-  return "Low priority";
+  return "낮은 우선순위";
 }
 
 function readEvidencePriorityFilter(priority: number): EvidencePriorityFilter {
@@ -6657,23 +6723,23 @@ function readEvidencePriorityFilter(priority: number): EvidencePriorityFilter {
 function readReviewStatus(warnings: number, readyCount: number, totalCount: number): ApprovalGuardrail {
   if (readyCount < totalCount) {
     return {
-      label: "Review incomplete",
-      detail: `${readyCount}/${totalCount} readiness items are complete. Resolve missing draft inputs before approval.`,
+      label: "검토 미완료",
+      detail: `${readyCount}/${totalCount}개 준비 항목이 완료됐습니다. 승인 전 누락된 초안 입력을 해결하세요.`,
       tone: "warning",
     };
   }
 
   if (warnings > 0) {
     return {
-      label: "Review with caution",
-      detail: `${warnings} guardrail warning${warnings === 1 ? "" : "s"} need review before approval.`,
+      label: "주의 검토",
+      detail: `승인 전 guardrail 경고 ${warnings}개를 검토해야 합니다.`,
       tone: "warning",
     };
   }
 
   return {
-    label: "Ready for approval review",
-    detail: "Readiness fields are complete and no guardrail warnings are active.",
+    label: "승인 검토 준비됨",
+    detail: "준비 필드가 완료됐고 활성 guardrail 경고가 없습니다.",
     tone: "ready",
   };
 }
@@ -6681,15 +6747,15 @@ function readReviewStatus(warnings: number, readyCount: number, totalCount: numb
 function readApprovalDecisionMode(warnings: number, warningGroups: number): ApprovalGuardrail {
   if (warnings > 0) {
     return {
-      label: "Decision note: blocker review",
-      detail: `${warnings} warnings across ${warningGroups} risk groups`,
+      label: "결정 메모: 차단 조건 검토",
+      detail: `${warningGroups}개 리스크 그룹에 경고 ${warnings}개`,
       tone: "warning",
     };
   }
 
   return {
-    label: "Decision note: approve-ready",
-    detail: "No active guardrail warnings",
+    label: "결정 메모: 승인 준비",
+    detail: "활성 guardrail 경고 없음",
     tone: "ready",
   };
 }

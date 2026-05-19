@@ -552,7 +552,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       await refreshAssistantRecords(retrieved.taskContext.taskId);
       setStatus(
         executionMode === "saas-api"
-          ? `SaaS API Mode 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
+          ? `SaaS API 모드 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
           : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
       );
     } catch (error) {
@@ -608,11 +608,11 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
 
     const blockers = closureGate.filter((item) => item.required && item.status !== "pass");
     if (statusValue === "approved" && blockers.length > 0) {
-      setStatus(`Approval blocked: ${blockers.map((item) => item.label).join(", ")}.`);
+      setStatus(`승인 전 확인 필요: ${blockers.map((item) => item.label).join(", ")}.`);
       return;
     }
     if (statusValue === "approved" && !closureAcknowledged) {
-      setStatus("Confirm the closure acknowledgement before approving this work summary.");
+      setStatus("작업 기록 승인 전에 확인 체크를 완료하세요.");
       return;
     }
 
@@ -633,10 +633,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       setFollowUpTaskCreated(false);
       setProposalStatus(
         statusValue === "approved"
-          ? "Task update and follow-up proposals are ready. Nothing has been applied yet."
+          ? "Task 업데이트와 후속 task 제안이 준비되었습니다. 아직 자동 반영된 항목은 없습니다."
           : "",
       );
-      setStatus(statusValue === "approved" ? "Work summary approved after closure review." : "Work summary saved as deferred for later review.");
+      setStatus(statusValue === "approved" ? "종료 검토 후 작업 요약을 승인했습니다." : "작업 요약을 나중에 검토하도록 보류 저장했습니다.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -644,8 +644,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       if (savedSummaryStatus) {
         setStatus(
           savedSummaryStatus === "approved"
-            ? "Work summary approved after closure review."
-            : "Work summary saved as deferred for later review.",
+            ? "종료 검토 후 작업 요약을 승인했습니다."
+            : "작업 요약을 나중에 검토하도록 보류 저장했습니다.",
         );
       }
     }
@@ -682,10 +682,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       setTaskUpdateApplied(true);
       setProposalStatus(
         taskUpdateProposal.statusChanged
-          ? `Task decision updated and status moved to ${taskUpdateProposal.nextStatus}.`
-          : "Task decision updated from the approved assistant summary.",
+          ? `Task decision을 업데이트하고 상태를 ${taskUpdateProposal.nextStatus}(으)로 변경했습니다.`
+          : "승인된 assistant 요약으로 task decision을 업데이트했습니다.",
       );
-      setStatus("Task record update applied from the approved assistant summary.");
+      setStatus("승인된 assistant 요약을 task 기록에 반영했습니다.");
     } catch (error) {
       const message = errorMessage(error);
       setProposalStatus(message);
@@ -716,8 +716,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       });
       const createdLabel = formatTaskDisplayId(created);
       setFollowUpTaskCreated(true);
-      setProposalStatus(`Follow-up task ${createdLabel} created.`);
-      setStatus(`Follow-up task ${createdLabel} created from the approved assistant summary.`);
+      setProposalStatus(`후속 task ${createdLabel}를 생성했습니다.`);
+      setStatus(`승인된 assistant 요약에서 후속 task ${createdLabel}를 생성했습니다.`);
     } catch (error) {
       const message = errorMessage(error);
       setProposalStatus(message);
@@ -800,7 +800,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
 
   async function ocrExtractSelectedFileAnalysis() {
     if (!selectedTask || !selectedFileId) {
-      setStatus("Select an attached image or scanned PDF before OCR extraction.");
+      setStatus("OCR 추출 전에 첨부 이미지 또는 스캔 PDF를 선택하세요.");
       return;
     }
 
@@ -820,7 +820,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       setAnalysisSummary("");
       clearAnalysisCrop();
       resetGeneratedOutput();
-      setStatus("OCR provider result was saved as assistant file evidence.");
+      setStatus("OCR 결과를 assistant 파일 근거로 저장했습니다.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -829,7 +829,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   }
 
   async function deleteSelectedFileAnalysisArtifact(fileId: string, analysisId: string) {
-    if (typeof window !== "undefined" && !window.confirm("Remove this saved crop artifact? The analysis text will remain.")) {
+    if (typeof window !== "undefined" && !window.confirm("저장된 크롭 artifact를 제거할까요? 분석 텍스트는 유지됩니다.")) {
       return;
     }
 
@@ -840,7 +840,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
       );
       setTaskFiles((files) => files.map((file) => (file.id === saved.file.id ? saved.file : file)));
       resetGeneratedOutput();
-      setStatus("Saved crop artifact was removed. The analysis text remains available as file evidence.");
+      setStatus("저장된 크롭 artifact를 제거했습니다. 분석 텍스트는 파일 근거로 계속 사용할 수 있습니다.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -850,7 +850,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
 
   async function captureBrowserImageRegion() {
     if (!selectedTask || !selectedFileId) {
-      setStatus("Select an attached file before capturing an image region.");
+      setStatus("이미지 영역을 캡처하기 전에 첨부 파일을 선택하세요.");
       return;
     }
 
@@ -870,14 +870,14 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
         current.trim()
           ? current
           : [
-              `Browser region captured from ${capture.title || "active tab"}.`,
-              `Source: ${capture.url}`,
-              `Viewport: ${capture.viewport.width}x${capture.viewport.height}; region: x ${formatRegionNumber(capture.region.x)}%, y ${formatRegionNumber(capture.region.y)}%, w ${formatRegionNumber(capture.region.width)}%, h ${formatRegionNumber(capture.region.height)}%.`,
-              `Captured at: ${capture.capturedAt}`,
+              `브라우저 영역 캡처: ${capture.title || "활성 탭"}`,
+              `출처: ${capture.url}`,
+              `뷰포트: ${capture.viewport.width}x${capture.viewport.height}; 영역: x ${formatRegionNumber(capture.region.x)}%, y ${formatRegionNumber(capture.region.y)}%, w ${formatRegionNumber(capture.region.width)}%, h ${formatRegionNumber(capture.region.height)}%.`,
+              `캡처 시각: ${capture.capturedAt}`,
             ].join("\n"),
       );
       resetGeneratedOutput();
-      setStatus("Browser image region captured. Review the OCR text or summary, then save it as file evidence.");
+      setStatus("브라우저 이미지 영역을 캡처했습니다. OCR 텍스트 또는 요약을 확인한 뒤 파일 근거로 저장하세요.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -999,7 +999,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>최근 검토 기록</h4>
-                  <span>{recordHistoryLoading ? "loading" : `${recordHistory.length}`}</span>
+                  <span>{recordHistoryLoading ? "불러오는 중" : `${recordHistory.length}`}</span>
                 </div>
                 {recordHistory.length ? (
                   <div className="task-assistant__history-list">
@@ -1017,10 +1017,10 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                         </small>
                         <p>{recordPreview(item)}</p>
                         <div className="task-assistant__history-tags">
-                          <span>{item.cleanupState}</span>
-                          <span>{item.candidateState}</span>
+                          <span>{cleanupStateLabel(item.cleanupState)}</span>
+                          <span>{candidateStateLabel(item.candidateState)}</span>
                           {item.evidenceKinds.slice(0, 3).map((kind) => (
-                            <span key={kind}>{kind}</span>
+                            <span key={kind}>{evidenceKindLabel(kind)}</span>
                           ))}
                         </div>
                       </article>
@@ -1038,7 +1038,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>파일 근거</h4>
-                  <span>{filesLoading ? "loading" : `${taskFiles.length}`}</span>
+                  <span>{filesLoading ? "불러오는 중" : `${taskFiles.length}`}</span>
                 </div>
                 <label className="task-assistant__field task-assistant__field--plain">
                   <span>첨부 파일</span>
@@ -1056,7 +1056,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   </select>
                 </label>
                 <label className="task-assistant__field task-assistant__field--plain">
-                  <span>Analysis mode</span>
+                  <span>분석 방식</span>
                   <select
                     disabled={busy || !selectedFileId}
                     onChange={(event) => {
@@ -1068,13 +1068,13 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                     }}
                     value={analysisSourceType}
                   >
-                    <option value="manual_text">Manual text</option>
-                    <option value="ocr_text">OCR text</option>
-                    <option value="image_region">Selected image region</option>
+                    <option value="manual_text">직접 입력 텍스트</option>
+                    <option value="ocr_text">OCR 텍스트</option>
+                    <option value="image_region">선택한 이미지 영역</option>
                   </select>
                 </label>
                 {selectedFileAnalyses.length ? (
-                  <div className="task-assistant__analysis-list" aria-label="Saved file analysis evidence">
+                  <div className="task-assistant__analysis-list" aria-label="저장된 파일 분석 근거">
                     {selectedFileAnalyses.slice(0, 4).map((analysis) => {
                       const artifactPreviewUrl =
                         selectedAssistantFile && analysis.artifact
@@ -1089,17 +1089,17 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                         <article className="task-assistant__analysis-card" key={analysis.id}>
                           <header>
                             <strong>{fileAnalysisSourceLabel(analysis.sourceType)}</strong>
-                            <span>{analysis.verificationState}</span>
+                            <span>{fileAnalysisVerificationLabel(analysis.verificationState)}</span>
                           </header>
                           {analysis.summary ? <p>{analysis.summary}</p> : null}
                           <small>
-                            {analysis.providerStatus ?? "manual"} / confidence {formatConfidenceWeight(analysis.confidenceWeight)}
+                            {fileAnalysisProviderStatusLabel(analysis.providerStatus)} / 신뢰도 {formatConfidenceWeight(analysis.confidenceWeight)}
                           </small>
                           {analysis.region ? <small>{formatAnalysisRegion(analysis.region)}</small> : null}
                           {analysis.artifact ? (
                             <div className="task-assistant__artifact-preview">
                               <Image
-                                alt={`${fileAnalysisSourceLabel(analysis.sourceType)} crop preview`}
+                                alt={`${fileAnalysisSourceLabel(analysis.sourceType)} 크롭 미리보기`}
                                 height={180}
                                 src={artifactPreviewUrl}
                                 unoptimized
@@ -1107,13 +1107,13 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                               />
                               <div className="task-assistant__artifact-actions">
                                 <a href={artifactPreviewUrl} rel="noreferrer" target="_blank">
-                                  Preview crop
+                                  크롭 미리보기
                                 </a>
                                 <a download href={artifactDownloadUrl}>
-                                  Download crop
+                                  크롭 다운로드
                                 </a>
                                 <button
-                                  aria-label="Remove saved crop artifact"
+                                  aria-label="저장된 크롭 artifact 제거"
                                   disabled={busy || !selectedAssistantFile}
                                   onClick={() => {
                                     if (selectedAssistantFile) {
@@ -1122,7 +1122,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                                   }}
                                   type="button"
                                 >
-                                  Remove crop
+                                  크롭 제거
                                 </button>
                               </div>
                               <small>
@@ -1131,7 +1131,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                               </small>
                               {analysis.artifact.sourceUrl ? (
                                 <a href={analysis.artifact.sourceUrl} rel="noreferrer" target="_blank">
-                                  Source page
+                                  출처 페이지
                                 </a>
                               ) : null}
                             </div>
@@ -1151,11 +1151,11 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       onClick={() => void captureBrowserImageRegion()}
                       type="button"
                     >
-                      Select browser region
+                      브라우저 영역 선택
                     </button>
                     <div className="task-assistant__grid task-assistant__grid--compact">
                     <label className="task-assistant__field task-assistant__field--plain">
-                      <span>Page</span>
+                      <span>페이지</span>
                       <input disabled={busy || !selectedFileId} onChange={(event) => setAnalysisPageNumber(event.target.value)} placeholder="1" value={analysisPageNumber} />
                     </label>
                     <label className="task-assistant__field task-assistant__field--plain">
@@ -1178,14 +1178,14 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                     {analysisCropDataUrl ? (
                       <div className="task-assistant__artifact-preview task-assistant__artifact-preview--pending" aria-label="Pending crop preview">
                         <Image
-                          alt="Pending selected browser crop preview"
+                          alt="저장 전 선택 영역 크롭 미리보기"
                           height={180}
                           src={analysisCropDataUrl}
                           unoptimized
                           width={320}
                         />
                         <small>
-                          Pending crop / {analysisCropSourceTitle || "active tab"}
+                          저장 전 크롭 / {analysisCropSourceTitle || "활성 탭"}
                           {analysisCropCapturedAt ? ` / ${formatRecordDate(analysisCropCapturedAt)}` : ""}
                         </small>
                       </div>
@@ -1226,7 +1226,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   onClick={() => void ocrExtractSelectedFileAnalysis()}
                   type="button"
                 >
-                  OCR provider extract
+                  OCR 결과 추출
                 </button>
                 <button
                   className="secondary-button"
@@ -1243,7 +1243,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>외부 웹/스킬 근거</h4>
-                  <span>{externalLoading ? "loading" : `${externalEvidence.length}`}</span>
+                  <span>{externalLoading ? "불러오는 중" : `${externalEvidence.length}`}</span>
                 </div>
                 <label className="task-assistant__toggle">
                   <input
@@ -1318,7 +1318,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                     {externalEvidence.slice(0, 3).map((item) => (
                       <article className="task-assistant__evidence" key={item.id}>
                         <strong>{item.title}</strong>
-                        <small>{item.sourceType}{item.toolName ? ` / ${item.toolName}` : ""}</small>
+                        <small>{externalSourceTypeLabel(item.sourceType)}{item.toolName ? ` / ${item.toolName}` : ""}</small>
                         <p>{item.excerpt}</p>
                         {item.sourceUrl ? (
                           <a href={item.sourceUrl} rel="noreferrer" target="_blank">
@@ -1343,16 +1343,16 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 onChange={(event) => setExecutionMode(event.target.value as AssistantExecutionMode)}
                 value={executionMode}
               >
-                <option value="mock">Mock/local foundation</option>
-                <option value="local-codex">Local Codex (extension)</option>
-                <option value="saas-api">SaaS API</option>
+                <option value="mock">Mock/로컬 기본 검토</option>
+                <option value="local-codex">로컬 Codex (확장)</option>
+                <option value="saas-api">SaaS API (관리형)</option>
               </select>
             </label>
             {executionMode === "saas-api" ? (
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
-                  <h4>SaaS API Mode</h4>
-                  <span>{assistantPolicy?.enabled ? "enabled" : "disabled"}</span>
+                  <h4>SaaS API 모드</h4>
+                  <span>{assistantPolicy?.enabled ? "사용 중" : "꺼짐"}</span>
                 </div>
                 <p className="task-assistant__hint">
                   {assistantPolicy?.enabled
@@ -1364,8 +1364,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
             {executionMode === "local-codex" ? (
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
-                  <h4>Local Codex</h4>
-                  <span>extension bridge</span>
+                  <h4>로컬 Codex</h4>
+                  <span>확장 연결</span>
                 </div>
                 <div className="task-assistant__health-actions">
                   <button
@@ -1374,7 +1374,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                     onClick={() => void checkLocalCodexHealth()}
                     type="button"
                   >
-                    {healthLoading ? "Checking..." : "Check bridge"}
+                    {healthLoading ? "확인 중..." : "연결 상태 확인"}
                   </button>
                   {localCodexHealth ? <span>{localCodexHealth.checkedAt}</span> : null}
                 </div>
@@ -1384,7 +1384,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       <article className="task-assistant__health-step" key={step.id}>
                         <strong>{step.label}</strong>
                         <span className={`task-assistant__health-badge task-assistant__health-badge--${step.status}`}>
-                          {step.status}
+                          {closureGateStatusLabel(step.status)}
                         </span>
                         <p>{step.detail}</p>
                       </article>
@@ -1427,9 +1427,9 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 </div>
                 <div className="task-assistant__evidence-list">
                   {retrieveResult.evidence.slice(0, 10).map((item) => (
-                    <article className="task-assistant__evidence" key={item.id}>
-                      <strong>{item.title}</strong>
-                      <small>{item.kind} / priority {item.priority}</small>
+                      <article className="task-assistant__evidence" key={item.id}>
+                        <strong>{item.title}</strong>
+                      <small>{evidenceKindLabel(item.kind)} / 우선순위 {item.priority}</small>
                       <p>{item.excerpt}</p>
                       {item.sourceUrl ? (
                         <a href={item.sourceUrl} rel="noreferrer" target="_blank">
@@ -1455,7 +1455,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   <article className="task-assistant__summary task-assistant__closure">
                     <div className="task-assistant__section-header">
                       <h4>작업 기록 정리 초안</h4>
-                      <span>{approvalBlockers.length === 0 ? "ready" : `${approvalBlockers.length} blockers`}</span>
+                      <span>{approvalBlockers.length === 0 ? "승인 가능" : `${approvalBlockers.length}개 확인 필요`}</span>
                     </div>
                     <label className="task-assistant__field task-assistant__field--plain">
                       <span>결론</span>
@@ -1503,7 +1503,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       {closureGate.map((item) => (
                         <article className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`} key={item.id}>
                           <strong>{item.label}</strong>
-                          <span>{item.status}</span>
+                          <span>{closureGateStatusLabel(item.status)}</span>
                           <p>{item.detail}</p>
                         </article>
                       ))}
@@ -1523,7 +1523,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   <article className="task-assistant__summary task-assistant__proposal">
                     <div className="task-assistant__section-header">
                       <h4>Task 반영 제안</h4>
-                      <span>optional</span>
+                      <span>선택 사항</span>
                     </div>
                     <p className="task-assistant__hint">
                       승인된 요약은 자동으로 task를 수정하지 않습니다. 필요한 항목만 아래 버튼으로 별도 적용하세요.
@@ -1554,7 +1554,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                       <div className="task-assistant__proposal-card">
                         <header>
                           <strong>후속 task 생성</strong>
-                          <span>child task</span>
+                          <span>하위 task</span>
                         </header>
                         <p className="task-assistant__proposal-title">{followUpTaskProposal.issueTitle}</p>
                         <p className="task-assistant__proposal-preview">{followUpTaskProposal.issueDetailNote}</p>
@@ -1598,38 +1598,38 @@ function buildClosureGate(input: {
   return [
     {
       id: "conclusion",
-      label: "Conclusion",
-      detail: hasConclusion ? "The summary has a conclusion." : "Add the decision or review conclusion before approval.",
+      label: "결론",
+      detail: hasConclusion ? "작업 요약에 결론이 있습니다." : "승인 전에 판단 또는 검토 결론을 입력하세요.",
       status: hasConclusion ? "pass" : "fail",
       required: true,
     },
     {
       id: "scope",
-      label: "Scope",
-      detail: hasScope ? "The summary names the applicable task or scope." : "State exactly what task or scope this summary applies to.",
+      label: "적용 범위",
+      detail: hasScope ? "요약에 적용 대상 task 또는 범위가 명시되어 있습니다." : "이 요약이 적용되는 task 또는 범위를 정확히 적으세요.",
       status: hasScope ? "pass" : "fail",
       required: true,
     },
     {
       id: "evidence",
-      label: "Evidence",
-      detail: evidenceCount > 0 ? `${evidenceCount} evidence items are linked.` : "Run retrieval/generation so evidence is linked to the record.",
+      label: "근거",
+      detail: evidenceCount > 0 ? `${evidenceCount}개 근거가 연결되어 있습니다.` : "근거 조회와 의견 생성을 실행해 기록에 근거를 연결하세요.",
       status: evidenceCount > 0 ? "pass" : "fail",
       required: true,
     },
     {
       id: "confidence",
-      label: "Confidence",
+      label: "신뢰도",
       detail: hasConfidence
-        ? `Confidence ${input.record?.confidenceScore ?? "-"}% is saved with the assistant record.`
-        : "Save an assistant record with confidence before approval.",
+        ? `신뢰도 ${input.record?.confidenceScore ?? "-"}%가 assistant 기록에 저장되어 있습니다.`
+        : "승인 전에 신뢰도가 포함된 assistant 기록을 저장하세요.",
       status: hasConfidence ? "pass" : "fail",
       required: true,
     },
     {
       id: "follow-up",
-      label: "Follow-up",
-      detail: hasFollowUp ? "A follow-up action is documented." : "Add the next action, owner check, or reason this can be closed.",
+      label: "후속 조치",
+      detail: hasFollowUp ? "후속 조치가 기록되어 있습니다." : "다음 조치, 담당자 확인, 또는 종료 가능한 이유를 적으세요.",
       status: hasFollowUp ? "pass" : "fail",
       required: true,
     },
@@ -1665,16 +1665,102 @@ function buildAnalysisArtifactUrl(fileId: string, analysisId: string, dispositio
 function fileAnalysisSourceLabel(sourceType: string) {
   switch (sourceType) {
     case "document_text":
-      return "Document text";
+      return "문서 텍스트";
     case "ocr_text":
-      return "OCR text";
+      return "OCR 텍스트";
     case "image_region":
-      return "Image region";
+      return "이미지 영역";
     case "manual_text":
-      return "Manual text";
+      return "직접 입력 텍스트";
     default:
-      return sourceType || "File evidence";
+      return sourceType || "파일 근거";
   }
+}
+
+function fileAnalysisProviderStatusLabel(status?: string) {
+  switch (status) {
+    case "client_supplied":
+      return "사용자 제공";
+    case "manual":
+    case undefined:
+      return "직접 입력";
+    default:
+      return status;
+  }
+}
+
+function fileAnalysisVerificationLabel(state: string) {
+  switch (state) {
+    case "verified":
+      return "확인됨";
+    case "rejected":
+      return "반려됨";
+    case "unverified":
+      return "미확인";
+    default:
+      return state || "미확인";
+  }
+}
+
+function evidenceKindLabel(kind: AssistantEvidence["kind"]) {
+  switch (kind) {
+    case "central_knowledge":
+      return "중앙 지식";
+    case "regulation":
+      return "법규/기준";
+    case "task":
+      return "Task 기록";
+    case "project_document":
+      return "프로젝트 문서";
+    case "web_or_skill":
+      return "외부 웹/스킬";
+    default:
+      return kind;
+  }
+}
+
+function externalSourceTypeLabel(sourceType: ExternalEvidenceSourceType) {
+  return externalSourceOptions.find((option) => option.value === sourceType)?.label ?? sourceType;
+}
+
+function cleanupStateLabel(state: AssistantRecordHistoryItem["cleanupState"]) {
+  switch (state) {
+    case "approved":
+      return "요약 승인";
+    case "deferred":
+      return "요약 보류";
+    case "draft":
+      return "초안";
+    default:
+      return state;
+  }
+}
+
+function candidateStateLabel(state: AssistantRecordHistoryItem["candidateState"]) {
+  switch (state) {
+    case "candidate":
+      return "지식 후보";
+    case "not_candidate":
+      return "후보 아님";
+    case "pending_review":
+      return "검토 대기";
+    case "approved":
+      return "승인됨";
+    case "rejected":
+      return "반려됨";
+    default:
+      return state;
+  }
+}
+
+function closureGateStatusLabel(status: ClosureGateItem["status"]) {
+  if (status === "pass") {
+    return "통과";
+  }
+  if (status === "warn") {
+    return "주의";
+  }
+  return "확인 필요";
 }
 
 function formatConfidenceWeight(value?: number) {
@@ -1682,7 +1768,7 @@ function formatConfidenceWeight(value?: number) {
 }
 
 function formatAnalysisRegion(region: NonNullable<AssistantFileAnalysis["region"]>) {
-  const page = region.pageNumber ? `page ${region.pageNumber}, ` : "";
+  const page = region.pageNumber ? `페이지 ${region.pageNumber}, ` : "";
   const unit = region.unit === "px" ? "px" : "%";
   return `${page}x ${formatRegionNumber(region.x)}${unit}, y ${formatRegionNumber(region.y)}${unit}, w ${formatRegionNumber(region.width)}${unit}, h ${formatRegionNumber(region.height)}${unit}`;
 }
@@ -1856,7 +1942,7 @@ async function generateLocalCodexReview(input: {
 }): Promise<AssistantOutput> {
   const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
   if (!status.available) {
-    throw new Error(status.reason ?? "Local Codex bridge is unavailable.");
+    throw new Error(status.reason ?? "로컬 Codex 연결을 사용할 수 없습니다.");
   }
 
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
@@ -1880,12 +1966,12 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
     answer:
       typeof output.answer === "string" && output.answer.trim()
         ? output.answer
-        : "Local Codex bridge returned no answer.",
+        : "로컬 Codex 연결에서 답변을 받지 못했습니다.",
     draftSummary: {
       conclusion:
         typeof draftSummary?.conclusion === "string" && draftSummary.conclusion.trim()
           ? draftSummary.conclusion
-          : "Local Codex answer should be reviewed before task closure.",
+          : "로컬 Codex 답변은 task 종료 전에 검토가 필요합니다.",
       tags: Array.isArray(draftSummary?.tags)
         ? draftSummary.tags.filter((tag): tag is string => typeof tag === "string").slice(0, 12)
         : ["assistant", "local-codex"],
@@ -1894,7 +1980,7 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
       followUpAction:
         typeof draftSummary?.followUpAction === "string" && draftSummary.followUpAction.trim()
           ? draftSummary.followUpAction
-          : "Confirm cited evidence before updating the task record.",
+          : "Task 기록을 업데이트하기 전에 인용 근거를 확인하세요.",
     },
   };
 }
@@ -1905,34 +1991,34 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
   return {
     checkedAt: formatHealthCheckTime(),
     summary: ready
-      ? "Local Codex bridge is ready for this page."
-      : "Extension bridge responded, but Local Codex is not ready.",
+      ? "이 페이지에서 로컬 Codex 연결을 사용할 수 있습니다."
+      : "확장은 응답했지만 로컬 Codex 실행 환경은 아직 준비되지 않았습니다.",
     steps: [
       {
         id: "content-script",
-        label: "Extension bridge",
+        label: "확장 연결",
         status: "pass",
-        detail: "The /daily page received a response from the extension content script.",
+        detail: "/daily 페이지가 확장 content script 응답을 받았습니다.",
       },
       {
         id: "native-codex",
         label: "Native host / Codex",
         status: ready ? "pass" : "fail",
-        detail: status.reason ?? "Native Codex bridge responded.",
+        detail: status.reason ?? "Native Codex 연결이 응답했습니다.",
       },
       {
         id: "credentials",
-        label: "Credentials",
+        label: "인증 정보",
         status: "pass",
-        detail: "Codex/OpenAI credentials are not stored in SaaS or browser extension storage.",
+        detail: "Codex/OpenAI 인증 정보는 SaaS 또는 브라우저 확장 저장소에 저장되지 않습니다.",
       },
       {
         id: "generation",
-        label: "Generation",
+        label: "답변 생성",
         status: ready ? "pass" : "warn",
         detail: ready
-          ? "You can run Local Codex generation for the selected task."
-          : "Fix native host registration, Codex CLI install, or Codex login before generating.",
+          ? "선택한 task에 대해 로컬 Codex 답변 생성을 실행할 수 있습니다."
+          : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
       },
     ],
   };
@@ -1941,11 +2027,11 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
 function buildLocalCodexMissingBridgeReport(error: string): LocalCodexHealthReport {
   return {
     checkedAt: formatHealthCheckTime(),
-    summary: "Local Codex extension bridge did not respond on this page.",
+    summary: "이 페이지에서 로컬 Codex 확장 연결이 응답하지 않았습니다.",
     steps: [
       {
         id: "content-script",
-        label: "Extension bridge",
+        label: "확장 연결",
         status: "fail",
         detail: error,
       },
@@ -1953,26 +2039,26 @@ function buildLocalCodexMissingBridgeReport(error: string): LocalCodexHealthRepo
         id: "native-codex",
         label: "Native host / Codex",
         status: "warn",
-        detail: "The native host was not reached because the page bridge did not respond.",
+        detail: "페이지 연결이 응답하지 않아 native host까지 도달하지 못했습니다.",
       },
       {
         id: "credentials",
-        label: "Credentials",
+        label: "인증 정보",
         status: "pass",
-        detail: "No Codex/OpenAI credential is stored by this page.",
+        detail: "이 페이지는 Codex/OpenAI 인증 정보를 저장하지 않습니다.",
       },
       {
         id: "generation",
-        label: "Generation",
+        label: "답변 생성",
         status: "fail",
-        detail: "Open chrome://extensions, reload Architect Browser Assistant, then refresh /daily before trying Local Codex generation.",
+        detail: "chrome://extensions에서 Architect Browser Assistant를 다시 로드한 뒤 /daily를 새로고침하세요.",
       },
       {
         id: "installed-path-verifier",
-        label: "Installed path verifier",
+        label: "설치 경로 검증",
         status: "warn",
         detail:
-          "If this still fails after reload, run `npm run native-host:verify:windows -- --extension-id <id> --strict` from architect-browser-assistant.",
+          "다시 로드한 뒤에도 실패하면 architect-browser-assistant에서 `npm run native-host:verify:windows -- --extension-id <id> --strict`를 실행하세요.",
       },
     ],
   };
@@ -1992,7 +2078,7 @@ function requestLocalCodexBridge<T>(
   timeoutMs = 30000,
 ): Promise<T> {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("Local Codex bridge is only available in the browser."));
+    return Promise.reject(new Error("로컬 Codex 연결은 브라우저에서만 사용할 수 있습니다."));
   }
 
   const requestId = `architect-page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -2002,7 +2088,7 @@ function requestLocalCodexBridge<T>(
       window.removeEventListener("message", handleMessage);
       reject(
         new Error(
-          "Local Codex extension bridge did not respond. Reload Architect Browser Assistant in chrome://extensions, then refresh /daily.",
+          "로컬 Codex 확장 연결이 응답하지 않았습니다. chrome://extensions에서 Architect Browser Assistant를 다시 로드한 뒤 /daily를 새로고침하세요.",
         ),
       );
     }, timeoutMs);
@@ -2051,31 +2137,31 @@ function toRecordExecutionMode(mode: AssistantExecutionMode): "local-chatgpt-cod
 
 function executionModeLabel(mode: AssistantRecordHistoryItem["executionMode"]) {
   if (mode === "local-chatgpt-codex") {
-    return "Local Codex";
+    return "로컬 Codex";
   }
   if (mode === "saas-api") {
     return "SaaS API";
   }
   if (mode === "unavailable") {
-    return "Evidence only";
+    return "근거만 저장";
   }
   return "Mock";
 }
 
 function runtimeModeLabel(mode: string) {
   if (mode === "extension-native-bridge-in-page") {
-    return "extension bridge";
+    return "확장 연결";
   }
   if (mode === "saas-api-daily-task-panel") {
-    return "SaaS popup";
+    return "SaaS 팝업";
   }
   if (mode === "saas-daily-task-panel") {
-    return "daily popup";
+    return "daily 팝업";
   }
   if (mode === "external-evidence") {
-    return "external evidence";
+    return "외부 근거";
   }
-  return mode || "unknown runtime";
+  return mode || "알 수 없는 실행 환경";
 }
 
 function historyTone(mode: AssistantRecordHistoryItem["executionMode"]) {
@@ -2096,14 +2182,14 @@ function recordPreview(record: AssistantRecordHistoryItem) {
     record.draftSummary?.conclusion?.trim() ||
     record.answer?.replace(/\s+/g, " ").trim() ||
     record.question?.replace(/\s+/g, " ").trim() ||
-    "No assistant output was stored.";
+    "저장된 assistant 출력이 없습니다.";
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }
 
 function formatRecordDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "unknown time";
+    return "알 수 없는 시간";
   }
 
   return new Intl.DateTimeFormat("ko-KR", {
@@ -2127,17 +2213,17 @@ function diagnosticTone(report: LocalCodexHealthReport) {
 function localCodexDiagnostic(report: LocalCodexHealthReport) {
   const failed = report.steps.find((step) => step.status === "fail");
   if (!failed) {
-    return "Ready: this page can send the selected task context through the extension and local Codex CLI.";
+    return "준비됨: 이 페이지는 선택한 task 맥락을 확장과 로컬 Codex CLI로 보낼 수 있습니다.";
   }
 
   if (failed.id === "content-script") {
-    return "Page bridge missing: reload Architect Browser Assistant in chrome://extensions, refresh /daily, then run Check bridge again.";
+    return "페이지 연결이 없습니다. chrome://extensions에서 Architect Browser Assistant를 다시 로드하고 /daily를 새로고침한 뒤 연결 상태를 다시 확인하세요.";
   }
   if (failed.id === "native-codex") {
-    return "Native host or Codex is not ready: run the installed-path verifier and confirm Codex CLI login before generation.";
+    return "Native host 또는 Codex가 준비되지 않았습니다. 설치 경로 검증을 실행하고 Codex CLI 로그인 상태를 확인하세요.";
   }
   if (failed.id === "generation") {
-    return "Generation is blocked until the failed bridge or native-host check is fixed.";
+    return "실패한 연결 또는 native-host 확인이 해결될 때까지 답변 생성을 실행할 수 없습니다.";
   }
   return failed.detail;
 }
@@ -2190,7 +2276,7 @@ async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   });
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {
-    throw new Error(parsed.error?.message ?? "Request failed");
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
   }
 
   return parsed.data as T;
@@ -2204,7 +2290,7 @@ async function patchJson<T = unknown>(path: string, body: unknown): Promise<T> {
   });
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {
-    throw new Error(parsed.error?.message ?? "Request failed");
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
   }
 
   return parsed.data as T;
@@ -2216,7 +2302,7 @@ async function deleteJson<T = unknown>(path: string): Promise<T> {
   });
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {
-    throw new Error(parsed.error?.message ?? "Request failed");
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
   }
 
   return parsed.data as T;
@@ -2226,12 +2312,12 @@ async function getJson<T = unknown>(path: string): Promise<T> {
   const response = await fetch(path);
   const parsed = (await response.json()) as { data?: T; error?: { message?: string } };
   if (!response.ok) {
-    throw new Error(parsed.error?.message ?? "Request failed");
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
   }
 
   return parsed.data as T;
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unexpected error";
+  return error instanceof Error ? error.message : "예상하지 못한 오류가 발생했습니다.";
 }

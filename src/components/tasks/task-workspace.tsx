@@ -649,7 +649,7 @@ function readProjectPresenceUsers(state: Record<string, unknown[]>): ProjectPres
 
       users.set(profileId, {
         profileId,
-        displayName: typeof payload.displayName === "string" && payload.displayName.trim() ? payload.displayName : "User",
+        displayName: typeof payload.displayName === "string" && payload.displayName.trim() ? payload.displayName : "사용자",
         email: typeof payload.email === "string" ? payload.email : "",
         activeEditor: readProjectPresenceActiveEditor(payload.activeEditor),
       });
@@ -679,7 +679,7 @@ function readProjectPresenceActiveEditor(value: unknown): ProjectPresenceActiveE
 }
 
 function getPresenceDisplayName(user: { displayName?: string | null; email?: string | null }) {
-  return user.displayName?.trim() || user.email?.trim() || "User";
+  return user.displayName?.trim() || user.email?.trim() || "사용자";
 }
 
 function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
@@ -868,7 +868,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const names = projectPresenceUsers.map((user) => user.displayName).slice(0, 3).join(", ");
     const overflow = projectPresenceUsers.length > 3 ? ` +${projectPresenceUsers.length - 3}` : "";
-    return `${projectPresenceUsers.length} online: ${names}${overflow}`;
+    return `온라인 ${projectPresenceUsers.length}명: ${names}${overflow}`;
   }, [projectPresenceUsers]);
   const activeEditorPresenceLabel = useMemo(() => {
     const activeEditors = projectPresenceUsers.filter(
@@ -880,7 +880,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const editor = activeEditors[0];
     const suffix = activeEditors.length > 1 ? ` +${activeEditors.length - 1}` : "";
-    return `${editor.displayName} editing ${editor.activeEditor?.fieldLabel ?? "field"}${suffix}`;
+    return `${editor.displayName}님이 ${editor.activeEditor?.fieldLabel ?? "필드"} 편집 중${suffix}`;
   }, [authUser?.id, projectPresenceUsers]);
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
@@ -3854,7 +3854,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      `Remove "${`${formatTaskDisplayId(task)} ${task.issueTitle}`.trim()}" from the workspace permanently? It will not be restorable from the UI.`,
+      `"${`${formatTaskDisplayId(task)} ${task.issueTitle}`.trim()}" 작업을 작업공간에서 영구 삭제할까요? 화면에서 복원할 수 없습니다.`,
     );
 
     if (!confirmed) {
@@ -3878,7 +3878,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      `Remove "${file.originalName} ${file.versionLabel}" from the workspace permanently? It will not be restorable from the UI.`,
+      `"${file.originalName} ${file.versionLabel}" 파일을 작업공간에서 영구 삭제할까요? 화면에서 복원할 수 없습니다.`,
     );
 
     if (!confirmed) {
@@ -3905,7 +3905,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const confirmed = window.confirm(
-      `Remove the selected trash items from the workspace permanently? Tasks: ${selectedTrashTaskIds.length}, files: ${selectedTrashFileIds.length}. They will not be restorable from the UI.`,
+      `선택한 휴지통 항목을 작업공간에서 영구 삭제할까요? 작업: ${selectedTrashTaskIds.length}개, 파일: ${selectedTrashFileIds.length}개입니다. 화면에서 복원할 수 없습니다.`,
     );
 
     if (!confirmed) {
@@ -3948,7 +3948,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    const confirmed = window.confirm("Remove every trash item from the workspace permanently? They will not be restorable from the UI.");
+    const confirmed = window.confirm("휴지통의 모든 항목을 작업공간에서 영구 삭제할까요? 화면에서 복원할 수 없습니다.");
     if (!confirmed) {
       return;
     }
@@ -4409,7 +4409,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
               <div className="workspace__mode-pills">
                 <span className="workspace__mode-pill">{labelForMode(mode)}</span>
-                {isPreview ? <span className="workspace__mode-pill workspace__mode-pill--preview">Preview</span> : null}
+                {isPreview ? <span className="workspace__mode-pill workspace__mode-pill--preview">미리보기</span> : null}
               </div>
             </div>
             <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
@@ -6627,24 +6627,24 @@ function TaskFormFields({
 
 function AssistantAuditPanel({ audit }: { audit: AssistantAuditIndicator }) {
   return (
-    <section aria-label="Assistant provenance" className="detail-assistant-audit">
+    <section aria-label="어시스턴트 변경 출처" className="detail-assistant-audit">
       <div className="detail-assistant-audit__header">
-        <span>AI provenance</span>
-        <strong>Assistant-origin task change</strong>
+        <span>AI 변경 출처</span>
+        <strong>어시스턴트가 반영한 작업 변경</strong>
       </div>
 
       <div className="detail-assistant-audit__grid">
         {audit.structuredActions.length ? (
           <div className="detail-assistant-audit__item detail-assistant-audit__item--wide">
-            <span>Structured audit records</span>
+            <span>구조화된 감사 기록</span>
             <div className="detail-assistant-audit__children">
               {audit.structuredActions.map((action) => (
                 <article key={action.id}>
                   <strong>{formatAssistantActionAuditLabel(action.action)}</strong>
                   <p>{formatAssistantActionAuditSummary(action)}</p>
                   <small>
-                    Record: {action.assistantRecordId} / Target: {action.targetTaskId}
-                    {action.createdTaskId ? ` / Created: ${action.createdTaskId}` : ""}
+                    기록: {action.assistantRecordId} / 대상: {action.targetTaskId}
+                    {action.createdTaskId ? ` / 생성: ${action.createdTaskId}` : ""}
                   </small>
                 </article>
               ))}
@@ -6654,7 +6654,7 @@ function AssistantAuditPanel({ audit }: { audit: AssistantAuditIndicator }) {
 
         {audit.summaryRecordIds.length ? (
           <div className="detail-assistant-audit__item">
-            <span>Approved summary records</span>
+            <span>승인된 요약 기록</span>
             <div className="detail-assistant-audit__chips">
               {audit.summaryRecordIds.map((recordId) => (
                 <code key={recordId}>{recordId}</code>
@@ -6665,25 +6665,25 @@ function AssistantAuditPanel({ audit }: { audit: AssistantAuditIndicator }) {
 
         {audit.sourceRecordIds.length ? (
           <div className="detail-assistant-audit__item">
-            <span>Source assistant records</span>
+            <span>원본 어시스턴트 기록</span>
             <div className="detail-assistant-audit__chips">
               {audit.sourceRecordIds.map((recordId) => (
                 <code key={recordId}>{recordId}</code>
               ))}
             </div>
-            {audit.parentReference ? <small>Parent: {audit.parentReference}</small> : null}
+            {audit.parentReference ? <small>상위 작업: {audit.parentReference}</small> : null}
           </div>
         ) : null}
 
         {audit.followUpChildren.length ? (
           <div className="detail-assistant-audit__item detail-assistant-audit__item--wide">
-            <span>Assistant-created follow-up tasks</span>
+            <span>어시스턴트가 만든 후속 작업</span>
             <div className="detail-assistant-audit__children">
               {audit.followUpChildren.map((child) => (
                 <article key={child.id}>
                   <strong>{child.label}</strong>
                   <p>{child.title}</p>
-                  <small>Source record: {child.recordIds.join(", ")}</small>
+                  <small>원본 기록: {child.recordIds.join(", ")}</small>
                 </article>
               ))}
             </div>
@@ -8418,14 +8418,14 @@ function mergeAssistantAuditChild(childrenById: Map<string, AssistantAuditChildT
 }
 
 function formatAssistantActionAuditLabel(action: AssistantActionAuditRecord["action"]) {
-  return action === "task_update_applied" ? "Task update applied" : "Follow-up task created";
+  return action === "task_update_applied" ? "작업 기록 업데이트 적용" : "후속 작업 생성";
 }
 
 function formatAssistantActionAuditSummary(action: AssistantActionAuditRecord) {
   const summaryText = action.summary?.conclusion || action.summary?.followUpAction || action.decisionMarker || "";
   const statusText =
-    action.statusFrom || action.statusTo ? `Status: ${action.statusFrom ?? "-"} -> ${action.statusTo ?? "-"}` : null;
-  return [summaryText || "Assistant action persisted as structured audit.", statusText].filter(Boolean).join(" / ");
+    action.statusFrom || action.statusTo ? `상태: ${action.statusFrom ?? "-"} -> ${action.statusTo ?? "-"}` : null;
+  return [summaryText || "어시스턴트 작업이 구조화된 감사 기록으로 저장되었습니다.", statusText].filter(Boolean).join(" / ");
 }
 
 function extractUniquePatternMatches(value: string, pattern: RegExp) {
