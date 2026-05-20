@@ -173,6 +173,10 @@ type QueuedTaskPatch = {
 type TaskPatchQueueEntry = {
   promise: Promise<TaskRecord | null>;
   queued: QueuedTaskPatch | null;
+  timerId: number | null;
+  isRunning: boolean;
+  resolve: (value: TaskRecord | null) => void;
+  reject: (reason: unknown) => void;
 };
 type TaskFocusKey = "in_review" | "in_discussion" | "blocked" | "overdue";
 type TaskDropPosition = "before" | "after";
@@ -577,6 +581,7 @@ const DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE = "list-view-mode";
 const DAILY_TASK_PAGE_SIZE = 50;
 const DAILY_TASK_TABLE_VIRTUAL_OVERSCAN = 2;
 const DAILY_TASK_TABLE_ROW_CHROME_HEIGHT = 1;
+const TASK_INLINE_PATCH_DEBOUNCE_MS = 1200;
 const BOARD_DEFAULT_COLLAPSED_STATUSES: readonly TaskStatus[] = ["done"];
 const USE_MEMOIZED_DAILY_TASK_ROWS = true;
 const USE_DAILY_GRID_BODY_V2 = true;
@@ -3707,18 +3712,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         clearedDirtyFields: options.clearedDirtyFields ?? [],
         fallbackKey: options.fallbackKey,
       };
-      const currentEntry = taskPatchQueueRef.current[task.id];
-      if (currentEntry) {
-        currentEntry.queued = mergeQueuedTaskPatches(currentEntry.queued, nextPatch);
-        return currentEntry.promise;
-      }
 
-      const entry: TaskPatchQueueEntry = {
-        promise: Promise.resolve(null),
-        queued: nextPatch,
-      };
-
-      entry.promise = (async () => {
+      const flushEntry = async (entry: TaskPatchQueueEntry) => {
         let latestTask: Pick<TaskRecord, "id" | "version"> =
           (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ?? task;
         let latestUpdatedTask: TaskRecord | null = null;
@@ -3748,11 +3743,64 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
 
         return latestUpdatedTask;
-      })();
+      };
+
+      const scheduleFlush = (entry: TaskPatchQueueEntry) => {
+        if (entry.timerId !== null) {
+          window.clearTimeout(entry.timerId);
+        }
+
+        entry.timerId = window.setTimeout(() => {
+          entry.timerId = null;
+          entry.isRunning = true;
+          void flushEntry(entry).then(
+            (updatedTask) => {
+              entry.isRunning = false;
+              if (entry.queued) {
+                scheduleFlush(entry);
+                return;
+              }
+
+              entry.resolve(updatedTask);
+            },
+            (error: unknown) => {
+              entry.isRunning = false;
+              entry.reject(error);
+            },
+          );
+        }, TASK_INLINE_PATCH_DEBOUNCE_MS);
+      };
+
+      const currentEntry = taskPatchQueueRef.current[task.id];
+      if (currentEntry) {
+        currentEntry.queued = mergeQueuedTaskPatches(currentEntry.queued, nextPatch);
+        if (!currentEntry.isRunning) {
+          scheduleFlush(currentEntry);
+        }
+        return currentEntry.promise;
+      }
+
+      let resolveEntry: (value: TaskRecord | null) => void = () => {};
+      let rejectEntry: (reason: unknown) => void = () => {};
+      const entry: TaskPatchQueueEntry = {
+        promise: new Promise<TaskRecord | null>((resolve, reject) => {
+          resolveEntry = resolve;
+          rejectEntry = reject;
+        }),
+        queued: nextPatch,
+        timerId: null,
+        isRunning: false,
+        resolve: resolveEntry,
+        reject: rejectEntry,
+      };
 
       taskPatchQueueRef.current[task.id] = entry;
+      scheduleFlush(entry);
       void entry.promise.finally(() => {
         if (taskPatchQueueRef.current[task.id] === entry) {
+          if (entry.timerId !== null) {
+            window.clearTimeout(entry.timerId);
+          }
           delete taskPatchQueueRef.current[task.id];
         }
       });
