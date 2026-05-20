@@ -176,6 +176,29 @@ async function nextTaskNumber(projectId: string) {
   return nextValue;
 }
 
+async function nextSiblingOrder(projectId: string, parentTaskId: string | null) {
+  const db = getDb();
+  if (!db) {
+    throw new Error("Firestore is not configured");
+  }
+
+  const snapshot = await getDocs(collection(db, taskCollectionName));
+  const siblingOrders = snapshot.docs
+    .filter((entry) => {
+      const data = entry.data();
+      return (
+        String(data.projectId ?? "") === projectId &&
+        !data.deletedAt &&
+        !data.purgedAt &&
+        (typeof data.parentTaskId === "string" && data.parentTaskId ? data.parentTaskId : null) === parentTaskId
+      );
+    })
+    .map((entry) => parseNumeric(entry.data().siblingOrder))
+    .filter((value): value is number => value !== null);
+
+  return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
+}
+
 class FirestoreTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const db = getDb();
@@ -220,16 +243,18 @@ class FirestoreTaskRepository implements TaskRepository {
 
     const ref = doc(collection(db, taskCollectionName));
     const actionId = await nextTaskNumber(input.projectId);
+    const parentTaskId = input.parentTaskId ?? null;
+    const siblingOrder = input.siblingOrder ?? (await nextSiblingOrder(input.projectId, parentTaskId));
     const timestamp = new Date().toISOString();
     const record = {
       projectId: input.projectId,
       taskNumber: actionId,
       actionId,
       issueId: buildProjectIssueId(input.projectName, actionId),
-      parentTaskId: input.parentTaskId ?? null,
+      parentTaskId,
       rootTaskId: input.rootTaskId?.trim() || ref.id,
       depth: input.depth ?? 0,
-      siblingOrder: input.siblingOrder ?? 0,
+      siblingOrder,
       dueDate: input.dueDate,
       workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,

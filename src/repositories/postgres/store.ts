@@ -30,7 +30,7 @@ import type {
   UpdateTaskInput,
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
-import type { FileRecord, TaskFileSummary, TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import { storageProvider } from "@/storage";
 import { getFileAnalysisEntries, normalizeFileMetadata } from "@/domains/file/analysis";
@@ -198,46 +198,6 @@ type PostgresFileAnalysisSearchRow = {
   vectorDistance?: number | null;
 };
 
-function applyTaskFileSummary(task: TaskRecord, fileSummaryByTaskId: Map<string, TaskFileSummary>): TaskRecord {
-  return {
-    ...task,
-    fileSummary: fileSummaryByTaskId.get(task.id) ?? { count: 0, latestFileName: null },
-  };
-}
-
-function buildTaskFileSummaryMap(files: FileRecord[]) {
-  const summaryByTaskId = new Map<string, TaskFileSummary & { latestCreatedAt: string | null }>();
-
-  for (const file of files) {
-    const current = summaryByTaskId.get(file.taskId);
-    if (!current) {
-      summaryByTaskId.set(file.taskId, {
-        count: 1,
-        latestFileName: file.originalName,
-        latestCreatedAt: file.createdAt,
-      });
-      continue;
-    }
-
-    summaryByTaskId.set(file.taskId, {
-      count: current.count + 1,
-      latestFileName:
-        !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.originalName : current.latestFileName,
-      latestCreatedAt: !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.createdAt : current.latestCreatedAt,
-    });
-  }
-
-  return new Map(
-    [...summaryByTaskId.entries()].map(([taskId, summary]) => [
-      taskId,
-      {
-        count: summary.count,
-        latestFileName: summary.latestFileName,
-      },
-    ]),
-  );
-}
-
 function normalizeQueryEmbeddingLiteral(value: unknown) {
   if (!Array.isArray(value) || value.length !== 1536) {
     return null;
@@ -381,59 +341,30 @@ class PostgresProjectRepository implements ProjectRepository {
 class PostgresTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const [tasks, files] = await Promise.all([
-      prisma.task.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: null,
-          purgedAt: null,
-        },
-        orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
-      }),
-      prisma.file.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: null,
-          purgedAt: null,
-        },
-        orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
-      }),
-    ]);
+    const tasks = await prisma.task.findMany({
+      where: {
+        projectId: project.id,
+        deletedAt: null,
+        purgedAt: null,
+      },
+      orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
+    });
 
-    const latestByGroup = new Map<string, (typeof files)[number]>();
-    for (const file of files) {
-      if (!latestByGroup.has(file.fileGroupId)) {
-        latestByGroup.set(file.fileGroupId, file);
-      }
-    }
-
-    const fileSummaryByTaskId = buildTaskFileSummaryMap([...latestByGroup.values()].map(toFileRecord));
-    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
+    return tasks.map(toTaskRecord);
   }
 
   async listTrashTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const [tasks, files] = await Promise.all([
-      prisma.task.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: { not: null },
-          purgedAt: null,
-        },
-        orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
-      }),
-      prisma.file.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: { not: null },
-          purgedAt: null,
-        },
-        orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
-      }),
-    ]);
+    const tasks = await prisma.task.findMany({
+      where: {
+        projectId: project.id,
+        deletedAt: { not: null },
+        purgedAt: null,
+      },
+      orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
+    });
 
-    const fileSummaryByTaskId = buildTaskFileSummaryMap(files.map(toFileRecord));
-    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
+    return tasks.map(toTaskRecord);
   }
 
   async findTaskById(taskId: string) {
@@ -462,6 +393,18 @@ class PostgresTaskRepository implements TaskRepository {
         select: { taskNumber: true },
       });
       const taskNumber = (last?.taskNumber ?? 0) + 1;
+      const parentTaskId = input.parentTaskId ?? null;
+      const siblingOrder =
+        input.siblingOrder ??
+        ((await tx.task.aggregate({
+          where: {
+            projectId: input.projectId,
+            parentTaskId,
+            deletedAt: null,
+            purgedAt: null,
+          },
+          _max: { siblingOrder: true },
+        }))._max.siblingOrder ?? -1) + 1;
 
       return tx.task.create({
         data: {
@@ -469,10 +412,10 @@ class PostgresTaskRepository implements TaskRepository {
           projectId: input.projectId,
           taskNumber,
           actionId: taskNumber,
-          parentTaskId: input.parentTaskId ?? null,
+          parentTaskId,
           rootTaskId: input.rootTaskId?.trim() || id,
           depth: input.depth ?? 0,
-          siblingOrder: input.siblingOrder ?? 0,
+          siblingOrder,
           ...taskWriteData(input),
           issueId: buildProjectIssueId(input.projectName, taskNumber),
           createdAt,

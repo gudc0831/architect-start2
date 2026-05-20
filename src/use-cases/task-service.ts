@@ -87,15 +87,17 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
 
 export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
   const project = await getSelectedTaskProject();
-  const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const [effectiveCategories, foundationSettings] = await Promise.all([
+  const shouldResolveParent = hasParentTaskReference(input);
+  const activeTasksPromise = shouldResolveParent ? taskRepository.listActiveTasks(project.id) : Promise.resolve([]);
+  const [activeTasks, effectiveCategories, foundationSettings, assignee] = await Promise.all([
+    activeTasksPromise,
     loadEffectiveTaskCategories(project.id),
     loadAdminFoundationSettings(),
+    resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee),
   ]);
-  const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
+  const parentTaskId = shouldResolveParent ? resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber) : null;
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
-  const assignee = await resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee);
 
   const task = await taskRepository.createTask({
     projectId: project.id,
@@ -142,7 +144,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     parentTaskId,
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
-    siblingOrder: nextSiblingOrder(activeTasks, parentTaskId),
+    siblingOrder: shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined,
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   });
@@ -575,6 +577,18 @@ function normalizeAssigneeProfileId(value: unknown) {
   return normalized || null;
 }
 
+function hasParentTaskReference(input: Pick<CreateTaskInput, "parentTaskId" | "parentTaskNumber">) {
+  if (typeof input.parentTaskNumber === "string" && normalizeText(input.parentTaskNumber)) {
+    return true;
+  }
+
+  if (typeof input.parentTaskId === "string" && normalizeText(input.parentTaskId)) {
+    return true;
+  }
+
+  return false;
+}
+
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -759,7 +773,7 @@ const emptyTaskFileSummary: TaskFileSummaryState = {
 };
 
 async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
-  const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listActiveFiles();
+  const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listFilesByProject(projectId);
   const summaryByTaskId: Record<string, TaskFileSummaryState> = {};
 
   for (const file of files) {

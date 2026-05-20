@@ -107,8 +107,8 @@ async function readTasks() {
   return normalizeTaskRecords(tasks);
 }
 
-async function nextTaskNumber(projectId: string) {
-  const tasks = await readTasks();
+async function nextTaskNumber(projectId: string, existingTasks?: TaskRecord[]) {
+  const tasks = existingTasks ?? (await readTasks());
   const maxExisting = tasks
     .filter((task) => task.projectId === projectId)
     .reduce((max, task) => Math.max(max, task.taskNumber), 0);
@@ -128,6 +128,20 @@ async function nextTaskNumber(projectId: string) {
     { reason: "sequence.advance" },
   );
   return nextValue;
+}
+
+function nextSiblingOrder(tasks: TaskRecord[], projectId: string, parentTaskId: string | null) {
+  const siblingOrders = tasks
+    .filter(
+      (task) =>
+        task.projectId === projectId &&
+        !task.deletedAt &&
+        !task.purgedAt &&
+        (task.parentTaskId ?? null) === parentTaskId,
+    )
+    .map((task) => task.siblingOrder);
+
+  return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
 }
 
 function latestFiles(items: FileRecord[]) {
@@ -168,7 +182,8 @@ class MemoryTaskRepository implements TaskRepository {
   async createTask(input: CreateTaskInput) {
     const tasks = await readTasks();
     const id = nextId("task");
-    const taskNumber = await nextTaskNumber(input.projectId);
+    const taskNumber = await nextTaskNumber(input.projectId, tasks);
+    const parentTaskId = input.parentTaskId ?? null;
     const timestamp = now();
     const record: TaskRecord = {
       id,
@@ -176,10 +191,10 @@ class MemoryTaskRepository implements TaskRepository {
       taskNumber,
       actionId: taskNumber,
       issueId: buildProjectIssueId(input.projectName, taskNumber),
-      parentTaskId: input.parentTaskId ?? null,
+      parentTaskId,
       rootTaskId: input.rootTaskId?.trim() || id,
       depth: input.depth ?? 0,
-      siblingOrder: input.siblingOrder ?? 0,
+      siblingOrder: input.siblingOrder ?? nextSiblingOrder(tasks, input.projectId, parentTaskId),
       dueDate: input.dueDate,
       workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,
