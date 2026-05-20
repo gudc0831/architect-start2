@@ -3659,6 +3659,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        keepalive: true,
         body: JSON.stringify({ ...payload, version: task.version }),
       });
 
