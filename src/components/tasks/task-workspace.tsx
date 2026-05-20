@@ -165,6 +165,15 @@ type TaskFormState = {
 type TaskFormReadonly = Partial<Record<Exclude<keyof TaskFormState, "isDaily">, boolean>>;
 type DraftDirtyField = EditableTaskFormKey | "parentTaskNumber";
 type DraftDirtyFieldMap = Partial<Record<DraftDirtyField, true>>;
+type QueuedTaskPatch = {
+  payload: Partial<TaskRecord>;
+  clearedDirtyFields: readonly DraftDirtyField[];
+  fallbackKey?: ErrorCopyKey;
+};
+type TaskPatchQueueEntry = {
+  promise: Promise<TaskRecord | null>;
+  queued: QueuedTaskPatch | null;
+};
 type TaskFocusKey = "in_review" | "in_discussion" | "blocked" | "overdue";
 type TaskDropPosition = "before" | "after";
 type TaskDragState = {
@@ -804,7 +813,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
   const inlineSavingFieldsRef = useRef<Partial<Record<TaskListColumnKey, boolean>>>({});
-  const taskPatchQueueRef = useRef<Record<string, Promise<TaskRecord | null>>>({});
+  const taskPatchQueueRef = useRef<Record<string, TaskPatchQueueEntry>>({});
   const taskPendingPatchValuesRef = useRef<TaskPendingPatchValueMap>({});
   const detailPanelInteractionRef = useRef<TaskDetailPanelInteractionState>({
     selectedTaskId: null,
@@ -3693,31 +3702,61 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         fallbackKey?: ErrorCopyKey;
       } = {},
     ) => {
-      const previousPatch = taskPatchQueueRef.current[task.id] ?? Promise.resolve(null);
-      const nextPatch = previousPatch
-        .catch(() => null)
-        .then((previousUpdatedTask) => {
-          const latestTask =
-            previousUpdatedTask ??
-            (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ??
-            task;
-          return patchTask(latestTask, payload, { ...options, applyServerUpdate: false }).then((updatedTask) => {
-            clearTaskPendingPatchValues(task.id, payload);
-            if (updatedTask) {
-              applyTaskServerUpdate(applyTaskPendingPatchValues(updatedTask), options.clearedDirtyFields ?? []);
-              setTaskListSelection(task.id);
-            }
-            return updatedTask;
-          });
-        });
+      const nextPatch: QueuedTaskPatch = {
+        payload,
+        clearedDirtyFields: options.clearedDirtyFields ?? [],
+        fallbackKey: options.fallbackKey,
+      };
+      const currentEntry = taskPatchQueueRef.current[task.id];
+      if (currentEntry) {
+        currentEntry.queued = mergeQueuedTaskPatches(currentEntry.queued, nextPatch);
+        return currentEntry.promise;
+      }
 
-      taskPatchQueueRef.current[task.id] = nextPatch;
-      void nextPatch.finally(() => {
-        if (taskPatchQueueRef.current[task.id] === nextPatch) {
+      const entry: TaskPatchQueueEntry = {
+        promise: Promise.resolve(null),
+        queued: nextPatch,
+      };
+
+      entry.promise = (async () => {
+        let latestTask: Pick<TaskRecord, "id" | "version"> =
+          (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ?? task;
+        let latestUpdatedTask: TaskRecord | null = null;
+
+        while (entry.queued) {
+          const patch = entry.queued;
+          entry.queued = null;
+          latestTask =
+            latestUpdatedTask ??
+            (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ??
+            latestTask;
+
+          const updatedTask = await patchTask(latestTask, patch.payload, {
+            clearedDirtyFields: patch.clearedDirtyFields,
+            fallbackKey: patch.fallbackKey,
+            applyServerUpdate: false,
+          });
+          clearTaskPendingPatchValues(task.id, patch.payload);
+
+          if (!updatedTask) {
+            return latestUpdatedTask;
+          }
+
+          latestUpdatedTask = updatedTask;
+          applyTaskServerUpdate(applyTaskPendingPatchValues(updatedTask), patch.clearedDirtyFields);
+          setTaskListSelection(task.id);
+        }
+
+        return latestUpdatedTask;
+      })();
+
+      taskPatchQueueRef.current[task.id] = entry;
+      void entry.promise.finally(() => {
+        if (taskPatchQueueRef.current[task.id] === entry) {
           delete taskPatchQueueRef.current[task.id];
         }
       });
-      return nextPatch;
+      return entry.promise;
     },
     [applyTaskPendingPatchValues, applyTaskServerUpdate, clearTaskPendingPatchValues, patchTask, setTaskListSelection],
   );
@@ -8702,6 +8741,25 @@ function extractAssistantParentReference(value: string) {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values));
+}
+
+function mergeQueuedTaskPatches(current: QueuedTaskPatch | null, next: QueuedTaskPatch): QueuedTaskPatch {
+  if (!current) {
+    return next;
+  }
+
+  const clearedDirtyFields = [...current.clearedDirtyFields];
+  for (const field of next.clearedDirtyFields) {
+    if (!clearedDirtyFields.includes(field)) {
+      clearedDirtyFields.push(field);
+    }
+  }
+
+  return {
+    payload: { ...current.payload, ...next.payload },
+    clearedDirtyFields,
+    fallbackKey: next.fallbackKey ?? current.fallbackKey,
+  };
 }
 
 function normalizeParentTaskNumberInput(value: string) {
