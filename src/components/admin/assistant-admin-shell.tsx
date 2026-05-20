@@ -1142,8 +1142,11 @@ export function AssistantAdminShell() {
       <header className={styles.header}>
         <div>
           <p>AI 어시스턴트 운영</p>
-          <h1>SaaS API 모드</h1>
-          <span>{selectedProject?.name ?? "현재 프로젝트"} 기준 정책과 사용량을 관리합니다.</span>
+          <h1>AI 실행 정책</h1>
+          <span>
+            기본 실행은 로컬 Codex 로그인입니다. 이 화면에서는 {selectedProject?.name ?? "현재 프로젝트"} 기준 SaaS API 정책과
+            사용량을 관리합니다.
+          </span>
         </div>
         <nav className={styles.headerActions} aria-label="관리 이동">
           <a href="/daily">일일 목록</a>
@@ -1159,15 +1162,15 @@ export function AssistantAdminShell() {
         <section className={styles.policyPanel}>
           <div className={styles.sectionHeader}>
             <div>
-              <h2>실행 정책</h2>
-              <p>서버에서 공급자(provider)를 호출하기 전에 적용되는 프로젝트 범위 정책입니다.</p>
+              <h2>SaaS API 정책</h2>
+              <p>로컬 Codex 로그인 대신 서버에서 공급자(provider)를 호출할 때 적용되는 프로젝트 범위 정책입니다.</p>
             </div>
             <span className={policy.enabled ? styles.badgeOn : styles.badgeOff}>{policy.enabled ? "사용 중" : "꺼짐"}</span>
           </div>
 
           <div className={styles.formGrid}>
             <label className={styles.toggleField}>
-              <span>SaaS API 모드</span>
+              <span>SaaS API 모드 사용</span>
               <input
                 checked={policy.enabled}
                 onChange={(event) => setPolicy((current) => ({ ...current, enabled: event.target.checked }))}

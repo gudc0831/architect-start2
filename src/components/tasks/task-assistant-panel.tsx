@@ -76,6 +76,7 @@ type AssistantOutput = {
 };
 
 type AssistantExecutionMode = "mock" | "saas-api" | "local-codex";
+const DEFAULT_ASSISTANT_EXECUTION_MODE: AssistantExecutionMode = "local-codex";
 type FileAnalysisSourceMode = "manual_text" | "ocr_text" | "image_region";
 
 type RetrieveResponse = {
@@ -309,7 +310,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [analysisCropSourceUrl, setAnalysisCropSourceUrl] = useState("");
   const [analysisCropSourceTitle, setAnalysisCropSourceTitle] = useState("");
   const [analysisCropCapturedAt, setAnalysisCropCapturedAt] = useState("");
-  const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>("mock");
+  const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>(DEFAULT_ASSISTANT_EXECUTION_MODE);
   const [assistantPolicy, setAssistantPolicy] = useState<AssistantPolicyResponse | null>(null);
   const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -388,7 +389,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setAnalysisCropSourceUrl("");
     setAnalysisCropSourceTitle("");
     setAnalysisCropCapturedAt("");
-    setExecutionMode("mock");
+    setExecutionMode(DEFAULT_ASSISTANT_EXECUTION_MODE);
     setAssistantPolicy(null);
     setExternalEvidence([]);
     setExternalAllowed(false);
@@ -520,6 +521,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
           : executionMode === "local-codex"
             ? await generateLocalCodexReview({
                 evidence: retrieved.evidence,
+                instruction,
                 question,
                 taskContext: retrieved.taskContext,
               })
@@ -1343,9 +1345,9 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 onChange={(event) => setExecutionMode(event.target.value as AssistantExecutionMode)}
                 value={executionMode}
               >
-                <option value="mock">Mock/로컬 기본 검토</option>
-                <option value="local-codex">로컬 Codex (확장)</option>
+                <option value="local-codex">로컬 Codex 로그인 (기본)</option>
                 <option value="saas-api">SaaS API (관리형)</option>
+                <option value="mock">Mock/개발용 검토</option>
               </select>
             </label>
             {executionMode === "saas-api" ? (
@@ -1364,8 +1366,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
             {executionMode === "local-codex" ? (
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
-                  <h4>로컬 Codex</h4>
-                  <span>확장 연결</span>
+                  <h4>로컬 Codex 로그인</h4>
+                  <span>기본 실행</span>
                 </div>
                 <div className="task-assistant__health-actions">
                   <button
@@ -1397,8 +1399,8 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   </p>
                 ) : null}
                 <p className="task-assistant__hint">
-                  Chrome extension native host가 등록되어 있어야 합니다. 응답 생성은 사용자 PC의 Codex CLI 로그인 상태를 사용하며,
-                  credential은 SaaS나 브라우저 저장소에 저장하지 않습니다.
+                  사용자 PC의 Codex CLI 로그인 상태로 응답을 생성하며, SaaS는 Codex/OpenAI 인증 정보를 저장하지 않습니다.
+                  Chrome extension native host가 등록되어 있어야 합니다.
                 </p>
               </section>
             ) : null}
@@ -1938,16 +1940,18 @@ async function generateSaasApiReview(input: { taskId: string; question: string; 
 async function generateLocalCodexReview(input: {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
+  instruction: string;
   question: string;
 }): Promise<AssistantOutput> {
   const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
   if (!status.available) {
-    throw new Error(status.reason ?? "로컬 Codex 연결을 사용할 수 없습니다.");
+    throw new Error(status.reason ?? "로컬 Codex 로그인을 사용할 수 없습니다.");
   }
 
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
     "generate",
     {
+      instruction: input.instruction,
       question: input.question,
       taskContext: input.taskContext,
       evidence: input.evidence,
@@ -1966,7 +1970,7 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
     answer:
       typeof output.answer === "string" && output.answer.trim()
         ? output.answer
-        : "로컬 Codex 연결에서 답변을 받지 못했습니다.",
+        : "로컬 Codex 로그인에서 답변을 받지 못했습니다.",
     draftSummary: {
       conclusion:
         typeof draftSummary?.conclusion === "string" && draftSummary.conclusion.trim()
@@ -1991,8 +1995,8 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
   return {
     checkedAt: formatHealthCheckTime(),
     summary: ready
-      ? "이 페이지에서 로컬 Codex 연결을 사용할 수 있습니다."
-      : "확장은 응답했지만 로컬 Codex 실행 환경은 아직 준비되지 않았습니다.",
+      ? "이 페이지에서 로컬 Codex 로그인을 사용할 수 있습니다."
+      : "확장은 응답했지만 로컬 Codex 로그인 실행 환경은 아직 준비되지 않았습니다.",
     steps: [
       {
         id: "content-script",
@@ -2017,7 +2021,7 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
         label: "답변 생성",
         status: ready ? "pass" : "warn",
         detail: ready
-          ? "선택한 task에 대해 로컬 Codex 답변 생성을 실행할 수 있습니다."
+          ? "선택한 task에 대해 로컬 Codex 로그인 기반 답변 생성을 실행할 수 있습니다."
           : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
       },
     ],
@@ -2027,7 +2031,7 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
 function buildLocalCodexMissingBridgeReport(error: string): LocalCodexHealthReport {
   return {
     checkedAt: formatHealthCheckTime(),
-    summary: "이 페이지에서 로컬 Codex 확장 연결이 응답하지 않았습니다.",
+    summary: "이 페이지에서 로컬 Codex 로그인 확장 연결이 응답하지 않았습니다.",
     steps: [
       {
         id: "content-script",
@@ -2078,7 +2082,7 @@ function requestLocalCodexBridge<T>(
   timeoutMs = 30000,
 ): Promise<T> {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("로컬 Codex 연결은 브라우저에서만 사용할 수 있습니다."));
+    return Promise.reject(new Error("로컬 Codex 로그인 연결은 브라우저에서만 사용할 수 있습니다."));
   }
 
   const requestId = `architect-page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -2088,7 +2092,7 @@ function requestLocalCodexBridge<T>(
       window.removeEventListener("message", handleMessage);
       reject(
         new Error(
-          "로컬 Codex 확장 연결이 응답하지 않았습니다. chrome://extensions에서 Architect Browser Assistant를 다시 로드한 뒤 /daily를 새로고침하세요.",
+          "로컬 Codex 로그인 확장 연결이 응답하지 않았습니다. chrome://extensions에서 Architect Browser Assistant를 다시 로드한 뒤 /daily를 새로고침하세요.",
         ),
       );
     }, timeoutMs);
@@ -2137,7 +2141,7 @@ function toRecordExecutionMode(mode: AssistantExecutionMode): "local-chatgpt-cod
 
 function executionModeLabel(mode: AssistantRecordHistoryItem["executionMode"]) {
   if (mode === "local-chatgpt-codex") {
-    return "로컬 Codex";
+    return "로컬 Codex 로그인";
   }
   if (mode === "saas-api") {
     return "SaaS API";
@@ -2213,7 +2217,7 @@ function diagnosticTone(report: LocalCodexHealthReport) {
 function localCodexDiagnostic(report: LocalCodexHealthReport) {
   const failed = report.steps.find((step) => step.status === "fail");
   if (!failed) {
-    return "준비됨: 이 페이지는 선택한 task 맥락을 확장과 로컬 Codex CLI로 보낼 수 있습니다.";
+    return "준비됨: 이 페이지는 선택한 task 맥락을 확장과 로컬 Codex CLI 로그인으로 보낼 수 있습니다.";
   }
 
   if (failed.id === "content-script") {

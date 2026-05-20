@@ -7,15 +7,15 @@
 - translator-status.json is missing or does not list applied screens.
 
 ## 검증 결과
-- Report generatedAt: 2026-05-18T06:22:56.362Z
+- Report generatedAt: 2026-05-20T05:41:27.213Z
 - Translator agent status: unknown
 - Translator generatedAt: unknown
 - Validator agent status: failed
-- Validator generatedAt: 2026-05-18T06:22:50.038Z
-- typecheck: passed (exit=0, 12253ms)
-- lint: passed (exit=0, 14310ms)
-- build: passed (exit=0, 28840ms)
-- Failure count: 7
+- Validator generatedAt: 2026-05-20T05:41:27.066Z
+- typecheck: passed (exit=0, 5397ms)
+- lint: passed (exit=0, 19729ms)
+- build: passed (exit=0, 36563ms)
+- Failure count: 10
 
 ## 남은 경고
 - 없음
