@@ -441,7 +441,7 @@ type DailyTaskTableRowProps = {
   registerTaskListRowCellRef: (taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => void;
   focusTaskListEditableCell: (taskId: string, columnKey: TaskListColumnKey) => void;
   updateDraftForm: TaskFormChangeHandler;
-  saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  saveInlineTaskListField: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
   handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
   handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => void;
@@ -474,7 +474,7 @@ type DailyTaskTableBodyProps = {
   registerTaskListRowCellRef: (taskId: string, columnKey: TaskListColumnKey, node: HTMLDivElement | null) => void;
   focusTaskListEditableCell: (taskId: string, columnKey: TaskListColumnKey) => void;
   updateDraftForm: TaskFormChangeHandler;
-  saveInlineTaskListField: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  saveInlineTaskListField: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void;
   handleTaskRowDragStart: (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => void;
   handleTaskRowDragOver: (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => void;
@@ -3760,27 +3760,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   const saveInlineTaskListField = useCallback(
-    async (columnKey: TaskListColumnKey) => {
+    async (columnKey: TaskListColumnKey, valueOverride: Partial<TaskRecord> = {}) => {
       const field = getEditableTaskListField(columnKey);
       const currentDraft = draftRef.current;
       const currentTask = selectedTaskRef.current;
       if (!field || !currentDraft || !currentTask || currentDraft.id !== currentTask.id) return;
       if (inlineSavingFieldsRef.current[columnKey]) return;
 
-      if (Object.is(currentDraft[field], currentTask[field])) {
-        clearDraftDirtyFields([field]);
+      const overrideKeys = Object.keys(valueOverride);
+      const draftForSave =
+        overrideKeys.length > 0 ? withEmptyTaskFileSummary({ ...currentDraft, ...valueOverride }) : currentDraft;
+      const payload =
+        field === "assignee"
+          ? { assignee: draftForSave.assignee, assigneeProfileId: draftForSave.assigneeProfileId }
+          : ({ [field]: draftForSave[field] } as Partial<TaskRecord>);
+      const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
+      const hasVisibleChange = (Object.keys(payload) as Array<keyof TaskRecord>).some(
+        (payloadKey) => !Object.is(payload[payloadKey], currentTask[payloadKey]),
+      );
+
+      if (!hasVisibleChange) {
+        clearDraftDirtyFields(clearedDirtyFields);
         releaseActiveTaskListEditLease();
         setTaskListActiveInlineEditCell(null);
         setPendingTaskListFocusCell(null);
         return;
       }
 
+      if (draftForSave !== currentDraft) {
+        draftRef.current = draftForSave;
+        setDraft((previous) =>
+          previous && previous.id === draftForSave.id
+            ? mergeTaskIntoDraft(draftForSave, previous, draftDirtyFieldsRef.current)
+            : previous,
+        );
+      }
+
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
-      const payload =
-        field === "assignee"
-          ? { assignee: currentDraft.assignee, assigneeProfileId: currentDraft.assigneeProfileId }
-          : ({ [field]: currentDraft[field] } as Partial<TaskRecord>);
-      const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
       addTaskPendingPatchValues(currentTask.id, payload);
       const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
       applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
@@ -6383,7 +6399,7 @@ function TaskListInlineEditor({
   fieldKey: EditableTaskFormKey;
   form: TaskRecord;
   onChange: TaskFormChangeHandler;
-  onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   onCancel?: (columnKey: TaskListColumnKey) => void;
   saving?: boolean;
   assigneeOptions?: readonly AssigneeOption[];
@@ -6405,7 +6421,7 @@ function TaskListInlineEditor({
       <input
         {...sharedProps}
         className="sheet-table__inline-input sheet-table__inline-input--date"
-        onBlur={() => void onCommit(columnKey)}
+        onBlur={(event) => void onCommit(columnKey, { [fieldKey]: event.currentTarget.value } as Partial<TaskRecord>)}
         onChange={(event) => onChange(fieldKey, event.target.value)}
         onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
         type="date"
@@ -6423,7 +6439,7 @@ function TaskListInlineEditor({
           disabled={saving}
           onChange={(event) => {
             onChange("calendarLinked", event.target.checked);
-            void onCommit(columnKey);
+            void onCommit(columnKey, { calendarLinked: event.target.checked });
           }}
           type="checkbox"
         />
@@ -6437,7 +6453,7 @@ function TaskListInlineEditor({
         <textarea
           {...sharedProps}
           className="sheet-table__inline-input sheet-table__inline-textarea"
-          onBlur={() => void onCommit(columnKey)}
+          onBlur={(event) => void onCommit(columnKey, { [fieldKey]: event.currentTarget.value } as Partial<TaskRecord>)}
           onChange={(event) => onChange(fieldKey, event.target.value)}
           onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
           rows={1}
@@ -6452,8 +6468,9 @@ function TaskListInlineEditor({
           className="sheet-table__inline-multiselect"
           fieldKey={fieldKey}
           onChangeValues={(values) => {
-            onChange(fieldKey, serializeTaskCategoryValues(values));
-            void onCommit(columnKey);
+            const nextValue = serializeTaskCategoryValues(values);
+            onChange(fieldKey, nextValue);
+            void onCommit(columnKey, { [fieldKey]: nextValue } as Partial<TaskRecord>);
           }}
           value={form[fieldKey]}
           buttonClassName="sheet-table__inline-input sheet-table__inline-select"
@@ -6469,8 +6486,9 @@ function TaskListInlineEditor({
         className="sheet-table__inline-input sheet-table__inline-select"
         fieldKey={fieldKey as Exclude<TaskCategoricalFieldKey, "relatedDisciplines" | "locationRef">}
         onChange={(event) => {
-          applyTaskCategoricalFieldChange(fieldKey, event.target.value, onChange);
-          void onCommit(columnKey);
+          const nextValue = event.target.value;
+          applyTaskCategoricalFieldChange(fieldKey, nextValue, onChange);
+          void onCommit(columnKey, { [fieldKey]: nextValue } as Partial<TaskRecord>);
         }}
         onKeyDown={(event) => handleTaskListInlineEscapeKeyDown(event, () => onCancel?.(columnKey))}
         value={form[fieldKey]}
@@ -6491,7 +6509,7 @@ function TaskListInlineEditor({
         onChange={(selection) => {
           onChange("assigneeProfileId", selection.profileId);
           onChange("assignee", selection.label);
-          void onCommit(columnKey);
+          void onCommit(columnKey, { assigneeProfileId: selection.profileId, assignee: selection.label });
         }}
         onKeyDown={(event) => handleTaskListInlineEscapeKeyDown(event, () => onCancel?.(columnKey))}
       />
@@ -6502,7 +6520,7 @@ function TaskListInlineEditor({
     <textarea
       {...sharedProps}
       className={clsx("sheet-table__inline-input sheet-table__inline-textarea", fieldKey === "issueTitle" && "sheet-table__inline-input--title")}
-      onBlur={() => void onCommit(columnKey)}
+      onBlur={(event) => void onCommit(columnKey, { [fieldKey]: event.currentTarget.value } as Partial<TaskRecord>)}
       onChange={(event) => onChange(fieldKey, event.target.value)}
       onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
       rows={1}
@@ -6534,7 +6552,7 @@ function TaskListInlineEditorOverlay({
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
   getCellNode: (taskId: string, columnKey: TaskListColumnKey) => HTMLDivElement | null;
   onChange: TaskFormChangeHandler;
-  onCommit: (columnKey: TaskListColumnKey) => Promise<void> | void;
+  onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   onCancel: (columnKey: TaskListColumnKey) => void;
   pendingFocusCell: PendingTaskListFocusCell | null;
   onFocusHandled: () => void;
