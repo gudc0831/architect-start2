@@ -34,6 +34,7 @@ import {
   TaskCategoricalFieldSelect,
   type TaskCategoricalFieldKey,
 } from "@/components/tasks/task-categorical-fields";
+import { shouldUseLegacyTaskCategoricalTextInput } from "@/components/tasks/task-categorical-edit-policy";
 import { BoardTaskOverview } from "@/components/tasks/board-task-overview";
 import { DailyGridBodyV2 } from "@/components/tasks/daily-grid-body-v2";
 import { DailyGridHeaderV2 } from "@/components/tasks/daily-grid-header-v2";
@@ -43,6 +44,12 @@ import { createTaskListRowMetricsStore } from "@/components/tasks/task-grid-metr
 import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-overlay";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
+import {
+  applyPendingTaskPatchValues,
+  clearMatchingPendingTaskPatchValues,
+  mergePendingTaskPatchValues,
+  type TaskPendingPatchValueMap,
+} from "@/components/tasks/task-optimistic-patch-state";
 import { TaskFocusStrip } from "@/components/tasks/task-focus-strip";
 import { TaskAssistantPanel } from "@/components/tasks/task-assistant-panel";
 import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
@@ -797,6 +804,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
   const inlineSavingFieldsRef = useRef<Partial<Record<TaskListColumnKey, boolean>>>({});
+  const taskPatchQueueRef = useRef<Record<string, Promise<TaskRecord | null>>>({});
+  const taskPendingPatchValuesRef = useRef<TaskPendingPatchValueMap>({});
   const detailPanelInteractionRef = useRef<TaskDetailPanelInteractionState>({
     selectedTaskId: null,
     isDetailExpanded: false,
@@ -3152,11 +3161,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       draftDirtyFieldsRef.current = nextDirtyFields;
       setDraftDirtyFields(nextDirtyFields);
       setTasks((previous) => previous.map((task) => (task.id === updatedTask.id ? updatedTask : task)));
+      if (selectedTaskRef.current?.id === updatedTask.id) {
+        selectedTaskRef.current = updatedTask;
+      }
+      if (draftRef.current?.id === updatedTask.id) {
+        draftRef.current = mergeTaskIntoDraft(updatedTask, draftRef.current, nextDirtyFields);
+      }
       setDraft((previous) => {
         if (!previous || previous.id !== updatedTask.id) {
           return previous;
         }
         return mergeTaskIntoDraft(updatedTask, previous, nextDirtyFields);
+      });
+    },
+    [setTasks],
+  );
+  const applyTaskClientUpdate = useCallback(
+    (nextTask: TaskRecord, clearedDirtyFields: readonly DraftDirtyField[] = []) => {
+      const nextDirtyFields = clearDraftDirtyFieldMap(draftDirtyFieldsRef.current, clearedDirtyFields);
+      draftDirtyFieldsRef.current = nextDirtyFields;
+      setDraftDirtyFields(nextDirtyFields);
+      setTasks((previous) =>
+        previous.map((task) => (task.id === nextTask.id ? withEmptyTaskFileSummary({ ...task, ...nextTask }) : task)),
+      );
+      if (selectedTaskRef.current?.id === nextTask.id) {
+        selectedTaskRef.current = withEmptyTaskFileSummary({ ...selectedTaskRef.current, ...nextTask });
+      }
+      if (draftRef.current?.id === nextTask.id) {
+        draftRef.current = mergeTaskIntoDraft(nextTask, draftRef.current, nextDirtyFields);
+      }
+      setDraft((previous) => {
+        if (!previous || previous.id !== nextTask.id) {
+          return previous;
+        }
+        return mergeTaskIntoDraft(nextTask, previous, nextDirtyFields);
       });
     },
     [setTasks],
@@ -3595,6 +3633,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       options: {
         clearedDirtyFields?: readonly DraftDirtyField[];
         fallbackKey?: ErrorCopyKey;
+        applyServerUpdate?: boolean;
       } = {},
     ) => {
       if (isWorkspaceReadOnly) {
@@ -3617,11 +3656,69 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       const json = (await response.json()) as { data: TaskRecord };
-      applyTaskServerUpdate(json.data, options.clearedDirtyFields ?? []);
-      setTaskListSelection(task.id);
+      if (options.applyServerUpdate !== false) {
+        applyTaskServerUpdate(json.data, options.clearedDirtyFields ?? []);
+        setTaskListSelection(task.id);
+      }
       return json.data;
     },
     [applyTaskServerUpdate, isWorkspaceReadOnly, refreshScope, setErrorMessage, setTaskListSelection],
+  );
+  const addTaskPendingPatchValues = useCallback((taskId: string, payload: Partial<TaskRecord>) => {
+    taskPendingPatchValuesRef.current[taskId] = mergePendingTaskPatchValues(
+      taskPendingPatchValuesRef.current[taskId],
+      payload,
+    );
+  }, []);
+  const clearTaskPendingPatchValues = useCallback((taskId: string, payload: Partial<TaskRecord>) => {
+    const next = clearMatchingPendingTaskPatchValues(taskPendingPatchValuesRef.current[taskId], payload);
+    if (!next) {
+      delete taskPendingPatchValuesRef.current[taskId];
+      return null;
+    }
+
+    taskPendingPatchValuesRef.current[taskId] = next;
+    return next;
+  }, []);
+  const applyTaskPendingPatchValues = useCallback((task: TaskRecord) => {
+    return withEmptyTaskFileSummary(applyPendingTaskPatchValues(task, taskPendingPatchValuesRef.current));
+  }, []);
+  const queueTaskPatch = useCallback(
+    (
+      task: Pick<TaskRecord, "id" | "version">,
+      payload: Partial<TaskRecord>,
+      options: {
+        clearedDirtyFields?: readonly DraftDirtyField[];
+        fallbackKey?: ErrorCopyKey;
+      } = {},
+    ) => {
+      const previousPatch = taskPatchQueueRef.current[task.id] ?? Promise.resolve(null);
+      const nextPatch = previousPatch
+        .catch(() => null)
+        .then((previousUpdatedTask) => {
+          const latestTask =
+            previousUpdatedTask ??
+            (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ??
+            task;
+          return patchTask(latestTask, payload, { ...options, applyServerUpdate: false }).then((updatedTask) => {
+            clearTaskPendingPatchValues(task.id, payload);
+            if (updatedTask) {
+              applyTaskServerUpdate(applyTaskPendingPatchValues(updatedTask), options.clearedDirtyFields ?? []);
+              setTaskListSelection(task.id);
+            }
+            return updatedTask;
+          });
+        });
+
+      taskPatchQueueRef.current[task.id] = nextPatch;
+      void nextPatch.finally(() => {
+        if (taskPatchQueueRef.current[task.id] === nextPatch) {
+          delete taskPatchQueueRef.current[task.id];
+        }
+      });
+      return nextPatch;
+    },
+    [applyTaskPendingPatchValues, applyTaskServerUpdate, clearTaskPendingPatchValues, patchTask, setTaskListSelection],
   );
 
   async function saveDetailCalendarLinked(nextValue: boolean) {
@@ -3679,22 +3776,45 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
+      const payload =
+        field === "assignee"
+          ? { assignee: currentDraft.assignee, assigneeProfileId: currentDraft.assigneeProfileId }
+          : ({ [field]: currentDraft[field] } as Partial<TaskRecord>);
+      const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
+      addTaskPendingPatchValues(currentTask.id, payload);
+      const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
+      applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
+      releaseActiveTaskListEditLease();
+      setTaskListActiveInlineEditCell(null);
+      setPendingTaskListFocusCell(null);
 
-      try {
-        const payload =
-          field === "assignee"
-            ? { assignee: currentDraft.assignee, assigneeProfileId: currentDraft.assigneeProfileId }
-            : ({ [field]: currentDraft[field] } as Partial<TaskRecord>);
-        const clearedDirtyFields = field === "assignee" ? (["assignee", "assigneeProfileId"] as const) : [field];
-        await patchTask(currentDraft, payload, { clearedDirtyFields });
-      } finally {
-        releaseActiveTaskListEditLease();
-        setTaskListActiveInlineEditCell(null);
-        setPendingTaskListFocusCell(null);
-        setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
-      }
+      void (async () => {
+        try {
+          const updatedTask = await queueTaskPatch(currentTask, payload, { clearedDirtyFields });
+          if (!updatedTask) {
+            clearTaskPendingPatchValues(currentTask.id, payload);
+            applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
+          }
+        } catch (error) {
+          clearTaskPendingPatchValues(currentTask.id, payload);
+          applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
+          setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+        } finally {
+          setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+        }
+      })();
     },
-    [clearDraftDirtyFields, patchTask, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell],
+    [
+      addTaskPendingPatchValues,
+      applyTaskClientUpdate,
+      applyTaskPendingPatchValues,
+      clearDraftDirtyFields,
+      clearTaskPendingPatchValues,
+      queueTaskPatch,
+      releaseActiveTaskListEditLease,
+      setErrorMessage,
+      setTaskListActiveInlineEditCell,
+    ],
   );
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
     const currentIndex = statusOrder.indexOf(task.status);
@@ -4029,25 +4149,49 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
   }, [isPreviewDaily, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
-  const focusTaskListEditableCell = useCallback(async (taskId: string, columnKey: TaskListColumnKey) => {
+  const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
     const nextCell = { taskId, columnKey };
+    if (isWorkspaceReadOnly) {
+      setErrorMessage(t("errors.workspaceReadOnly"));
+      return;
+    }
+
     const previousLeaseCell = activeTaskListEditLeaseCellRef.current;
     if (previousLeaseCell && !arePendingTaskListFocusCellsEqual(previousLeaseCell, nextCell)) {
       activeTaskListEditLeaseCellRef.current = null;
       void releaseTaskListEditLease(previousLeaseCell);
     }
 
-    const acquired = await acquireTaskListEditLease(nextCell);
-    if (!acquired) {
-      setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
-      setPendingTaskListFocusCell(null);
-      return;
-    }
-
-    activeTaskListEditLeaseCellRef.current = nextCell;
     setTaskListActiveInlineEditCell(nextCell, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(nextCell);
-  }, [acquireTaskListEditLease, releaseTaskListEditLease, setTaskListActiveInlineEditCell]);
+
+    void (async () => {
+      const acquired = await acquireTaskListEditLease(nextCell);
+      const isStillEditingCell = arePendingTaskListFocusCellsEqual(activeTaskListInlineEditCellRef.current, nextCell);
+
+      if (acquired) {
+        if (isStillEditingCell) {
+          activeTaskListEditLeaseCellRef.current = nextCell;
+          return;
+        }
+
+        void releaseTaskListEditLease(nextCell);
+        return;
+      }
+
+      activeTaskListEditLeaseCellRef.current = null;
+      if (isStillEditingCell) {
+        setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
+        setPendingTaskListFocusCell(null);
+      }
+    })();
+  }, [
+    acquireTaskListEditLease,
+    isWorkspaceReadOnly,
+    releaseTaskListEditLease,
+    setErrorMessage,
+    setTaskListActiveInlineEditCell,
+  ]);
 
   const toggleTaskDetails = useCallback((taskId: string) => {
     const currentState = detailPanelInteractionRef.current;
@@ -6247,6 +6391,7 @@ function TaskListInlineEditor({
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
   const fieldLabel = fieldKey === "assigneeProfileId" ? labelForField("assignee") : labelForField(fieldKey);
+  const categoricalFieldContext = { workTypeDefinitions, categoryDefinitionsByField };
   const sharedProps = {
     "aria-label": fieldLabel,
     disabled: saving,
@@ -6287,6 +6432,20 @@ function TaskListInlineEditor({
   }
 
   if (isTaskCategoricalFormFieldKey(fieldKey)) {
+    if (shouldUseLegacyTaskCategoricalTextInput(fieldKey, categoricalFieldContext)) {
+      return (
+        <textarea
+          {...sharedProps}
+          className="sheet-table__inline-input sheet-table__inline-textarea"
+          onBlur={() => void onCommit(columnKey)}
+          onChange={(event) => onChange(fieldKey, event.target.value)}
+          onKeyDown={(event) => handleTaskListInlineTextKeyDown(event, () => onCancel?.(columnKey))}
+          rows={1}
+          value={String(form[fieldKey] ?? "")}
+        />
+      );
+    }
+
     if (fieldKey === "relatedDisciplines" || fieldKey === "locationRef") {
       return (
         <TaskCategoricalFieldMultiSelect
@@ -6457,6 +6616,7 @@ function TaskFormFields({
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
 }) {
   const isComposerStrip = layout === "composer" && composerMode === "strip";
+  const categoricalFieldContext = { workTypeDefinitions, categoryDefinitionsByField };
   const gridClassName =
     layout === "composer"
       ? clsx(
@@ -6529,39 +6689,63 @@ function TaskFormFields({
       </label>
       <label {...getLabelProps("coordinationScope", "form-field--stretch")}>
         <span>{labelForField("coordinationScope")}</span>
-        <TaskCategoricalFieldSelect
-          className="detail-select-field"
-          fieldKey="coordinationScope"
-          onChange={(event) => applyTaskCategoricalFieldChange("coordinationScope", event.target.value, onChange)}
-          value={form.coordinationScope}
-          categoryDefinitionsByField={categoryDefinitionsByField}
-          workTypeDefinitions={workTypeDefinitions}
-        />
+        {shouldUseLegacyTaskCategoricalTextInput("coordinationScope", categoricalFieldContext) ? (
+          <input
+            className="detail-text-field"
+            onChange={(event) => onChange("coordinationScope", event.target.value)}
+            value={form.coordinationScope}
+          />
+        ) : (
+          <TaskCategoricalFieldSelect
+            className="detail-select-field"
+            fieldKey="coordinationScope"
+            onChange={(event) => applyTaskCategoricalFieldChange("coordinationScope", event.target.value, onChange)}
+            value={form.coordinationScope}
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        )}
         {renderResizeHandle("coordinationScope")}
       </label>
       <label {...getLabelProps("requestedBy", "form-field--stretch")}>
         <span>{labelForField("requestedBy")}</span>
-        <TaskCategoricalFieldSelect
-          className="detail-select-field"
-          fieldKey="requestedBy"
-          onChange={(event) => applyTaskCategoricalFieldChange("requestedBy", event.target.value, onChange)}
-          value={form.requestedBy}
-          categoryDefinitionsByField={categoryDefinitionsByField}
-          workTypeDefinitions={workTypeDefinitions}
-        />
+        {shouldUseLegacyTaskCategoricalTextInput("requestedBy", categoricalFieldContext) ? (
+          <input
+            className="detail-text-field"
+            onChange={(event) => onChange("requestedBy", event.target.value)}
+            value={form.requestedBy}
+          />
+        ) : (
+          <TaskCategoricalFieldSelect
+            className="detail-select-field"
+            fieldKey="requestedBy"
+            onChange={(event) => applyTaskCategoricalFieldChange("requestedBy", event.target.value, onChange)}
+            value={form.requestedBy}
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        )}
         {renderResizeHandle("requestedBy")}
       </label>
       <label {...getLabelProps("relatedDisciplines", "form-field--stretch")}>
         <span>{labelForField("relatedDisciplines")}</span>
-        <TaskCategoricalFieldMultiSelect
-          buttonClassName="detail-select-field"
-          className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
-          fieldKey="relatedDisciplines"
-          onChangeValues={(values) => onChange("relatedDisciplines", serializeTaskCategoryValues(values))}
-          value={form.relatedDisciplines}
-          categoryDefinitionsByField={categoryDefinitionsByField}
-          workTypeDefinitions={workTypeDefinitions}
-        />
+        {shouldUseLegacyTaskCategoricalTextInput("relatedDisciplines", categoricalFieldContext) ? (
+          <input
+            className="detail-text-field"
+            onChange={(event) => onChange("relatedDisciplines", event.target.value)}
+            value={form.relatedDisciplines}
+          />
+        ) : (
+          <TaskCategoricalFieldMultiSelect
+            buttonClassName="detail-select-field"
+            className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
+            fieldKey="relatedDisciplines"
+            onChangeValues={(values) => onChange("relatedDisciplines", serializeTaskCategoryValues(values))}
+            value={form.relatedDisciplines}
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        )}
         {renderResizeHandle("relatedDisciplines")}
       </label>
       <label {...getLabelProps("assignee", "form-field--stretch")}>
@@ -6600,15 +6784,23 @@ function TaskFormFields({
       ) : null}
       <label {...getLabelProps("locationRef", "form-field--stretch")}>
         <span>{labelForField("locationRef")}</span>
-        <TaskCategoricalFieldMultiSelect
-          buttonClassName="detail-select-field"
-          className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
-          fieldKey="locationRef"
-          onChangeValues={(values) => onChange("locationRef", serializeTaskCategoryValues(values))}
-          value={form.locationRef}
-          categoryDefinitionsByField={categoryDefinitionsByField}
-          workTypeDefinitions={workTypeDefinitions}
-        />
+        {shouldUseLegacyTaskCategoricalTextInput("locationRef", categoricalFieldContext) ? (
+          <input
+            className="detail-text-field"
+            onChange={(event) => onChange("locationRef", event.target.value)}
+            value={form.locationRef}
+          />
+        ) : (
+          <TaskCategoricalFieldMultiSelect
+            buttonClassName="detail-select-field"
+            className={clsx(layout === "composer" && "task-categorical-multiselect--composer")}
+            fieldKey="locationRef"
+            onChangeValues={(values) => onChange("locationRef", serializeTaskCategoryValues(values))}
+            value={form.locationRef}
+            categoryDefinitionsByField={categoryDefinitionsByField}
+            workTypeDefinitions={workTypeDefinitions}
+          />
+        )}
         {renderResizeHandle("locationRef")}
       </label>
       <label {...getLabelProps("calendarLinked", "detail-checkbox-field form-field--compact")}>

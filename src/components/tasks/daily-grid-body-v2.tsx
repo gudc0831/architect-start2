@@ -80,6 +80,8 @@ type DailyGridBodyV2Props = {
   resolveTaskDeadlineBadge: (task: TaskRecord, currentDayKey: string) => DeadlineBadge | null;
 };
 
+const EMPTY_TASK_FILES: readonly FileRecord[] = [];
+
 function useTaskListRowMetricsSnapshot(store: TaskListRowMetricsStore) {
   const subscribe = useCallback((listener: () => void) => store.subscribe(listener), [store]);
   const getSnapshot = useCallback(() => store.getSnapshot(), [store]);
@@ -364,7 +366,7 @@ export function DailyGridBodyV2({
               scrollMargin={scrollMargin}
               selectTask={selectTask}
               start={virtualRow.start}
-              taskFiles={filesByTaskId[row.task.id] ?? []}
+              taskFiles={filesByTaskId[row.task.id] ?? EMPTY_TASK_FILES}
               workTypeDefinitions={workTypeDefinitions}
             />
           );
