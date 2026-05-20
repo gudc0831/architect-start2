@@ -3161,6 +3161,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [setTasks],
   );
+  const upsertCreatedTask = useCallback(
+    (createdTask: TaskRecord) => {
+      const taskWithFileSummary = withEmptyTaskFileSummary(createdTask);
+      setTasks((previous) => {
+        const existingIndex = previous.findIndex((task) => task.id === taskWithFileSummary.id);
+        if (existingIndex === -1) {
+          return [...previous, taskWithFileSummary];
+        }
+
+        const next = [...previous];
+        next[existingIndex] = taskWithFileSummary;
+        return next;
+      });
+      setTaskListSelection(taskWithFileSummary.id);
+    },
+    [setTaskListSelection, setTasks],
+  );
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -3195,8 +3212,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const json = (await response.json()) as { data: TaskRecord };
-    await refreshScope({ force: true });
-    setTaskListSelection(json.data.id);
+    upsertCreatedTask(json.data);
     if (canCollapseCreateForm) {
       setIsCreateFormOpen(false);
     }
@@ -7988,6 +8004,13 @@ function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tas
         );
 
   return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
+}
+
+function withEmptyTaskFileSummary(task: TaskRecord): TaskRecord {
+  return {
+    ...task,
+    fileSummary: task.fileSummary ?? { count: 0, latestFileName: null },
+  };
 }
 
 function taskPayloadFromDraft(draft: Partial<TaskRecord>) {

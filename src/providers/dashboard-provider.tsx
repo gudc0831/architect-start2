@@ -46,6 +46,7 @@ type DashboardProviderState = {
 };
 type DashboardRefreshOptions = {
   force?: boolean;
+  silent?: boolean;
 };
 
 type DashboardTaskFilesRefreshOptions = {
@@ -214,6 +215,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const currentState =
         stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
+      const shouldShowLoading = !options?.silent || !currentState.loaded;
       if (!force && currentState.loaded) {
         return;
       }
@@ -223,23 +225,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return currentInFlight.promise;
       }
 
-      setProviderState((previous) => {
-        if (previous.ownerKey !== ownerKey) {
-          return previous;
-        }
+      if (shouldShowLoading) {
+        setProviderState((previous) => {
+          if (previous.ownerKey !== ownerKey) {
+            return previous;
+          }
 
-        return {
-          ...previous,
-          stateByScope: {
-            ...previous.stateByScope,
-            [scope]: {
-              ...previous.stateByScope[scope],
-              loading: true,
-              errorMessage: null,
+          return {
+            ...previous,
+            stateByScope: {
+              ...previous.stateByScope,
+              [scope]: {
+                ...previous.stateByScope[scope],
+                loading: true,
+                errorMessage: null,
+              },
             },
-          },
-        };
-      });
+          };
+        });
+      }
       const requestId = requestIdRef.current[scope] + 1;
       requestIdRef.current[scope] = requestId;
 
@@ -343,7 +347,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await fetchDashboardScope(scope, { force: options?.force ?? true });
+      await fetchDashboardScope(scope, { force: options?.force ?? true, silent: options?.silent });
     },
     [fetchDashboardScope, isPreview],
   );
@@ -386,8 +390,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         projectChangeVersionRef.current = { ownerKey, version };
         const currentState = stateRef.current.stateByScope;
         await Promise.all([
-          currentState.active.loaded ? refreshDashboardScope("active", { force: true }) : Promise.resolve(),
-          currentState.trash.loaded ? refreshDashboardScope("trash", { force: true }) : Promise.resolve(),
+          currentState.active.loaded ? refreshDashboardScope("active", { force: true, silent: true }) : Promise.resolve(),
+          currentState.trash.loaded ? refreshDashboardScope("trash", { force: true, silent: true }) : Promise.resolve(),
         ]);
       } catch {
         // Polling is a best-effort invalidation fallback; normal user actions still refresh explicitly.

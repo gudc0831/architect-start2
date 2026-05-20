@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -47,6 +47,8 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   copy,
 }: TaskQuickCreateProps) {
   const [state, dispatch] = useTaskQuickCreateFormState(initialValues);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const updateField = useCallback(
     <K extends TaskQuickCreateFormFieldKey>(key: K, value: TaskQuickCreateFormValues[K]) => {
@@ -56,12 +58,23 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   );
 
   const handleSubmit = useCallback(async () => {
-    const didCreate = await onSubmit(state.values);
-    if (!didCreate) {
+    if (isSubmittingRef.current) {
       return;
     }
 
-    dispatch(resetTaskQuickCreateFormAction());
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const didCreate = await onSubmit(state.values);
+      if (!didCreate) {
+        return;
+      }
+
+      dispatch(resetTaskQuickCreateFormAction());
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   }, [dispatch, onSubmit, state.values]);
 
   return (
@@ -84,7 +97,7 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
             {renderFields(state.values, updateField)}
           </div>
           <div className="detail-actions detail-actions--inline">
-            <button className="primary-button" onClick={() => void handleSubmit()} type="button">
+            <button className="primary-button" disabled={isSubmitting} onClick={() => void handleSubmit()} type="button">
               {copy.createLabel}
             </button>
             {canCollapse ? (
