@@ -3766,7 +3766,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const currentDraft = draftRef.current;
       const currentTask = selectedTaskRef.current;
       if (!field || !currentDraft || !currentTask || currentDraft.id !== currentTask.id) return;
-      if (inlineSavingFieldsRef.current[columnKey]) return;
 
       const overrideKeys = Object.keys(valueOverride);
       const draftForSave =
