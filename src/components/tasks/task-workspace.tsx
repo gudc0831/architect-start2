@@ -1111,6 +1111,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
   const setTaskListActiveInlineEditCell = useCallback(
     (nextCell: PendingTaskListFocusCell | null, options?: { selectedTaskId?: string | null }) => {
+      activeTaskListInlineEditCellRef.current = nextCell;
       const nextSelectedTaskId =
         options && Object.prototype.hasOwnProperty.call(options, "selectedTaskId")
           ? options.selectedTaskId ?? null
@@ -3782,6 +3783,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       if (!hasVisibleChange) {
         clearDraftDirtyFields(clearedDirtyFields);
         releaseActiveTaskListEditLease();
+        activeTaskListInlineEditCellRef.current = null;
         setTaskListActiveInlineEditCell(null);
         setPendingTaskListFocusCell(null);
         return;
@@ -3801,6 +3803,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
       applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
       releaseActiveTaskListEditLease();
+      activeTaskListInlineEditCellRef.current = null;
       setTaskListActiveInlineEditCell(null);
       setPendingTaskListFocusCell(null);
 
@@ -3832,6 +3835,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setTaskListActiveInlineEditCell,
     ],
   );
+  const commitActiveTaskListInlineEdit = useCallback(() => {
+    const activeCell = activeTaskListInlineEditCellRef.current;
+    if (!activeCell) {
+      return false;
+    }
+
+    void saveInlineTaskListField(activeCell.columnKey);
+    return true;
+  }, [saveInlineTaskListField]);
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
     const currentIndex = statusOrder.indexOf(task.status);
     const nextIndex = currentIndex + direction;
@@ -4157,19 +4169,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, []);
 
   const selectTask = useCallback((taskId: string) => {
+    commitActiveTaskListInlineEdit();
     releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     if (isPreviewDaily) {
       pinDetailPanel();
     }
-  }, [isPreviewDaily, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
+  }, [commitActiveTaskListInlineEdit, isPreviewDaily, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const focusTaskListEditableCell = useCallback((taskId: string, columnKey: TaskListColumnKey) => {
     const nextCell = { taskId, columnKey };
     if (isWorkspaceReadOnly) {
       setErrorMessage(t("errors.workspaceReadOnly"));
       return;
+    }
+
+    const activeInlineCell = activeTaskListInlineEditCellRef.current;
+    if (activeInlineCell && !arePendingTaskListFocusCellsEqual(activeInlineCell, nextCell)) {
+      commitActiveTaskListInlineEdit();
     }
 
     const previousLeaseCell = activeTaskListEditLeaseCellRef.current;
@@ -4203,6 +4221,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     })();
   }, [
     acquireTaskListEditLease,
+    commitActiveTaskListInlineEdit,
     isWorkspaceReadOnly,
     releaseTaskListEditLease,
     setErrorMessage,
@@ -4216,19 +4235,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    commitActiveTaskListInlineEdit();
     releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
     setPendingTaskListFocusCell(null);
     pinDetailPanel();
-  }, [closeDetailPanel, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
+  }, [closeDetailPanel, commitActiveTaskListInlineEdit, pinDetailPanel, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
 
   const clearTaskSelection = useCallback(() => {
+    commitActiveTaskListInlineEdit();
     releaseActiveTaskListEditLease();
     setTaskListActiveInlineEditCell(null, { selectedTaskId: null });
     setPendingTaskListFocusCell(null);
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
-  }, [releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
+  }, [commitActiveTaskListInlineEdit, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
   const clearTaskSelectionFromOutsideInteraction = useCallback(async () => {
     if (!selectedTaskId || saving || isClearingSelectionRef.current) {
       return;
@@ -4355,6 +4376,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const taskPortalElement = target.closest<HTMLElement>('[data-task-portal-interaction="true"]');
       if (taskPortalElement) return;
 
+      commitActiveTaskListInlineEdit();
+
       const headerControlElement = target.closest<HTMLElement>(".sheet-table__head-controls");
       if (headerControlElement) return;
 
@@ -4387,7 +4410,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return () => {
       document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
     };
-  }, [clearTaskSelection, clearTaskSelectionFromOutsideInteraction, hasSelectedTaskDraftChanges, isMobileViewport, mode, saving, selectedTaskId]);
+  }, [
+    clearTaskSelection,
+    clearTaskSelectionFromOutsideInteraction,
+    commitActiveTaskListInlineEdit,
+    hasSelectedTaskDraftChanges,
+    isMobileViewport,
+    mode,
+    saving,
+    selectedTaskId,
+  ]);
 
   function handleDetailPanelPointerEnter() {
     if (!canHoverDetails) return;
