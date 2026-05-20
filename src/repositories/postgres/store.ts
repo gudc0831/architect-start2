@@ -287,7 +287,7 @@ function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
     assigneeProfileId: Object.prototype.hasOwnProperty.call(input, "assigneeProfileId")
       ? input.assigneeProfileId ?? null
       : undefined,
-    title: input.issueTitle ?? "",
+    title: input.issueTitle === undefined ? undefined : input.issueTitle,
     reviewedAt: input.reviewedAt ?? undefined,
     locationRef: input.locationRef ?? undefined,
     calendarLinked: input.calendarLinked ?? undefined,
@@ -417,6 +417,7 @@ class PostgresTaskRepository implements TaskRepository {
           depth: input.depth ?? 0,
           siblingOrder,
           ...taskWriteData(input),
+          title: input.issueTitle,
           issueId: buildProjectIssueId(input.projectName, taskNumber),
           createdAt,
           isDaily: input.isDaily,

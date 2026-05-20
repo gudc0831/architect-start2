@@ -478,7 +478,7 @@ function sanitizeTaskUpdate(
     );
   }
   if (typeof input.assignee === "string") next.assignee = normalizeText(input.assignee);
-  if (typeof input.issueTitle === "string") next.issueTitle = normalizeRequiredText(input.issueTitle, "issueTitle");
+  if (typeof input.issueTitle === "string") next.issueTitle = normalizeText(input.issueTitle);
   if (typeof input.reviewedAt === "string") next.reviewedAt = normalizeDate(input.reviewedAt);
   if (typeof input.locationRef === "string") {
     next.locationRef = resolvePatchedTaskCategoryFieldValue(
