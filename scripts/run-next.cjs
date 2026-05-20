@@ -32,7 +32,8 @@ function buildNextEnv(repoRoot, args) {
   };
 
   const command = args[0];
-  if ((command === 'build' || command === 'start') && !env.NEXT_DIST_DIR) {
+  const shouldUseWindowsBuildDir = process.platform === 'win32' && !env.VERCEL;
+  if ((command === 'build' || command === 'start') && !env.NEXT_DIST_DIR && shouldUseWindowsBuildDir) {
     env.NEXT_DIST_DIR = '.next-build';
   }
 
