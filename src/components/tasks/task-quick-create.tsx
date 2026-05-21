@@ -17,6 +17,8 @@ type TaskQuickCreateProps = {
   isOpen: boolean;
   canCollapse: boolean;
   composerMode: "strip" | "wrapped" | "stacked";
+  hideEyebrow?: boolean;
+  hideBody?: boolean;
   onToggleOpen: () => void;
   onClose: () => void;
   onSubmit: (values: TaskQuickCreateFormValues) => Promise<boolean> | boolean;
@@ -40,6 +42,8 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   isOpen,
   canCollapse,
   composerMode,
+  hideEyebrow = false,
+  hideBody = false,
   onToggleOpen,
   onClose,
   onSubmit,
@@ -81,9 +85,9 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
     <section className="composer-card">
       <div className="composer-card__header">
         <div>
-          <p className="workspace__eyebrow">{copy.eyebrow}</p>
+          {hideEyebrow ? null : <p className="workspace__eyebrow">{copy.eyebrow}</p>}
           <h3>{copy.title}</h3>
-          <p className="workspace__meta">{copy.body}</p>
+          {hideBody ? null : <p className="workspace__meta">{copy.body}</p>}
         </div>
         {canCollapse ? (
           <button className="secondary-button composer-card__toggle" onClick={onToggleOpen} type="button">

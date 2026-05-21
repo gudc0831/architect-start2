@@ -24,6 +24,7 @@ export function Sidebar() {
   const { themeId } = useTheme();
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isWarmStudio = themeId === "posthog";
+  const isAppleWorkbench = themeId === "apple-workbench";
   const { clearUser } = useAuthState();
   const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = items.map((item) => ({
@@ -88,7 +89,8 @@ export function Sidebar() {
             </Link>
           ) : null}
         </div>
-        <div className="sidebar__brand-meta">
+        {!isAppleWorkbench ? (
+          <div className="sidebar__brand-meta">
           <p className="sidebar__copy">{isPreview ? t("sidebar.previewCopy") : t("sidebar.workspaceCopy")}</p>
           {isWarmStudio ? (
             <div className="sidebar__status-stack">
@@ -102,7 +104,8 @@ export function Sidebar() {
               프로젝트 {availableProjects.length}개, 현재 {selectedProject.name} 보기
             </p>
           ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       {isWarmStudio ? (
@@ -139,13 +142,15 @@ export function Sidebar() {
       )}
 
       <div className={clsx("sidebar__note", isPreview && "sidebar__note--preview")}>
-        {isWarmStudio ? <p className="sidebar__section-label sidebar__section-label--compact">{sessionSectionLabel}</p> : null}
-        {isPreview ? (
-          <p>{t("sidebar.previewNote")}</p>
-        ) : (
-          <p>{authUser ? `${authUser.displayName} (${labelForRole(authUser.role)})` : t("sidebar.checkingSession")}</p>
-        )}
-        {isLocalAuthPlaceholder && !isPreview ? <p>{t("sidebar.localAuthNote")}</p> : null}
+        {!isAppleWorkbench && isWarmStudio ? <p className="sidebar__section-label sidebar__section-label--compact">{sessionSectionLabel}</p> : null}
+        {!isAppleWorkbench ? (
+          isPreview ? (
+            <p>{t("sidebar.previewNote")}</p>
+          ) : (
+            <p>{authUser ? `${authUser.displayName} (${labelForRole(authUser.role)})` : t("sidebar.checkingSession")}</p>
+          )
+        ) : null}
+        {!isAppleWorkbench && isLocalAuthPlaceholder && !isPreview ? <p>{t("sidebar.localAuthNote")}</p> : null}
         {!isPreview ? (
           <>
             <ThemeSelector />

@@ -1,4 +1,4 @@
-export const themeIds = ["classic", "swiss-modern", "productivity", "posthog"] as const;
+export const themeIds = ["classic", "swiss-modern", "productivity", "posthog", "apple-workbench"] as const;
 
 export type ThemeId = (typeof themeIds)[number];
 export type ThemePreference = {
@@ -38,6 +38,12 @@ export const themeDefinitions = {
     dataTheme: "posthog",
     labelKey: "themes.options.posthog.label",
     descriptionKey: "themes.options.posthog.description",
+  },
+  "apple-workbench": {
+    id: "apple-workbench",
+    dataTheme: "apple-workbench",
+    labelKey: "themes.options.apple-workbench.label",
+    descriptionKey: "themes.options.apple-workbench.description",
   },
 } satisfies Record<ThemeId, ThemeDefinition>;
 

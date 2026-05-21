@@ -335,6 +335,10 @@ export const uiCopyCatalog = {
           label: "Warm Studio",
           description: "따뜻한 파치먼트 캔버스와 진한 워크스페이스 크롬을 쓰는 분석형 테마입니다.",
         },
+        "apple-workbench": {
+          label: "apple",
+          description: "흰색과 펄 톤, 정밀한 헤어라인, Apple Blue 강조색을 쓰는 절제된 업무형 테마입니다.",
+        },
       },
     },
     login: {
@@ -664,6 +668,10 @@ export const uiCopyCatalog = {
         posthog: {
           label: "Warm Studio",
           description: "A warm parchment canvas with darker workspace chrome and diagnostic accents.",
+        },
+        "apple-workbench": {
+          label: "apple",
+          description: "A restrained white-and-pearl workspace theme with precise hairlines and Apple Blue accents.",
         },
       },
     },
