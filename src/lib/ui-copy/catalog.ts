@@ -283,6 +283,7 @@ export type UICatalog = {
     cloudEnvMissing: string;
     backendModeInvalid: string;
     databaseUrlMissing: string;
+    databaseUnavailable: string;
     internalServerError: string;
   };
 };
@@ -614,6 +615,7 @@ export const uiCopyCatalog = {
       cloudEnvMissing: "Cloud backend configuration is incomplete.",
       backendModeInvalid: "APP_BACKEND_MODE is invalid.",
       databaseUrlMissing: "데이터베이스 설정이 완전하지 않습니다.",
+      databaseUnavailable: "데이터베이스 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도하세요.",
       internalServerError: "예기치 않은 서버 오류가 발생했습니다.",
     },
   },
@@ -943,6 +945,7 @@ export const uiCopyCatalog = {
       cloudEnvMissing: "Cloud backend configuration is incomplete.",
       backendModeInvalid: "APP_BACKEND_MODE is invalid.",
       databaseUrlMissing: "Database configuration is incomplete.",
+      databaseUnavailable: "Database connection is temporarily unavailable. Try again shortly.",
       internalServerError: "Unexpected server error.",
     },
   },

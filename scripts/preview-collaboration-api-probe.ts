@@ -316,7 +316,7 @@ async function cleanupTask(editor: ProbeUser, taskId: string) {
   record(
     "cleanup removes probe task",
     (trashResponse.status === 200 || trashResponse.status === 404 || errorCode(trashResponse.body) === "TASK_NOT_FOUND") &&
-      deleteResponse.status === 204,
+      (deleteResponse.status === 204 || deleteResponse.status === 200),
     deleteResponse,
     "best-effort cleanup through trash",
   );
@@ -347,7 +347,7 @@ async function cleanupExistingProbeTasks(editor: ProbeUser) {
 
     if (task.issueTitle.startsWith("Step 11 API probe ")) {
       const deleteResponse = await request(editor, "DELETE", `/api/tasks/${encodeURIComponent(task.id)}`);
-      record("cleanup removes trashed probe task", deleteResponse.status === 204, deleteResponse, "best-effort cleanup");
+      record("cleanup removes trashed probe task", deleteResponse.status === 204 || deleteResponse.status === 200, deleteResponse, "best-effort cleanup");
       cleaned += 1;
     }
   }

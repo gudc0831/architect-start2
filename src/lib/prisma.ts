@@ -6,17 +6,21 @@ const globalForPrisma = globalThis as typeof globalThis & {
   prisma?: PrismaClient;
 };
 
+const DEFAULT_DATABASE_POOL_MAX = 3;
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function createPrismaClient() {
   const databaseUrl = process.env.DATABASE_URL?.trim();
 
   if (!databaseUrl) {
-    throw serviceUnavailable("DATABASE_URL이 설정되지 않았습니다.", "DATABASE_URL_MISSING");
+    throw serviceUnavailable("DATABASE_URL is not configured.", "DATABASE_URL_MISSING");
   }
 
-  const configuredPoolMax = Number(process.env.DATABASE_POOL_MAX);
-  const poolMax = Number.isSafeInteger(configuredPoolMax) && configuredPoolMax > 0
-    ? configuredPoolMax
-    : 1;
+  const poolMax = parsePositiveInteger(process.env.DATABASE_POOL_MAX, DEFAULT_DATABASE_POOL_MAX);
   const adapter = new PrismaPg({
     connectionString: databaseUrl,
     max: poolMax,

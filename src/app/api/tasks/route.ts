@@ -9,10 +9,10 @@ import { createTask, listTasks } from "@/use-cases/task-service";
 export async function GET(request: Request) {
   try {
     const user = await requireUser();
-    await requireCurrentProjectAccess(user);
+    const context = await requireCurrentProjectAccess(user);
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
-    const data = await listTasks(scope);
+    const data = await listTasks(scope, context.project);
 
     return NextResponse.json({ data });
   } catch (error) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    await requireCurrentProjectEditor(user);
+    const context = await requireCurrentProjectEditor(user);
     const body = await request.json();
     const task = await createTask(
       {
@@ -47,12 +47,24 @@ export async function POST(request: Request) {
         createdAt: body.createdAt,
         parentTaskId: body.parentTaskId ?? null,
         parentTaskNumber: body.parentTaskNumber ?? undefined,
+        siblingOrder: readOptionalSiblingOrder(body),
       },
       user.id,
+      context.project,
     );
 
     return NextResponse.json({ data: task }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function readOptionalSiblingOrder(body: Record<string, unknown>) {
+  const value = body.siblingOrder ?? body.sibling_order;
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
 }

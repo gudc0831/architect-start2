@@ -51,6 +51,7 @@ type DashboardRefreshOptions = {
 
 type DashboardTaskFilesRefreshOptions = {
   force?: boolean;
+  surfaceErrors?: boolean;
 };
 
 type ProjectChangesPayload = {
@@ -151,6 +152,53 @@ async function readDashboardErrorMessage(response: Response, fallbackKey: ErrorC
   }
 }
 
+function shouldRetryDashboardRead(status: number) {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchDashboardRead(input: RequestInfo | URL, init?: RequestInit) {
+  const maxAttempts = 3;
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      lastResponse = response;
+      if (response.ok || !shouldRetryDashboardRead(response.status) || attempt === maxAttempts) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) {
+        throw error;
+      }
+    }
+
+    await wait(250 * attempt);
+  }
+
+  if (lastResponse) {
+    return lastResponse;
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Dashboard request failed");
+}
+
+async function fetchDashboardSystemMode() {
+  const statusResponse = await fetchDashboardRead("/api/system/status", { cache: "no-store" });
+  if (!statusResponse.ok) {
+    return null;
+  }
+
+  const statusJson = (await statusResponse.json()) as { data: DashboardSystemMode | null };
+  return statusJson.data ?? null;
+}
+
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
@@ -216,6 +264,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       const currentState =
         stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
       const shouldShowLoading = !options?.silent || !currentState.loaded;
+      const shouldSurfaceError = shouldShowLoading;
       if (!force && currentState.loaded) {
         return;
       }
@@ -249,17 +298,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const [taskResponse, statusResponse] = await Promise.all([
-            fetch(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
-            fetch("/api/system/status", { cache: "no-store" }),
-          ]);
+          const taskResponse = await fetchDashboardRead(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, {
+            cache: "no-store",
+          });
 
           if (!taskResponse.ok) {
             throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
           }
 
           const taskJson = (await taskResponse.json()) as { data: TaskRecord[] };
-          const statusJson = statusResponse.ok ? ((await statusResponse.json()) as { data: DashboardSystemMode }) : { data: null };
 
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
             return;
@@ -281,7 +328,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                   loadedTaskFileIds: previous.stateByScope[scope].loadedTaskFileIds,
                   requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds,
                   loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds,
-                  systemMode: statusJson.data ?? null,
+                  systemMode: previous.stateByScope[scope].systemMode,
                   loading: false,
                   loaded: true,
                   errorMessage: null,
@@ -289,6 +336,33 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               },
             };
           });
+
+          void fetchDashboardSystemMode()
+            .then((systemMode) => {
+              if (!systemMode || stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
+                return;
+              }
+
+              setProviderState((previous) => {
+                if (previous.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
+                  return previous;
+                }
+
+                return {
+                  ...previous,
+                  stateByScope: {
+                    ...previous.stateByScope,
+                    [scope]: {
+                      ...previous.stateByScope[scope],
+                      systemMode,
+                    },
+                  },
+                };
+              });
+            })
+            .catch(() => {
+              // System status is informational; task rendering should not wait for it.
+            });
         } catch (error) {
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
             return;
@@ -307,7 +381,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                   ...previous.stateByScope[scope],
                   loading: false,
                   loaded: previous.stateByScope[scope].loaded,
-                  errorMessage: error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }),
+                  errorMessage: shouldSurfaceError
+                    ? error instanceof Error
+                      ? error.message
+                      : localizeError({ fallbackKey: "loadDashboardFailed" })
+                    : previous.stateByScope[scope].errorMessage,
                 },
               },
             };
@@ -412,6 +490,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const fetchDashboardTaskFiles = useCallback(
     async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
       const force = options?.force ?? false;
+      const shouldSurfaceError = options?.surfaceErrors ?? force;
       const normalizedTaskId = taskId.trim();
 
       if (isPreview || !normalizedTaskId) {
@@ -460,7 +539,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const response = await fetch(
+          const response = await fetchDashboardRead(
             `/api/files?scope=${scope === "trash" ? "trash" : "active"}&taskId=${encodeURIComponent(normalizedTaskId)}`,
             { cache: "no-store" },
           );
@@ -523,7 +602,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                     ? previous.stateByScope[scope].requestedTaskFileIds
                     : [...previous.stateByScope[scope].requestedTaskFileIds, normalizedTaskId],
                   loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds.filter((id) => id !== normalizedTaskId),
-                  errorMessage: error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }),
+                  errorMessage: shouldSurfaceError
+                    ? error instanceof Error
+                      ? error.message
+                      : localizeError({ fallbackKey: "loadDashboardFailed" })
+                    : previous.stateByScope[scope].errorMessage,
                 },
               },
             };
@@ -564,7 +647,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await fetchDashboardTaskFiles(scope, taskId, { force: options?.force ?? true });
+      await fetchDashboardTaskFiles(scope, taskId, {
+        force: options?.force ?? true,
+        surfaceErrors: options?.surfaceErrors ?? true,
+      });
     },
     [fetchDashboardTaskFiles, isPreview],
   );

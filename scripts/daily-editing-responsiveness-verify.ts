@@ -8,8 +8,10 @@ import {
 } from "@/components/tasks/task-optimistic-patch-state";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import type { TaskRecord } from "@/domains/task/types";
+import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
 import { resolvePublicSiteUrl } from "@/lib/auth/public-site-url";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { localizeError } from "@/lib/ui-copy";
 
 function definition(fieldKey: TaskCategoryFieldKey, code: string, isActive = true): TaskCategoryDefinition {
   return {
@@ -126,7 +128,48 @@ assert.throws(
   /Cross-site requests are not allowed\./,
 );
 
-console.log("daily editing category fallback policy: ok");
-console.log("daily editing optimistic patch policy: ok");
-console.log("daily editing local auth origin policy: ok");
-console.log("daily editing request integrity policy: ok");
+assert.equal(isDatabaseConnectivityError(Object.assign(new Error("connect EACCES"), { code: "EACCES" })), true);
+assert.equal(
+  isDatabaseConnectivityError(Object.assign(new Error("Timed out fetching a new connection"), { code: "P2024" })),
+  true,
+);
+assert.equal(isDatabaseConnectivityError(new Error("validation failed")), false);
+assert.equal(
+  localizeError({ code: "DATABASE_UNAVAILABLE", fallbackKey: "loadTasksFailed" }),
+  "데이터베이스 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도하세요.",
+);
+
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+async function assertDatabaseUnavailableRouteError() {
+  const routeErrorConsoleErrors: unknown[][] = [];
+  try {
+    console.error = (...args: unknown[]) => {
+      routeErrorConsoleErrors.push(args);
+    };
+    console.warn = () => undefined;
+    const databaseErrorResponse = handleRouteError(
+      Object.assign(new Error("Timed out fetching a new connection"), { code: "P2024" }),
+    );
+    assert.equal(databaseErrorResponse.status, 503);
+    const databaseErrorBody = await databaseErrorResponse.json();
+    assert.equal(databaseErrorBody.error?.code, "DATABASE_UNAVAILABLE");
+    assert.deepEqual(routeErrorConsoleErrors, []);
+  } finally {
+    console.error = originalConsoleError;
+    console.warn = originalConsoleWarn;
+  }
+}
+
+assertDatabaseUnavailableRouteError()
+  .then(() => {
+    console.log("daily editing category fallback policy: ok");
+    console.log("daily editing optimistic patch policy: ok");
+    console.log("daily editing local auth origin policy: ok");
+    console.log("daily editing request integrity policy: ok");
+    console.log("daily editing database unavailable policy: ok");
+  })
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

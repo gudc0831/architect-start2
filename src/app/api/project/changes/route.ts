@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handleRouteError } from "@/lib/api/route-error";
+import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
 import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
 import { requireUser } from "@/lib/auth/require-user";
 import { prisma } from "@/lib/prisma";
@@ -84,6 +84,16 @@ export async function GET() {
     response.headers.set("Cache-Control", "no-store");
     return applyProjectSessionProjectId(response, projectId);
   } catch (error) {
+    if (isDatabaseConnectivityError(error)) {
+      const response = NextResponse.json({
+        data: null,
+        skipped: true,
+        reason: "database_unavailable",
+      });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
+
     return handleRouteError(error);
   }
 }

@@ -16,7 +16,7 @@ export async function permanentlyDeleteTrashSelection(input: TrashSelectionInput
   const fileIds = uniqueIds(input.fileIds);
 
   if (taskIds.length === 0 && fileIds.length === 0) {
-    return { deletedTaskCount: 0, deletedFileCount: 0 };
+    return { deletedTaskCount: 0, deletedFileCount: 0, deletedTaskIds: [], deletedFileIds: [], updatedTasks: [] };
   }
 
   const allTasks = await listAllTasks();
@@ -24,11 +24,12 @@ export async function permanentlyDeleteTrashSelection(input: TrashSelectionInput
   const selectedTasks = taskIds.map((taskId) => resolveDeletedTask(taskId, taskById));
   const selectedTaskIds = new Set(selectedTasks.map((task) => task.id));
 
-  await rehomeRemainingDescendants(allTasks, selectedTaskIds, userId ?? null);
+  const updatedTasks = await rehomeRemainingDescendants(allTasks, selectedTaskIds, userId ?? null);
 
   const attachedFiles = await listFilesForTasks(selectedTasks);
   const attachedFileIds = new Set(attachedFiles.map((file) => file.id));
   const explicitFiles = await resolveDeletedFiles(fileIds.filter((fileId) => !attachedFileIds.has(fileId)));
+  const deletedFileIds = [...attachedFileIds, ...explicitFiles.map((file) => file.id)];
 
   for (const file of attachedFiles) {
     await deleteStoredFileRecord(file, false);
@@ -45,6 +46,9 @@ export async function permanentlyDeleteTrashSelection(input: TrashSelectionInput
   return {
     deletedTaskCount: selectedTasks.length,
     deletedFileCount: attachedFiles.length + explicitFiles.length,
+    deletedTaskIds: selectedTasks.map((task) => task.id),
+    deletedFileIds,
+    updatedTasks,
   };
 }
 
@@ -140,7 +144,7 @@ async function deleteStoredFileRecord(file: FileRecord, requireTrash: boolean) {
 
 async function rehomeRemainingDescendants(allTasks: TaskRecord[], selectedTaskIds: Set<string>, userId: string | null) {
   if (selectedTaskIds.size === 0) {
-    return;
+    return [];
   }
 
   const taskById = new Map(allTasks.map((task) => [task.id, task]));
@@ -149,7 +153,7 @@ async function rehomeRemainingDescendants(allTasks: TaskRecord[], selectedTaskId
   const affectedTasks = remainingTasks.filter((task) => hasSelectedAncestor(task, taskById, selectedTaskIds));
 
   if (affectedTasks.length === 0) {
-    return;
+    return [];
   }
 
   const affectedIds = new Set(affectedTasks.map((task) => task.id));
@@ -162,6 +166,7 @@ async function rehomeRemainingDescendants(allTasks: TaskRecord[], selectedTaskId
   const childrenByParent = groupAffectedChildren(affectedTasks, nextParentById);
   const resolvedHierarchy = new Map<string, TaskHierarchyState>();
   const visited = new Set<string>();
+  const updatedTasks: TaskRecord[] = [];
 
   const roots = affectedTasks
     .filter((task) => {
@@ -203,6 +208,7 @@ async function rehomeRemainingDescendants(allTasks: TaskRecord[], selectedTaskId
         ...update,
         updatedBy: userId,
       });
+      updatedTasks.push(updatedTask);
 
       resolvedHierarchy.set(task.id, {
         id: updatedTask.id,
@@ -224,6 +230,8 @@ async function rehomeRemainingDescendants(allTasks: TaskRecord[], selectedTaskId
       await visitAffectedTask(child);
     }
   }
+
+  return updatedTasks;
 }
 
 function hasSelectedAncestor(task: TaskRecord, taskById: Map<string, TaskRecord>, selectedTaskIds: Set<string>) {

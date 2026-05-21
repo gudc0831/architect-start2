@@ -56,7 +56,7 @@ import { TaskPreviewCard } from "@/components/tasks/task-preview-card";
 import { TaskQuickCreate } from "@/components/tasks/task-quick-create";
 import type { TaskQuickCreateFormValues } from "@/components/tasks/task-quick-create-state";
 import { useAuthUser } from "@/providers/auth-provider";
-import { useDashboardData, useDashboardScope } from "@/providers/dashboard-provider";
+import { useDashboardData, useDashboardScope, type DashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
 import type { ProjectMembershipRole } from "@/domains/admin/types";
@@ -514,6 +514,14 @@ type TrashFileItem = {
 
 type TrashItem = TrashTaskItem | TrashFileItem;
 type BoardCollapsedStatusMap = Partial<Record<TaskStatus, true>>;
+type TaskSubtreeMutationPayload = {
+  task?: TaskRecord;
+  affectedTasks?: TaskRecord[];
+};
+type PermanentTaskDeletePayload = {
+  deletedTaskIds?: string[];
+  updatedTasks?: TaskRecord[];
+};
 
 type AssistantAuditChildTask = {
   id: string;
@@ -830,7 +838,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const isTrashMode = mode === "trash";
   const scope = isTrashMode ? "trash" : "active";
-  const { refreshDashboardScope, refreshDashboardTaskFiles } = useDashboardData();
+  const {
+    stateByScope: dashboardStateByScope,
+    refreshDashboardTaskFiles,
+    setDashboardTasks,
+  } = useDashboardData();
+  const dashboardStateByScopeRef = useRef(dashboardStateByScope);
   const {
     tasks,
     setTasks,
@@ -2160,13 +2173,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     handleTaskListRowResizeMove,
   ]);
 
-  const refreshAllDashboardData = useCallback(async () => {
-    await Promise.all([
-      refreshDashboardScope("active", { force: true }),
-      refreshDashboardScope("trash", { force: true }),
-    ]);
-  }, [refreshDashboardScope]);
-
   const refreshTaskFileCaches = useCallback(
     async (taskId: string) => {
       const normalizedTaskId = taskId.trim();
@@ -2433,6 +2439,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     inlineSavingFieldsRef.current = inlineSavingFields;
   }, [inlineSavingFields]);
+  useEffect(() => {
+    dashboardStateByScopeRef.current = dashboardStateByScope;
+  }, [dashboardStateByScope]);
   useEffect(() => {
     detailPanelInteractionRef.current = {
       selectedTaskId,
@@ -3214,22 +3223,52 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [setTasks],
   );
-  const upsertCreatedTask = useCallback(
-    (createdTask: TaskRecord) => {
-      const taskWithFileSummary = withEmptyTaskFileSummary(createdTask);
-      setTasks((previous) => {
-        const existingIndex = previous.findIndex((task) => task.id === taskWithFileSummary.id);
-        if (existingIndex === -1) {
-          return [...previous, taskWithFileSummary];
-        }
+  const setDashboardScopeTasks = useCallback(
+    (targetScope: DashboardScope, updater: (previous: TaskRecord[]) => TaskRecord[]) => {
+      setDashboardTasks(targetScope, (previous) => updater(previous));
+    },
+    [setDashboardTasks],
+  );
+  const removeTaskIdsFromDashboardScope = useCallback(
+    (targetScope: DashboardScope, taskIds: Iterable<string>) => {
+      const taskIdSet = new Set(taskIds);
+      if (taskIdSet.size === 0) {
+        return;
+      }
 
-        const next = [...previous];
-        next[existingIndex] = taskWithFileSummary;
+      setDashboardScopeTasks(targetScope, (previous) => previous.filter((task) => !taskIdSet.has(task.id)));
+    },
+    [setDashboardScopeTasks],
+  );
+  const upsertTasksIntoDashboardScope = useCallback(
+    (targetScope: DashboardScope, nextTasks: readonly TaskRecord[]) => {
+      if (nextTasks.length === 0) {
+        return;
+      }
+
+      setDashboardScopeTasks(targetScope, (previous) => {
+        const nextById = new Map(nextTasks.map((task) => [task.id, withEmptyTaskFileSummary(task)]));
+        const next = previous.map((task) => nextById.get(task.id) ?? task);
+        const existingIds = new Set(previous.map((task) => task.id));
+        for (const task of nextTasks) {
+          if (!existingIds.has(task.id)) {
+            next.push(withEmptyTaskFileSummary(task));
+          }
+        }
         return next;
       });
-      setTaskListSelection(taskWithFileSummary.id);
     },
-    [setTaskListSelection, setTasks],
+    [setDashboardScopeTasks],
+  );
+  const upsertTasksIntoLoadedDashboardScope = useCallback(
+    (targetScope: DashboardScope, nextTasks: readonly TaskRecord[]) => {
+      if (!dashboardStateByScopeRef.current[targetScope].loaded) {
+        return;
+      }
+
+      upsertTasksIntoDashboardScope(targetScope, nextTasks);
+    },
+    [upsertTasksIntoDashboardScope],
   );
 
   function resetSelectedTaskDraft() {
@@ -3251,21 +3290,60 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       ...nextForm,
       workType: getWorkTypeSelectValue(nextForm.workType, workTypeDefinitions) || defaultCreateWorkType,
     };
-    const { ownerDiscipline: _ignoredOwnerDiscipline, ...requestPayload } = payload;
-
-    const response = await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestPayload),
+    const tempTask = buildOptimisticTask({
+      form: payload,
+      projectId: currentProjectId,
+      previousTasks: dashboardStateByScopeRef.current.active.tasks,
     });
+    const { ownerDiscipline: _ignoredOwnerDiscipline, ...baseRequestPayload } = payload;
+    const requestPayload = {
+      ...baseRequestPayload,
+      siblingOrder: tempTask.siblingOrder,
+    };
 
-    if (!response.ok) {
-      setErrorMessage(await readErrorMessage(response, "createTaskFailed"));
-      return false;
-    }
+    setTasks((previous) => [...previous, tempTask]);
+    setTaskListSelection(tempTask.id);
 
-    const json = (await response.json()) as { data: TaskRecord };
-    upsertCreatedTask(json.data);
+    void (async () => {
+      try {
+        const response = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
+        });
+
+        if (!response.ok) {
+          removeTaskIdsFromDashboardScope("active", [tempTask.id]);
+          setErrorMessage(await readErrorMessage(response, "createTaskFailed"));
+          return;
+        }
+
+        const json = (await response.json()) as { data: TaskRecord };
+        setTasks((previous) => {
+          const taskWithFileSummary = withEmptyTaskFileSummary(json.data);
+          const tempIndex = previous.findIndex((task) => task.id === tempTask.id);
+          if (tempIndex >= 0) {
+            const next = [...previous];
+            next[tempIndex] = taskWithFileSummary;
+            return next;
+          }
+
+          const existingIndex = previous.findIndex((task) => task.id === taskWithFileSummary.id);
+          if (existingIndex >= 0) {
+            const next = [...previous];
+            next[existingIndex] = taskWithFileSummary;
+            return next;
+          }
+
+          return [taskWithFileSummary, ...previous];
+        });
+        setTaskListSelection(json.data.id);
+      } catch (error) {
+        removeTaskIdsFromDashboardScope("active", [tempTask.id]);
+        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "createTaskFailed" }));
+      }
+    })();
+
     if (canCollapseCreateForm) {
       setIsCreateFormOpen(false);
     }
@@ -3965,13 +4043,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const previousActiveTasks = dashboardStateByScopeRef.current.active.tasks;
+    const subtree = collectTaskSubtree(previousActiveTasks, taskId);
+    const optimisticRemovedIds = new Set((subtree.length > 0 ? subtree : previousActiveTasks.filter((task) => task.id === taskId)).map((task) => task.id));
+    const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
+    const nextSelectedTaskId =
+      previousSelectedTaskId && optimisticRemovedIds.has(previousSelectedTaskId)
+        ? previousActiveTasks.find((task) => !optimisticRemovedIds.has(task.id))?.id ?? null
+        : previousSelectedTaskId;
+
+    setErrorMessage(null);
+    removeTaskIdsFromDashboardScope("active", optimisticRemovedIds);
+    setTaskListSelection(nextSelectedTaskId);
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
     if (!response.ok) {
+      setDashboardScopeTasks("active", () => previousActiveTasks);
+      setTaskListSelection(previousSelectedTaskId);
       setErrorMessage(await readErrorMessage(response, "moveTaskToTrashFailed"));
       return;
     }
-    await refreshAllDashboardData();
-    await refreshTaskFileCaches(taskId);
+
+    const json = (await response.json()) as { data?: TaskSubtreeMutationPayload | TaskRecord };
+    const affectedTasks = readTaskSubtreeMutationTasks(json.data);
+    const affectedTaskIds = new Set((affectedTasks.length > 0 ? affectedTasks : subtree).map((task) => task.id));
+    removeTaskIdsFromDashboardScope("active", affectedTaskIds);
+    upsertTasksIntoLoadedDashboardScope("trash", affectedTasks);
   }
 
   async function restoreTask(taskId: string) {
@@ -3980,13 +4077,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
+    const subtree = collectTaskSubtree(previousTrashTasks, taskId);
+    const optimisticRemovedIds = new Set((subtree.length > 0 ? subtree : previousTrashTasks.filter((task) => task.id === taskId)).map((task) => task.id));
+    const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
+    const nextSelectedTaskId =
+      previousSelectedTaskId && optimisticRemovedIds.has(previousSelectedTaskId)
+        ? previousTrashTasks.find((task) => !optimisticRemovedIds.has(task.id))?.id ?? null
+        : previousSelectedTaskId;
+
+    setErrorMessage(null);
+    removeTaskIdsFromDashboardScope("trash", optimisticRemovedIds);
+    setTaskListSelection(nextSelectedTaskId);
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/restore`, { method: "POST" });
     if (!response.ok) {
+      setDashboardScopeTasks("trash", () => previousTrashTasks);
+      setTaskListSelection(previousSelectedTaskId);
       setErrorMessage(await readErrorMessage(response, "restoreTaskFailed"));
       return;
     }
-    await refreshAllDashboardData();
-    await refreshTaskFileCaches(taskId);
+
+    const json = (await response.json()) as { data?: TaskSubtreeMutationPayload | TaskRecord };
+    const affectedTasks = readTaskSubtreeMutationTasks(json.data);
+    const affectedTaskIds = new Set((affectedTasks.length > 0 ? affectedTasks : subtree).map((task) => task.id));
+    removeTaskIdsFromDashboardScope("trash", affectedTaskIds);
+    upsertTasksIntoLoadedDashboardScope("active", affectedTasks);
   }
 
   async function uploadFileForTask(taskId: string, file: File) {
@@ -4112,14 +4228,27 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
+    const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
+    const nextSelectedTaskId =
+      previousSelectedTaskId === task.id ? previousTrashTasks.find((candidate) => candidate.id !== task.id)?.id ?? null : previousSelectedTaskId;
+
+    setErrorMessage(null);
+    removeTaskIdsFromDashboardScope("trash", [task.id]);
+    setTaskListSelection(nextSelectedTaskId);
+
     const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
     if (!response.ok) {
+      setDashboardScopeTasks("trash", () => previousTrashTasks);
+      setTaskListSelection(previousSelectedTaskId);
       setErrorMessage(await readErrorMessage(response, "deleteTaskFailed"));
       return;
     }
 
-    await refreshScope({ force: true });
-    await refreshTaskFileCaches(task.id);
+    const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
+    const deletedTaskIds = new Set(json?.data?.deletedTaskIds?.length ? json.data.deletedTaskIds : [task.id]);
+    removeTaskIdsFromDashboardScope("trash", deletedTaskIds);
+    upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
   }
 
   async function deleteFilePermanently(file: FileRecord) {
@@ -4269,6 +4398,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const nextCell = { taskId, columnKey };
     if (isWorkspaceReadOnly) {
       setErrorMessage(t("errors.workspaceReadOnly"));
+      return;
+    }
+    if (isOptimisticTaskId(taskId)) {
+      setTaskListActiveInlineEditCell(null, { selectedTaskId: taskId });
+      setPendingTaskListFocusCell(null);
       return;
     }
 
@@ -8333,6 +8467,117 @@ function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tas
         );
 
   return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
+}
+
+function collectTaskSubtree(tasks: readonly TaskRecord[], rootTaskId: string) {
+  const root = tasks.find((task) => task.id === rootTaskId);
+  if (!root) {
+    return [];
+  }
+
+  const byParent = new Map<string, TaskRecord[]>();
+  for (const task of tasks) {
+    const parentTaskId = task.parentTaskId ?? null;
+    if (!parentTaskId) {
+      continue;
+    }
+
+    const children = byParent.get(parentTaskId) ?? [];
+    children.push(task);
+    byParent.set(parentTaskId, children);
+  }
+
+  const subtree: TaskRecord[] = [];
+  const visit = (task: TaskRecord) => {
+    subtree.push(task);
+    for (const child of byParent.get(task.id) ?? []) {
+      visit(child);
+    }
+  };
+
+  visit(root);
+  return subtree;
+}
+
+function readTaskSubtreeMutationTasks(payload: TaskSubtreeMutationPayload | TaskRecord | undefined) {
+  if (!payload) {
+    return [];
+  }
+
+  if ("affectedTasks" in payload && Array.isArray(payload.affectedTasks)) {
+    return payload.affectedTasks;
+  }
+
+  if ("task" in payload && payload.task) {
+    return [payload.task];
+  }
+
+  if ("id" in payload) {
+    return [payload];
+  }
+
+  return [];
+}
+
+function isOptimisticTaskId(taskId: string) {
+  return taskId.startsWith("optimistic-task:");
+}
+
+function buildOptimisticTask(input: {
+  form: TaskQuickCreateFormValues;
+  projectId: string | null;
+  previousTasks: readonly TaskRecord[];
+}): TaskRecord {
+  const id = `optimistic-task:${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+  const siblingOrder = resolveOptimisticCreateSiblingOrder(input.previousTasks);
+
+  return {
+    id,
+    projectId: input.projectId ?? "",
+    taskNumber: 0,
+    actionId: 0,
+    issueId: "",
+    parentTaskId: null,
+    rootTaskId: id,
+    depth: 0,
+    siblingOrder,
+    dueDate: input.form.dueDate,
+    workType: input.form.workType,
+    coordinationScope: input.form.coordinationScope,
+    ownerDiscipline: input.form.ownerDiscipline,
+    requestedBy: input.form.requestedBy,
+    relatedDisciplines: input.form.relatedDisciplines,
+    assignee: input.form.assignee,
+    assigneeProfileId: input.form.assigneeProfileId,
+    issueTitle: input.form.issueTitle,
+    reviewedAt: input.form.reviewedAt,
+    createdAt: now.slice(0, 10),
+    createdBy: null,
+    isDaily: input.form.isDaily,
+    locationRef: input.form.locationRef,
+    calendarLinked: input.form.calendarLinked,
+    issueDetailNote: input.form.issueDetailNote,
+    status: input.form.status,
+    statusHistory: "",
+    decision: input.form.decision,
+    completedAt: null,
+    version: 1,
+    updatedAt: now,
+    updatedBy: null,
+    deletedAt: null,
+    purgedAt: null,
+    fileSummary: { count: 0, latestFileName: null },
+  };
+}
+
+function resolveOptimisticCreateSiblingOrder(previousTasks: readonly TaskRecord[]) {
+  const rootSiblingOrders = previousTasks
+    .filter((task) => !task.parentTaskId)
+    .map((task) => task.siblingOrder)
+    .filter((value) => Number.isFinite(value));
+
+  return rootSiblingOrders.length === 0 ? 0 : Math.min(...rootSiblingOrders) - 1;
 }
 
 function withEmptyTaskFileSummary(task: TaskRecord): TaskRecord {

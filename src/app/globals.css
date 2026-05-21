@@ -2756,6 +2756,12 @@ a {
   color: var(--accent);
 }
 
+.task-tree__badge--saving {
+  border-color: rgba(41, 92, 67, 0.24);
+  background: rgba(41, 92, 67, 0.08);
+  color: var(--muted);
+}
+
 .task-state-row td:first-child .sheet-table__cell-shell,
 .task-state-row .daily-grid-v2__cell:first-child .sheet-table__cell-shell {
   padding-left: 0.95rem;
@@ -2812,6 +2818,10 @@ a {
 
 .task-state-row--dimmed {
   opacity: 0.52;
+}
+
+.task-state-row--provisional {
+  background: rgba(41, 92, 67, 0.04);
 }
 
 .task-state-row--drop-before td,

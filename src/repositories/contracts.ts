@@ -128,6 +128,7 @@ export interface FileRepository {
   listTrashFiles(taskId?: string): Promise<FileRecord[]>;
   listFilesByTask(taskId: string): Promise<FileRecord[]>;
   listFilesByProject(projectId: string): Promise<FileRecord[]>;
+  listFileSummaryByProject?(projectId: string, scope?: "active" | "trash"): Promise<TaskFileSummaryMap>;
   searchFileAnalyses(input: SearchFileAnalysesInput): Promise<FileAnalysisSearchResult[]>;
   findFileById(fileId: string): Promise<FileRecord | null>;
   attachFile(input: CreateFileInput): Promise<FileRecord>;

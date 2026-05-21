@@ -24,6 +24,7 @@ import type {
   PreferenceRepository,
   ProjectRepository,
   SearchFileAnalysesInput,
+  TaskFileSummaryMap,
   TaskOrderUpdateInput,
   TaskRepository,
   UpdateProjectInput,
@@ -196,6 +197,11 @@ type PostgresFileAnalysisSearchRow = {
   analysisId?: string | null;
   chunkText?: string | null;
   vectorDistance?: number | null;
+};
+type PostgresTaskFileSummaryRow = {
+  taskId: string;
+  count: number | bigint;
+  latestFileName: string | null;
 };
 
 function normalizeQueryEmbeddingLiteral(value: unknown) {
@@ -647,6 +653,51 @@ class PostgresFileRepository implements FileRepository {
     }
 
     return [...latestByGroup.values()].map((file) => toFileRecord(file));
+  }
+
+  async listFileSummaryByProject(projectId: string, scope: "active" | "trash" = "active"): Promise<TaskFileSummaryMap> {
+    const rows =
+      scope === "trash"
+        ? await prisma.$queryRaw<PostgresTaskFileSummaryRow[]>(Prisma.sql`
+            select
+              f.task_id as "taskId",
+              count(*)::int as "count",
+              (array_agg(f.original_name order by f.created_at desc))[1] as "latestFileName"
+            from files f
+            where f.project_id = ${projectId}::uuid
+              and f.deleted_at is not null
+              and f.purged_at is null
+            group by f.task_id
+          `)
+        : await prisma.$queryRaw<PostgresTaskFileSummaryRow[]>(Prisma.sql`
+            with latest_files as (
+              select distinct on (f.file_group_id)
+                f.task_id,
+                f.original_name,
+                f.created_at
+              from files f
+              where f.project_id = ${projectId}::uuid
+                and f.deleted_at is null
+                and f.purged_at is null
+              order by f.file_group_id, f.version desc, f.created_at desc
+            )
+            select
+              task_id as "taskId",
+              count(*)::int as "count",
+              (array_agg(original_name order by created_at desc))[1] as "latestFileName"
+            from latest_files
+            group by task_id
+          `);
+
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.taskId,
+        {
+          count: Number(row.count),
+          latestFileName: row.latestFileName,
+        },
+      ]),
+    );
   }
 
   async searchFileAnalyses(input: SearchFileAnalysesInput) {

@@ -129,9 +129,10 @@ function renderTaskListCellContent(
               presentation.isParentTask && "task-tree__badge--parent",
               presentation.isChildTask && "task-tree__badge--child",
               presentation.isBranchTask && "task-tree__badge--branch",
+              isOptimisticTaskId(task.id) && "task-tree__badge--saving",
             )}
           >
-            {presentation.actionId}
+            {isOptimisticTaskId(task.id) ? "저장 중" : presentation.actionId}
           </span>
           {deadlineBadge && !hideIssueIdOverdueBadge ? (
             <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
@@ -270,6 +271,7 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
         `task-state-row--${task.status}`,
         isOverdueRow && "task-state-row--overdue",
         isDimmedRow && "task-state-row--dimmed",
+        isOptimisticTaskId(task.id) && "task-state-row--provisional",
         taskDropPosition && `task-state-row--drop-${taskDropPosition}`,
       )}
       data-task-grid-interaction="true"
@@ -363,3 +365,7 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
     </div>
   );
 });
+
+function isOptimisticTaskId(taskId: string) {
+  return taskId.startsWith("optimistic-task:");
+}

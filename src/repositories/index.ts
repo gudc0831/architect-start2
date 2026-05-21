@@ -112,6 +112,35 @@ export const fileRepository: FileRepository = {
   listFilesByProject(projectId) {
     return getFileRepository().listFilesByProject(projectId);
   },
+  async listFileSummaryByProject(projectId, scope = "active") {
+    const repository = getFileRepository();
+    if (repository.listFileSummaryByProject) {
+      return repository.listFileSummaryByProject(projectId, scope);
+    }
+
+    const files = scope === "trash" ? await repository.listTrashFiles() : await repository.listFilesByProject(projectId);
+    const summaryByTaskId: Record<string, { count: number; latestFileName: string | null; latestCreatedAt: string | null }> = {};
+    for (const file of files) {
+      if (file.projectId !== projectId || file.purgedAt) {
+        continue;
+      }
+
+      const current = summaryByTaskId[file.taskId] ?? { count: 0, latestFileName: null, latestCreatedAt: null };
+      const isLatest = !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt;
+      summaryByTaskId[file.taskId] = {
+        count: current.count + 1,
+        latestFileName: isLatest ? file.originalName : current.latestFileName,
+        latestCreatedAt: isLatest ? file.createdAt : current.latestCreatedAt,
+      };
+    }
+
+    return Object.fromEntries(
+      Object.entries(summaryByTaskId).map(([taskId, summary]) => [
+        taskId,
+        { count: summary.count, latestFileName: summary.latestFileName },
+      ]),
+    );
+  },
   searchFileAnalyses(input) {
     return getFileRepository().searchFileAnalyses(input);
   },

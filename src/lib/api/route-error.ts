@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 import { AppError } from "@/lib/api/errors";
 
+const databaseConnectivityErrorCodes = new Set([
+  "EACCES",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "P1001",
+  "P1002",
+  "P1017",
+  "P2024",
+  "08000",
+  "08003",
+  "08006",
+  "57P01",
+  "57P02",
+  "57P03",
+]);
+
 function getErrorDetails(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -14,6 +33,26 @@ function getErrorDetails(error: unknown) {
   }
 
   return { value: error };
+}
+
+export function isDatabaseConnectivityError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  if (databaseConnectivityErrorCodes.has(code)) {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  return (
+    /Can't reach database server/i.test(message) ||
+    /Timed out fetching a new connection/i.test(message) ||
+    /Connection terminated/i.test(message) ||
+    /connection timeout/i.test(message) ||
+    /\b(EACCES|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b/i.test(message)
+  );
 }
 
 function shouldExposePreviewErrorDetails() {
@@ -34,7 +73,20 @@ export function handleRouteError(error: unknown) {
   }
 
   const details = getErrorDetails(error);
-  console.error("[route-error] unexpected error", details);
+
+  if (isDatabaseConnectivityError(error)) {
+    console.warn("[route-error] database connectivity error", details);
+    return NextResponse.json(
+      {
+        error: {
+          code: "DATABASE_UNAVAILABLE",
+          message: "Database connection is temporarily unavailable",
+        },
+        ...(shouldExposePreviewErrorDetails() ? { debug: details } : {}),
+      },
+      { status: 503 },
+    );
+  }
 
   return NextResponse.json(
     {

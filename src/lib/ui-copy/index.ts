@@ -63,6 +63,7 @@ const errorCodeMap = {
   CLOUD_ENV_MISSING: "cloudEnvMissing",
   BACKEND_MODE_INVALID: "backendModeInvalid",
   DATABASE_URL_MISSING: "databaseUrlMissing",
+  DATABASE_UNAVAILABLE: "databaseUnavailable",
   INTERNAL_SERVER_ERROR: "internalServerError",
 } satisfies Record<string, ErrorCopyKey>;
 

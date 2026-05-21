@@ -37,9 +37,13 @@ type EffectiveTaskCategories = {
   relatedDisciplines: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
   locationRef: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
 };
+type TaskProjectContext = {
+  id: string;
+  name: string;
+};
 
-export async function listTasks(scope: TaskScope) {
-  const project = await getSelectedTaskProject();
+export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectContext) {
+  const project = selectedProject ?? (await getSelectedTaskProject());
   const [tasks, foundationSettings, fileSummaryByTaskId] = await Promise.all([
     scope === "trash"
       ? taskRepository.listTrashTasks(project.id)
@@ -85,8 +89,12 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
   }));
 }
 
-export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
-  const project = await getSelectedTaskProject();
+export async function createTask(
+  input: Omit<CreateTaskInput, "projectId" | "projectName">,
+  userId?: string | null,
+  selectedProject?: TaskProjectContext,
+) {
+  const project = selectedProject ?? (await getSelectedTaskProject());
   const shouldResolveParent = hasParentTaskReference(input);
   const activeTasksPromise = shouldResolveParent ? taskRepository.listActiveTasks(project.id) : Promise.resolve([]);
   const [activeTasks, effectiveCategories, foundationSettings, assignee] = await Promise.all([
@@ -98,6 +106,8 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
   const parentTaskId = shouldResolveParent ? resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber) : null;
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
+  const requestedSiblingOrder =
+    typeof input.siblingOrder === "number" && Number.isFinite(input.siblingOrder) ? input.siblingOrder : undefined;
 
   const task = await taskRepository.createTask({
     projectId: project.id,
@@ -144,7 +154,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     parentTaskId,
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
-    siblingOrder: shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined,
+    siblingOrder: requestedSiblingOrder ?? (shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined),
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   });
@@ -295,17 +305,22 @@ export async function moveTaskToTrash(taskId: string, userId?: string | null) {
   }
 
   let updatedRoot = subtree[0];
+  const updatedTasks: TaskRecord[] = [];
 
   for (const task of subtree) {
     const updatedTask = await taskRepository.moveTaskToTrash(task.id, userId ?? null);
     await fileRepository.moveFilesToTrashByTask(task.id);
+    updatedTasks.push(applyFoundationSettingsToTask(updatedTask, foundationSettings));
 
     if (task.id === taskId) {
       updatedRoot = updatedTask;
     }
   }
 
-  return applyFoundationSettingsToTask(updatedRoot, foundationSettings);
+  return {
+    task: applyFoundationSettingsToTask(updatedRoot, foundationSettings),
+    affectedTasks: updatedTasks,
+  };
 }
 
 export async function restoreTask(taskId: string, userId?: string | null) {
@@ -321,6 +336,7 @@ export async function restoreTask(taskId: string, userId?: string | null) {
   const subtreeIds = new Set(subtree.map((task) => task.id));
   const currentParent = target.parentTaskId ? allTasks.find((task) => task.id === target.parentTaskId) ?? null : null;
   const shouldDetach = Boolean(currentParent?.deletedAt && !subtreeIds.has(currentParent.id));
+  const restoredTasks: TaskRecord[] = [];
 
   let restoredRoot = await taskRepository.restoreTask(target.id, userId ?? null);
   await fileRepository.restoreFilesByTask(target.id);
@@ -333,6 +349,7 @@ export async function restoreTask(taskId: string, userId?: string | null) {
       updatedBy: userId ?? null,
     });
   }
+  restoredTasks.push(applyFoundationSettingsToTask(restoredRoot, foundationSettings));
 
   const byId = new Map(allTasks.map((task) => [task.id, task]));
   byId.set(restoredRoot.id, { ...target, ...restoredRoot, deletedAt: null });
@@ -350,13 +367,17 @@ export async function restoreTask(taskId: string, userId?: string | null) {
     });
 
     byId.set(task.id, { ...task, ...updated, deletedAt: null });
+    restoredTasks.push(applyFoundationSettingsToTask(updated, foundationSettings));
   }
 
-  return applyFoundationSettingsToTask(restoredRoot, foundationSettings);
+  return {
+    task: applyFoundationSettingsToTask(restoredRoot, foundationSettings),
+    affectedTasks: restoredTasks,
+  };
 }
 
 export async function permanentlyDeleteTask(taskId: string, userId?: string | null) {
-  await permanentlyDeleteTrashSelection({ taskIds: [taskId] }, userId);
+  return permanentlyDeleteTrashSelection({ taskIds: [taskId] }, userId);
 }
 
 async function reparentTask(
@@ -773,6 +794,11 @@ const emptyTaskFileSummary: TaskFileSummaryState = {
 };
 
 async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
+  const aggregateSummary = await fileRepository.listFileSummaryByProject?.(projectId, scope);
+  if (aggregateSummary) {
+    return aggregateSummary;
+  }
+
   const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listFilesByProject(projectId);
   const summaryByTaskId: Record<string, TaskFileSummaryState> = {};
 

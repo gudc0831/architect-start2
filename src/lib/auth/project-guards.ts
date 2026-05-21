@@ -72,12 +72,16 @@ export async function requireProjectAccess(projectId: string, user?: AuthUser): 
 
 export async function requireCurrentProjectAccess(user?: AuthUser): Promise<ProjectGuardContext> {
   const resolvedUser = await resolveUser(user);
-  const [selection, sessionProjectId, availableProjects] = await Promise.all([
+  const listedAvailableProjectsPromise =
+    resolvedUser.role === "admin" ? Promise.resolve([]) : listAvailableProjectsForUser(resolvedUser);
+  const [selection, sessionProjectId, listedAvailableProjects] = await Promise.all([
     adminRepository.getProjectSelection(),
     getProjectSessionProjectId(),
-    listAvailableProjectsForUser(resolvedUser),
+    listedAvailableProjectsPromise,
   ]);
-  const uniqueProjects = uniqueById(availableProjects);
+  const uniqueProjects = uniqueById(
+    resolvedUser.role === "admin" ? selection.availableProjects : listedAvailableProjects,
+  );
   const currentProjectId =
     (sessionProjectId && uniqueProjects.some((project) => project.id === sessionProjectId) ? sessionProjectId : null) ??
     (selection.currentProjectId && uniqueProjects.some((project) => project.id === selection.currentProjectId)

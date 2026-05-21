@@ -61,6 +61,7 @@ In this mode, only task/file metadata moves to Firestore. Upload binaries still 
 1. Set `APP_BACKEND_MODE=cloud`.
 2. Fill:
    - `DATABASE_URL`
+   - `DATABASE_POOL_MAX=3` for normal cloud-mode browser validation, or another modest value your DB pool supports
    - `DIRECT_URL` if your platform needs it
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`

@@ -78,9 +78,9 @@ export async function DELETE(
     const user = await requireUser();
     await requireCurrentProjectEditor(user);
     const { taskId } = await context.params;
-    await permanentlyDeleteTask(taskId, user.id);
+    const result = await permanentlyDeleteTask(taskId, user.id);
 
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ data: result });
   } catch (error) {
     return handleRouteError(error);
   }

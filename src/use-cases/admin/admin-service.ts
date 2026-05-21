@@ -90,7 +90,9 @@ async function buildEffectiveTaskCategoriesByField(currentProjectId: string | nu
 export async function listProjectsForSession(user?: AuthUser) {
   const resolvedUser = await resolveSessionUser(user);
   const selection = await adminRepository.getProjectSelection();
-  const availableProjects = uniqueById(await listAvailableProjectsForUser(resolvedUser));
+  const availableProjects = uniqueById(
+    resolvedUser.role === "admin" ? selection.availableProjects : await listAvailableProjectsForUser(resolvedUser),
+  );
   const sessionProjectId = await getProjectSessionProjectId();
   const currentProjectId =
     (sessionProjectId && availableProjects.some((project) => project.id === sessionProjectId)
