@@ -65,6 +65,7 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
       action: "set_sibling_order",
       parentTaskId: normalizeNullableId(body.parentTaskId),
       orderedTaskIds,
+      expectedVersions: readExpectedVersions(body.expectedVersions),
     };
   }
 

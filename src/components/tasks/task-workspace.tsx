@@ -208,12 +208,14 @@ type TaskReorderClientCommand =
       action: "auto_sort";
       strategy: "priority" | "action_id";
     };
+type TaskReorderExpectedVersionMap = Record<string, number>;
 type TaskReorderPersistCommand =
   | TaskReorderClientCommand
   | {
       action: "set_sibling_order";
       parentTaskId: string | null;
       orderedTaskIds: readonly string[];
+      expectedVersions?: TaskReorderExpectedVersionMap;
     };
 type QueuedTaskReorder = {
   command: TaskReorderPersistCommand;
@@ -791,6 +793,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [saving, setSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isReorderingTasks, setIsReorderingTasks] = useState(false);
+  const [taskReorderRetryTick, setTaskReorderRetryTick] = useState(0);
   const [calendarHolidayDateKeys, setCalendarHolidayDateKeys] = useState<string[] | null>(null);
   const [calendarHolidayLoadedMonths, setCalendarHolidayLoadedMonths] = useState<string[] | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
@@ -854,6 +857,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskReorderUnloadPersistAttemptedRef = useRef(false);
   const taskReorderStorageKeyRef = useRef<string | null>(null);
   const taskReorderStorageReplayAttemptSignatureRef = useRef<string | null>(null);
+  const taskReorderRetryTimerRef = useRef<number | null>(null);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -3653,6 +3657,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return true;
   }, [applyTaskClientUpdate, setErrorMessage]);
 
+  const clearTaskReorderStorageRetry = useCallback(() => {
+    if (taskReorderRetryTimerRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(taskReorderRetryTimerRef.current);
+    taskReorderRetryTimerRef.current = null;
+  }, []);
+
+  const scheduleTaskReorderStorageRetry = useCallback(() => {
+    if (typeof window === "undefined" || taskReorderRetryTimerRef.current !== null) {
+      return;
+    }
+
+    taskReorderRetryTimerRef.current = window.setTimeout(() => {
+      taskReorderRetryTimerRef.current = null;
+      taskReorderStorageReplayAttemptSignatureRef.current = null;
+      setTaskReorderRetryTick((value) => value + 1);
+    }, 1500);
+  }, []);
+
+  useEffect(() => () => clearTaskReorderStorageRetry(), [clearTaskReorderStorageRetry]);
+
   const flushTaskReorderQueue = useCallback(() => {
     const queueState = taskReorderQueueRef.current;
     if (queueState.isRunning) {
@@ -3688,6 +3715,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               taskReorderUnloadPersistCommandRef.current = null;
               taskReorderUnloadPersistAttemptedRef.current = false;
               taskReorderStorageReplayAttemptSignatureRef.current = null;
+              clearTaskReorderStorageRetry();
+            } else {
+              scheduleTaskReorderStorageRetry();
             }
             if (response.status === 409) {
               await refreshScope({ force: true });
@@ -3711,8 +3741,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         taskReorderUnloadPersistCommandRef.current = null;
         taskReorderUnloadPersistAttemptedRef.current = false;
         taskReorderStorageReplayAttemptSignatureRef.current = null;
+        clearTaskReorderStorageRetry();
       } catch (error) {
         queueState.entries = [];
+        scheduleTaskReorderStorageRetry();
         setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
       } finally {
         queueState.isRunning = false;
@@ -3723,7 +3755,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         setIsReorderingTasks(false);
       }
     })();
-  }, [refreshScope, setActiveTasksForContinuousReorder, setErrorMessage]);
+  }, [
+    clearTaskReorderStorageRetry,
+    refreshScope,
+    scheduleTaskReorderStorageRetry,
+    setActiveTasksForContinuousReorder,
+    setErrorMessage,
+  ]);
 
   useEffect(() => {
     if (mode !== "daily" || isWorkspaceReadOnly || !taskReorderStorageKey || !dashboardStateByScope.active.loaded) {
@@ -3769,6 +3807,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     mode,
     setActiveTasksForContinuousReorder,
     taskReorderStorageKey,
+    taskReorderRetryTick,
     tasks,
   ]);
 
@@ -3802,7 +3841,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const persistCommand = buildTaskReorderPersistCommand(command, optimisticTasks);
       taskReorderUnloadPersistCommandRef.current = persistCommand;
       taskReorderUnloadPersistAttemptedRef.current = false;
-      writePendingTaskReorderToStorage(taskReorderStorageKeyRef.current, persistCommand);
+      writePendingTaskReorderToStorage(
+        taskReorderStorageKeyRef.current,
+        withTaskReorderExpectedVersions(persistCommand, previousTasks),
+      );
       queueState.entries.push({
         command: persistCommand,
         nextMode,
@@ -3828,7 +3870,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const moveTaskByOffset = useCallback(
     async (taskId: string, offset: -1 | 1) => {
-      if (isDailyManualReorderDisabled) {
+      if (isDailyManualReorderDisabled || isOptimisticTaskId(taskId)) {
         return;
       }
 
@@ -3864,7 +3906,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const handleTaskRowDragStart = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => {
-      if (isDailyHtmlDragReorderDisabled || isMobileViewport) {
+      if (isDailyHtmlDragReorderDisabled || isMobileViewport || isOptimisticTaskId(task.id)) {
         event.preventDefault();
         return;
       }
@@ -3881,7 +3923,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const handleTaskRowDragOver = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
       const currentDragState = taskDragStateRef.current;
-      if (!currentDragState || currentDragState.taskId === task.id) {
+      if (
+        !currentDragState ||
+        currentDragState.taskId === task.id ||
+        isOptimisticTaskId(currentDragState.taskId) ||
+        isOptimisticTaskId(task.id)
+      ) {
         return;
       }
 
@@ -3901,7 +3948,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const handleTaskRowDrop = useCallback(
     async (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
       const currentDragState = taskDragStateRef.current;
-      if (!currentDragState) {
+      if (!currentDragState || isOptimisticTaskId(currentDragState.taskId) || isOptimisticTaskId(task.id)) {
         return;
       }
 
@@ -5638,7 +5685,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
-                                disabled={isDailyManualReorderDisabled}
+                                disabled={isDailyManualReorderDisabled || isOptimisticTaskId(task.id)}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, -1);
@@ -5650,7 +5697,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="아래로 이동"
                                 className="secondary-button"
-                                disabled={isDailyManualReorderDisabled}
+                                disabled={isDailyManualReorderDisabled || isOptimisticTaskId(task.id)}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, 1);
@@ -6410,8 +6457,8 @@ function DailyTaskTableBody({
                   <button
                     aria-label="재정렬"
                     className="task-tree__drag-handle"
-                    disabled={isHtmlDragReorderDisabled}
-                    draggable={!isHtmlDragReorderDisabled}
+                    disabled={isHtmlDragReorderDisabled || isOptimisticTaskId(task.id)}
+                    draggable={!isHtmlDragReorderDisabled && !isOptimisticTaskId(task.id)}
                     onClick={(event) => event.stopPropagation()}
                     onDragEnd={clearTaskDragInteraction}
                     onDragStart={(event) => handleTaskRowDragStart(task, event)}
@@ -6441,7 +6488,7 @@ function DailyTaskTableBody({
                       <button
                         aria-label="위로 이동"
                         className="task-tree__move-button"
-                        disabled={isManualReorderDisabled}
+                        disabled={isManualReorderDisabled || isOptimisticTaskId(task.id)}
                         onClick={(event) => {
                           event.stopPropagation();
                           void moveTaskByOffset(task.id, -1);
@@ -6453,7 +6500,7 @@ function DailyTaskTableBody({
                       <button
                         aria-label="아래로 이동"
                         className="task-tree__move-button"
-                        disabled={isManualReorderDisabled}
+                        disabled={isManualReorderDisabled || isOptimisticTaskId(task.id)}
                         onClick={(event) => {
                           event.stopPropagation();
                           void moveTaskByOffset(task.id, 1);
@@ -6655,8 +6702,8 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             <button
               aria-label="재정렬"
               className="task-tree__drag-handle"
-              disabled={isHtmlDragReorderDisabled}
-              draggable={!isHtmlDragReorderDisabled}
+              disabled={isHtmlDragReorderDisabled || isOptimisticTaskId(task.id)}
+              draggable={!isHtmlDragReorderDisabled && !isOptimisticTaskId(task.id)}
               onClick={(event) => event.stopPropagation()}
               onDragEnd={clearTaskDragInteraction}
               onDragStart={(event) => handleTaskRowDragStart(task, event)}
@@ -6686,7 +6733,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <button
                   aria-label="위로 이동"
                   className="task-tree__move-button"
-                  disabled={isManualReorderDisabled}
+                  disabled={isManualReorderDisabled || isOptimisticTaskId(task.id)}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, -1);
@@ -6698,7 +6745,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <button
                   aria-label="아래로 이동"
                   className="task-tree__move-button"
-                  disabled={isManualReorderDisabled}
+                  disabled={isManualReorderDisabled || isOptimisticTaskId(task.id)}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, 1);
@@ -7792,12 +7839,18 @@ function sanitizeStoredTaskReorderCommand(input: unknown): TaskReorderPersistCom
     const orderedTaskIds = Array.isArray(candidate.orderedTaskIds)
       ? candidate.orderedTaskIds.filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0)
       : [];
+    const expectedVersions = sanitizeStoredTaskReorderExpectedVersions(
+      (candidate as { expectedVersions?: unknown }).expectedVersions,
+    );
     return orderedTaskIds.length === 0
       ? null
+      : expectedVersions === null
+        ? null
       : {
           action: "set_sibling_order",
           parentTaskId,
           orderedTaskIds,
+          expectedVersions,
         };
   }
 
@@ -7825,6 +7878,24 @@ function sanitizeStoredTaskReorderCommand(input: unknown): TaskReorderPersistCom
   }
 
   return null;
+}
+
+function sanitizeStoredTaskReorderExpectedVersions(value: unknown): TaskReorderExpectedVersionMap | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const expectedVersions: TaskReorderExpectedVersionMap = {};
+  for (const [taskId, version] of Object.entries(value)) {
+    const normalizedTaskId = taskId.trim();
+    const normalizedVersion = Number(version);
+    if (!normalizedTaskId || !Number.isInteger(normalizedVersion) || normalizedVersion < 1) {
+      return null;
+    }
+    expectedVersions[normalizedTaskId] = normalizedVersion;
+  }
+
+  return Object.keys(expectedVersions).length === 0 ? null : expectedVersions;
 }
 
 function applyStoredTaskReorderCommand(tasks: readonly TaskRecord[], command: TaskReorderPersistCommand) {
@@ -9043,10 +9114,15 @@ function boardColumnCopy(status: TaskStatus) {
   return describeStatus(status);
 }
 
-function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tasks: readonly TaskRecord[]) {
+function buildTaskReorderExpectedVersions(
+  command: TaskReorderPersistCommand,
+  tasks: readonly TaskRecord[],
+): TaskReorderExpectedVersionMap {
   const impactedTasks =
     command.action === "auto_sort"
       ? tasks
+      : command.action === "set_sibling_order"
+        ? tasks.filter((task) => (task.parentTaskId ?? null) === (command.parentTaskId ?? null))
       : tasks.filter(
           (task) =>
             task.id === command.movedTaskId ||
@@ -9058,6 +9134,23 @@ function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tas
 
 function buildTaskReorderRequestBody(command: TaskReorderPersistCommand, tasks: readonly TaskRecord[]) {
   if (command.action === "set_sibling_order") {
+    return {
+      ...command,
+      expectedVersions: command.expectedVersions ?? buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
+    };
+  }
+
+  return {
+    ...command,
+    expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
+  };
+}
+
+function withTaskReorderExpectedVersions(
+  command: TaskReorderPersistCommand,
+  tasks: readonly TaskRecord[],
+): TaskReorderPersistCommand {
+  if (command.action !== "set_sibling_order") {
     return command;
   }
 
