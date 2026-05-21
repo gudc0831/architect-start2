@@ -617,6 +617,10 @@ const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
 const TASK_REORDER_PENDING_STORAGE_KEY_PREFIX = "architect-start.pending-task-reorder:";
 const TASK_REORDER_PENDING_STORAGE_VERSION = 1;
 const TASK_REORDER_PENDING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const KEEPALIVE_REQUEST_BODY_SAFE_BYTES = 60 * 1024;
+const TASK_REORDER_RETRY_BASE_DELAY_MS = 1500;
+const TASK_REORDER_RETRY_MAX_DELAY_MS = 30000;
+const TASK_REORDER_RETRY_MAX_ATTEMPTS = 6;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
@@ -858,6 +862,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskReorderStorageKeyRef = useRef<string | null>(null);
   const taskReorderStorageReplayAttemptSignatureRef = useRef<string | null>(null);
   const taskReorderRetryTimerRef = useRef<number | null>(null);
+  const taskReorderRetryAttemptRef = useRef(0);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -1239,6 +1244,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       taskReorderUnloadPersistAttemptedRef.current = true;
       const body = JSON.stringify(buildTaskReorderRequestBody(command, dashboardStateByScopeRef.current.active.tasks));
+      if (getUtf8ByteLength(body) > KEEPALIVE_REQUEST_BODY_SAFE_BYTES) {
+        return;
+      }
       const url = "/api/tasks/reorder";
 
       if (typeof navigator.sendBeacon === "function") {
@@ -3479,7 +3487,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         setTaskListSelection(json.data.id);
       } catch (error) {
         removeTaskIdsFromDashboardScope("active", [tempTask.id]);
-        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "createTaskFailed" }));
+        setErrorMessage(formatMutationNetworkError(error, "createTaskFailed"));
       }
     })();
 
@@ -3543,7 +3551,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       if (previousTaskBeforeSave && shouldRollbackSave) {
         applyTaskClientUpdate(previousTaskBeforeSave);
       }
-      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "saveTaskFailed" }));
+      setErrorMessage(formatMutationNetworkError(error, "saveTaskFailed"));
       return false;
     } finally {
       setSaving(false);
@@ -3652,12 +3660,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       clearedDirtyFields: dirtyFields,
       fallbackKey: "saveTaskFailed",
     }).catch((error: unknown) => {
-      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "saveTaskFailed" }));
+      setErrorMessage(formatMutationNetworkError(error, "saveTaskFailed"));
     });
     return true;
   }, [applyTaskClientUpdate, setErrorMessage]);
 
   const clearTaskReorderStorageRetry = useCallback(() => {
+    taskReorderRetryAttemptRef.current = 0;
     if (taskReorderRetryTimerRef.current === null) {
       return;
     }
@@ -3671,11 +3680,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const attempt = taskReorderRetryAttemptRef.current;
+    if (attempt >= TASK_REORDER_RETRY_MAX_ATTEMPTS) {
+      return;
+    }
+
+    taskReorderRetryAttemptRef.current = attempt + 1;
+    const delayMs = Math.min(
+      TASK_REORDER_RETRY_MAX_DELAY_MS,
+      TASK_REORDER_RETRY_BASE_DELAY_MS * 2 ** Math.min(attempt, 5),
+    );
     taskReorderRetryTimerRef.current = window.setTimeout(() => {
       taskReorderRetryTimerRef.current = null;
       taskReorderStorageReplayAttemptSignatureRef.current = null;
       setTaskReorderRetryTick((value) => value + 1);
-    }, 1500);
+    }, delayMs);
   }, []);
 
   useEffect(() => () => clearTaskReorderStorageRetry(), [clearTaskReorderStorageRetry]);
@@ -3703,7 +3722,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            keepalive: true,
           });
 
           if (!response.ok) {
@@ -3745,7 +3763,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       } catch (error) {
         queueState.entries = [];
         scheduleTaskReorderStorageRetry();
-        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+        setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
       } finally {
         queueState.isRunning = false;
         if (queueState.entries.length > 0) {
@@ -3827,6 +3845,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       const previousTasks = dashboardStateByScopeRef.current.active.tasks;
       const optimisticTasks = buildOptimisticReorderedTasks(previousTasks, command);
+      taskReorderRetryAttemptRef.current = 0;
       setActiveTasksForContinuousReorder(() => optimisticTasks);
       startTransition(() => {
         setTaskSortMode(nextMode);
@@ -4082,7 +4101,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        keepalive: true,
         body: JSON.stringify({ ...payload, version: task.version }),
       });
 
@@ -4329,7 +4347,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         } catch (error) {
           clearTaskPendingPatchValues(currentTask.id, payload);
           applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
-          setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
         } finally {
           setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
         }
@@ -9507,6 +9525,26 @@ function buildTaskPatchPayloadFromDraft(draft: Partial<TaskRecord>, dirtyFields:
 async function readErrorMessage(response: Response, fallbackKey: ErrorCopyKey) {
   const error = await readApiError(response, fallbackKey);
   return error.message;
+}
+
+function formatMutationNetworkError(error: unknown, fallbackKey: ErrorCopyKey) {
+  if (error instanceof Error && !isFetchNetworkFailure(error)) {
+    return error.message;
+  }
+
+  return localizeError({ fallbackKey });
+}
+
+function isFetchNetworkFailure(error: Error) {
+  return error.name === "TypeError" || /failed to fetch|networkerror|fetch failed|load failed/i.test(error.message);
+}
+
+function getUtf8ByteLength(value: string) {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  return value.length;
 }
 
 async function readApiError(response: Response, fallbackKey: ErrorCopyKey) {
