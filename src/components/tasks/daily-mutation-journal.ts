@@ -248,7 +248,7 @@ export function mergeDailyMutationOperationsIntoTrashTasks(
       const existingIds = new Set(next.map((task) => task.id));
       for (const task of payload.affectedTasks) {
         if (!existingIds.has(task.id)) {
-          next.push({ ...task, deletedAt: task.deletedAt ?? new Date().toISOString() });
+          next.push({ ...task, deletedAt: task.deletedAt ?? operation.createdAt });
           existingIds.add(task.id);
         }
       }

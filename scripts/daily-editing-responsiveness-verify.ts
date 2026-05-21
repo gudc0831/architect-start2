@@ -14,6 +14,7 @@ import {
   buildDailyOptimisticTaskId,
   coalesceDailyReorderOperations,
   mergeDailyMutationOperationsIntoActiveTasks,
+  mergeDailyMutationOperationsIntoTrashTasks,
   reconcileDailyMutationCreateSuccess,
   summarizeDailyMutationOperations,
 } from "@/components/tasks/daily-mutation-journal";
@@ -237,6 +238,16 @@ assert.deepEqual(
 );
 const failedOperation = { ...pendingUpdateOperation, status: "failed" as const, retryCount: 1 };
 assert.equal(summarizeDailyMutationOperations([failedOperation]).failed, 1);
+const pendingTrashOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "trash",
+  now: "2026-05-21T00:00:02.000Z",
+  payload: { kind: "trash", taskId: "task-1", affectedTasks: [baseTask("task-1", { deletedAt: null })] },
+});
+const firstTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pendingTrashOperation]);
+const secondTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pendingTrashOperation]);
+assert.deepEqual(secondTrashReplay, firstTrashReplay);
+assert.equal(firstTrashReplay[0]?.deletedAt, pendingTrashOperation.createdAt);
 
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
