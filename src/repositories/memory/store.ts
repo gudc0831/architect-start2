@@ -181,7 +181,11 @@ class MemoryTaskRepository implements TaskRepository {
 
   async createTask(input: CreateTaskInput) {
     const tasks = await readTasks();
-    const id = nextId("task");
+    const id = input.id ?? nextId("task");
+    const existing = tasks.find((task) => task.id === id && !task.purgedAt);
+    if (existing) {
+      return existing;
+    }
     const taskNumber = await nextTaskNumber(input.projectId, tasks);
     const parentTaskId = input.parentTaskId ?? null;
     const timestamp = now();

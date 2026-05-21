@@ -45,6 +45,27 @@ import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-o
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import {
+  buildCoalescedDailyReorderOperation,
+  buildDailyMutationOperation,
+  buildDailyMutationScopeKey,
+  buildDailyOptimisticTaskId,
+  computeDailyMutationRetryDelayMs,
+  createDailyMutationId,
+  deleteDailyMutationOperation,
+  getDailyCreateClientMutationIdFromTempTaskId,
+  listDailyMutationOperations,
+  mergeDailyMutationOperationsIntoActiveTasks,
+  mergeDailyMutationOperationsIntoTrashTasks,
+  putDailyMutationOperation,
+  reconcileDailyMutationCreateSuccess,
+  shouldResetDailyMutationSyncingOperation,
+  summarizeDailyMutationOperations,
+  updateDailyMutationOperation,
+  type DailyMutationOperation,
+  type DailyMutationScope,
+  type DailyMutationSummary,
+} from "@/components/tasks/daily-mutation-journal";
+import {
   applyPendingTaskPatchValues,
   clearMatchingPendingTaskPatchValues,
   mergePendingTaskPatchValues,
@@ -798,6 +819,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isReorderingTasks, setIsReorderingTasks] = useState(false);
   const [taskReorderRetryTick, setTaskReorderRetryTick] = useState(0);
+  const [dailyMutationOperations, setDailyMutationOperations] = useState<DailyMutationOperation[]>([]);
+  const [dailyMutationSummary, setDailyMutationSummary] = useState<DailyMutationSummary>({
+    pending: 0,
+    syncing: 0,
+    failed: 0,
+    synced: 0,
+    totalActive: 0,
+  });
+  const [dailyMutationJournalReady, setDailyMutationJournalReady] = useState(false);
   const [calendarHolidayDateKeys, setCalendarHolidayDateKeys] = useState<string[] | null>(null);
   const [calendarHolidayLoadedMonths, setCalendarHolidayLoadedMonths] = useState<string[] | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
@@ -863,6 +893,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskReorderStorageReplayAttemptSignatureRef = useRef<string | null>(null);
   const taskReorderRetryTimerRef = useRef<number | null>(null);
   const taskReorderRetryAttemptRef = useRef(0);
+  const dailyMutationOperationsRef = useRef<DailyMutationOperation[]>([]);
+  const dailyMutationScopeRef = useRef<DailyMutationScope | null>(null);
+  const dailyMutationFlushTimerRef = useRef<number | null>(null);
+  const dailyMutationFlushRunningRef = useRef(false);
+  const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -919,12 +954,34 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const quickCreateComposerMode: ComposerLayoutMode =
     viewportWidth < MOBILE_BREAKPOINT ? "stacked" : viewportWidth < TABLET_BREAKPOINT ? "wrapped" : "strip";
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
+  const dailyMutationScope = useMemo<DailyMutationScope | null>(() => {
+    if (mode !== "daily" || isPreview || !currentProjectId || !authUser?.id || isLocalAuthPlaceholder) {
+      return null;
+    }
+
+    return { projectId: currentProjectId, profileId: authUser.id };
+  }, [authUser?.id, currentProjectId, isLocalAuthPlaceholder, isPreview, mode]);
   const isDetailExpanded = detailPanelState === "expanded";
   const isPagedDailyListView = mode === "daily" && dailyListViewMode === "paged";
   const shouldRenderDailyDetailPanel = mode === "daily" && (!isPreviewDaily || selectedTaskId !== null);
   const isDetailPanelResizable = shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
+  const dailyMutationStatusLabel = useMemo(() => {
+    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+      return null;
+    }
+
+    if (dailyMutationSummary.failed > 0) {
+      return "동기화 실패";
+    }
+
+    if (dailyMutationSummary.syncing > 0) {
+      return "서버 동기화 중";
+    }
+
+    return "로컬 반영됨";
+  }, [dailyMutationSummary.failed, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
   const canEditWorkspace =
     !isPreview &&
     Boolean(authUser) &&
@@ -1225,10 +1282,62 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [defaultCreateWorkType],
   );
   const quickCreateInitialValues = useMemo<TaskQuickCreateFormValues>(() => buildDefaultTaskForm(), [buildDefaultTaskForm]);
+  const refreshDailyMutationJournal = useCallback(async () => {
+    if (!dailyMutationScope) {
+      dailyMutationOperationsRef.current = [];
+      setDailyMutationOperations([]);
+      setDailyMutationSummary({ pending: 0, syncing: 0, failed: 0, synced: 0, totalActive: 0 });
+      setDailyMutationJournalReady(true);
+      return [] as DailyMutationOperation[];
+    }
+
+    let operations = await listDailyMutationOperations(dailyMutationScope);
+    const staleSyncingOperations = operations.filter((operation) => shouldResetDailyMutationSyncingOperation(operation));
+    if (staleSyncingOperations.length > 0) {
+      await Promise.all(
+        staleSyncingOperations.map((operation) =>
+          updateDailyMutationOperation(operation.operationId, (current) =>
+            shouldResetDailyMutationSyncingOperation(current)
+              ? {
+                  ...current,
+                  status: "pending",
+                  lastError: current.lastError ?? "Previous sync was interrupted before completion.",
+                  nextRetryAt: null,
+                  updatedAt: new Date().toISOString(),
+                }
+              : current,
+          ),
+        ),
+      );
+      operations = await listDailyMutationOperations(dailyMutationScope);
+    }
+    dailyMutationOperationsRef.current = operations;
+    setDailyMutationOperations(operations);
+    setDailyMutationSummary(summarizeDailyMutationOperations(operations));
+    setDailyMutationJournalReady(true);
+    return operations;
+  }, [dailyMutationScope]);
+  const putDailyJournalOperation = useCallback(
+    async (operation: DailyMutationOperation) => {
+      await putDailyMutationOperation(operation);
+      await refreshDailyMutationJournal();
+    },
+    [refreshDailyMutationJournal],
+  );
 
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    dailyMutationOperationsRef.current = dailyMutationOperations;
+  }, [dailyMutationOperations]);
+
+  useEffect(() => {
+    dailyMutationScopeRef.current = dailyMutationScope;
+    setDailyMutationJournalReady(false);
+    void refreshDailyMutationJournal();
+  }, [dailyMutationScope, refreshDailyMutationJournal]);
 
   useEffect(() => {
     taskReorderStorageKeyRef.current = taskReorderStorageKey;
@@ -3418,11 +3527,319 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [setDashboardScopeFiles],
   );
 
+  useEffect(() => {
+    if (mode !== "daily" || !dailyMutationJournalReady || dailyMutationOperations.length === 0) {
+      return;
+    }
+
+    if (dashboardStateByScope.active.loaded) {
+      setDashboardScopeTasks("active", (previous) => {
+        const next = mergeDailyMutationOperationsIntoActiveTasks(previous, dailyMutationOperations);
+        return areTaskCollectionsEquivalent(previous, next) ? previous : next;
+      });
+    }
+
+    if (dashboardStateByScope.trash.loaded) {
+      setDashboardScopeTasks("trash", (previous) => {
+        const next = mergeDailyMutationOperationsIntoTrashTasks(previous, dailyMutationOperations);
+        return areTaskCollectionsEquivalent(previous, next) ? previous : next;
+      });
+    }
+  }, [
+    dailyMutationJournalReady,
+    dailyMutationOperations,
+    dashboardStateByScope.active.loaded,
+    dashboardStateByScope.active.tasks,
+    dashboardStateByScope.trash.loaded,
+    dashboardStateByScope.trash.tasks,
+    mode,
+    setDashboardScopeTasks,
+  ]);
+
+  const flushDailyMutationJournal = useCallback(
+    async (options: { manual?: boolean } = {}) => {
+      const scope = dailyMutationScopeRef.current;
+      if (!scope || dailyMutationFlushRunningRef.current || isWorkspaceReadOnly) {
+        return;
+      }
+
+      dailyMutationFlushRunningRef.current = true;
+      try {
+        const now = Date.now();
+        const operations = await listDailyMutationOperations(scope);
+        dailyMutationOperationsRef.current = operations;
+
+        for (const operation of operations) {
+          if (operation.status === "synced" || operation.status === "syncing") {
+            continue;
+          }
+
+          if (!options.manual && operation.nextRetryAt && Date.parse(operation.nextRetryAt) > now) {
+            continue;
+          }
+
+          await updateDailyMutationOperation(operation.operationId, (current) => ({
+            ...current,
+            status: "syncing",
+            updatedAt: new Date().toISOString(),
+            lastError: null,
+          }));
+          await refreshDailyMutationJournal();
+
+          try {
+            await flushDailyMutationOperationRef.current(operation);
+          } catch (error) {
+            const retryCount = operation.retryCount + 1;
+            const nextRetryAt = new Date(Date.now() + computeDailyMutationRetryDelayMs(retryCount)).toISOString();
+            await updateDailyMutationOperation(operation.operationId, (current) => ({
+              ...current,
+              status: "failed",
+              retryCount,
+              nextRetryAt,
+              updatedAt: new Date().toISOString(),
+              lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
+            }));
+          }
+        }
+      } finally {
+        dailyMutationFlushRunningRef.current = false;
+        await refreshDailyMutationJournal();
+      }
+    },
+    [isWorkspaceReadOnly, refreshDailyMutationJournal],
+  );
+
+  useEffect(() => {
+    if (!dailyMutationScope || mode !== "daily") {
+      return;
+    }
+
+    const flushSoon = () => {
+      if (dailyMutationFlushTimerRef.current !== null) {
+        return;
+      }
+
+      dailyMutationFlushTimerRef.current = window.setTimeout(() => {
+        dailyMutationFlushTimerRef.current = null;
+        void flushDailyMutationJournal();
+      }, 500);
+    };
+
+    const handleOnline = () => flushSoon();
+    const handleFocus = () => flushSoon();
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("focus", handleFocus);
+    const intervalId = window.setInterval(() => {
+      void flushDailyMutationJournal();
+    }, 10_000);
+
+    flushSoon();
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("focus", handleFocus);
+      window.clearInterval(intervalId);
+      if (dailyMutationFlushTimerRef.current !== null) {
+        window.clearTimeout(dailyMutationFlushTimerRef.current);
+        dailyMutationFlushTimerRef.current = null;
+      }
+    };
+  }, [dailyMutationScope, flushDailyMutationJournal, mode]);
+
+  useEffect(() => {
+    if (!dailyMutationScope || dailyMutationSummary.totalActive === 0) {
+      return;
+    }
+
+    if (dailyMutationFlushTimerRef.current !== null) {
+      return;
+    }
+
+    dailyMutationFlushTimerRef.current = window.setTimeout(() => {
+      dailyMutationFlushTimerRef.current = null;
+      void flushDailyMutationJournal();
+    }, 500);
+  }, [dailyMutationScope, dailyMutationSummary.totalActive, flushDailyMutationJournal]);
+
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
     resetDraftDirtyFields();
     setDraft(toDraftTask(selectedTask));
     setParentTaskNumberDraft(selectedParentTask ? formatTaskDisplayId(selectedParentTask) : "");
+  }
+
+  async function flushDailyMutationOperation(operation: DailyMutationOperation) {
+    const payload = operation.payload;
+
+    if (payload.kind === "create") {
+      const existingServerTask = dashboardStateByScopeRef.current.active.tasks.find((task) => task.id === operation.clientMutationId);
+      if (existingServerTask) {
+        setDashboardScopeTasks("active", (previous) =>
+          reconcileDailyMutationCreateSuccess(previous, payload.tempTask.id, withEmptyTaskFileSummary(existingServerTask)),
+        );
+        await markDailyMutationSynced(operation, { serverTaskId: existingServerTask.id });
+        return;
+      }
+
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload.requestPayload,
+          clientMutationId: operation.clientMutationId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw await readApiError(response, "createTaskFailed");
+      }
+
+      const json = (await response.json()) as { data: TaskRecord };
+      const taskWithFileSummary = withEmptyTaskFileSummary(json.data);
+      setDashboardScopeTasks("active", (previous) =>
+        reconcileDailyMutationCreateSuccess(previous, payload.tempTask.id, taskWithFileSummary),
+      );
+      if (taskListRowInteractionStore.getState().selectedTaskId === payload.tempTask.id) {
+        setTaskListSelection(json.data.id);
+      }
+      await markDailyMutationSynced(operation, { serverTaskId: json.data.id });
+      return;
+    }
+
+    if (payload.kind === "update") {
+      const taskId = resolveDailyMutationServerTaskId(payload.taskId);
+      if (isOptimisticTaskId(taskId)) {
+        await markDailyMutationPending(operation);
+        return;
+      }
+
+      const currentTask =
+        dashboardStateByScopeRef.current.active.tasks.find((task) => task.id === taskId) ??
+        dashboardStateByScopeRef.current.trash.tasks.find((task) => task.id === taskId);
+      const version = currentTask?.version ?? payload.baseVersion;
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload.patch, version }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 409) {
+          await refreshScope({ force: true, silent: true });
+        }
+        throw await readApiError(response, "updateTaskFailed");
+      }
+
+      const json = (await response.json()) as { data: TaskRecord };
+      clearTaskPendingPatchValues(taskId, payload.patch);
+      applyTaskServerUpdate(applyTaskPendingPatchValues(json.data), Object.keys(payload.patch) as DraftDirtyField[]);
+      await markDailyMutationSynced(operation);
+      return;
+    }
+
+    if (payload.kind === "trash") {
+      const taskId = resolveDailyMutationServerTaskId(payload.taskId);
+      if (isOptimisticTaskId(taskId)) {
+        await deleteDailyMutationOperation(operation.operationId);
+        await refreshDailyMutationJournal();
+        return;
+      }
+
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
+      if (!response.ok) {
+        throw await readApiError(response, "moveTaskToTrashFailed");
+      }
+
+      const json = (await response.json()) as { data?: TaskSubtreeMutationPayload | TaskRecord };
+      const affectedTasks = readTaskSubtreeMutationTasks(json.data);
+      const affectedTaskIds = new Set((affectedTasks.length > 0 ? affectedTasks : payload.affectedTasks).map((task) => task.id));
+      removeTaskIdsFromDashboardScope("active", affectedTaskIds);
+      upsertTasksIntoLoadedDashboardScope("trash", affectedTasks);
+      await markDailyMutationSynced(operation);
+      return;
+    }
+
+    if (payload.kind === "delete") {
+      const taskId = resolveDailyMutationServerTaskId(payload.taskId);
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      if (!response.ok) {
+        throw await readApiError(response, "deleteTaskFailed");
+      }
+
+      const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
+      const deletedTaskIds = new Set(json?.data?.deletedTaskIds?.length ? json.data.deletedTaskIds : [taskId]);
+      removeTaskIdsFromDashboardScope("trash", deletedTaskIds);
+      removeFileIdsFromDashboardScope("trash", json?.data?.deletedFileIds ?? payload.affectedFileIds);
+      upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
+      await markDailyMutationSynced(operation);
+      return;
+    }
+
+    if (payload.kind === "reorder") {
+      const currentTasks = dashboardStateByScopeRef.current.active.tasks;
+      if (areTaskSiblingOrdersEqual(currentTasks, payload.desiredTasks)) {
+        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+        await markDailyMutationSynced(operation);
+        return;
+      }
+
+      const command = withTaskReorderExpectedVersions(payload.command as TaskReorderPersistCommand, currentTasks);
+      const response = await fetch("/api/tasks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildTaskReorderRequestBody(command, currentTasks)),
+      });
+
+      if (!response.ok) {
+        if (response.status === 409) {
+          await refreshScope({ force: true, silent: true });
+        }
+        throw await readApiError(response, "updateTaskFailed");
+      }
+
+      const json = (await response.json()) as { data: TaskRecord[] };
+      setActiveTasksForContinuousReorder((current) =>
+        mergeTaskReorderServerAcknowledgement(current, json.data, { preserveLocalOrderFields: false }),
+      );
+      removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+      await markDailyMutationSynced(operation);
+    }
+  }
+
+  flushDailyMutationOperationRef.current = flushDailyMutationOperation;
+
+  async function markDailyMutationSynced(
+    operation: DailyMutationOperation,
+    values: { serverTaskId?: string | null } = {},
+  ) {
+    await updateDailyMutationOperation(operation.operationId, (current) => ({
+      ...current,
+      status: "synced",
+      serverTaskId: values.serverTaskId ?? current.serverTaskId,
+      updatedAt: new Date().toISOString(),
+      lastError: null,
+      nextRetryAt: null,
+    }));
+  }
+
+  async function markDailyMutationPending(operation: DailyMutationOperation) {
+    await updateDailyMutationOperation(operation.operationId, (current) => ({
+      ...current,
+      status: "pending",
+      updatedAt: new Date().toISOString(),
+      nextRetryAt: new Date(Date.now() + computeDailyMutationRetryDelayMs(current.retryCount)).toISOString(),
+    }));
+  }
+
+  function resolveDailyMutationServerTaskId(taskId: string) {
+    if (!isOptimisticTaskId(taskId)) {
+      return taskId;
+    }
+
+    return (
+      dailyMutationOperationsRef.current.find((operation) => operation.tempTaskId === taskId && operation.serverTaskId)
+        ?.serverTaskId ?? taskId
+    );
   }
 
   async function createTaskFromForm(nextForm: TaskQuickCreateFormValues) {
@@ -3441,12 +3858,44 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       form: payload,
       projectId: currentProjectId,
       previousTasks: dashboardStateByScopeRef.current.active.tasks,
+      clientMutationId: dailyMutationScope ? createDailyMutationId() : undefined,
     });
     const { ownerDiscipline: _ignoredOwnerDiscipline, ...baseRequestPayload } = payload;
     const requestPayload = {
       ...baseRequestPayload,
       siblingOrder: tempTask.siblingOrder,
     };
+
+    if (dailyMutationScope) {
+      const clientMutationId = getDailyCreateClientMutationIdFromTempTaskId(tempTask.id);
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "create",
+            clientMutationId,
+            tempTaskId: tempTask.id,
+            payload: {
+              kind: "create",
+              tempTask,
+              requestPayload,
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "createTaskFailed"));
+        return false;
+      }
+
+      setTasks((previous) => [...previous, tempTask]);
+      setTaskListSelection(tempTask.id);
+      void flushDailyMutationJournal();
+
+      if (canCollapseCreateForm) {
+        setIsCreateFormOpen(false);
+      }
+      return true;
+    }
 
     setTasks((previous) => [...previous, tempTask]);
     setTaskListSelection(tempTask.id);
@@ -3864,6 +4313,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         taskReorderStorageKeyRef.current,
         withTaskReorderExpectedVersions(persistCommand, previousTasks),
       );
+      if (dailyMutationScope) {
+        try {
+          await putDailyJournalOperation(
+            buildCoalescedDailyReorderOperation({
+              scope: dailyMutationScope,
+              command: persistCommand,
+              desiredTasks: optimisticTasks,
+            }),
+          );
+        } catch (error) {
+          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+        }
+      }
       queueState.entries.push({
         command: persistCommand,
         nextMode,
@@ -3878,7 +4340,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [
       flushTaskReorderQueue,
+      dailyMutationScope,
       isWorkspaceReadOnly,
+      putDailyJournalOperation,
       setActiveTasksForContinuousReorder,
       setErrorMessage,
       setTaskDropState,
@@ -4278,6 +4742,38 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setInlineSavingFields((previous) => ({ ...previous, calendarLinked: true }));
     setErrorMessage(null);
 
+    if (dailyMutationScope) {
+      const payload = { calendarLinked: nextValue };
+      addTaskPendingPatchValues(currentTask.id, payload);
+      applyTaskClientUpdate(applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload })), [
+        "calendarLinked",
+      ]);
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "update",
+            payload: {
+              kind: "update",
+              taskId: currentTask.id,
+              baseVersion: currentTask.version,
+              patch: payload,
+            },
+          }),
+        );
+        void flushDailyMutationJournal();
+      } catch (error) {
+        clearTaskPendingPatchValues(currentTask.id, payload);
+        applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
+        draftRef.current = { ...currentDraft, calendarLinked: previousValue };
+        setDraft((previous) => (previous && previous.id === currentDraft.id ? { ...previous, calendarLinked: previousValue } : previous));
+        setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+      } finally {
+        setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, "calendarLinked"));
+      }
+      return;
+    }
+
     try {
       const updated = await patchTask(currentDraft, { calendarLinked: nextValue }, { clearedDirtyFields: ["calendarLinked"] });
       if (updated) {
@@ -4338,6 +4834,31 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setPendingTaskListFocusCell(null);
 
       void (async () => {
+        if (dailyMutationScope) {
+          try {
+            await putDailyJournalOperation(
+              buildDailyMutationOperation({
+                scope: dailyMutationScope,
+                type: "update",
+                payload: {
+                  kind: "update",
+                  taskId: currentTask.id,
+                  baseVersion: currentTask.version,
+                  patch: payload,
+                },
+              }),
+            );
+            void flushDailyMutationJournal();
+          } catch (error) {
+            clearTaskPendingPatchValues(currentTask.id, payload);
+            applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
+            setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+          } finally {
+            setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+          }
+          return;
+        }
+
         try {
           const updatedTask = await queueTaskPatch(currentTask, payload, { clearedDirtyFields });
           if (!updatedTask) {
@@ -4359,7 +4880,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       applyTaskPendingPatchValues,
       clearDraftDirtyFields,
       clearTaskPendingPatchValues,
+      dailyMutationScope,
+      flushDailyMutationJournal,
       queueTaskPatch,
+      putDailyJournalOperation,
       releaseActiveTaskListEditLease,
       setErrorMessage,
       setTaskListActiveInlineEditCell,
@@ -4399,6 +4923,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         [nextStatus]: getBoardPageForTask(optimisticTaskTree, optimisticTask.id, nextStatus, boardPageSize),
       }));
       setExpandedBoardTaskId(optimisticTask.id);
+    }
+
+    if (dailyMutationScope) {
+      addTaskPendingPatchValues(task.id, { status: nextStatus });
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "update",
+            payload: {
+              kind: "update",
+              taskId: task.id,
+              baseVersion: task.version,
+              patch: { status: nextStatus },
+            },
+          }),
+        );
+        void flushDailyMutationJournal();
+      } catch (error) {
+        clearTaskPendingPatchValues(task.id, { status: nextStatus });
+        applyTaskClientUpdate(task);
+        setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+      }
+      return;
     }
 
     let shouldRollbackStatus = true;
@@ -4450,6 +4998,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         : previousSelectedTaskId;
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "trash",
+            payload: {
+              kind: "trash",
+              taskId,
+              affectedTasks: subtree.length > 0 ? subtree : previousActiveTasks.filter((task) => task.id === taskId),
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "moveTaskToTrashFailed"));
+        return;
+      }
+
+      removeTaskIdsFromDashboardScope("active", optimisticRemovedIds);
+      setTaskListSelection(nextSelectedTaskId);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeTaskIdsFromDashboardScope("active", optimisticRemovedIds);
     setTaskListSelection(nextSelectedTaskId);
 
@@ -4686,6 +5258,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       previousSelectedTaskId === task.id ? previousTrashTasks.find((candidate) => candidate.id !== task.id)?.id ?? null : previousSelectedTaskId;
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "delete",
+            payload: {
+              kind: "delete",
+              taskId: task.id,
+              affectedTasks: [task],
+              affectedFileIds: optimisticDeletedFileIds,
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "deleteTaskFailed"));
+        return;
+      }
+
+      removeTaskIdsFromDashboardScope("trash", [task.id]);
+      removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
+      setTaskListSelection(nextSelectedTaskId);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeTaskIdsFromDashboardScope("trash", [task.id]);
     removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
     setTaskListSelection(nextSelectedTaskId);
@@ -5426,6 +6024,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       )}
 
       {errorMessage ? <p className="detail-panel__warning detail-panel__warning--error">{errorMessage}</p> : null}
+      {dailyMutationStatusLabel ? (
+        <div className="daily-sync-status" data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}>
+          <span>{dailyMutationStatusLabel}</span>
+          {dailyMutationSummary.failed > 0 ? (
+            <button className="secondary-button" onClick={() => void flushDailyMutationJournal({ manual: true })} type="button">
+              재시도
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {loading ? (
         <div className="empty-state">
           <h3>{t("workspace.loading")}</h3>
@@ -7968,6 +8576,39 @@ function areTaskSiblingOrdersEqual(left: readonly TaskRecord[], right: readonly 
   });
 }
 
+function areTaskCollectionsEquivalent(left: readonly TaskRecord[], right: readonly TaskRecord[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftTask, index) => {
+    const rightTask = right[index];
+    if (!rightTask) {
+      return false;
+    }
+
+    return (
+      leftTask.id === rightTask.id &&
+      leftTask.version === rightTask.version &&
+      leftTask.siblingOrder === rightTask.siblingOrder &&
+      leftTask.parentTaskId === rightTask.parentTaskId &&
+      leftTask.deletedAt === rightTask.deletedAt &&
+      leftTask.issueTitle === rightTask.issueTitle &&
+      leftTask.status === rightTask.status &&
+      leftTask.dueDate === rightTask.dueDate &&
+      leftTask.workType === rightTask.workType &&
+      leftTask.coordinationScope === rightTask.coordinationScope &&
+      leftTask.requestedBy === rightTask.requestedBy &&
+      leftTask.relatedDisciplines === rightTask.relatedDisciplines &&
+      leftTask.assignee === rightTask.assignee &&
+      leftTask.locationRef === rightTask.locationRef &&
+      leftTask.calendarLinked === rightTask.calendarLinked &&
+      leftTask.issueDetailNote === rightTask.issueDetailNote &&
+      leftTask.decision === rightTask.decision
+    );
+  });
+}
+
 function shouldRetainPendingTaskReorderAfterFailure(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
@@ -9359,8 +10000,9 @@ function buildOptimisticTask(input: {
   form: TaskQuickCreateFormValues;
   projectId: string | null;
   previousTasks: readonly TaskRecord[];
+  clientMutationId?: string;
 }): TaskRecord {
-  const id = `optimistic-task:${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`;
+  const id = buildDailyOptimisticTaskId(input.clientMutationId ?? createDailyMutationId());
   const now = new Date().toISOString();
   const siblingOrder = resolveOptimisticCreateSiblingOrder(input.previousTasks);
 

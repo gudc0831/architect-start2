@@ -45,6 +45,7 @@ export async function POST(request: Request) {
         status: body.status ?? DEFAULT_TASK_STATUS,
         decision: body.decision ?? "",
         createdAt: body.createdAt,
+        id: readOptionalClientMutationId(body),
         parentTaskId: body.parentTaskId ?? null,
         parentTaskNumber: body.parentTaskNumber ?? undefined,
         siblingOrder: readOptionalSiblingOrder(body),
@@ -67,4 +68,11 @@ function readOptionalSiblingOrder(body: Record<string, unknown>) {
 
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function readOptionalClientMutationId(body: Record<string, unknown>) {
+  const value = String(body.clientMutationId ?? body.client_mutation_id ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined;
 }

@@ -80,9 +80,12 @@ This document defines the operating instructions for Codex in this workspace. Th
 - Drag reorder must remain continuous. Do not block further valid row moves while a previous reorder save is pending; queue or coalesce persistence work instead.
 - Reorder persistence must survive reloads: store the latest pending order locally, send expected versions, replay after reload, and reconcile only the affected active scope.
 - Normal in-page creates, patches, and reorders must use normal `fetch`. Use `sendBeacon` or `fetch(..., { keepalive: true })` only for small unload-time best-effort flushes, never as the primary save path.
+- Durable local-first mutations on `/daily` must put the mutation body in the IndexedDB journal before the local UI change is shown. `localStorage` is only for small preferences or compatibility hints, not the authoritative create/update/trash/delete/reorder outbox.
+- Create persistence must use an idempotency key such as `clientMutationId`, restore the temporary row after reload, and reconcile that temporary id to the server id after acknowledgement without creating duplicates.
+- Update, trash/delete, and reorder persistence must restore pending local state after reload, leave failed operations retryable instead of silently rolling them back, and coalesce repeated reorder saves to the latest desired order.
 - Do not fix a perceived race by forcing a full refresh, disabling the table, or waiting for server acknowledgement before rendering the local result. That regresses the core spreadsheet contract.
 - If this behavior regresses, first compare against commits `df85490` and `945ba48`, then check `docs/worklogs/2026-05-21-daily-reorder-unload-persistence.md` for the rationale and verified scope.
-- Regression verification must include: page-load-then-immediate-create shows a temporary row within 1 second, repeated drag reorder stays interactive, refresh preserves the final drag order, and `npx tsx scripts/daily-editing-responsiveness-verify.ts` passes.
+- Regression verification must include: page-load-then-immediate-create shows a temporary row within 1 second, repeated drag reorder stays interactive, refresh preserves the final drag order, pending create/update/trash/delete/reorder survive reload, duplicate create POSTs do not duplicate tasks, and `npx tsx scripts/daily-editing-responsiveness-verify.ts` passes.
 
 ## Completeness Contract
 

@@ -241,7 +241,11 @@ class FirestoreTaskRepository implements TaskRepository {
       throw new Error("Firestore is not configured");
     }
 
-    const ref = doc(collection(db, taskCollectionName));
+    const ref = input.id ? doc(db, taskCollectionName, input.id) : doc(collection(db, taskCollectionName));
+    const existing = await getDoc(ref);
+    if (existing.exists()) {
+      return toTaskRecord(ref.id, existing.data());
+    }
     const actionId = await nextTaskNumber(input.projectId);
     const parentTaskId = input.parentTaskId ?? null;
     const siblingOrder = input.siblingOrder ?? (await nextSiblingOrder(input.projectId, parentTaskId));

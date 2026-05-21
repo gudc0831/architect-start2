@@ -8,6 +8,15 @@ import {
   clearMatchingPendingTaskPatchValues,
   mergePendingTaskPatchValues,
 } from "@/components/tasks/task-optimistic-patch-state";
+import {
+  buildCoalescedDailyReorderOperation,
+  buildDailyMutationOperation,
+  buildDailyOptimisticTaskId,
+  coalesceDailyReorderOperations,
+  mergeDailyMutationOperationsIntoActiveTasks,
+  reconcileDailyMutationCreateSuccess,
+  summarizeDailyMutationOperations,
+} from "@/components/tasks/daily-mutation-journal";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import type { TaskRecord } from "@/domains/task/types";
 import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
@@ -151,6 +160,90 @@ assert.match(
   /const setDashboardTasks = useCallback\(\s*\(scope: DashboardScope, updater: SetStateAction<TaskRecord\[\]>\) => \{\s*invalidateDashboardScopeRead\(scope\);/s,
 );
 
+const journalScope = { projectId: "project-1", profileId: "profile-1" };
+const baseTask = (id: string, overrides: Partial<TaskRecord> = {}) =>
+  ({
+    id,
+    projectId: "project-1",
+    taskNumber: 1,
+    actionId: 1,
+    issueId: "ARCH-001",
+    parentTaskId: null,
+    rootTaskId: id,
+    depth: 0,
+    siblingOrder: 0,
+    dueDate: "2026-05-21",
+    workType: "coordination",
+    coordinationScope: "scope-a",
+    ownerDiscipline: "architecture",
+    requestedBy: "owner",
+    relatedDisciplines: "structural",
+    assignee: "",
+    assigneeProfileId: null,
+    issueTitle: "base task",
+    reviewedAt: "",
+    createdAt: "2026-05-21",
+    createdBy: null,
+    isDaily: true,
+    locationRef: "",
+    calendarLinked: false,
+    issueDetailNote: "",
+    status: "new",
+    statusHistory: "",
+    decision: "",
+    completedAt: null,
+    version: 1,
+    updatedAt: "2026-05-21T00:00:00.000Z",
+    updatedBy: null,
+    deletedAt: null,
+    purgedAt: null,
+    fileSummary: { count: 0, latestFileName: null },
+    ...overrides,
+  }) as TaskRecord;
+const createClientMutationId = "11111111-1111-4111-8111-111111111111";
+const tempTaskId = buildDailyOptimisticTaskId(createClientMutationId);
+const tempTask = baseTask(tempTaskId, { actionId: 0, issueId: "", issueTitle: "local create" });
+const pendingCreateOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "create",
+  clientMutationId: createClientMutationId,
+  tempTaskId,
+  payload: { kind: "create", tempTask, requestPayload: { issueTitle: "local create" } },
+});
+assert.equal(mergeDailyMutationOperationsIntoActiveTasks([], [pendingCreateOperation])[0]?.id, tempTaskId);
+const serverCreatedTask = baseTask(createClientMutationId, { issueTitle: "local create", taskNumber: 27, actionId: 27 });
+assert.equal(reconcileDailyMutationCreateSuccess([tempTask], tempTaskId, serverCreatedTask)[0]?.id, createClientMutationId);
+const pendingUpdateOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "update",
+  payload: { kind: "update", taskId: "task-1", baseVersion: 1, patch: { issueTitle: "pending overlay" } },
+});
+assert.equal(mergeDailyMutationOperationsIntoActiveTasks([baseTask("task-1")], [pendingUpdateOperation])[0]?.issueTitle, "pending overlay");
+const firstReorderOperation = buildCoalescedDailyReorderOperation({
+  scope: journalScope,
+  command: { action: "set_sibling_order", parentTaskId: null, orderedTaskIds: ["task-2", "task-1"] },
+  desiredTasks: [baseTask("task-2", { siblingOrder: 0 }), baseTask("task-1", { siblingOrder: 1 })],
+  now: "2026-05-21T00:00:00.000Z",
+});
+const secondReorderOperation = buildCoalescedDailyReorderOperation({
+  scope: journalScope,
+  command: { action: "set_sibling_order", parentTaskId: null, orderedTaskIds: ["task-1", "task-2"] },
+  desiredTasks: [baseTask("task-1", { siblingOrder: 0 }), baseTask("task-2", { siblingOrder: 1 })],
+  now: "2026-05-21T00:00:01.000Z",
+});
+assert.deepEqual(
+  coalesceDailyReorderOperations([firstReorderOperation, secondReorderOperation]).map((operation) => operation.clientMutationId),
+  [secondReorderOperation.clientMutationId],
+);
+const failedOperation = { ...pendingUpdateOperation, status: "failed" as const, retryCount: 1 };
+assert.equal(summarizeDailyMutationOperations([failedOperation]).failed, 1);
+
+const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
+const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
+assert.match(taskRouteSource, /clientMutationId/);
+assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
+assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
+
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 async function assertDatabaseUnavailableRouteError() {
@@ -181,6 +274,7 @@ assertDatabaseUnavailableRouteError()
     console.log("daily editing request integrity policy: ok");
     console.log("daily editing database unavailable policy: ok");
     console.log("daily editing optimistic create load-race policy: ok");
+    console.log("daily editing durable mutation journal policy: ok");
   })
   .catch((error: unknown) => {
     console.error(error);

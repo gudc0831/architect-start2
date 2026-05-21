@@ -389,9 +389,14 @@ class PostgresTaskRepository implements TaskRepository {
   }
 
   async createTask(input: CreateTaskInput) {
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
     const record = await prisma.$transaction(async (tx) => {
+      const existing = await tx.task.findUnique({ where: { id } });
+      if (existing && !existing.purgedAt) {
+        return existing;
+      }
+
       await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
       const last = await tx.task.findFirst({
         where: { projectId: input.projectId },

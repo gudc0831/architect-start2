@@ -121,6 +121,7 @@ export async function createTask(
   const task = await taskRepository.createTask({
     projectId: project.id,
     projectName: project.name,
+    id: input.id,
     dueDate: normalizeDate(input.dueDate),
     workType: requireAllowedWorkType(input.workType, effectiveCategories.workType),
     coordinationScope: normalizeTaskCategoryFieldValue(

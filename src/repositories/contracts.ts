@@ -12,6 +12,7 @@ export type TaskOrderUpdateInput = {
 };
 
 export type CreateTaskInput = {
+  id?: string;
   projectId: string;
   projectName: string;
   dueDate: string;
