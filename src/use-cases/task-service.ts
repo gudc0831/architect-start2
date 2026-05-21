@@ -77,6 +77,9 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
     case "auto_sort":
       await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
       break;
+    case "set_sibling_order":
+      await setTaskSiblingOrder(activeTasks, command.parentTaskId, command.orderedTaskIds, userId ?? null);
+      break;
     default:
       throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
   }
@@ -225,6 +228,54 @@ async function reorderTaskTree(
   }));
 
   return taskRepository.updateTaskOrders(updates);
+}
+
+async function setTaskSiblingOrder(
+  activeTasks: TaskRecord[],
+  parentTaskId: string | null,
+  orderedTaskIds: readonly string[],
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  const normalizedParentTaskId = parentTaskId ?? null;
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
+  const siblings = activeTasks
+    .filter((task) => (task.parentTaskId ?? null) === normalizedParentTaskId)
+    .sort(compareTasksBySiblingOrder);
+  const siblingIds = new Set(siblings.map((task) => task.id));
+  const seenIds = new Set<string>();
+  const orderedSiblings: TaskRecord[] = [];
+
+  for (const taskId of orderedTaskIds) {
+    if (seenIds.has(taskId)) {
+      continue;
+    }
+
+    const task = taskById.get(taskId);
+    if (!task) {
+      continue;
+    }
+
+    if (!siblingIds.has(task.id)) {
+      throw badRequest("orderedTaskIds contains a task outside the parent group", "TASK_REORDER_ORDERED_TASK_IDS_INVALID");
+    }
+
+    seenIds.add(task.id);
+    orderedSiblings.push(task);
+  }
+
+  for (const sibling of siblings) {
+    if (!seenIds.has(sibling.id)) {
+      orderedSiblings.push(sibling);
+    }
+  }
+
+  return taskRepository.updateTaskOrders(
+    orderedSiblings.map((task, siblingOrder) => ({
+      id: task.id,
+      siblingOrder,
+      updatedBy: userId,
+    })),
+  );
 }
 
 function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: ReadonlyMap<string, number>) {

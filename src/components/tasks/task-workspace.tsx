@@ -208,8 +208,15 @@ type TaskReorderClientCommand =
       action: "auto_sort";
       strategy: "priority" | "action_id";
     };
+type TaskReorderPersistCommand =
+  | TaskReorderClientCommand
+  | {
+      action: "set_sibling_order";
+      parentTaskId: string | null;
+      orderedTaskIds: readonly string[];
+    };
 type QueuedTaskReorder = {
-  command: TaskReorderClientCommand;
+  command: TaskReorderPersistCommand;
   nextMode: DailyTaskSortMode;
   previousTasks: readonly TaskRecord[];
   requestId: number;
@@ -790,7 +797,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [expandedBoardTaskId, setExpandedBoardTaskId] = useState<string | null>(null);
-  const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(null);
   const [pendingTaskListFocusCell, setPendingTaskListFocusCell] = useState<PendingTaskListFocusCell | null>(null);
   const [viewportWidth, setViewportWidth] = useState(WIDE_BREAKPOINT);
   const [hasViewportSync, setHasViewportSync] = useState(false);
@@ -819,6 +825,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskListColumnResizeStateRef = useRef<TaskListColumnResizeState | null>(null);
   const taskListRowResizeStateRef = useRef<TaskListRowResizeState | null>(null);
   const detailPanelResizeStateRef = useRef<DetailPanelResizeState | null>(null);
+  const taskDragStateRef = useRef<TaskDragState | null>(null);
   const taskDropStateRef = useRef<TaskDropState | null>(null);
   const taskListRowCellRefs = useRef<Map<string, Map<TaskListColumnKey, HTMLDivElement>>>(new Map());
   const taskListScrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -2284,7 +2291,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
   const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isWorkspaceReadOnly;
   const shouldVirtualizeDailyTaskTable =
-    mode === "daily" && !isMobileViewport && !isPagedDailyListView && !taskDragState && !isWorkspaceReadOnly;
+    mode === "daily" && !isMobileViewport && !isPagedDailyListView && !isWorkspaceReadOnly;
   const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
   const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isWorkspaceReadOnly;
 
@@ -3603,11 +3610,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           }
 
           const baseTasks = dashboardStateByScopeRef.current.active.tasks;
-          const expectedVersions = buildTaskReorderExpectedVersions(entry.command, buildStoredOrderTaskTree(baseTasks));
+          const requestBody = buildTaskReorderRequestBody(entry.command, baseTasks);
           const response = await fetch("/api/tasks/reorder", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...entry.command, expectedVersions }),
+            body: JSON.stringify(requestBody),
           });
 
           if (!response.ok) {
@@ -3674,13 +3681,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const requestId = queueState.latestRequestId + 1;
       queueState.latestRequestId = requestId;
       queueState.entries.push({
-        command,
+        command: buildTaskReorderPersistCommand(command, optimisticTasks),
         nextMode,
         previousTasks,
         requestId,
       });
       setIsTaskOrderMenuOpen(false);
-      setTaskDragState(null);
+      taskDragStateRef.current = null;
       setTaskDropState(null);
       flushTaskReorderQueue();
       return true;
@@ -3739,7 +3746,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
 
-      setTaskDragState({ taskId: task.id, parentTaskId: task.parentTaskId ?? null });
+      const nextDragState = { taskId: task.id, parentTaskId: task.parentTaskId ?? null };
+      taskDragStateRef.current = nextDragState;
       setTaskDropState(null);
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
@@ -3749,12 +3757,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const handleTaskRowDragOver = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
-      if (!taskDragState || taskDragState.taskId === task.id) {
+      const currentDragState = taskDragStateRef.current;
+      if (!currentDragState || currentDragState.taskId === task.id) {
         return;
       }
 
       const targetParentTaskId = task.parentTaskId ?? null;
-      if (taskDragState.parentTaskId !== targetParentTaskId) {
+      if (currentDragState.parentTaskId !== targetParentTaskId) {
         return;
       }
 
@@ -3763,17 +3772,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const position: TaskDropPosition = event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
       setTaskDropState({ taskId: task.id, position });
     },
-    [taskDragState, setTaskDropState],
+    [setTaskDropState],
   );
 
   const handleTaskRowDrop = useCallback(
     async (task: TaskRecord, event: ReactDragEvent<HTMLElement>) => {
-      if (!taskDragState) {
+      const currentDragState = taskDragStateRef.current;
+      if (!currentDragState) {
         return;
       }
 
       const targetParentTaskId = task.parentTaskId ?? null;
-      if (taskDragState.parentTaskId !== targetParentTaskId) {
+      if (currentDragState.parentTaskId !== targetParentTaskId) {
         return;
       }
 
@@ -3783,11 +3793,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const siblingIds = dailyTreeRows
         .filter((row) => (row.task.parentTaskId ?? null) === targetParentTaskId)
         .map((row) => row.task.id)
-        .filter((taskId) => taskId !== taskDragState.taskId);
+        .filter((taskId) => taskId !== currentDragState.taskId);
       const targetIndexBase = siblingIds.indexOf(task.id);
 
       if (targetIndexBase < 0) {
-        setTaskDragState(null);
+        taskDragStateRef.current = null;
         setTaskDropState(null);
         return;
       }
@@ -3795,18 +3805,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       await reorderDailyTasks(
         {
           action: "manual_move",
-          movedTaskId: taskDragState.taskId,
+          movedTaskId: currentDragState.taskId,
           targetParentTaskId,
           targetIndex: targetIndexBase + (position === "after" ? 1 : 0),
         },
         "manual",
       );
     },
-    [dailyTreeRows, taskDragState, reorderDailyTasks, setTaskDropState],
+    [dailyTreeRows, reorderDailyTasks, setTaskDropState],
   );
 
   const clearTaskDragInteraction = useCallback(() => {
-    setTaskDragState(null);
+    taskDragStateRef.current = null;
     setTaskDropState(null);
   }, [setTaskDropState]);
 
@@ -6282,6 +6292,7 @@ function DailyTaskTableBody({
                     onClick={(event) => event.stopPropagation()}
                     onDragEnd={clearTaskDragInteraction}
                     onDragStart={(event) => handleTaskRowDragStart(task, event)}
+                    onPointerDown={(event) => event.stopPropagation()}
                     type="button"
                   >
                     <span aria-hidden="true" className="task-tree__drag-grip" />
@@ -6526,6 +6537,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
               onClick={(event) => event.stopPropagation()}
               onDragEnd={clearTaskDragInteraction}
               onDragStart={(event) => handleTaskRowDragStart(task, event)}
+              onPointerDown={(event) => event.stopPropagation()}
               type="button"
             >
               <span aria-hidden="true" className="task-tree__drag-grip" />
@@ -8747,6 +8759,38 @@ function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tas
   return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
 }
 
+function buildTaskReorderRequestBody(command: TaskReorderPersistCommand, tasks: readonly TaskRecord[]) {
+  if (command.action === "set_sibling_order") {
+    return command;
+  }
+
+  return {
+    ...command,
+    expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
+  };
+}
+
+function buildTaskReorderPersistCommand(
+  command: TaskReorderClientCommand,
+  optimisticTasks: readonly TaskRecord[],
+): TaskReorderPersistCommand {
+  if (command.action !== "manual_move") {
+    return command;
+  }
+
+  const parentTaskId = command.targetParentTaskId ?? null;
+  const orderedTaskIds = buildStoredOrderTaskTree(optimisticTasks)
+    .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
+    .map((task) => task.id)
+    .filter((taskId) => !isOptimisticTaskId(taskId));
+
+  return {
+    action: "set_sibling_order",
+    parentTaskId,
+    orderedTaskIds,
+  };
+}
+
 function buildOptimisticReorderedTasks(tasks: readonly TaskRecord[], command: TaskReorderClientCommand) {
   if (command.action === "auto_sort") {
     return applyOptimisticSiblingOrderUpdates(tasks, buildSiblingOrderUpdates(tasks, command.strategy));
@@ -8811,7 +8855,7 @@ function mergeTaskReorderServerAcknowledgement(
 function restoreTaskReorderSnapshot(
   currentTasks: readonly TaskRecord[],
   previousTasks: readonly TaskRecord[],
-  command: TaskReorderClientCommand,
+  command: TaskReorderPersistCommand,
 ) {
   const previousTaskById = new Map(previousTasks.map((task) => [task.id, task]));
 
@@ -8833,9 +8877,13 @@ function restoreTaskReorderSnapshot(
   });
 }
 
-function isTaskImpactedByReorderCommand(task: TaskRecord, command: TaskReorderClientCommand) {
+function isTaskImpactedByReorderCommand(task: TaskRecord, command: TaskReorderPersistCommand) {
   if (command.action === "auto_sort") {
     return true;
+  }
+
+  if (command.action === "set_sibling_order") {
+    return (task.parentTaskId ?? null) === command.parentTaskId;
   }
 
   return task.id === command.movedTaskId || (task.parentTaskId ?? null) === command.targetParentTaskId;

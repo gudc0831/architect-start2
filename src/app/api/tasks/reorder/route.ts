@@ -52,6 +52,22 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
     };
   }
 
+  if (body.action === "set_sibling_order") {
+    const orderedTaskIds = Array.isArray(body.orderedTaskIds)
+      ? body.orderedTaskIds.map((taskId) => String(taskId ?? "").trim()).filter(Boolean)
+      : [];
+
+    if (orderedTaskIds.length === 0) {
+      throw badRequest("orderedTaskIds is required", "TASK_REORDER_ORDERED_TASK_IDS_REQUIRED");
+    }
+
+    return {
+      action: "set_sibling_order",
+      parentTaskId: normalizeNullableId(body.parentTaskId),
+      orderedTaskIds,
+    };
+  }
+
   if (body.action !== "auto_sort") {
     throw badRequest("action is invalid", "TASK_REORDER_ACTION_INVALID");
   }

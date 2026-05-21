@@ -16,7 +16,13 @@ export type TaskReorderAutoSortCommand = {
   expectedVersions: ReadonlyMap<string, number>;
 };
 
-export type TaskReorderCommand = TaskReorderManualMoveCommand | TaskReorderAutoSortCommand;
+export type TaskReorderSetSiblingOrderCommand = {
+  action: "set_sibling_order";
+  parentTaskId: string | null;
+  orderedTaskIds: readonly string[];
+};
+
+export type TaskReorderCommand = TaskReorderManualMoveCommand | TaskReorderAutoSortCommand | TaskReorderSetSiblingOrderCommand;
 
 type TaskPrioritySummary = {
   actionId: number;

@@ -117,6 +117,7 @@ function renderTaskListCellContent(
             onClick={(event) => event.stopPropagation()}
             onDragEnd={clearTaskDragInteraction}
             onDragStart={(event) => handleTaskRowDragStart(task, event)}
+            onPointerDown={(event) => event.stopPropagation()}
             type="button"
           >
             <span aria-hidden="true" className="task-tree__drag-grip" />
