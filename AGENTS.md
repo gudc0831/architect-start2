@@ -71,6 +71,19 @@ This document defines the operating instructions for Codex in this workspace. Th
 - Code review for optimistic UI must include a negative check for hidden blockers such as `disabled={isSaving}`, `disabled={isReordering}`, `busy`, awaited full-scope refreshes, stale version payloads, and callbacks that read server-confirmed state instead of the current optimistic state.
 - Verification must cover chained actions, not just one action: for example create then reorder, reorder twice, delete then reorder another row, edit then navigate selection, and trash/restore without a full refresh.
 
+## Daily Spreadsheet Responsiveness Guardrails
+
+- Preserve `/daily` as a spreadsheet-like surface: create, edit, delete, restore, file movement, and drag reorder must show the local result immediately and persist to the server in the background.
+- Task creation must insert an `optimistic-task:` row into the active dashboard state before the `/api/tasks` POST returns. The server acknowledgement should replace the temporary row with the real task; failure should remove only that temporary row and show a localized error.
+- Any local dashboard mutation must invalidate stale in-flight dashboard reads before applying local state. A slow initial `/api/tasks` response must never overwrite a newer optimistic create, delete, restore, edit, or reorder.
+- Keep `src/providers/dashboard-provider.tsx` aligned with this invariant: `setDashboardTasks` and `setDashboardFiles` must invalidate the matching scope's in-flight read request id before calling `setProviderState`.
+- Drag reorder must remain continuous. Do not block further valid row moves while a previous reorder save is pending; queue or coalesce persistence work instead.
+- Reorder persistence must survive reloads: store the latest pending order locally, send expected versions, replay after reload, and reconcile only the affected active scope.
+- Normal in-page creates, patches, and reorders must use normal `fetch`. Use `sendBeacon` or `fetch(..., { keepalive: true })` only for small unload-time best-effort flushes, never as the primary save path.
+- Do not fix a perceived race by forcing a full refresh, disabling the table, or waiting for server acknowledgement before rendering the local result. That regresses the core spreadsheet contract.
+- If this behavior regresses, first compare against commits `df85490` and `945ba48`, then check `docs/worklogs/2026-05-21-daily-reorder-unload-persistence.md` for the rationale and verified scope.
+- Regression verification must include: page-load-then-immediate-create shows a temporary row within 1 second, repeated drag reorder stays interactive, refresh preserves the final drag order, and `npx tsx scripts/daily-editing-responsiveness-verify.ts` passes.
+
 ## Completeness Contract
 
 The task is complete only when all of the following are true:
