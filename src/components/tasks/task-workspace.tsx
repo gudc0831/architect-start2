@@ -842,6 +842,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
   const dailyListViewModePreferenceReadyKeyRef = useRef<string | null>(null);
   const skipDailyTaskPageSelectionSyncRef = useRef(false);
+  const taskReorderUnloadPersistCommandRef = useRef<TaskReorderPersistCommand | null>(null);
+  const taskReorderUnloadPersistAttemptedRef = useRef(false);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -1204,6 +1206,41 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    const persistLatestTaskReorderBeforeUnload = () => {
+      const command = taskReorderUnloadPersistCommandRef.current;
+      if (!command || taskReorderUnloadPersistAttemptedRef.current) {
+        return;
+      }
+
+      taskReorderUnloadPersistAttemptedRef.current = true;
+      const body = JSON.stringify(buildTaskReorderRequestBody(command, dashboardStateByScopeRef.current.active.tasks));
+      const url = "/api/tasks/reorder";
+
+      if (typeof navigator.sendBeacon === "function") {
+        const queued = navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+        if (queued) {
+          return;
+        }
+      }
+
+      void fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+
+    window.addEventListener("pagehide", persistLatestTaskReorderBeforeUnload);
+    window.addEventListener("beforeunload", persistLatestTaskReorderBeforeUnload);
+
+    return () => {
+      window.removeEventListener("pagehide", persistLatestTaskReorderBeforeUnload);
+      window.removeEventListener("beforeunload", persistLatestTaskReorderBeforeUnload);
+    };
+  }, []);
 
   useEffect(() => {
     if (isPreview || !currentProjectId) {
@@ -3615,11 +3652,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
+            keepalive: true,
           });
 
           if (!response.ok) {
             setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
             queueState.entries = [];
+            taskReorderUnloadPersistCommandRef.current = null;
+            taskReorderUnloadPersistAttemptedRef.current = false;
             if (response.status === 409) {
               await refreshScope({ force: true });
             } else {
@@ -3638,8 +3678,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             }).map((task) => withEmptyTaskFileSummary(applyPendingTaskPatchValues(task, taskPendingPatchValuesRef.current))),
           );
         }
+        taskReorderUnloadPersistCommandRef.current = null;
+        taskReorderUnloadPersistAttemptedRef.current = false;
       } catch (error) {
         queueState.entries = [];
+        taskReorderUnloadPersistCommandRef.current = null;
+        taskReorderUnloadPersistAttemptedRef.current = false;
         setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
         await refreshScope({ force: true });
       } finally {
@@ -3680,8 +3724,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const queueState = taskReorderQueueRef.current;
       const requestId = queueState.latestRequestId + 1;
       queueState.latestRequestId = requestId;
+      const persistCommand = buildTaskReorderPersistCommand(command, optimisticTasks);
+      taskReorderUnloadPersistCommandRef.current = persistCommand;
+      taskReorderUnloadPersistAttemptedRef.current = false;
       queueState.entries.push({
-        command: buildTaskReorderPersistCommand(command, optimisticTasks),
+        command: persistCommand,
         nextMode,
         previousTasks,
         requestId,
