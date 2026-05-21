@@ -79,7 +79,7 @@ import { DEFAULT_TASK_STATUS, isTaskStatus, TASK_STATUS_ORDER } from "@/domains/
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { extractProjectIssueNumber } from "@/domains/task/identifiers";
-import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
+import { buildSiblingOrderUpdates, buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import {
   buildTaskTreePages,
   buildTaskTreeRows,
@@ -520,6 +520,7 @@ type TaskSubtreeMutationPayload = {
 };
 type PermanentTaskDeletePayload = {
   deletedTaskIds?: string[];
+  deletedFileIds?: string[];
   updatedTasks?: TaskRecord[];
 };
 
@@ -840,7 +841,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const scope = isTrashMode ? "trash" : "active";
   const {
     stateByScope: dashboardStateByScope,
-    refreshDashboardTaskFiles,
+    setDashboardFiles,
     setDashboardTasks,
   } = useDashboardData();
   const dashboardStateByScopeRef = useRef(dashboardStateByScope);
@@ -2173,21 +2174,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     handleTaskListRowResizeMove,
   ]);
 
-  const refreshTaskFileCaches = useCallback(
-    async (taskId: string) => {
-      const normalizedTaskId = taskId.trim();
-      if (!normalizedTaskId) {
-        return;
-      }
-
-      await Promise.all([
-        refreshDashboardTaskFiles("active", normalizedTaskId, { force: true }),
-        refreshDashboardTaskFiles("trash", normalizedTaskId, { force: true }),
-      ]);
-    },
-    [refreshDashboardTaskFiles],
-  );
-
   useEffect(() => {
     void ensureLoaded();
   }, [ensureLoaded]);
@@ -2606,7 +2592,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [filesByTaskId, selectedTask],
   );
   const selectedTaskFilesLoading = Boolean(selectedTask?.id && loadingTaskFileIds.includes(selectedTask.id));
-  const previewableSelectedFiles = useMemo(() => selectedFiles.filter((file) => isFilePreviewable(file)), [selectedFiles]);
+  const previewableSelectedFiles = useMemo(
+    () => selectedFiles.filter((file) => !isOptimisticFileId(file.id) && isFilePreviewable(file)),
+    [selectedFiles],
+  );
   const activePreviewFile = useMemo(
     () => previewableSelectedFiles.find((file) => file.id === activePreviewFileId) ?? previewableSelectedFiles[0] ?? null,
     [activePreviewFileId, previewableSelectedFiles],
@@ -3270,6 +3259,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [upsertTasksIntoDashboardScope],
   );
+  const setDashboardScopeFiles = useCallback(
+    (targetScope: DashboardScope, updater: (previous: FileRecord[]) => FileRecord[]) => {
+      setDashboardFiles(targetScope, (previous) => updater(previous));
+    },
+    [setDashboardFiles],
+  );
+  const removeFileIdsFromDashboardScope = useCallback(
+    (targetScope: DashboardScope, fileIds: Iterable<string>) => {
+      const fileIdSet = new Set(fileIds);
+      if (fileIdSet.size === 0) {
+        return;
+      }
+
+      setDashboardScopeFiles(targetScope, (previous) => previous.filter((file) => !fileIdSet.has(file.id)));
+    },
+    [setDashboardScopeFiles],
+  );
+  const upsertFilesIntoDashboardScope = useCallback(
+    (targetScope: DashboardScope, nextFiles: readonly FileRecord[]) => {
+      if (nextFiles.length === 0) {
+        return;
+      }
+
+      setDashboardScopeFiles(targetScope, (previous) => {
+        const nextById = new Map(nextFiles.map((file) => [file.id, file]));
+        const next = previous.map((file) => nextById.get(file.id) ?? file);
+        const existingIds = new Set(previous.map((file) => file.id));
+        for (const file of nextFiles) {
+          if (!existingIds.has(file.id)) {
+            next.push(file);
+          }
+        }
+        return next;
+      });
+    },
+    [setDashboardScopeFiles],
+  );
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -3366,8 +3392,19 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return false;
     }
 
+    const previousTaskBeforeSave = selectedTaskRef.current?.id === currentDraft.id ? selectedTaskRef.current : null;
+    let shouldRollbackSave = Boolean(previousTaskBeforeSave);
+
     try {
       const payload = buildTaskPatchPayloadFromDraft(currentDraft, draftDirtyFieldsRef.current, parentTaskNumberDraftRef.current);
+      const optimisticPayload = buildOptimisticTaskPatchPayload(payload);
+      if (previousTaskBeforeSave && Object.keys(optimisticPayload).length > 0) {
+        applyTaskClientUpdate(
+          withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...optimisticPayload }),
+          dirtyFields.filter((field) => field !== "parentTaskNumber"),
+        );
+      }
+
       const response = await fetch(`/api/tasks/${encodeURIComponent(currentDraft.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3377,7 +3414,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       if (!response.ok) {
         const message = await readErrorMessage(response, "saveTaskFailed");
         if (response.status === 409) {
+          shouldRollbackSave = false;
           await refreshScope({ force: true });
+        } else if (previousTaskBeforeSave) {
+          shouldRollbackSave = false;
+          applyTaskClientUpdate(previousTaskBeforeSave);
         }
         throw new Error(message);
       }
@@ -3386,6 +3427,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       applyTaskServerUpdate(json.data, dirtyFields);
       return true;
     } catch (error) {
+      if (previousTaskBeforeSave && shouldRollbackSave) {
+        applyTaskClientUpdate(previousTaskBeforeSave);
+      }
       setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "saveTaskFailed" }));
       return false;
     } finally {
@@ -3484,8 +3528,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setIsReorderingTasks(true);
       setErrorMessage(null);
 
+      const previousTasks = dashboardStateByScopeRef.current.active.tasks;
+      const optimisticTasks = buildOptimisticReorderedTasks(previousTasks, command);
+      startTransition(() => {
+        setTasks(optimisticTasks);
+        setTaskSortMode(nextMode);
+      });
+      if (command.action === "manual_move") {
+        setTaskListSelection(command.movedTaskId);
+      }
+
       try {
-        const expectedVersions = buildTaskReorderExpectedVersions(command, sortedTasks);
+        const expectedVersions = buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(previousTasks));
         const response = await fetch("/api/tasks/reorder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3496,6 +3550,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
           if (response.status === 409) {
             await refreshScope({ force: true });
+          } else {
+            setTasks(previousTasks);
           }
           return false;
         }
@@ -3510,6 +3566,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
         return true;
       } catch (error) {
+        setTasks(previousTasks);
         setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
         return false;
       } finally {
@@ -3521,6 +3578,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [
       hasSelectedTaskDraftChanges,
+      dashboardStateByScopeRef,
       isWorkspaceReadOnly,
       isReorderingTasks,
       refreshScope,
@@ -3528,7 +3586,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setTaskDropState,
       setTaskListSelection,
       setTasks,
-      sortedTasks,
     ],
   );
 
@@ -3727,6 +3784,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         clearedDirtyFields?: readonly DraftDirtyField[];
         fallbackKey?: ErrorCopyKey;
         applyServerUpdate?: boolean;
+        onFailure?: (status: number) => void | Promise<void>;
       } = {},
     ) => {
       if (isWorkspaceReadOnly) {
@@ -3746,6 +3804,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         if (response.status === 409) {
           await refreshScope({ force: true });
         }
+        await options.onFailure?.(response.status);
         return null;
       }
 
@@ -4014,8 +4073,40 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const nextIndex = currentIndex + direction;
     if (nextIndex < 0 || nextIndex >= statusOrder.length) return;
     const nextStatus = statusOrder[nextIndex];
-    const updatedTask = await patchTask(task, { status: nextStatus });
+    const optimisticTask = withEmptyTaskFileSummary({ ...task, status: nextStatus });
+    applyTaskClientUpdate(optimisticTask);
+
+    if (mode === "board") {
+      setCollapsedBoardStatuses((previous) => {
+        if (!previous[nextStatus]) {
+          return previous;
+        }
+
+        const next = { ...previous };
+        delete next[nextStatus];
+        return next;
+      });
+
+      const optimisticTaskTree = sortedTasks.map((currentTask) => (currentTask.id === optimisticTask.id ? optimisticTask : currentTask));
+      setBoardPageByStatus((previous) => ({
+        ...previous,
+        [nextStatus]: getBoardPageForTask(optimisticTaskTree, optimisticTask.id, nextStatus, boardPageSize),
+      }));
+      setExpandedBoardTaskId(optimisticTask.id);
+    }
+
+    let shouldRollbackStatus = true;
+    const updatedTask = await patchTask(task, { status: nextStatus }, {
+      onFailure: (status) => {
+        if (status === 409) {
+          shouldRollbackStatus = false;
+        }
+      },
+    });
     if (!updatedTask || mode !== "board") {
+      if (!updatedTask && shouldRollbackStatus) {
+        applyTaskClientUpdate(task);
+      }
       return;
     }
 
@@ -4111,6 +4202,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const tempFile = buildOptimisticFileRecord({
+      taskId,
+      file,
+      projectId: currentProjectId,
+      existingFiles: dashboardStateByScopeRef.current.active.files.filter((candidate) => candidate.taskId === taskId),
+    });
+    setErrorMessage(null);
+    upsertFilesIntoDashboardScope("active", [tempFile]);
+
     try {
       const intent = await uploadFileWithIntent({ taskId, file });
       if (!intent) {
@@ -4119,23 +4219,27 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         body.append("taskId", taskId);
         const response = await fetch("/api/upload", { method: "POST", body });
         if (!response.ok) {
+          removeFileIdsFromDashboardScope("active", [tempFile.id]);
           setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
           return;
         }
-    }
-    await refreshTaskFiles(taskId, { force: true });
-  } catch (error) {
-    if (isApiConflictError(error)) {
+      }
+      removeFileIdsFromDashboardScope("active", [tempFile.id]);
       await refreshTaskFiles(taskId, { force: true });
+    } catch (error) {
+      removeFileIdsFromDashboardScope("active", [tempFile.id]);
+      if (isApiConflictError(error)) {
+        await refreshTaskFiles(taskId, { force: true });
+      }
+      setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
     }
-    setErrorMessage(error instanceof Error ? error.message : t("errors.uploadFileFailed"));
   }
-}
 
   async function uploadSelectedFile() {
     if (!selectedTask || !pendingUpload) return;
-    await uploadFileForTask(selectedTask.id, pendingUpload);
+    const file = pendingUpload;
     setPendingUpload(null);
+    await uploadFileForTask(selectedTask.id, file);
   }
 
   async function uploadNextVersion() {
@@ -4146,35 +4250,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const targetFile = selectedFiles.find((file) => file.id === versionTargetId);
-    if (!targetFile) {
+    if (!targetFile || isOptimisticFileId(targetFile.id)) {
       setErrorMessage(t("workspace.privateStorage"));
       return;
     }
 
+    const previousActiveFiles = dashboardStateByScopeRef.current.active.files;
+    const uploadFile = pendingVersionUpload;
+    const optimisticVersionFile = buildOptimisticFileVersion(targetFile, uploadFile);
+    setPendingVersionUpload(null);
+    setErrorMessage(null);
+    upsertFilesIntoDashboardScope("active", [optimisticVersionFile]);
+
     try {
       const intent = await uploadFileWithIntent({
         taskId: targetFile.taskId,
-        file: pendingVersionUpload,
+        file: uploadFile,
         replaceFileId: versionTargetId,
       });
 
       if (!intent) {
         const body = new FormData();
-        body.append("file", pendingVersionUpload);
+        body.append("file", uploadFile);
         const response = await fetch(`/api/files/${encodeURIComponent(versionTargetId)}/version`, {
           method: "POST",
           body,
         });
 
         if (!response.ok) {
+          setDashboardScopeFiles("active", () => previousActiveFiles);
           setErrorMessage(await readErrorMessage(response, "uploadNextVersionFailed"));
           return;
         }
       }
 
-      setPendingVersionUpload(null);
       await refreshTaskFiles(targetFile.taskId, { force: true });
     } catch (error) {
+      setDashboardScopeFiles("active", () => previousActiveFiles);
       if (isApiConflictError(error, "FILE_VERSION_CONFLICT")) {
         await refreshTaskFiles(targetFile.taskId, { force: true });
       }
@@ -4189,13 +4301,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const sourceFile = files.find((candidate) => candidate.id === fileId);
+    if (!sourceFile || isOptimisticFileId(sourceFile.id)) {
+      return;
+    }
+
+    const previousActiveFiles = dashboardStateByScopeRef.current.active.files;
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const optimisticTrashFile = { ...sourceFile, deletedAt: new Date().toISOString() };
+
+    setErrorMessage(null);
+    removeFileIdsFromDashboardScope("active", [fileId]);
+    upsertFilesIntoDashboardScope("trash", [optimisticTrashFile]);
 
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/trash`, { method: "POST" });
     if (!response.ok) {
+      setDashboardScopeFiles("active", () => previousActiveFiles);
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
       setErrorMessage(await readErrorMessage(response, "moveFileToTrashFailed"));
       return;
     }
-    await refreshTaskFileCaches(sourceFile?.taskId ?? selectedTask?.id ?? "");
+
+    const json = (await response.json()) as { data: FileRecord };
+    removeFileIdsFromDashboardScope("active", [fileId]);
+    upsertFilesIntoDashboardScope("trash", [json.data]);
   }
 
   async function restoreFile(fileId: string) {
@@ -4205,13 +4333,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const sourceFile = files.find((candidate) => candidate.id === fileId);
+    if (!sourceFile || isOptimisticFileId(sourceFile.id)) {
+      return;
+    }
+
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const previousActiveFiles = dashboardStateByScopeRef.current.active.files;
+    const optimisticActiveFile = { ...sourceFile, deletedAt: null };
+
+    setErrorMessage(null);
+    removeFileIdsFromDashboardScope("trash", [fileId]);
+    upsertFilesIntoDashboardScope("active", [optimisticActiveFile]);
 
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/restore`, { method: "POST" });
     if (!response.ok) {
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
+      setDashboardScopeFiles("active", () => previousActiveFiles);
       setErrorMessage(await readErrorMessage(response, "restoreFileFailed"));
       return;
     }
-    await refreshTaskFileCaches(sourceFile?.taskId ?? selectedTask?.id ?? "");
+
+    const json = (await response.json()) as { data: FileRecord };
+    removeFileIdsFromDashboardScope("trash", [fileId]);
+    upsertFilesIntoDashboardScope("active", [json.data]);
   }
 
   async function deleteTaskPermanently(task: TaskRecord) {
@@ -4229,17 +4373,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const optimisticDeletedFileIds = previousTrashFiles.filter((file) => file.taskId === task.id).map((file) => file.id);
     const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
     const nextSelectedTaskId =
       previousSelectedTaskId === task.id ? previousTrashTasks.find((candidate) => candidate.id !== task.id)?.id ?? null : previousSelectedTaskId;
 
     setErrorMessage(null);
     removeTaskIdsFromDashboardScope("trash", [task.id]);
+    removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
     setTaskListSelection(nextSelectedTaskId);
 
     const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
     if (!response.ok) {
       setDashboardScopeTasks("trash", () => previousTrashTasks);
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
       setTaskListSelection(previousSelectedTaskId);
       setErrorMessage(await readErrorMessage(response, "deleteTaskFailed"));
       return;
@@ -4248,6 +4396,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
     const deletedTaskIds = new Set(json?.data?.deletedTaskIds?.length ? json.data.deletedTaskIds : [task.id]);
     removeTaskIdsFromDashboardScope("trash", deletedTaskIds);
+    removeFileIdsFromDashboardScope("trash", json?.data?.deletedFileIds ?? optimisticDeletedFileIds);
     upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
   }
 
@@ -4265,13 +4414,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    setErrorMessage(null);
+    removeFileIdsFromDashboardScope("trash", [file.id]);
+
     const response = await fetch(`/api/files/${encodeURIComponent(file.id)}`, { method: "DELETE" });
     if (!response.ok) {
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
       setErrorMessage(await readErrorMessage(response, "deleteFileFailed"));
       return;
     }
-
-    await refreshTaskFileCaches(file.taskId);
   }
 
   async function deleteSelectedTrashItems() {
@@ -4292,30 +4444,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const taskIdsToDelete = [...selectedTrashTaskIds];
+    const fileIdsToDelete = [...selectedTrashFileIds];
+    const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const optimisticDeletedTaskIds = new Set(taskIdsToDelete);
+    const optimisticDeletedFileIds = new Set(fileIdsToDelete);
+    for (const file of previousTrashFiles) {
+      if (optimisticDeletedTaskIds.has(file.taskId)) {
+        optimisticDeletedFileIds.add(file.id);
+      }
+    }
+
+    setErrorMessage(null);
+    removeTaskIdsFromDashboardScope("trash", optimisticDeletedTaskIds);
+    removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
+    setSelectedTrashTaskIds([]);
+    setSelectedTrashFileIds([]);
+
     const response = await fetch("/api/trash/bulk-delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskIds: selectedTrashTaskIds, fileIds: selectedTrashFileIds }),
+      body: JSON.stringify({ taskIds: taskIdsToDelete, fileIds: fileIdsToDelete }),
     });
 
     if (!response.ok) {
+      setDashboardScopeTasks("trash", () => previousTrashTasks);
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
+      setSelectedTrashTaskIds(taskIdsToDelete);
+      setSelectedTrashFileIds(fileIdsToDelete);
       setErrorMessage(await readErrorMessage(response, "deleteSelectedFailed"));
       return;
     }
 
-    setSelectedTrashTaskIds([]);
-    setSelectedTrashFileIds([]);
-    await refreshScope({ force: true });
-
-    const affectedTaskIds = new Set(selectedTrashTaskIds);
-    for (const fileId of selectedTrashFileIds) {
-      const file = files.find((candidate) => candidate.id === fileId);
-      if (file) {
-        affectedTaskIds.add(file.taskId);
-      }
-    }
-
-    await Promise.all([...affectedTaskIds].map((taskId) => refreshTaskFileCaches(taskId)));
+    const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
+    removeTaskIdsFromDashboardScope("trash", json?.data?.deletedTaskIds ?? taskIdsToDelete);
+    removeFileIdsFromDashboardScope("trash", json?.data?.deletedFileIds ?? [...optimisticDeletedFileIds]);
+    upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
   }
 
   async function emptyTrashItems() {
@@ -4333,18 +4498,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const deletedTaskIds = previousTrashTasks.map((task) => task.id);
+    const deletedFileIds = previousTrashFiles.map((file) => file.id);
+
+    setErrorMessage(null);
+    setSelectedTrashTaskIds([]);
+    setSelectedTrashFileIds([]);
+    setDashboardScopeTasks("trash", () => []);
+    setDashboardScopeFiles("trash", () => []);
+
     const response = await fetch("/api/trash", { method: "DELETE" });
     if (!response.ok) {
+      setDashboardScopeTasks("trash", () => previousTrashTasks);
+      setDashboardScopeFiles("trash", () => previousTrashFiles);
       setErrorMessage(await readErrorMessage(response, "emptyTrashFailed"));
       return;
     }
 
-    setSelectedTrashTaskIds([]);
-    setSelectedTrashFileIds([]);
-    await refreshScope({ force: true });
-    await Promise.all(
-      trashItems.map((item) => refreshTaskFileCaches(item.kind === "task" ? item.task.id : item.file.taskId)),
-    );
+    const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
+    removeTaskIdsFromDashboardScope("trash", json?.data?.deletedTaskIds ?? deletedTaskIds);
+    removeFileIdsFromDashboardScope("trash", json?.data?.deletedFileIds ?? deletedFileIds);
+    upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
   }
 
   function toggleTrashTaskSelection(taskId: string) {
@@ -5762,7 +5938,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <small>{formatFileAttachmentMeta(file)}</small>
                             </div>
                             <div className="file-pill__actions">
-                              {!isPreview ? (
+                              {!isPreview && !isOptimisticFileId(file.id) ? (
                                 <>
                                   <a
                                     className="secondary-button"
@@ -5781,7 +5957,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                                   </button>
                                 </>
                               ) : null}
-                              {!isWorkspaceReadOnly ? (
+                              {!isWorkspaceReadOnly && !isOptimisticFileId(file.id) ? (
                                 <button className="secondary-button" onClick={() => void moveFileToTrash(file.id)} type="button">
                                   {t("actions.remove")}
                                 </button>
@@ -8469,6 +8645,40 @@ function buildTaskReorderExpectedVersions(command: TaskReorderClientCommand, tas
   return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
 }
 
+function buildOptimisticReorderedTasks(tasks: readonly TaskRecord[], command: TaskReorderClientCommand) {
+  if (command.action === "auto_sort") {
+    return applyOptimisticSiblingOrderUpdates(tasks, buildSiblingOrderUpdates(tasks, command.strategy));
+  }
+
+  const parentTaskId = command.targetParentTaskId ?? null;
+  const siblings = buildStoredOrderTaskTree(tasks).filter((task) => (task.parentTaskId ?? null) === parentTaskId);
+  const currentIndex = siblings.findIndex((task) => task.id === command.movedTaskId);
+  if (currentIndex < 0 || command.targetIndex < 0) {
+    return [...tasks];
+  }
+
+  const nextSiblings = siblings.filter((task) => task.id !== command.movedTaskId);
+  const normalizedInsertionIndex = command.targetIndex > currentIndex ? command.targetIndex - 1 : command.targetIndex;
+  const insertionIndex = Math.min(normalizedInsertionIndex, nextSiblings.length);
+  nextSiblings.splice(insertionIndex, 0, siblings[currentIndex]);
+
+  return applyOptimisticSiblingOrderUpdates(
+    tasks,
+    nextSiblings.map((task, siblingOrder) => ({ id: task.id, siblingOrder })),
+  );
+}
+
+function applyOptimisticSiblingOrderUpdates(
+  tasks: readonly TaskRecord[],
+  updates: ReadonlyArray<{ id: string; siblingOrder: number }>,
+) {
+  const siblingOrderById = new Map(updates.map((update) => [update.id, update.siblingOrder]));
+  return tasks.map((task) => {
+    const siblingOrder = siblingOrderById.get(task.id);
+    return siblingOrder === undefined ? task : withEmptyTaskFileSummary({ ...task, siblingOrder });
+  });
+}
+
 function collectTaskSubtree(tasks: readonly TaskRecord[], rootTaskId: string) {
   const root = tasks.find((task) => task.id === rootTaskId);
   if (!root) {
@@ -8523,6 +8733,10 @@ function isOptimisticTaskId(taskId: string) {
   return taskId.startsWith("optimistic-task:");
 }
 
+function isOptimisticFileId(fileId: string) {
+  return fileId.startsWith("optimistic-file:");
+}
+
 function buildOptimisticTask(input: {
   form: TaskQuickCreateFormValues;
   projectId: string | null;
@@ -8571,6 +8785,57 @@ function buildOptimisticTask(input: {
   };
 }
 
+function buildOptimisticFileRecord(input: {
+  taskId: string;
+  file: File;
+  projectId: string | null;
+  existingFiles: readonly FileRecord[];
+}): FileRecord {
+  const id = `optimistic-file:${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+  const versionNumber = nextOptimisticFileVersionNumber(input.existingFiles);
+
+  return {
+    id,
+    taskId: input.taskId,
+    projectId: input.projectId ?? "",
+    fileGroupId: `optimistic-file-group:${id}`,
+    originalName: input.file.name,
+    mimeType: input.file.type || null,
+    sizeBytes: input.file.size,
+    storageBucket: "",
+    objectPath: "",
+    version: 1,
+    versionNumber,
+    versionLabel: `v${versionNumber}`,
+    createdAt: now,
+    updatedAt: now,
+    uploadedBy: null,
+    deletedAt: null,
+    purgedAt: null,
+    metadata: {},
+  };
+}
+
+function buildOptimisticFileVersion(file: FileRecord, nextFile: File): FileRecord {
+  const nextVersionNumber = file.versionNumber + 1;
+  return {
+    ...file,
+    originalName: nextFile.name,
+    mimeType: nextFile.type || null,
+    sizeBytes: nextFile.size,
+    version: file.version + 1,
+    versionNumber: nextVersionNumber,
+    versionLabel: `v${nextVersionNumber}`,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function nextOptimisticFileVersionNumber(files: readonly FileRecord[]) {
+  const versionNumbers = files.map((file) => file.versionNumber).filter((value) => Number.isFinite(value));
+  return versionNumbers.length === 0 ? 1 : Math.max(...versionNumbers) + 1;
+}
+
 function resolveOptimisticCreateSiblingOrder(previousTasks: readonly TaskRecord[]) {
   const rootSiblingOrders = previousTasks
     .filter((task) => !task.parentTaskId)
@@ -8585,6 +8850,17 @@ function withEmptyTaskFileSummary(task: TaskRecord): TaskRecord {
     ...task,
     fileSummary: task.fileSummary ?? { count: 0, latestFileName: null },
   };
+}
+
+function buildOptimisticTaskPatchPayload(payload: Record<string, unknown>) {
+  const next: Partial<TaskRecord> = {};
+  const nextRecord = next as Record<string, unknown>;
+  for (const field of editableTaskFormKeys) {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      nextRecord[field] = payload[field];
+    }
+  }
+  return next;
 }
 
 function taskPayloadFromDraft(draft: Partial<TaskRecord>) {

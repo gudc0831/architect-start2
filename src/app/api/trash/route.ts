@@ -10,9 +10,9 @@ export async function DELETE(request: Request) {
     assertRequestIntegrity(request);
     const user = await requireUser();
     await requireCurrentProjectEditor(user);
-    await emptyTrash(user.id);
+    const result = await emptyTrash(user.id);
 
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ data: result });
   } catch (error) {
     return handleRouteError(error);
   }

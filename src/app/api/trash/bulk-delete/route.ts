@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const user = await requireUser();
     await requireCurrentProjectEditor(user);
     const body = (await request.json()) as { taskIds?: string[]; fileIds?: string[] };
-    await bulkDeleteTrashSelection(
+    const result = await bulkDeleteTrashSelection(
       {
         taskIds: Array.isArray(body?.taskIds) ? body.taskIds : [],
         fileIds: Array.isArray(body?.fileIds) ? body.fileIds : [],
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       user.id,
     );
 
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ data: result });
   } catch (error) {
     return handleRouteError(error);
   }

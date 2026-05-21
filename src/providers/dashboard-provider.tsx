@@ -74,6 +74,7 @@ type DashboardDataContextValue = {
     options?: DashboardTaskFilesRefreshOptions,
   ) => Promise<void>;
   setDashboardTasks: (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => void;
+  setDashboardFiles: (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => void;
   setDashboardErrorMessage: (scope: DashboardScope, updater: SetStateAction<string | null>) => void;
 };
 
@@ -678,6 +679,33 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [ownerKey],
   );
 
+  const setDashboardFiles = useCallback(
+    (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => {
+      setProviderState((previous) => {
+        if (previous.ownerKey !== ownerKey) {
+          return previous;
+        }
+
+        const previousScope = previous.stateByScope[scope];
+        const nextFiles = typeof updater === "function" ? updater(previousScope.files) : updater;
+        const nextFilesByTaskId = groupFilesByTaskId(nextFiles);
+
+        return {
+          ...previous,
+          stateByScope: {
+            ...previous.stateByScope,
+            [scope]: {
+              ...previousScope,
+              filesByTaskId: nextFilesByTaskId,
+              files: flattenFilesByTaskId(nextFilesByTaskId),
+            },
+          },
+        };
+      });
+    },
+    [ownerKey],
+  );
+
   const setDashboardErrorMessage = useCallback(
     (scope: DashboardScope, updater: SetStateAction<string | null>) => {
       setProviderState((previous) => {
@@ -709,6 +737,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       ensureDashboardTaskFilesLoaded,
       refreshDashboardTaskFiles,
       setDashboardTasks,
+      setDashboardFiles,
       setDashboardErrorMessage,
     }),
     [
@@ -717,6 +746,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       refreshDashboardScope,
       refreshDashboardTaskFiles,
       setDashboardErrorMessage,
+      setDashboardFiles,
       setDashboardTasks,
       visibleStateByScope,
     ],
@@ -747,6 +777,7 @@ export function useDashboardScope(scope: DashboardScope) {
     ensureDashboardTaskFilesLoaded,
     refreshDashboardTaskFiles,
     setDashboardTasks,
+    setDashboardFiles,
     setDashboardErrorMessage,
   } = context;
   const previewState = useMemo(() => buildPreviewScopeState(scope), [scope]);
@@ -783,6 +814,17 @@ export function useDashboardScope(scope: DashboardScope) {
       setDashboardTasks(scope, updater);
     },
     [isPreview, scope, setDashboardTasks],
+  );
+
+  const setFiles = useCallback(
+    (updater: SetStateAction<FileRecord[]>) => {
+      if (isPreview) {
+        return;
+      }
+
+      setDashboardFiles(scope, updater);
+    },
+    [isPreview, scope, setDashboardFiles],
   );
 
   const ensureTaskFilesLoaded = useCallback(
@@ -835,6 +877,7 @@ export function useDashboardScope(scope: DashboardScope) {
             ensureTaskFilesLoaded,
             refreshTaskFiles,
             setTasks,
+            setFiles,
             setErrorMessage,
           }
         : {
@@ -847,6 +890,7 @@ export function useDashboardScope(scope: DashboardScope) {
             ensureTaskFilesLoaded,
             refreshTaskFiles,
             setTasks,
+            setFiles,
             setErrorMessage,
           },
     [
@@ -860,6 +904,7 @@ export function useDashboardScope(scope: DashboardScope) {
       refreshTaskFiles,
       scopeState,
       setErrorMessage,
+      setFiles,
       setTasks,
       files,
       filesByTaskId,
