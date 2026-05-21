@@ -631,6 +631,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [isPreview, ownerKey],
   );
 
+  const invalidateDashboardScopeRead = useCallback((scope: DashboardScope) => {
+    requestIdRef.current[scope] += 1;
+    delete inFlightRef.current[scope];
+  }, []);
+
   const ensureDashboardTaskFilesLoaded = useCallback(
     async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
       if (isPreview) {
@@ -658,6 +663,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const setDashboardTasks = useCallback(
     (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => {
+      invalidateDashboardScopeRead(scope);
       setProviderState((previous) => {
         if (previous.ownerKey !== ownerKey) {
           return previous;
@@ -676,11 +682,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         };
       });
     },
-    [ownerKey],
+    [invalidateDashboardScopeRead, ownerKey],
   );
 
   const setDashboardFiles = useCallback(
     (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => {
+      invalidateDashboardScopeRead(scope);
       setProviderState((previous) => {
         if (previous.ownerKey !== ownerKey) {
           return previous;
@@ -703,7 +710,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         };
       });
     },
-    [ownerKey],
+    [invalidateDashboardScopeRead, ownerKey],
   );
 
   const setDashboardErrorMessage = useCallback(

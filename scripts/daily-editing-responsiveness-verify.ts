@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { shouldUseLegacyTaskCategoricalTextInput } from "@/components/tasks/task-categorical-edit-policy";
 import {
@@ -139,6 +141,16 @@ assert.equal(
   "데이터베이스 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도하세요.",
 );
 
+const dashboardProviderSource = readFileSync(resolve("src/providers/dashboard-provider.tsx"), "utf8");
+assert.match(
+  dashboardProviderSource,
+  /const invalidateDashboardScopeRead = useCallback\(\(scope: DashboardScope\) => \{\s*requestIdRef\.current\[scope\] \+= 1;\s*delete inFlightRef\.current\[scope\];\s*\}, \[\]\);/s,
+);
+assert.match(
+  dashboardProviderSource,
+  /const setDashboardTasks = useCallback\(\s*\(scope: DashboardScope, updater: SetStateAction<TaskRecord\[\]>\) => \{\s*invalidateDashboardScopeRead\(scope\);/s,
+);
+
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 async function assertDatabaseUnavailableRouteError() {
@@ -168,6 +180,7 @@ assertDatabaseUnavailableRouteError()
     console.log("daily editing local auth origin policy: ok");
     console.log("daily editing request integrity policy: ok");
     console.log("daily editing database unavailable policy: ok");
+    console.log("daily editing optimistic create load-race policy: ok");
   })
   .catch((error: unknown) => {
     console.error(error);
