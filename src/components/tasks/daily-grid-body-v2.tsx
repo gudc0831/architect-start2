@@ -60,7 +60,6 @@ type DailyGridBodyV2Props = {
   hideIssueIdOverdueBadge: boolean;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
-  isReorderingTasks: boolean;
   activeTaskListInlineEditRowId: string | null;
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
@@ -101,7 +100,6 @@ export function DailyGridBodyV2({
   hideIssueIdOverdueBadge,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
-  isReorderingTasks,
   activeTaskListInlineEditRowId,
   draft,
   inlineSavingFields,
@@ -354,7 +352,6 @@ export function DailyGridBodyV2({
               interactionStore={interactionStore}
               isHtmlDragReorderDisabled={isHtmlDragReorderDisabled}
               isManualReorderDisabled={isManualReorderDisabled}
-              isReorderingTasks={isReorderingTasks}
               isTaskOverdue={isTaskOverdue}
               key={row.task.id}
               metricsStore={metricsStore}

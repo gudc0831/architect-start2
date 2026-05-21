@@ -55,7 +55,6 @@ type DailyGridRowV2Props = {
   hideIssueIdOverdueBadge: boolean;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
-  isReorderingTasks: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions: readonly WorkTypeDefinition[];
@@ -92,7 +91,6 @@ function renderTaskListCellContent(
   deadlineBadge: DeadlineBadge | null,
   hideIssueIdOverdueBadge: boolean,
   isHtmlDragReorderDisabled: boolean,
-  isReorderingTasks: boolean,
   isManualReorderDisabled: boolean,
   isSelectedRow: boolean,
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void,
@@ -114,8 +112,8 @@ function renderTaskListCellContent(
           <button
             aria-label={presentation.actionId}
             className="task-tree__drag-handle"
-            disabled={isHtmlDragReorderDisabled || isReorderingTasks}
-            draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
+            disabled={isHtmlDragReorderDisabled}
+            draggable={!isHtmlDragReorderDisabled}
             onClick={(event) => event.stopPropagation()}
             onDragEnd={clearTaskDragInteraction}
             onDragStart={(event) => handleTaskRowDragStart(task, event)}
@@ -144,7 +142,7 @@ function renderTaskListCellContent(
               <button
                 aria-label="move up"
                 className="task-tree__move-button"
-                disabled={isManualReorderDisabled || isReorderingTasks}
+                disabled={isManualReorderDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
                   void moveTaskByOffset(task.id, -1);
@@ -156,7 +154,7 @@ function renderTaskListCellContent(
               <button
                 aria-label="move down"
                 className="task-tree__move-button"
-                disabled={isManualReorderDisabled || isReorderingTasks}
+                disabled={isManualReorderDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
                   void moveTaskByOffset(task.id, 1);
@@ -225,7 +223,6 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
   hideIssueIdOverdueBadge,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
-  isReorderingTasks,
   rowDraft,
   inlineSavingFields,
   workTypeDefinitions,
@@ -338,7 +335,6 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
                   deadlineBadge,
                   hideIssueIdOverdueBadge,
                   isHtmlDragReorderDisabled,
-                  isReorderingTasks,
                   isManualReorderDisabled,
                   isSelectedRow,
                   moveTaskByOffset,

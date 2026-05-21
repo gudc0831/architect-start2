@@ -178,6 +178,14 @@ type TaskPatchQueueEntry = {
   resolve: (value: TaskRecord | null) => void;
   reject: (reason: unknown) => void;
 };
+type QueueTaskPatch = (
+  task: Pick<TaskRecord, "id" | "version">,
+  payload: Partial<TaskRecord>,
+  options?: {
+    clearedDirtyFields?: readonly DraftDirtyField[];
+    fallbackKey?: ErrorCopyKey;
+  },
+) => Promise<TaskRecord | null>;
 type TaskFocusKey = "in_review" | "in_discussion" | "blocked" | "overdue";
 type TaskDropPosition = "before" | "after";
 type TaskDragState = {
@@ -200,6 +208,17 @@ type TaskReorderClientCommand =
       action: "auto_sort";
       strategy: "priority" | "action_id";
     };
+type QueuedTaskReorder = {
+  command: TaskReorderClientCommand;
+  nextMode: DailyTaskSortMode;
+  previousTasks: readonly TaskRecord[];
+  requestId: number;
+};
+type TaskReorderQueueState = {
+  entries: QueuedTaskReorder[];
+  isRunning: boolean;
+  latestRequestId: number;
+};
 
 type TaskDetailPanelInteractionState = {
   selectedTaskId: string | null;
@@ -446,7 +465,6 @@ type DailyTaskTableRowProps = {
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
   isPreviewReadOnly: boolean;
-  isReorderingTasks: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions: readonly WorkTypeDefinition[];
@@ -478,7 +496,6 @@ type DailyTaskTableBodyProps = {
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
   isPreviewReadOnly: boolean;
-  isReorderingTasks: boolean;
   activeTaskListInlineEditRowId: string | null;
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
@@ -828,7 +845,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const selectedTaskRef = useRef<TaskRecord | null>(null);
   const inlineSavingFieldsRef = useRef<Partial<Record<TaskListColumnKey, boolean>>>({});
   const taskPatchQueueRef = useRef<Record<string, TaskPatchQueueEntry>>({});
+  const queueTaskPatchRef = useRef<QueueTaskPatch | null>(null);
   const taskPendingPatchValuesRef = useRef<TaskPendingPatchValueMap>({});
+  const taskReorderQueueRef = useRef<TaskReorderQueueState>({
+    entries: [],
+    isRunning: false,
+    latestRequestId: 0,
+  });
   const detailPanelInteractionRef = useRef<TaskDetailPanelInteractionState>({
     selectedTaskId: null,
     isDetailExpanded: false,
@@ -3218,6 +3241,24 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [setDashboardTasks],
   );
+  const setActiveTasksForContinuousReorder = useCallback(
+    (updater: (previous: TaskRecord[]) => TaskRecord[]) => {
+      const currentDashboardState = dashboardStateByScopeRef.current;
+      const currentActiveState = currentDashboardState.active;
+      const nextTasks = updater(currentActiveState.tasks);
+
+      dashboardStateByScopeRef.current = {
+        ...currentDashboardState,
+        active: {
+          ...currentActiveState,
+          tasks: nextTasks,
+        },
+      };
+      setTasks(nextTasks);
+      return nextTasks;
+    },
+    [setTasks],
+  );
   const removeTaskIdsFromDashboardScope = useCallback(
     (targetScope: DashboardScope, taskIds: Iterable<string>) => {
       const taskIdSet = new Set(taskIds);
@@ -3504,6 +3545,107 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
   }
 
+  const stageSelectedTaskDraftForContinuousAction = useCallback(() => {
+    const currentDraft = draftRef.current;
+    const currentTask = selectedTaskRef.current;
+    if (!currentDraft || !currentTask || currentDraft.id !== currentTask.id) {
+      return false;
+    }
+
+    const dirtyFields = getDirtyDraftFields(draftDirtyFieldsRef.current);
+    if (dirtyFields.length === 0) {
+      return false;
+    }
+
+    const payload = buildTaskPatchPayloadFromDraft(currentDraft, draftDirtyFieldsRef.current, parentTaskNumberDraftRef.current);
+    const optimisticPayload = buildOptimisticTaskPatchPayload(payload);
+    if (Object.keys(optimisticPayload).length > 0) {
+      taskPendingPatchValuesRef.current[currentTask.id] = mergePendingTaskPatchValues(
+        taskPendingPatchValuesRef.current[currentTask.id],
+        optimisticPayload,
+      );
+      applyTaskClientUpdate(
+        withEmptyTaskFileSummary({ ...currentTask, ...optimisticPayload }),
+        dirtyFields.filter((field) => field !== "parentTaskNumber"),
+      );
+    }
+
+    const queueTaskPatch = queueTaskPatchRef.current;
+    if (!queueTaskPatch) {
+      void saveSelectedTaskRef.current();
+      return true;
+    }
+
+    void queueTaskPatch(currentTask, payload as Partial<TaskRecord>, {
+      clearedDirtyFields: dirtyFields,
+      fallbackKey: "saveTaskFailed",
+    }).catch((error: unknown) => {
+      setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "saveTaskFailed" }));
+    });
+    return true;
+  }, [applyTaskClientUpdate, setErrorMessage]);
+
+  const flushTaskReorderQueue = useCallback(() => {
+    const queueState = taskReorderQueueRef.current;
+    if (queueState.isRunning) {
+      return;
+    }
+
+    queueState.isRunning = true;
+    setIsReorderingTasks(true);
+
+    void (async () => {
+      try {
+        while (queueState.entries.length > 0) {
+          const entry = queueState.entries.shift();
+          if (!entry) {
+            continue;
+          }
+
+          const baseTasks = dashboardStateByScopeRef.current.active.tasks;
+          const expectedVersions = buildTaskReorderExpectedVersions(entry.command, buildStoredOrderTaskTree(baseTasks));
+          const response = await fetch("/api/tasks/reorder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...entry.command, expectedVersions }),
+          });
+
+          if (!response.ok) {
+            setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
+            queueState.entries = [];
+            if (response.status === 409) {
+              await refreshScope({ force: true });
+            } else {
+              setActiveTasksForContinuousReorder((currentTasks) =>
+                restoreTaskReorderSnapshot(currentTasks, entry.previousTasks, entry.command),
+              );
+            }
+            return;
+          }
+
+          const json = (await response.json()) as { data: TaskRecord[] };
+          const hasNewerOptimisticOrder = queueState.entries.length > 0 || queueState.latestRequestId > entry.requestId;
+          setActiveTasksForContinuousReorder((currentTasks) =>
+            mergeTaskReorderServerAcknowledgement(currentTasks, json.data, {
+              preserveLocalOrderFields: hasNewerOptimisticOrder,
+            }).map((task) => withEmptyTaskFileSummary(applyPendingTaskPatchValues(task, taskPendingPatchValuesRef.current))),
+          );
+        }
+      } catch (error) {
+        queueState.entries = [];
+        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
+        await refreshScope({ force: true });
+      } finally {
+        queueState.isRunning = false;
+        if (queueState.entries.length > 0) {
+          flushTaskReorderQueue();
+          return;
+        }
+        setIsReorderingTasks(false);
+      }
+    })();
+  }, [refreshScope, setActiveTasksForContinuousReorder, setErrorMessage]);
+
   const reorderDailyTasks = useCallback(
     async (
       command: TaskReorderClientCommand,
@@ -3514,78 +3656,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return false;
       }
 
-      if (isReorderingTasks) {
-        return false;
-      }
+      stageSelectedTaskDraftForContinuousAction();
 
-      if (hasSelectedTaskDraftChanges()) {
-        const didSave = await saveSelectedTaskRef.current();
-        if (!didSave) {
-          return false;
-        }
-      }
-
-      setIsReorderingTasks(true);
       setErrorMessage(null);
 
       const previousTasks = dashboardStateByScopeRef.current.active.tasks;
       const optimisticTasks = buildOptimisticReorderedTasks(previousTasks, command);
+      setActiveTasksForContinuousReorder(() => optimisticTasks);
       startTransition(() => {
-        setTasks(optimisticTasks);
         setTaskSortMode(nextMode);
       });
       if (command.action === "manual_move") {
         setTaskListSelection(command.movedTaskId);
       }
 
-      try {
-        const expectedVersions = buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(previousTasks));
-        const response = await fetch("/api/tasks/reorder", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...command, expectedVersions }),
-        });
-
-        if (!response.ok) {
-          setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
-          if (response.status === 409) {
-            await refreshScope({ force: true });
-          } else {
-            setTasks(previousTasks);
-          }
-          return false;
-        }
-
-        const json = (await response.json()) as { data: TaskRecord[] };
-        startTransition(() => {
-          setTasks(json.data);
-          setTaskSortMode(nextMode);
-        });
-        if (command.action === "manual_move") {
-          setTaskListSelection(command.movedTaskId);
-        }
-        return true;
-      } catch (error) {
-        setTasks(previousTasks);
-        setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
-        return false;
-      } finally {
-        setIsReorderingTasks(false);
-        setIsTaskOrderMenuOpen(false);
-        setTaskDragState(null);
-        setTaskDropState(null);
-      }
+      const queueState = taskReorderQueueRef.current;
+      const requestId = queueState.latestRequestId + 1;
+      queueState.latestRequestId = requestId;
+      queueState.entries.push({
+        command,
+        nextMode,
+        previousTasks,
+        requestId,
+      });
+      setIsTaskOrderMenuOpen(false);
+      setTaskDragState(null);
+      setTaskDropState(null);
+      flushTaskReorderQueue();
+      return true;
     },
     [
-      hasSelectedTaskDraftChanges,
-      dashboardStateByScopeRef,
+      flushTaskReorderQueue,
       isWorkspaceReadOnly,
-      isReorderingTasks,
-      refreshScope,
+      setActiveTasksForContinuousReorder,
       setErrorMessage,
       setTaskDropState,
       setTaskListSelection,
-      setTasks,
+      stageSelectedTaskDraftForContinuousAction,
     ],
   );
 
@@ -3627,7 +3734,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   const handleTaskRowDragStart = useCallback(
     (task: TaskRecord, event: ReactDragEvent<HTMLButtonElement>) => {
-      if (isDailyHtmlDragReorderDisabled || isMobileViewport || isReorderingTasks) {
+      if (isDailyHtmlDragReorderDisabled || isMobileViewport) {
         event.preventDefault();
         return;
       }
@@ -3637,7 +3744,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", task.id);
     },
-    [isDailyHtmlDragReorderDisabled, isMobileViewport, isReorderingTasks, setTaskDropState],
+    [isDailyHtmlDragReorderDisabled, isMobileViewport, setTaskDropState],
   );
 
   const handleTaskRowDragOver = useCallback(
@@ -3736,7 +3843,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             },
           ]}
           ariaLabel="작업 정렬 메뉴"
-          isBusy={isReorderingTasks}
+          isBusy={false}
           auxiliaryToggleChecked={hideIssueIdOverdueBadge}
           auxiliaryToggleLabel={t("workspace.hideIssueIdOverdueBadge")}
           isOpen={isTaskOrderMenuOpen}
@@ -3946,6 +4053,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [applyTaskPendingPatchValues, applyTaskServerUpdate, clearTaskPendingPatchValues, patchTask, setTaskListSelection],
   );
+  queueTaskPatchRef.current = queueTaskPatch;
 
   async function saveDetailCalendarLinked(nextValue: boolean) {
     const currentDraft = draftRef.current;
@@ -4224,8 +4332,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           return;
         }
       }
-      removeFileIdsFromDashboardScope("active", [tempFile.id]);
       await refreshTaskFiles(taskId, { force: true });
+      removeFileIdsFromDashboardScope("active", [tempFile.id]);
     } catch (error) {
       removeFileIdsFromDashboardScope("active", [tempFile.id]);
       if (isApiConflictError(error)) {
@@ -5397,7 +5505,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
-                                disabled={isDailyManualReorderDisabled || isReorderingTasks}
+                                disabled={isDailyManualReorderDisabled}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, -1);
@@ -5409,7 +5517,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                               <button
                                 aria-label="아래로 이동"
                                 className="secondary-button"
-                                disabled={isDailyManualReorderDisabled || isReorderingTasks}
+                                disabled={isDailyManualReorderDisabled}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void moveTaskByOffset(task.id, 1);
@@ -5455,7 +5563,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                           interactionStore={taskListRowInteractionStore}
                           isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                           isManualReorderDisabled={isDailyManualReorderDisabled}
-                          isReorderingTasks={isReorderingTasks}
                           isTaskOverdue={isTaskOverdue}
                           measureAutoFitRowHeight={measureTaskListAutoFitHeight}
                           metricsStore={taskListRowMetricsStore}
@@ -5517,7 +5624,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                             isManualReorderDisabled={isDailyManualReorderDisabled}
                             isPreviewReadOnly={isWorkspaceReadOnly}
-                            isReorderingTasks={isReorderingTasks}
                             layoutStore={taskListLayoutStore}
                             moveTaskByOffset={moveTaskByOffset}
                             pinnedTaskIds={pinnedDailyTaskTableRowIds}
@@ -6059,7 +6165,6 @@ function DailyTaskTableBody({
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
   isPreviewReadOnly,
-  isReorderingTasks,
   activeTaskListInlineEditRowId,
   draft,
   inlineSavingFields,
@@ -6119,7 +6224,6 @@ function DailyTaskTableBody({
               hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
               inlineSavingFields={inlineSavingFields}
               isPreviewReadOnly={isPreviewReadOnly}
-              isReorderingTasks={isReorderingTasks}
               interactionStore={interactionStore}
               key={task.id}
               moveTaskByOffset={moveTaskByOffset}
@@ -6173,8 +6277,8 @@ function DailyTaskTableBody({
                   <button
                     aria-label="재정렬"
                     className="task-tree__drag-handle"
-                    disabled={isHtmlDragReorderDisabled || isReorderingTasks}
-                    draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
+                    disabled={isHtmlDragReorderDisabled}
+                    draggable={!isHtmlDragReorderDisabled}
                     onClick={(event) => event.stopPropagation()}
                     onDragEnd={clearTaskDragInteraction}
                     onDragStart={(event) => handleTaskRowDragStart(task, event)}
@@ -6203,7 +6307,7 @@ function DailyTaskTableBody({
                       <button
                         aria-label="위로 이동"
                         className="task-tree__move-button"
-                        disabled={isManualReorderDisabled || isReorderingTasks}
+                        disabled={isManualReorderDisabled}
                         onClick={(event) => {
                           event.stopPropagation();
                           void moveTaskByOffset(task.id, -1);
@@ -6215,7 +6319,7 @@ function DailyTaskTableBody({
                       <button
                         aria-label="아래로 이동"
                         className="task-tree__move-button"
-                        disabled={isManualReorderDisabled || isReorderingTasks}
+                        disabled={isManualReorderDisabled}
                         onClick={(event) => {
                           event.stopPropagation();
                           void moveTaskByOffset(task.id, 1);
@@ -6366,7 +6470,6 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
   isPreviewReadOnly,
-  isReorderingTasks,
   rowDraft,
   inlineSavingFields,
   workTypeDefinitions,
@@ -6418,8 +6521,8 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
             <button
               aria-label="재정렬"
               className="task-tree__drag-handle"
-              disabled={isHtmlDragReorderDisabled || isReorderingTasks}
-              draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
+              disabled={isHtmlDragReorderDisabled}
+              draggable={!isHtmlDragReorderDisabled}
               onClick={(event) => event.stopPropagation()}
               onDragEnd={clearTaskDragInteraction}
               onDragStart={(event) => handleTaskRowDragStart(task, event)}
@@ -6448,7 +6551,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <button
                   aria-label="위로 이동"
                   className="task-tree__move-button"
-                  disabled={isManualReorderDisabled || isReorderingTasks}
+                  disabled={isManualReorderDisabled}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, -1);
@@ -6460,7 +6563,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <button
                   aria-label="아래로 이동"
                   className="task-tree__move-button"
-                  disabled={isManualReorderDisabled || isReorderingTasks}
+                  disabled={isManualReorderDisabled}
                   onClick={(event) => {
                     event.stopPropagation();
                     void moveTaskByOffset(task.id, 1);
@@ -6611,7 +6714,6 @@ function areDailyTaskTableRowPropsEqual(previous: DailyTaskTableRowProps, next: 
   if (previous.isManualReorderDisabled !== next.isManualReorderDisabled) return false;
   if (previous.isHtmlDragReorderDisabled !== next.isHtmlDragReorderDisabled) return false;
   if (previous.isPreviewReadOnly !== next.isPreviewReadOnly) return false;
-  if (previous.isReorderingTasks !== next.isReorderingTasks) return false;
   if (previous.rowDraft !== next.rowDraft) return false;
   if (previous.workTypeDefinitions !== next.workTypeDefinitions) return false;
   if (previous.categoryDefinitionsByField !== next.categoryDefinitionsByField) return false;
@@ -8677,6 +8779,66 @@ function applyOptimisticSiblingOrderUpdates(
     const siblingOrder = siblingOrderById.get(task.id);
     return siblingOrder === undefined ? task : withEmptyTaskFileSummary({ ...task, siblingOrder });
   });
+}
+
+function mergeTaskReorderServerAcknowledgement(
+  currentTasks: readonly TaskRecord[],
+  serverTasks: readonly TaskRecord[],
+  options: { preserveLocalOrderFields: boolean },
+) {
+  const serverTaskById = new Map(serverTasks.map((task) => [task.id, task]));
+
+  return currentTasks.map((currentTask) => {
+    const serverTask = serverTaskById.get(currentTask.id);
+    if (!serverTask) {
+      return currentTask;
+    }
+
+    if (!options.preserveLocalOrderFields) {
+      return withEmptyTaskFileSummary(serverTask);
+    }
+
+    return withEmptyTaskFileSummary({
+      ...serverTask,
+      actionId: currentTask.actionId,
+      issueId: currentTask.issueId,
+      parentTaskId: currentTask.parentTaskId,
+      siblingOrder: currentTask.siblingOrder,
+    });
+  });
+}
+
+function restoreTaskReorderSnapshot(
+  currentTasks: readonly TaskRecord[],
+  previousTasks: readonly TaskRecord[],
+  command: TaskReorderClientCommand,
+) {
+  const previousTaskById = new Map(previousTasks.map((task) => [task.id, task]));
+
+  return currentTasks.map((currentTask) => {
+    const previousTask = previousTaskById.get(currentTask.id);
+    if (!previousTask || !isTaskImpactedByReorderCommand(previousTask, command)) {
+      return currentTask;
+    }
+
+    return withEmptyTaskFileSummary({
+      ...currentTask,
+      actionId: previousTask.actionId,
+      issueId: previousTask.issueId,
+      parentTaskId: previousTask.parentTaskId,
+      rootTaskId: previousTask.rootTaskId,
+      depth: previousTask.depth,
+      siblingOrder: previousTask.siblingOrder,
+    });
+  });
+}
+
+function isTaskImpactedByReorderCommand(task: TaskRecord, command: TaskReorderClientCommand) {
+  if (command.action === "auto_sort") {
+    return true;
+  }
+
+  return task.id === command.movedTaskId || (task.parentTaskId ?? null) === command.targetParentTaskId;
 }
 
 function collectTaskSubtree(tasks: readonly TaskRecord[], rootTaskId: string) {

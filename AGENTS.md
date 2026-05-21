@@ -62,6 +62,15 @@ This document defines the operating instructions for Codex in this workspace. Th
 - Run whatever validation is practical: tests, builds, lint, or execution checks.
 - If verification could not be performed, say so clearly at the end.
 
+## Optimistic UI Review Rules
+
+- For spreadsheet-like workflows such as `/daily`, do not treat "the row changed before the server replied" as complete by itself. The UI must also allow the user to keep working while the request is pending.
+- Do not use one global pending flag to disable an entire interaction family unless the product intentionally becomes modal. Prefer per-entity pending state, operation queues, or last-write-wins reconciliation.
+- Reorder, inline edit, status change, create, delete, restore, and file-list actions must be reviewed for continuous-operation behavior: after one optimistic action, the next valid action should still be possible without reload or waiting for server acknowledgement.
+- If multiple optimistic mutations can target the same task list, design the client state as a local source of truth plus a background persistence queue. Server success should reconcile; server failure or conflict should rollback or refresh only the affected scope.
+- Code review for optimistic UI must include a negative check for hidden blockers such as `disabled={isSaving}`, `disabled={isReordering}`, `busy`, awaited full-scope refreshes, stale version payloads, and callbacks that read server-confirmed state instead of the current optimistic state.
+- Verification must cover chained actions, not just one action: for example create then reorder, reorder twice, delete then reorder another row, edit then navigate selection, and trash/restore without a full refresh.
+
 ## Completeness Contract
 
 The task is complete only when all of the following are true:
