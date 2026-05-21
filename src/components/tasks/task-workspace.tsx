@@ -226,6 +226,11 @@ type TaskReorderQueueState = {
   isRunning: boolean;
   latestRequestId: number;
 };
+type StoredPendingTaskReorder = {
+  version: typeof TASK_REORDER_PENDING_STORAGE_VERSION;
+  updatedAt: number;
+  command: TaskReorderPersistCommand;
+};
 
 type TaskDetailPanelInteractionState = {
   selectedTaskId: string | null;
@@ -607,6 +612,9 @@ const calendarWeekdayColumns = Array.from({ length: 7 }, (_unused, index) => ({
 const QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX = "architect-start.quick-create-widths:";
 const QUICK_CREATE_SAVE_DELAY_MS = 250;
 const TASK_LIST_LAYOUT_STORAGE_KEY_PREFIX = "architect-start.task-list-layout:";
+const TASK_REORDER_PENDING_STORAGE_KEY_PREFIX = "architect-start.pending-task-reorder:";
+const TASK_REORDER_PENDING_STORAGE_VERSION = 1;
+const TASK_REORDER_PENDING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
@@ -844,6 +852,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const skipDailyTaskPageSelectionSyncRef = useRef(false);
   const taskReorderUnloadPersistCommandRef = useRef<TaskReorderPersistCommand | null>(null);
   const taskReorderUnloadPersistAttemptedRef = useRef(false);
+  const taskReorderStorageKeyRef = useRef<string | null>(null);
+  const taskReorderStorageReplayAttemptSignatureRef = useRef<string | null>(null);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -954,6 +964,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
     mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
+  const taskReorderStorageKey =
+    mode === "daily" && currentProjectId && (authUser?.id || isPreview)
+      ? getTaskReorderStorageKey(authUser?.id ?? "preview", currentProjectId)
+      : null;
   const categoricalFilterStorageBaseKey =
     mode === "daily" && currentProjectId && (authUser?.id || isPreview)
       ? getCategoricalFilterStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
@@ -1208,6 +1222,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [draft]);
 
   useEffect(() => {
+    taskReorderStorageKeyRef.current = taskReorderStorageKey;
+    taskReorderStorageReplayAttemptSignatureRef.current = null;
+  }, [taskReorderStorageKey]);
+
+  useEffect(() => {
     const persistLatestTaskReorderBeforeUnload = () => {
       const command = taskReorderUnloadPersistCommandRef.current;
       if (!command || taskReorderUnloadPersistAttemptedRef.current) {
@@ -1232,13 +1251,18 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         keepalive: true,
       }).catch(() => undefined);
     };
+    const persistLatestTaskReorderWhenHidden = () => {
+      if (document.visibilityState === "hidden") {
+        persistLatestTaskReorderBeforeUnload();
+      }
+    };
 
+    document.addEventListener("visibilitychange", persistLatestTaskReorderWhenHidden);
     window.addEventListener("pagehide", persistLatestTaskReorderBeforeUnload);
-    window.addEventListener("beforeunload", persistLatestTaskReorderBeforeUnload);
 
     return () => {
+      document.removeEventListener("visibilitychange", persistLatestTaskReorderWhenHidden);
       window.removeEventListener("pagehide", persistLatestTaskReorderBeforeUnload);
-      window.removeEventListener("beforeunload", persistLatestTaskReorderBeforeUnload);
     };
   }, []);
 
@@ -3658,11 +3682,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           if (!response.ok) {
             setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
             queueState.entries = [];
-            taskReorderUnloadPersistCommandRef.current = null;
-            taskReorderUnloadPersistAttemptedRef.current = false;
+            const shouldRetainPendingOrder = shouldRetainPendingTaskReorderAfterFailure(response.status);
+            if (!shouldRetainPendingOrder) {
+              removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+              taskReorderUnloadPersistCommandRef.current = null;
+              taskReorderUnloadPersistAttemptedRef.current = false;
+              taskReorderStorageReplayAttemptSignatureRef.current = null;
+            }
             if (response.status === 409) {
               await refreshScope({ force: true });
-            } else {
+            } else if (!shouldRetainPendingOrder) {
               setActiveTasksForContinuousReorder((currentTasks) =>
                 restoreTaskReorderSnapshot(currentTasks, entry.previousTasks, entry.command),
               );
@@ -3678,14 +3707,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             }).map((task) => withEmptyTaskFileSummary(applyPendingTaskPatchValues(task, taskPendingPatchValuesRef.current))),
           );
         }
+        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
         taskReorderUnloadPersistCommandRef.current = null;
         taskReorderUnloadPersistAttemptedRef.current = false;
+        taskReorderStorageReplayAttemptSignatureRef.current = null;
       } catch (error) {
         queueState.entries = [];
-        taskReorderUnloadPersistCommandRef.current = null;
-        taskReorderUnloadPersistAttemptedRef.current = false;
         setErrorMessage(error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }));
-        await refreshScope({ force: true });
       } finally {
         queueState.isRunning = false;
         if (queueState.entries.length > 0) {
@@ -3696,6 +3724,53 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
     })();
   }, [refreshScope, setActiveTasksForContinuousReorder, setErrorMessage]);
+
+  useEffect(() => {
+    if (mode !== "daily" || isWorkspaceReadOnly || !taskReorderStorageKey || !dashboardStateByScope.active.loaded) {
+      return;
+    }
+
+    const pendingReorder = readPendingTaskReorderFromStorage(taskReorderStorageKey);
+    if (!pendingReorder) {
+      return;
+    }
+
+    const commandSignature = getTaskReorderCommandSignature(pendingReorder.command);
+    const previousTasks = dashboardStateByScopeRef.current.active.tasks;
+    const optimisticTasks = applyStoredTaskReorderCommand(previousTasks, pendingReorder.command);
+    if (!areTaskSiblingOrdersEqual(previousTasks, optimisticTasks)) {
+      setActiveTasksForContinuousReorder(() => optimisticTasks);
+    }
+
+    const queueState = taskReorderQueueRef.current;
+    const hasQueuedCommand = queueState.entries.some(
+      (entry) => getTaskReorderCommandSignature(entry.command) === commandSignature,
+    );
+    if (queueState.isRunning || hasQueuedCommand || taskReorderStorageReplayAttemptSignatureRef.current === commandSignature) {
+      return;
+    }
+
+    taskReorderStorageReplayAttemptSignatureRef.current = commandSignature;
+    taskReorderUnloadPersistCommandRef.current = pendingReorder.command;
+    taskReorderUnloadPersistAttemptedRef.current = false;
+    const requestId = queueState.latestRequestId + 1;
+    queueState.latestRequestId = requestId;
+    queueState.entries.push({
+      command: pendingReorder.command,
+      nextMode: "manual",
+      previousTasks,
+      requestId,
+    });
+    flushTaskReorderQueue();
+  }, [
+    dashboardStateByScope.active.loaded,
+    flushTaskReorderQueue,
+    isWorkspaceReadOnly,
+    mode,
+    setActiveTasksForContinuousReorder,
+    taskReorderStorageKey,
+    tasks,
+  ]);
 
   const reorderDailyTasks = useCallback(
     async (
@@ -3727,6 +3802,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const persistCommand = buildTaskReorderPersistCommand(command, optimisticTasks);
       taskReorderUnloadPersistCommandRef.current = persistCommand;
       taskReorderUnloadPersistAttemptedRef.current = false;
+      writePendingTaskReorderToStorage(taskReorderStorageKeyRef.current, persistCommand);
       queueState.entries.push({
         command: persistCommand,
         nextMode,
@@ -7633,6 +7709,180 @@ function mergeTaskIntoDraft(task: TaskRecord, previous: TaskRecord | null, dirty
 
   return nextDraft;
 }
+
+function getTaskReorderStorageKey(userId: string, projectId: string) {
+  return `${TASK_REORDER_PENDING_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+}
+
+function getTaskReorderCommandSignature(command: TaskReorderPersistCommand) {
+  return JSON.stringify(command);
+}
+
+function writePendingTaskReorderToStorage(storageKey: string | null, command: TaskReorderPersistCommand) {
+  if (typeof window === "undefined" || !storageKey) {
+    return false;
+  }
+
+  try {
+    const payload: StoredPendingTaskReorder = {
+      version: TASK_REORDER_PENDING_STORAGE_VERSION,
+      updatedAt: Date.now(),
+      command,
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPendingTaskReorderFromStorage(storageKey: string): StoredPendingTaskReorder | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<StoredPendingTaskReorder>;
+    const command = sanitizeStoredTaskReorderCommand(parsed.command);
+    if (!command || parsed.version !== TASK_REORDER_PENDING_STORAGE_VERSION || typeof parsed.updatedAt !== "number") {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    if (Date.now() - parsed.updatedAt > TASK_REORDER_PENDING_MAX_AGE_MS) {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    return {
+      version: TASK_REORDER_PENDING_STORAGE_VERSION,
+      updatedAt: parsed.updatedAt,
+      command,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function removePendingTaskReorderFromStorage(storageKey: string | null) {
+  if (typeof window === "undefined" || !storageKey) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // Ignore storage cleanup failures. A later successful sync will try again.
+  }
+}
+
+function sanitizeStoredTaskReorderCommand(input: unknown): TaskReorderPersistCommand | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null;
+  }
+
+  const candidate = input as Partial<TaskReorderPersistCommand>;
+  if (candidate.action === "set_sibling_order") {
+    const parentTaskId = typeof candidate.parentTaskId === "string" ? candidate.parentTaskId : null;
+    const orderedTaskIds = Array.isArray(candidate.orderedTaskIds)
+      ? candidate.orderedTaskIds.filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0)
+      : [];
+    return orderedTaskIds.length === 0
+      ? null
+      : {
+          action: "set_sibling_order",
+          parentTaskId,
+          orderedTaskIds,
+        };
+  }
+
+  if (candidate.action === "manual_move") {
+    return typeof candidate.movedTaskId === "string" &&
+      (typeof candidate.targetParentTaskId === "string" || candidate.targetParentTaskId === null) &&
+      typeof candidate.targetIndex === "number" &&
+      Number.isInteger(candidate.targetIndex)
+      ? {
+          action: "manual_move",
+          movedTaskId: candidate.movedTaskId,
+          targetParentTaskId: candidate.targetParentTaskId,
+          targetIndex: candidate.targetIndex,
+        }
+      : null;
+  }
+
+  if (candidate.action === "auto_sort") {
+    return candidate.strategy === "priority" || candidate.strategy === "action_id"
+      ? {
+          action: "auto_sort",
+          strategy: candidate.strategy,
+        }
+      : null;
+  }
+
+  return null;
+}
+
+function applyStoredTaskReorderCommand(tasks: readonly TaskRecord[], command: TaskReorderPersistCommand) {
+  if (command.action !== "set_sibling_order") {
+    return buildOptimisticReorderedTasks(tasks, command);
+  }
+
+  const parentTaskId = command.parentTaskId ?? null;
+  const siblings = buildStoredOrderTaskTree(tasks).filter((task) => (task.parentTaskId ?? null) === parentTaskId);
+  if (siblings.length === 0) {
+    return [...tasks];
+  }
+
+  const siblingById = new Map(siblings.map((task) => [task.id, task]));
+  const seenIds = new Set<string>();
+  const orderedSiblings: TaskRecord[] = [];
+  for (const taskId of command.orderedTaskIds) {
+    const task = siblingById.get(taskId);
+    if (!task || seenIds.has(task.id)) {
+      continue;
+    }
+
+    seenIds.add(task.id);
+    orderedSiblings.push(task);
+  }
+
+  for (const sibling of siblings) {
+    if (!seenIds.has(sibling.id)) {
+      orderedSiblings.push(sibling);
+    }
+  }
+
+  return applyOptimisticSiblingOrderUpdates(
+    tasks,
+    orderedSiblings.map((task, siblingOrder) => ({ id: task.id, siblingOrder })),
+  );
+}
+
+function areTaskSiblingOrdersEqual(left: readonly TaskRecord[], right: readonly TaskRecord[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightById = new Map(right.map((task) => [task.id, task]));
+  return left.every((task) => {
+    const rightTask = rightById.get(task.id);
+    return (
+      rightTask &&
+      (rightTask.parentTaskId ?? null) === (task.parentTaskId ?? null) &&
+      rightTask.siblingOrder === task.siblingOrder
+    );
+  });
+}
+
+function shouldRetainPendingTaskReorderAfterFailure(status: number) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
 function getQuickCreateWidthStorageKey(userId: string) {
   return QUICK_CREATE_WIDTH_STORAGE_KEY_PREFIX + userId;
 }
