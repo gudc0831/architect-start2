@@ -392,6 +392,8 @@ assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.m
 assert.match(taskWorkspaceSource, /settleDailyFailedReorderIfServerSatisfiedRef\.current\(operation, now\)/);
 assert.match(taskWorkspaceSource, /operation\.status === "failed" \|\| operation\.retryCount > 0/);
 assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\(operation, currentTasks\)/);
+assert.match(taskWorkspaceSource, /const discardFailedDailyMutations = useCallback/);
+assert.match(taskWorkspaceSource, /deleteDailyMutationOperation\(operation\.operationId\)/);
 assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(siblings,\s*expectedVersions\)/);
 assert.match(setTaskSiblingOrderSource, /expectedVersion: task\.version/);
 

@@ -3785,6 +3785,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   settleDailyFailedReorderIfServerSatisfiedRef.current = settleDailyFailedReorderIfServerSatisfied;
 
+  const discardFailedDailyMutations = useCallback(async () => {
+    const failedOperations = dailyMutationOperationsRef.current.filter((operation) => operation.status === "failed");
+    if (failedOperations.length === 0) {
+      return;
+    }
+
+    await Promise.all(failedOperations.map((operation) => deleteDailyMutationOperation(operation.operationId)));
+    await refreshDailyMutationJournal();
+    await refreshDailyServerTaskStateForSync({ includeTrash: true });
+  }, [refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
+
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
     resetDraftDirtyFields();
@@ -6251,6 +6262,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       {dailyMutationStatusLabel ? (
         <div className="daily-sync-status" data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}>
           <span>{dailyMutationStatusLabel}</span>
+          {dailyMutationSummary.failed > 0 ? (
+            <button className="secondary-button" onClick={() => void discardFailedDailyMutations()} type="button">
+              {"\uB85C\uCEEC \uCDE8\uC18C"}
+            </button>
+          ) : null}
           {dailyMutationSummary.failed > 0 ? (
             <button className="secondary-button" onClick={() => void flushDailyMutationJournal({ manual: true })} type="button">
               재시도
