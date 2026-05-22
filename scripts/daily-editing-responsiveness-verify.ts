@@ -370,6 +370,9 @@ const taskReorderActionSource = taskWorkspaceSource.slice(
 assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
+assert.match(postgresStoreSource, /with input\(id, sibling_order, updated_by, expected_version, has_expected_version\) as/);
+assert.match(postgresStoreSource, /update tasks as t/);
+assert.doesNotMatch(postgresStoreSource, /for \(const input of inputs\) \{\s*const data = \{/);
 assert.doesNotMatch(
   taskWorkspaceSource,
   /if \(payload\.kind === "reorder"\) \{\s*let currentTasks = dashboardStateByScopeRef\.current\.active\.tasks;\s*if \(areTaskSiblingOrdersEqual\(currentTasks,\s*payload\.desiredTasks\)\)/,
