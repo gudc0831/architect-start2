@@ -343,6 +343,10 @@ const taskReorderQueueSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback"),
   taskWorkspaceSource.indexOf("useEffect(() => {", taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback")),
 );
+const taskReorderActionSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("const reorderDailyTasks = useCallback"),
+  taskWorkspaceSource.indexOf("const moveTaskByOffset = useCallback"),
+);
 assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
@@ -353,6 +357,10 @@ assert.doesNotMatch(
 assert.doesNotMatch(taskReorderQueueSource, /response\.status === 409\) \{\s*await refreshScope\(\{ force: true \}\);/);
 assert.match(taskWorkspaceSource, /const shouldShowWorkspaceLoadingPlaceholder =/);
 assert.match(taskReorderQueueSource, /buildTaskReorderRequestBody\(withTaskReorderExpectedVersions\(entry\.command, baseTasks\), baseTasks\)/);
+assert.match(taskWorkspaceSource, /dailyMutationScope && !dailyMutationJournalReady/);
+assert.match(taskWorkspaceSource, /dailyMutationScope && hasActiveDailyReorderJournal/);
+assert.match(taskReorderActionSource, /let journalQueued = false/);
+assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*return true;\s*\}/);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;

@@ -4362,6 +4362,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
+    if (dailyMutationScope && !dailyMutationJournalReady) {
+      return;
+    }
+
     const pendingReorder = readPendingTaskReorderFromStorage(taskReorderStorageKey);
     if (!pendingReorder) {
       return;
@@ -4385,6 +4389,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     taskReorderStorageReplayAttemptSignatureRef.current = commandSignature;
     taskReorderUnloadPersistCommandRef.current = pendingReorder.command;
     taskReorderUnloadPersistAttemptedRef.current = false;
+
+    const hasActiveDailyReorderJournal = dailyMutationOperations.some(
+      (operation) => operation.payload.kind === "reorder" && operation.status !== "synced",
+    );
+    if (dailyMutationScope && hasActiveDailyReorderJournal) {
+      void flushDailyMutationJournal();
+      return;
+    }
+
     const requestId = queueState.latestRequestId + 1;
     queueState.latestRequestId = requestId;
     queueState.entries.push({
@@ -4396,6 +4409,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     flushTaskReorderQueue();
   }, [
     dashboardStateByScope.active.loaded,
+    dailyMutationJournalReady,
+    dailyMutationOperations,
+    dailyMutationScope,
+    flushDailyMutationJournal,
     flushTaskReorderQueue,
     isWorkspaceReadOnly,
     mode,
@@ -4440,6 +4457,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         taskReorderStorageKeyRef.current,
         withTaskReorderExpectedVersions(persistCommand, previousTasks),
       );
+      let journalQueued = false;
       if (dailyMutationScope) {
         try {
           await putDailyJournalOperation(
@@ -4449,23 +4467,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               desiredTasks: optimisticTasks,
             }),
           );
+          journalQueued = true;
+          void flushDailyMutationJournal();
         } catch (error) {
           setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
         }
       }
+      setIsTaskOrderMenuOpen(false);
+      taskDragStateRef.current = null;
+      setTaskDropState(null);
+      if (journalQueued) {
+        return true;
+      }
+
       queueState.entries.push({
         command: persistCommand,
         nextMode,
         previousTasks,
         requestId,
       });
-      setIsTaskOrderMenuOpen(false);
-      taskDragStateRef.current = null;
-      setTaskDropState(null);
       flushTaskReorderQueue();
       return true;
     },
     [
+      flushDailyMutationJournal,
       flushTaskReorderQueue,
       dailyMutationScope,
       isWorkspaceReadOnly,
