@@ -165,6 +165,10 @@ assert.equal(
 );
 
 const dashboardProviderSource = readFileSync(resolve("src/providers/dashboard-provider.tsx"), "utf8");
+const authProviderSource = readFileSync(resolve("src/providers/auth-provider.tsx"), "utf8");
+const projectProviderSource = readFileSync(resolve("src/providers/project-provider.tsx"), "utf8");
+const workspaceBootstrapRouteSource = readFileSync(resolve("src/app/api/workspace/bootstrap/route.ts"), "utf8");
+const workspaceBootstrapClientSource = readFileSync(resolve("src/lib/workspace/bootstrap-client.ts"), "utf8");
 assert.match(
   dashboardProviderSource,
   /const invalidateDashboardScopeRead = useCallback\(\(scope: DashboardScope\) => \{\s*requestIdRef\.current\[scope\] \+= 1;\s*delete inFlightRef\.current\[scope\];\s*\}, \[\]\);/s,
@@ -173,6 +177,14 @@ assert.match(
   dashboardProviderSource,
   /const setDashboardTasks = useCallback\(\s*\(scope: DashboardScope, updater: SetStateAction<TaskRecord\[\]>\) => \{\s*invalidateDashboardScopeRead\(scope\);/s,
 );
+assert.match(workspaceBootstrapRouteSource, /loadWorkspaceBootstrap\(\)/);
+assert.match(workspaceBootstrapClientSource, /let workspaceBootstrapPromise: Promise<WorkspaceBootstrapPayload> \| null = null;/);
+assert.match(workspaceBootstrapClientSource, /export async function fetchWorkspaceBootstrap/);
+assert.match(workspaceBootstrapClientSource, /export function clearWorkspaceBootstrapCache/);
+assert.match(authProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.match(projectProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.match(dashboardProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.match(dashboardProviderSource, /scope === "active"/);
 
 const journalScope = { projectId: "project-1", profileId: "profile-1" };
 const baseTask = (id: string, overrides: Partial<TaskRecord> = {}) =>

@@ -1,0 +1,18 @@
+import { NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/api/route-error";
+import { applyProjectSessionProjectId } from "@/lib/project-session";
+import { loadWorkspaceBootstrap } from "@/lib/workspace/bootstrap-server";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+export async function GET() {
+  try {
+    const data = await loadWorkspaceBootstrap();
+    const response = NextResponse.json({ data });
+    response.headers.set("Cache-Control", "no-store");
+    return applyProjectSessionProjectId(response, data.project.currentProjectId);
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}

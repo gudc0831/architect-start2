@@ -15,16 +15,12 @@ import { usePathname } from "next/navigation";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import { localizeError, type ErrorCopyKey } from "@/lib/ui-copy";
+import { fetchWorkspaceBootstrap, isWorkspaceBootstrapPath } from "@/lib/workspace/bootstrap-client";
+import type { DashboardSystemMode } from "@/lib/workspace/bootstrap-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 
 export type DashboardScope = "active" | "trash";
-export type DashboardSystemMode = {
-  backendMode: string;
-  dataMode: string;
-  uploadMode: string;
-  hasSupabase: boolean;
-  hasFirebaseProjectId: boolean;
-};
+export type { DashboardSystemMode } from "@/lib/workspace/bootstrap-types";
 
 type DashboardScopeState = {
   tasks: TaskRecord[];
@@ -203,6 +199,7 @@ async function fetchDashboardSystemMode() {
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
   const { currentProjectId, projectLoaded, selectionVersion } = useProjectMeta();
   const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview);
   const emptyStateByScope = useMemo(() => createEmptyStateByScope(), []);
@@ -299,15 +296,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const taskResponse = await fetchDashboardRead(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, {
-            cache: "no-store",
-          });
+          const taskJson =
+            shouldUseWorkspaceBootstrap && scope === "active" && !force
+              ? await (async () => {
+                  const bootstrap = await fetchWorkspaceBootstrap();
+                  if (!bootstrap.activeTasks) {
+                    throw new Error(
+                      localizeError({ code: bootstrap.activeTasksError?.code ?? undefined, fallbackKey: "loadTasksFailed" }),
+                    );
+                  }
 
-          if (!taskResponse.ok) {
-            throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
-          }
+                  return { data: bootstrap.activeTasks };
+                })()
+              : await (async () => {
+                  const taskResponse = await fetchDashboardRead(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, {
+                    cache: "no-store",
+                  });
 
-          const taskJson = (await taskResponse.json()) as { data: TaskRecord[] };
+                  if (!taskResponse.ok) {
+                    throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
+                  }
+
+                  return (await taskResponse.json()) as { data: TaskRecord[] };
+                })();
 
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
             return;
@@ -406,7 +417,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       };
       return request;
     },
-    [isPreview, ownerKey, projectLoaded],
+    [isPreview, ownerKey, projectLoaded, shouldUseWorkspaceBootstrap],
   );
 
   const ensureDashboardScopeLoaded = useCallback(

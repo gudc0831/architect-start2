@@ -6,20 +6,13 @@ import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { previewProjectName } from "@/lib/preview/demo-data";
+import { clearWorkspaceBootstrapCache, fetchWorkspaceBootstrap, isWorkspaceBootstrapPath } from "@/lib/workspace/bootstrap-client";
+import type { ProjectSelectionPayload } from "@/lib/workspace/bootstrap-types";
 
 type ProjectOption = {
   id: string;
   name: string;
   source: string;
-};
-
-type ProjectSelectionPayload = {
-  currentProjectId: string | null;
-  currentProjectRole?: ProjectMembershipRole | null;
-  availableProjects: Array<{ id: string; name: string; source?: string }>;
-  source?: string | null;
-  workTypeDefinitions: WorkTypeDefinition[];
-  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
 };
 
 type ProjectContextValue = {
@@ -85,6 +78,7 @@ async function readApiData<T>(input: RequestInfo, init?: RequestInit): Promise<T
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentProjectRole, setCurrentProjectRole] = useState<ProjectMembershipRole | null>(null);
   const [availableProjects, setAvailableProjects] = useState<ProjectOption[]>([]);
@@ -167,11 +161,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshProjects = useCallback(async () => {
+    clearWorkspaceBootstrapCache();
     const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
     applyProjectSelection(data);
   }, [applyProjectSelection]);
 
   const refreshWorkTypes = useCallback(async () => {
+    clearWorkspaceBootstrapCache();
     const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
     applyProjectSelection(data, { loaded: false });
   }, [applyProjectSelection]);
@@ -184,7 +180,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
-    void readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" })
+    const projectRequest = shouldUseWorkspaceBootstrap
+      ? fetchWorkspaceBootstrap().then((data) => data.project)
+      : readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
+
+    void projectRequest
       .then((data) => {
         if (!isMounted) {
           return;
@@ -211,7 +211,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [applyProjectSelection, isPreview]);
+  }, [applyProjectSelection, isPreview, shouldUseWorkspaceBootstrap]);
 
   useEffect(() => {
     if (!isPreview) {
@@ -238,6 +238,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setIsSyncing(true);
 
     try {
+      clearWorkspaceBootstrapCache();
       const data = await readApiData<ProjectSelectionPayload>("/api/projects/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

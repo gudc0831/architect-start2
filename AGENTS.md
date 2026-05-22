@@ -74,6 +74,7 @@ This document defines the operating instructions for Codex in this workspace. Th
 ## Daily Spreadsheet Responsiveness Guardrails
 
 - Preserve `/daily` as a spreadsheet-like surface: create, edit, delete, restore, file movement, and drag reorder must show the local result immediately and persist to the server in the background.
+- Preserve workspace first-load responsiveness: `/daily`, `/board`, `/calendar`, and `/trash` should not reintroduce a client-side waterfall of `/api/auth/me` -> `/api/projects` -> `/api/tasks` for initial entry. Keep the shared workspace bootstrap path as the initial read path unless a measured replacement is faster and equally stable.
 - Task creation must insert an `optimistic-task:` row into the active dashboard state before the `/api/tasks` POST returns. The server acknowledgement should replace the temporary row with the real task; failure should remove only that temporary row and show a localized error.
 - Any local dashboard mutation must invalidate stale in-flight dashboard reads before applying local state. A slow initial `/api/tasks` response must never overwrite a newer optimistic create, delete, restore, edit, or reorder.
 - Keep `src/providers/dashboard-provider.tsx` aligned with this invariant: `setDashboardTasks` and `setDashboardFiles` must invalidate the matching scope's in-flight read request id before calling `setProviderState`.
