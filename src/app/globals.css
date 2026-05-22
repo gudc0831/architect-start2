@@ -6677,3 +6677,66 @@ html[data-theme="apple-workbench"] .daily-sheet__view-mode-button--active {
     min-height: 152px;
   }
 }
+
+/* Shared compact presentation: hide support copy while preserving theme colors and layout tokens. */
+html[data-theme] .workspace__header-main > .workspace__copy,
+html[data-theme] .workspace__header-main > .workspace__facts,
+html[data-theme] .workspace__header-main > .workspace__eyebrow,
+html[data-theme] .workspace__header > div:first-child > .workspace__copy,
+html[data-theme] .workspace__header > div:first-child > .workspace__eyebrow,
+html[data-theme] .workspace__header > div:first-child > .workspace__meta,
+html[data-theme] .sidebar__brand-meta,
+html[data-theme] .sidebar__note > p,
+html[data-theme] .sidebar__theme-help,
+html[data-theme] .sidebar__theme-status:not(.sidebar__theme-status--error),
+html[data-theme] .composer-card__header .workspace__eyebrow,
+html[data-theme] .composer-card__header .workspace__meta,
+html[data-theme] .daily-sheet__focus-header,
+html[data-theme] .daily-sheet__focus-copy,
+html[data-theme] .board-summary__hint,
+html[data-theme] .board-focus__description,
+html[data-theme] .board-column__header p,
+html[data-theme] .calendar-nav__heading p,
+html[data-theme] .empty-state p,
+html[data-theme] .calendar-empty-state p {
+  display: none;
+}
+
+html[data-theme] .workspace__project,
+html[data-theme="apple-workbench"] .workspace__project {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+html[data-theme] .workspace__header h2,
+html[data-theme="posthog"] .workspace--posthog .workspace__header h2,
+html[data-theme="apple-workbench"] .workspace__header h2 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: 0;
+}
+
+html[data-theme] .composer-card__header h3,
+html[data-theme="apple-workbench"] .composer-card__header h3,
+html[data-theme] .board-focus__title,
+html[data-theme] .board-column__header h3,
+html[data-theme] .calendar-nav__heading h3,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__heading h3,
+html[data-theme="apple-workbench"] .calendar-nav__heading h3,
+html[data-theme] .empty-state h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+html[data-theme] .sidebar__link,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link-label,
+html[data-theme="apple-workbench"] .sidebar__link {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
