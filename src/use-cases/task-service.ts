@@ -241,7 +241,7 @@ async function setTaskSiblingOrder(
   activeTasks: TaskRecord[],
   parentTaskId: string | null,
   orderedTaskIds: readonly string[],
-  expectedVersions: ReadonlyMap<string, number>,
+  _expectedVersions: ReadonlyMap<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   const normalizedParentTaskId = parentTaskId ?? null;
@@ -290,8 +290,8 @@ async function setTaskSiblingOrder(
     return [];
   }
 
-  assertExpectedTaskVersions(siblings, expectedVersions);
-
+  // set_sibling_order is a desired-order snapshot already rebased on the latest activeTasks.
+  // The repository still writes each row with the current server version for intra-request safety.
   return taskRepository.updateTaskOrders(updates);
 }
 

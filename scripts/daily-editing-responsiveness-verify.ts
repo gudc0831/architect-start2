@@ -354,9 +354,14 @@ assert.equal(
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
+const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
 const taskReorderQueueSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback"),
   taskWorkspaceSource.indexOf("useEffect(() => {", taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback")),
+);
+const setTaskSiblingOrderSource = taskServiceSource.slice(
+  taskServiceSource.indexOf("async function setTaskSiblingOrder"),
+  taskServiceSource.indexOf("function assertExpectedTaskVersions"),
 );
 const taskReorderActionSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const reorderDailyTasks = useCallback"),
@@ -384,6 +389,8 @@ assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.m
 assert.match(taskWorkspaceSource, /settleDailyFailedReorderIfServerSatisfiedRef\.current\(operation, now\)/);
 assert.match(taskWorkspaceSource, /operation\.status === "failed" \|\| operation\.retryCount > 0/);
 assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\(operation, currentTasks\)/);
+assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(siblings,\s*expectedVersions\)/);
+assert.match(setTaskSiblingOrderSource, /expectedVersion: task\.version/);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
