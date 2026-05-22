@@ -13,10 +13,10 @@ export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    await requireCurrentProjectEditor(user);
+    const context = await requireCurrentProjectEditor(user);
     const body = await request.json();
     const command = buildReorderCommand(body);
-    const data = await reorderTasks(command, user.id);
+    const data = await reorderTasks(command, user.id, context.project);
 
     return NextResponse.json({ data });
   } catch (error) {

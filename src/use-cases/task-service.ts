@@ -58,14 +58,21 @@ export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectC
   }));
 }
 
-export async function reorderTasks(command: TaskReorderCommand, userId?: string | null): Promise<TaskRecord[]> {
-  const project = await getSelectedTaskProject();
-  const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const foundationSettings = await loadAdminFoundationSettings();
+export async function reorderTasks(
+  command: TaskReorderCommand,
+  userId?: string | null,
+  selectedProject?: TaskProjectContext,
+): Promise<TaskRecord[]> {
+  const project = selectedProject ?? (await getSelectedTaskProject());
+  const [activeTasks, foundationSettings] = await Promise.all([
+    taskRepository.listActiveTasks(project.id),
+    loadAdminFoundationSettings(),
+  ]);
+  let updatedTasks: TaskRecord[];
 
   switch (command.action) {
     case "manual_move":
-      await reorderTaskWithinParent(
+      updatedTasks = await reorderTaskWithinParent(
         activeTasks,
         command.movedTaskId,
         command.targetParentTaskId,
@@ -75,10 +82,10 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
       );
       break;
     case "auto_sort":
-      await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
+      updatedTasks = await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
       break;
     case "set_sibling_order":
-      await setTaskSiblingOrder(
+      updatedTasks = await setTaskSiblingOrder(
         activeTasks,
         command.parentTaskId,
         command.orderedTaskIds,
@@ -90,11 +97,9 @@ export async function reorderTasks(command: TaskReorderCommand, userId?: string 
       throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
   }
 
-  const nextTasks = await taskRepository.listActiveTasks(project.id);
-  const fileSummaryByTaskId = await loadTaskFileSummaryByScope("active", project.id);
-  return applyFoundationSettingsToTasks(flattenTaskTree(nextTasks), foundationSettings).map((task) => ({
+  return applyFoundationSettingsToTasks(updatedTasks, foundationSettings).map((task) => ({
     ...task,
-    fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
+    fileSummary: emptyTaskFileSummary,
   }));
 }
 

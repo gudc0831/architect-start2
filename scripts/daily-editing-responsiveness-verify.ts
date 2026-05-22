@@ -397,6 +397,10 @@ const setTaskSiblingOrderSource = taskServiceSource.slice(
   taskServiceSource.indexOf("async function setTaskSiblingOrder"),
   taskServiceSource.indexOf("function assertExpectedTaskVersions"),
 );
+const reorderTasksSource = taskServiceSource.slice(
+  taskServiceSource.indexOf("export async function reorderTasks"),
+  taskServiceSource.indexOf("export async function createTask"),
+);
 const taskReorderActionSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const reorderDailyTasks = useCallback"),
   taskWorkspaceSource.indexOf("const moveTaskByOffset = useCallback"),
@@ -424,6 +428,7 @@ assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000
 assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
 assert.match(taskRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
+assert.match(taskReorderRouteSource, /reorderTasks\(command, user\.id, context\.project\)/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
@@ -445,6 +450,9 @@ assert.match(taskWorkspaceSource, /operation\.status === "failed" \|\| operation
 assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\(operation, currentTasks\)/);
 assert.match(taskWorkspaceSource, /const discardFailedDailyMutations = useCallback/);
 assert.match(taskWorkspaceSource, /deleteDailyMutationOperation\(operation\.operationId\)/);
+assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
+assert.doesNotMatch(reorderTasksSource, /loadTaskFileSummaryByScope\("active"/);
+assert.match(reorderTasksSource, /fileSummary: emptyTaskFileSummary/);
 assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(siblings,\s*expectedVersions\)/);
 assert.match(setTaskSiblingOrderSource, /expectedVersion: task\.version/);
 
