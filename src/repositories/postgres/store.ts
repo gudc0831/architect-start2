@@ -501,55 +501,60 @@ class PostgresTaskRepository implements TaskRepository {
       return [];
     }
 
-    const records = await prisma.$transaction(async (tx) => {
-      const inputRows = Prisma.join(
-        inputs.map((input) => {
-          const hasExpectedVersion = Number.isInteger(input.expectedVersion);
-          return Prisma.sql`(${input.id}::uuid, ${input.siblingOrder}::integer, ${input.updatedBy ?? null}::uuid, ${
-            hasExpectedVersion ? input.expectedVersion : null
-          }::integer, ${hasExpectedVersion}::boolean)`;
-        }),
-      );
-      const updatedIds = await tx.$queryRaw<Array<{ id: string }>>`
-        with input(id, sibling_order, updated_by, expected_version, has_expected_version) as (
-          values ${inputRows}
-        ),
-        updated as (
-          update tasks as t
-          set
-            sibling_order = input.sibling_order,
-            updated_by = coalesce(input.updated_by, t.updated_by),
-            version = t.version + 1,
-            updated_at = now()
-          from input
-          where t.id = input.id
-            and (not input.has_expected_version or t.version = input.expected_version)
-          returning t.id
-        )
-        select id from updated
-      `;
+    const inputRows = Prisma.join(
+      inputs.map((input) => {
+        const hasExpectedVersion = Number.isInteger(input.expectedVersion);
+        return Prisma.sql`(${input.id}::uuid, ${input.siblingOrder}::integer, ${input.updatedBy ?? null}::uuid, ${
+          hasExpectedVersion ? input.expectedVersion : null
+        }::integer, ${hasExpectedVersion}::boolean)`;
+      }),
+    );
+    const updatedIds = await prisma.$queryRaw<Array<{ id: string }>>`
+      with input(id, sibling_order, updated_by, expected_version, has_expected_version) as (
+        values ${inputRows}
+      ),
+      eligible as (
+        select t.id
+        from tasks as t
+        join input on input.id = t.id
+        where not input.has_expected_version or t.version = input.expected_version
+      ),
+      updated as (
+        update tasks as t
+        set
+          sibling_order = input.sibling_order,
+          updated_by = coalesce(input.updated_by, t.updated_by),
+          version = t.version + 1,
+          updated_at = now()
+        from input
+        where t.id = input.id
+          and (select count(*) from eligible) = (select count(*) from input)
+          and (not input.has_expected_version or t.version = input.expected_version)
+        returning t.id
+      )
+      select id from updated
+    `;
 
-      if (updatedIds.length !== inputs.length) {
+    if (updatedIds.length !== inputs.length) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+
+    const updated = await prisma.task.findMany({
+      where: { id: { in: inputs.map((input) => input.id) } },
+    });
+    const updatedById = new Map(updated.map((record) => [record.id, record]));
+    const records = inputs.map((input) => {
+      const record = updatedById.get(input.id);
+      if (!record) {
         throw conflict(
           "Task order changed before this reorder could be saved. Reload the latest data and try again.",
           "TASK_REORDER_CONFLICT",
         );
       }
-
-      const updated = await tx.task.findMany({
-        where: { id: { in: inputs.map((input) => input.id) } },
-      });
-      const updatedById = new Map(updated.map((record) => [record.id, record]));
-      return inputs.map((input) => {
-        const record = updatedById.get(input.id);
-        if (!record) {
-          throw conflict(
-            "Task order changed before this reorder could be saved. Reload the latest data and try again.",
-            "TASK_REORDER_CONFLICT",
-          );
-        }
-        return record;
-      });
+      return record;
     });
 
     return records.map(toTaskRecord);

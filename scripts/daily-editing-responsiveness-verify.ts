@@ -385,6 +385,10 @@ const prismaSource = readFileSync(resolve("src/lib/prisma.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
+const updateTaskOrdersSource = postgresStoreSource.slice(
+  postgresStoreSource.indexOf("async updateTaskOrders"),
+  postgresStoreSource.indexOf("async syncProjectTaskIssueIds"),
+);
 const taskReorderQueueSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback"),
   taskWorkspaceSource.indexOf("useEffect(() => {", taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback")),
@@ -401,6 +405,8 @@ assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
 assert.match(postgresStoreSource, /with input\(id, sibling_order, updated_by, expected_version, has_expected_version\) as/);
+assert.match(updateTaskOrdersSource, /eligible as/);
+assert.doesNotMatch(updateTaskOrdersSource, /prisma\.\$transaction/);
 assert.match(postgresStoreSource, /update tasks as t/);
 assert.doesNotMatch(postgresStoreSource, /for \(const input of inputs\) \{\s*const data = \{/);
 assert.doesNotMatch(
