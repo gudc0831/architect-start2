@@ -1,11 +1,13 @@
 "use client";
 
 import clsx from "clsx";
+import { useCallback, useEffect, useMemo } from "react";
 import type { Route } from "next";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ThemeSelector } from "@/components/layout/theme-selector";
 import { useAuthState, useAuthUser } from "@/providers/auth-provider";
+import { useDashboardData, type DashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
@@ -17,25 +19,106 @@ const items = [
   { href: "/trash", mode: "trash" },
 ] as const;
 
+type SidebarIdleHandle =
+  | {
+      kind: "idle";
+      id: number;
+    }
+  | {
+      kind: "timeout";
+      id: number;
+    };
+
+function scheduleSidebarIdleWork(callback: () => void, timeout = 2000): SidebarIdleHandle | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (typeof window.requestIdleCallback === "function") {
+    return {
+      kind: "idle",
+      id: window.requestIdleCallback(callback, { timeout }),
+    };
+  }
+
+  return {
+    kind: "timeout",
+    id: window.setTimeout(callback, 250),
+  };
+}
+
+function cancelSidebarIdleWork(handle: SidebarIdleHandle | null) {
+  if (!handle || typeof window === "undefined") {
+    return;
+  }
+
+  if (handle.kind === "idle" && typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(handle.id);
+    return;
+  }
+
+  window.clearTimeout(handle.id);
+}
+
+function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope {
+  return mode === "trash" ? "trash" : "active";
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const isPreview = pathname.startsWith("/preview");
   const authUser = useAuthUser();
   const { themeId } = useTheme();
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const isWarmStudio = themeId === "posthog";
   const { clearUser } = useAuthState();
+  const { ensureDashboardScopeLoaded } = useDashboardData();
   const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
-  const navItems = items.map((item) => ({
-    ...item,
-    label: labelForMode(item.mode),
-    href: (isPreview ? `/preview${item.href}` : item.href) as Route,
-  }));
+  const navItems = useMemo(
+    () =>
+      items.map((item) => ({
+        ...item,
+        label: labelForMode(item.mode),
+        href: (isPreview ? `/preview${item.href}` : item.href) as Route,
+      })),
+    [isPreview],
+  );
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
   const navSectionLabel = isPreview ? "미리보기 경로" : "작업공간 경로";
   const sessionSectionLabel = isPreview ? "안전 미리보기" : "세션";
+
+  const warmWorkspaceNavigation = useCallback(
+    (href: Route, mode: (typeof items)[number]["mode"]) => {
+      router.prefetch(href);
+
+      if (isPreview || !projectLoaded || !currentProjectId) {
+        return;
+      }
+
+      void ensureDashboardScopeLoaded(scopeForMode(mode)).catch(() => undefined);
+    },
+    [currentProjectId, ensureDashboardScopeLoaded, isPreview, projectLoaded, router],
+  );
+
+  useEffect(() => {
+    if (isPreview || !projectLoaded || !currentProjectId) {
+      return;
+    }
+
+    const handle = scheduleSidebarIdleWork(() => {
+      navItems
+        .filter((item) => item.mode !== "trash")
+        .forEach((item) => {
+          router.prefetch(item.href);
+        });
+      void ensureDashboardScopeLoaded("active").catch(() => undefined);
+    });
+
+    return () => cancelSidebarIdleWork(handle);
+  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -110,7 +193,13 @@ export function Sidebar() {
           <p className="sidebar__section-label">{navSectionLabel}</p>
           <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
             {navItems.map((item, index) => (
-              <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
+              <Link
+                className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
+                key={item.href}
+                href={item.href}
+                onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
+                onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
+              >
                 <span aria-hidden="true" className="sidebar__link-index">{String(index + 1).padStart(2, "0")}</span>
                 <span className="sidebar__link-label">{item.label}</span>
               </Link>
@@ -126,7 +215,13 @@ export function Sidebar() {
       ) : (
         <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
           {navItems.map((item) => (
-            <Link className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")} key={item.href} href={item.href}>
+            <Link
+              className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
+              key={item.href}
+              href={item.href}
+              onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
+              onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
+            >
               {item.label}
             </Link>
           ))}

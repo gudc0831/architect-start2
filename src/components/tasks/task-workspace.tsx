@@ -1066,7 +1066,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     const suffix = activeEditors.length > 1 ? ` +${activeEditors.length - 1}` : "";
     return `${editor.displayName}님이 ${editor.activeEditor?.fieldLabel ?? "필드"} 편집 중${suffix}`;
   }, [authUser?.id, projectPresenceUsers]);
-  const quickCreateWidthStorageKey = authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
+  const quickCreateWidthStorageKey = mode === "daily" && authUser?.id ? getQuickCreateWidthStorageKey(authUser.id) : null;
   const taskListLayoutStorageKey =
     mode === "daily" && (authUser?.id || isPreview) ? getTaskListLayoutStorageKey(authUser?.id ?? "preview") : null;
   const taskReorderStorageKey =
@@ -1087,7 +1087,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     mode === "board" && currentProjectId && (authUser?.id || isPreview)
       ? getBoardCollapsedStorageKey(authUser?.id ?? "preview", currentProjectId)
       : null;
-  const canPersistQuickCreateWidthsToServer = Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
+  const canPersistQuickCreateWidthsToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const canPersistTaskListLayoutToServer = mode === "daily" && Boolean(authUser?.id) && !isPreview && !isLocalAuthPlaceholder;
   const boardPageSize = isMobileViewport ? BOARD_PAGE_SIZE_MOBILE : BOARD_PAGE_SIZE_DEFAULT;
   const defaultCreateWorkType = useMemo(() => getWorkTypeSelectValue("coordination", workTypeDefinitions), [workTypeDefinitions]);
@@ -1446,7 +1446,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, []);
 
   useEffect(() => {
-    if (isPreview || !currentProjectId) {
+    if (mode !== "daily" || isPreview || !currentProjectId) {
       setAssigneeOptions([]);
       return;
     }
@@ -1475,7 +1475,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     return () => {
       isMounted = false;
     };
-  }, [currentProjectId, isPreview]);
+  }, [currentProjectId, isPreview, mode]);
 
   useEffect(() => {
     if (isPreview || !currentProjectId || !authUser || !hasSupabaseClientConfig()) {
@@ -6179,8 +6179,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     ) : null;
 
   const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isWorkspaceReadOnly) || canExportTasks;
-  const shouldShowWorkspaceLoadingPlaceholder =
-    loading && !(mode === "daily" && (tasks.length > 0 || dailyMutationSummary.totalActive > 0));
+  const hasLocallyVisibleWorkspaceData = tasks.length > 0 || (mode === "daily" && dailyMutationSummary.totalActive > 0);
+  const shouldShowWorkspaceLoadingPlaceholder = loading && !hasLocallyVisibleWorkspaceData;
 
   return (
     <section

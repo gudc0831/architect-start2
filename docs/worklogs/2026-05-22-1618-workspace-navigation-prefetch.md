@@ -1,0 +1,4 @@
+Req: Improve first workspace load and board/daily/calendar switching toward spreadsheet-like responsiveness, using find-skills and harness-engineering to select the right local skills before coding.
+Diff: Added sidebar hover/focus/idle prefetch for workspace routes and active task data, gated daily-only assignee and quick-create preference fetches, and kept cached workspace data visible during refresh instead of replacing it with the full loading placeholder.
+Why: The diagnosis showed the biggest short-term gaps were route/data warmup, mode-agnostic auxiliary fetches, and full-surface loading states before the larger persistent WorkspaceShell refactor.
+Verify/Time: `npm run typecheck`, `npm run lint`, `npx tsx scripts/daily-editing-responsiveness-verify.ts`, and `npm run build` all passed on 2026-05-22 16:18-16:21 KST.
