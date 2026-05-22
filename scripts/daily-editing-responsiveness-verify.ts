@@ -278,6 +278,38 @@ const replayedReloadOrder = buildStoredOrderTaskTree(
   ),
 ).map((task) => task.id);
 assert.deepEqual(replayedReloadOrder, ["task-3", "task-1", "task-2"]);
+const partialReorderReplayOperation = buildCoalescedDailyReorderOperation({
+  scope: journalScope,
+  command: { action: "set_sibling_order", parentTaskId: null, orderedTaskIds: ["task-3", "task-2"], siblingOrderStart: 1 },
+  desiredTasks: [
+    baseTask("task-1", { siblingOrder: 0 }),
+    baseTask("task-3", { siblingOrder: 1 }),
+    baseTask("task-2", { siblingOrder: 2 }),
+    baseTask("task-4", { siblingOrder: 3 }),
+  ],
+  now: "2026-05-21T00:00:02.500Z",
+});
+const partialReplayOrder = buildStoredOrderTaskTree(
+  mergeDailyMutationOperationsIntoActiveTasks(
+    [
+      baseTask("task-1", { siblingOrder: 0 }),
+      baseTask("task-2", { siblingOrder: 1 }),
+      baseTask("task-3", { siblingOrder: 2 }),
+      baseTask("task-4", { siblingOrder: 3 }),
+    ],
+    [partialReorderReplayOperation],
+  ),
+).map((task) => task.id);
+assert.deepEqual(partialReplayOrder, ["task-1", "task-3", "task-2", "task-4"]);
+assert.equal(
+  isDailyReorderMutationSatisfiedByServerState(partialReorderReplayOperation, [
+    baseTask("task-1", { siblingOrder: 0 }),
+    baseTask("task-3", { siblingOrder: 1 }),
+    baseTask("task-2", { siblingOrder: 2 }),
+    baseTask("task-4", { siblingOrder: 3 }),
+  ]),
+  true,
+);
 assert.deepEqual(
   coalesceDailyReorderOperations([firstReorderOperation, secondReorderOperation]).map((operation) => operation.clientMutationId),
   [secondReorderOperation.clientMutationId],
@@ -421,6 +453,7 @@ assert.match(postgresSetTaskSiblingOrderSource, /input\(id, sibling_order\) as/)
 assert.match(postgresSetTaskSiblingOrderSource, /where t\.project_id = \$\{input\.projectId\}::uuid/);
 assert.match(postgresSetTaskSiblingOrderSource, /set_config\('lock_timeout', '15000ms', true\)/);
 assert.match(postgresSetTaskSiblingOrderSource, /set_config\('statement_timeout', '24000ms', true\)/);
+assert.match(postgresSetTaskSiblingOrderSource, /siblingOrderStart \+ index/);
 assert.match(postgresSetTaskSiblingOrderSource, /t\.sibling_order is distinct from input\.sibling_order/);
 assert.match(postgresSetTaskSiblingOrderSource, /\(select count\(\*\)::integer from updated\) as updated_count/);
 assert.match(postgresSetTaskSiblingOrderSource, /return \[\];/);
@@ -444,6 +477,7 @@ assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
 assert.match(taskRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /reorderTasks\(command, user\.id, context\.project\)/);
+assert.match(taskReorderRouteSource, /readOptionalSiblingOrderStart\(body\.siblingOrderStart\)/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
@@ -458,6 +492,7 @@ assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
 assert.match(taskWorkspaceSource, /const localFirstTasks = useMemo/);
 assert.match(taskWorkspaceSource, /buildStoredOrderTaskTree\(localFirstTasks\)/);
 assert.match(taskWorkspaceSource, /localFirstActiveTasksRef\.current\.length/);
+assert.match(taskWorkspaceSource, /siblingOrderStart/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);
 assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.manual/);
 assert.match(taskWorkspaceSource, /settleDailyFailedReorderIfServerSatisfiedRef\.current\(operation, now\)/);

@@ -503,8 +503,12 @@ class PostgresTaskRepository implements TaskRepository {
       return [];
     }
 
+    const siblingOrderStart =
+      Number.isInteger(input.siblingOrderStart) && (input.siblingOrderStart ?? 0) >= 0 ? input.siblingOrderStart ?? 0 : 0;
     const inputRows = Prisma.join(
-      orderedTaskIds.map((taskId, siblingOrder) => Prisma.sql`(${taskId}::uuid, ${siblingOrder}::integer)`),
+      orderedTaskIds.map(
+        (taskId, index) => Prisma.sql`(${taskId}::uuid, ${siblingOrderStart + index}::integer)`,
+      ),
     );
     const parentPredicate = input.parentTaskId
       ? Prisma.sql`t.parent_task_id = ${input.parentTaskId}::uuid`

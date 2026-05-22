@@ -15,6 +15,7 @@ export type SetTaskSiblingOrderInput = {
   projectId: string;
   parentTaskId: string | null;
   orderedTaskIds: readonly string[];
+  siblingOrderStart?: number;
   updatedBy?: string | null;
 };
 

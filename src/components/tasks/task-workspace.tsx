@@ -245,6 +245,7 @@ type TaskReorderPersistCommand =
       action: "set_sibling_order";
       parentTaskId: string | null;
       orderedTaskIds: readonly string[];
+      siblingOrderStart?: number;
       expectedVersions?: TaskReorderExpectedVersionMap;
     };
 type QueuedTaskReorder = {
@@ -4572,7 +4573,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const queueState = taskReorderQueueRef.current;
       const requestId = queueState.latestRequestId + 1;
       queueState.latestRequestId = requestId;
-      const persistCommand = buildTaskReorderPersistCommand(command, optimisticTasks);
+      const persistCommand = buildTaskReorderPersistCommand(command, previousTasks, optimisticTasks);
       taskReorderUnloadPersistCommandRef.current = persistCommand;
       taskReorderUnloadPersistAttemptedRef.current = false;
       writePendingTaskReorderToStorage(
@@ -8758,6 +8759,18 @@ function sanitizeStoredTaskReorderCommand(input: unknown): TaskReorderPersistCom
     const expectedVersions = sanitizeStoredTaskReorderExpectedVersions(
       (candidate as { expectedVersions?: unknown }).expectedVersions,
     );
+    const rawSiblingOrderStart = (candidate as { siblingOrderStart?: unknown }).siblingOrderStart;
+    const siblingOrderStart =
+      rawSiblingOrderStart === undefined || rawSiblingOrderStart === null
+        ? undefined
+        : Number(rawSiblingOrderStart);
+    if (
+      siblingOrderStart !== undefined &&
+      (!Number.isInteger(siblingOrderStart) || siblingOrderStart < 0)
+    ) {
+      return null;
+    }
+
     return orderedTaskIds.length === 0
       ? null
       : expectedVersions === null
@@ -8766,6 +8779,7 @@ function sanitizeStoredTaskReorderCommand(input: unknown): TaskReorderPersistCom
           action: "set_sibling_order",
           parentTaskId,
           orderedTaskIds,
+          siblingOrderStart,
           expectedVersions,
         };
   }
@@ -8828,6 +8842,8 @@ function applyStoredTaskReorderCommand(tasks: readonly TaskRecord[], command: Ta
   const siblingById = new Map(siblings.map((task) => [task.id, task]));
   const seenIds = new Set<string>();
   const orderedSiblings: TaskRecord[] = [];
+  const hasSiblingOrderStart = Number.isInteger(command.siblingOrderStart) && (command.siblingOrderStart ?? 0) >= 0;
+  const siblingOrderStart = hasSiblingOrderStart ? command.siblingOrderStart ?? 0 : 0;
   for (const taskId of command.orderedTaskIds) {
     const task = siblingById.get(taskId);
     if (!task || seenIds.has(task.id)) {
@@ -8838,15 +8854,17 @@ function applyStoredTaskReorderCommand(tasks: readonly TaskRecord[], command: Ta
     orderedSiblings.push(task);
   }
 
-  for (const sibling of siblings) {
-    if (!seenIds.has(sibling.id)) {
-      orderedSiblings.push(sibling);
+  if (!hasSiblingOrderStart) {
+    for (const sibling of siblings) {
+      if (!seenIds.has(sibling.id)) {
+        orderedSiblings.push(sibling);
+      }
     }
   }
 
   return applyOptimisticSiblingOrderUpdates(
     tasks,
-    orderedSiblings.map((task, siblingOrder) => ({ id: task.id, siblingOrder })),
+    orderedSiblings.map((task, index) => ({ id: task.id, siblingOrder: siblingOrderStart + index })),
   );
 }
 
@@ -10071,7 +10089,9 @@ function buildTaskReorderExpectedVersions(
     command.action === "auto_sort"
       ? tasks
       : command.action === "set_sibling_order"
-        ? tasks.filter((task) => (task.parentTaskId ?? null) === (command.parentTaskId ?? null))
+        ? command.siblingOrderStart === undefined
+          ? tasks.filter((task) => (task.parentTaskId ?? null) === (command.parentTaskId ?? null))
+          : tasks.filter((task) => command.orderedTaskIds.includes(task.id))
       : tasks.filter(
           (task) =>
             task.id === command.movedTaskId ||
@@ -10121,6 +10141,7 @@ function withTaskReorderExpectedVersions(
 
 function buildTaskReorderPersistCommand(
   command: TaskReorderClientCommand,
+  previousTasks: readonly TaskRecord[],
   optimisticTasks: readonly TaskRecord[],
 ): TaskReorderPersistCommand {
   if (command.action !== "manual_move") {
@@ -10128,15 +10149,34 @@ function buildTaskReorderPersistCommand(
   }
 
   const parentTaskId = command.targetParentTaskId ?? null;
-  const orderedTaskIds = buildStoredOrderTaskTree(optimisticTasks)
-    .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
-    .map((task) => task.id)
-    .filter((taskId) => !isOptimisticTaskId(taskId));
+  const optimisticSiblings = buildStoredOrderTaskTree(optimisticTasks).filter(
+    (task) => (task.parentTaskId ?? null) === parentTaskId,
+  );
+  const previousOrderById = new Map(
+    buildStoredOrderTaskTree(previousTasks)
+      .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
+      .map((task, siblingOrder) => [task.id, siblingOrder]),
+  );
+  const changedSiblingOrders = optimisticSiblings
+    .map((task, siblingOrder) => ({ task, siblingOrder }))
+    .filter(({ task, siblingOrder }) => previousOrderById.get(task.id) !== siblingOrder && !isOptimisticTaskId(task.id));
+  const siblingOrderStart =
+    changedSiblingOrders.length > 0 ? Math.min(...changedSiblingOrders.map(({ siblingOrder }) => siblingOrder)) : 0;
+  const siblingOrderEnd =
+    changedSiblingOrders.length > 0 ? Math.max(...changedSiblingOrders.map(({ siblingOrder }) => siblingOrder)) : -1;
+  const orderedTaskIds =
+    siblingOrderEnd >= siblingOrderStart
+      ? optimisticSiblings
+          .slice(siblingOrderStart, siblingOrderEnd + 1)
+          .map((task) => task.id)
+          .filter((taskId) => !isOptimisticTaskId(taskId))
+      : optimisticSiblings.map((task) => task.id).filter((taskId) => !isOptimisticTaskId(taskId));
 
   return {
     action: "set_sibling_order",
     parentTaskId,
     orderedTaskIds,
+    siblingOrderStart,
   };
 }
 

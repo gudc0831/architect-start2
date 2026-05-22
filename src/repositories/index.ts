@@ -93,6 +93,9 @@ export const taskRepository: TaskRepository = {
     const siblingIds = new Set(siblings.map((task) => task.id));
     const seenIds = new Set<string>();
     const orderedSiblings: typeof siblings = [];
+    const siblingOrderStart =
+      Number.isInteger(input.siblingOrderStart) && (input.siblingOrderStart ?? 0) >= 0 ? input.siblingOrderStart ?? 0 : 0;
+    const shouldAppendMissingSiblings = input.siblingOrderStart === undefined;
 
     for (const taskId of input.orderedTaskIds) {
       if (seenIds.has(taskId) || !siblingIds.has(taskId)) {
@@ -106,15 +109,22 @@ export const taskRepository: TaskRepository = {
       }
     }
 
-    for (const sibling of siblings) {
-      if (!seenIds.has(sibling.id)) {
-        orderedSiblings.push(sibling);
+    if (shouldAppendMissingSiblings) {
+      for (const sibling of siblings) {
+        if (!seenIds.has(sibling.id)) {
+          orderedSiblings.push(sibling);
+        }
       }
     }
 
     return repository.updateTaskOrders(
       orderedSiblings
-        .map((task, siblingOrder) => ({ id: task.id, siblingOrder, expectedVersion: task.version, updatedBy: input.updatedBy }))
+        .map((task, index) => ({
+          id: task.id,
+          siblingOrder: siblingOrderStart + index,
+          expectedVersion: task.version,
+          updatedBy: input.updatedBy,
+        }))
         .filter((update) => activeTasks.find((task) => task.id === update.id)?.siblingOrder !== update.siblingOrder),
     );
   },

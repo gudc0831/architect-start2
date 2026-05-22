@@ -67,6 +67,7 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
       action: "set_sibling_order",
       parentTaskId: normalizeNullableId(body.parentTaskId),
       orderedTaskIds,
+      siblingOrderStart: readOptionalSiblingOrderStart(body.siblingOrderStart),
       expectedVersions: readExpectedVersions(body.expectedVersions),
     };
   }
@@ -119,6 +120,19 @@ function normalizeNullableId(value: unknown) {
 
   const normalized = String(value).trim();
   return normalized ? normalized : null;
+}
+
+function readOptionalSiblingOrderStart(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const siblingOrderStart = Number(value);
+  if (!Number.isInteger(siblingOrderStart) || siblingOrderStart < 0) {
+    throw badRequest("siblingOrderStart is invalid", "TASK_REORDER_SIBLING_ORDER_START_INVALID");
+  }
+
+  return siblingOrderStart;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

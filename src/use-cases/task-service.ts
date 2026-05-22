@@ -70,6 +70,7 @@ export async function reorderTasks(
       projectId: project.id,
       parentTaskId: command.parentTaskId,
       orderedTaskIds: command.orderedTaskIds,
+      siblingOrderStart: command.siblingOrderStart,
       updatedBy: userId ?? null,
     });
 

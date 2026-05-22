@@ -46,6 +46,7 @@ export type DailyMutationReorderCommand =
       action: "set_sibling_order";
       parentTaskId: string | null;
       orderedTaskIds: readonly string[];
+      siblingOrderStart?: number;
       expectedVersions?: Record<string, number>;
     };
 
@@ -577,6 +578,16 @@ function isSetSiblingOrderCommandSatisfiedByServerState(
   }
 
   const desiredIdSet = new Set(desiredIds);
+  const hasSiblingOrderStart = Number.isInteger(command.siblingOrderStart) && (command.siblingOrderStart ?? 0) >= 0;
+  if (hasSiblingOrderStart) {
+    const activeTaskById = new Map(activeTasks.map((task) => [task.id, task]));
+    const siblingOrderStart = command.siblingOrderStart ?? 0;
+    return desiredIds.every((taskId, index) => {
+      const task = activeTaskById.get(taskId);
+      return task && (task.parentTaskId ?? null) === parentTaskId && task.siblingOrder === siblingOrderStart + index;
+    });
+  }
+
   const currentKnownOrder = buildStoredOrderTaskTree(activeTasks)
     .filter((task) => (task.parentTaskId ?? null) === parentTaskId && desiredIdSet.has(task.id))
     .map((task) => task.id);
@@ -628,6 +639,8 @@ function mergeSetSiblingOrderCommand(
   const siblings = buildStoredOrderTaskTree(tasks).filter((task) => (task.parentTaskId ?? null) === parentTaskId);
   const seen = new Set<string>();
   const orderedSiblings: TaskRecord[] = [];
+  const hasSiblingOrderStart = Number.isInteger(command.siblingOrderStart) && (command.siblingOrderStart ?? 0) >= 0;
+  const siblingOrderStart = hasSiblingOrderStart ? command.siblingOrderStart ?? 0 : 0;
 
   for (const taskId of desiredIds) {
     if (seen.has(taskId)) {
@@ -643,9 +656,11 @@ function mergeSetSiblingOrderCommand(
     orderedSiblings.push(task);
   }
 
-  for (const sibling of siblings) {
-    if (!seen.has(sibling.id)) {
-      orderedSiblings.push(sibling);
+  if (!hasSiblingOrderStart) {
+    for (const sibling of siblings) {
+      if (!seen.has(sibling.id)) {
+        orderedSiblings.push(sibling);
+      }
     }
   }
 
@@ -653,7 +668,9 @@ function mergeSetSiblingOrderCommand(
     return mergeDesiredTaskOrder(tasks, desiredTasks);
   }
 
-  const siblingOrderById = new Map(orderedSiblings.map((task, siblingOrder) => [task.id, siblingOrder]));
+  const siblingOrderById = new Map(
+    orderedSiblings.map((task, index) => [task.id, siblingOrderStart + index]),
+  );
   return tasks.map((task) => {
     const siblingOrder = siblingOrderById.get(task.id);
     return siblingOrder === undefined ? task : { ...task, siblingOrder, parentTaskId };

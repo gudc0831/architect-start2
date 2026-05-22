@@ -20,6 +20,7 @@ export type TaskReorderSetSiblingOrderCommand = {
   action: "set_sibling_order";
   parentTaskId: string | null;
   orderedTaskIds: readonly string[];
+  siblingOrderStart?: number;
   expectedVersions: ReadonlyMap<string, number>;
 };
 
