@@ -169,6 +169,7 @@ const authProviderSource = readFileSync(resolve("src/providers/auth-provider.tsx
 const projectProviderSource = readFileSync(resolve("src/providers/project-provider.tsx"), "utf8");
 const workspaceBootstrapRouteSource = readFileSync(resolve("src/app/api/workspace/bootstrap/route.ts"), "utf8");
 const workspaceBootstrapClientSource = readFileSync(resolve("src/lib/workspace/bootstrap-client.ts"), "utf8");
+const dashboardSnapshotCacheSource = readFileSync(resolve("src/lib/workspace/dashboard-snapshot-cache.ts"), "utf8");
 assert.match(
   dashboardProviderSource,
   /const invalidateDashboardScopeRead = useCallback\(\(scope: DashboardScope\) => \{\s*requestIdRef\.current\[scope\] \+= 1;\s*delete inFlightRef\.current\[scope\];\s*\}, \[\]\);/s,
@@ -181,10 +182,17 @@ assert.match(workspaceBootstrapRouteSource, /loadWorkspaceBootstrap\(\)/);
 assert.match(workspaceBootstrapClientSource, /let workspaceBootstrapPromise: Promise<WorkspaceBootstrapPayload> \| null = null;/);
 assert.match(workspaceBootstrapClientSource, /export async function fetchWorkspaceBootstrap/);
 assert.match(workspaceBootstrapClientSource, /export function clearWorkspaceBootstrapCache/);
-assert.match(authProviderSource, /fetchWorkspaceBootstrap\(\)/);
-assert.match(projectProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.doesNotMatch(authProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.doesNotMatch(projectProviderSource, /fetchWorkspaceBootstrap\(\)/);
 assert.match(dashboardProviderSource, /fetchWorkspaceBootstrap\(\)/);
 assert.match(dashboardProviderSource, /scope === "active"/);
+assert.match(dashboardSnapshotCacheSource, /indexedDB\.open/);
+assert.match(dashboardSnapshotCacheSource, /export async function readDashboardTaskSnapshot/);
+assert.match(dashboardSnapshotCacheSource, /export async function writeDashboardTaskSnapshot/);
+assert.match(dashboardSnapshotCacheSource, /DASHBOARD_SNAPSHOT_PAYLOAD_SIZE_LIMIT_BYTES/);
+assert.match(dashboardProviderSource, /readLastDashboardSnapshotProjectId\(\)/);
+assert.match(dashboardProviderSource, /readDashboardTaskSnapshot/);
+assert.match(dashboardProviderSource, /writeDashboardTaskSnapshot/);
 
 const journalScope = { projectId: "project-1", profileId: "profile-1" };
 const baseTask = (id: string, overrides: Partial<TaskRecord> = {}) =>

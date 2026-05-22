@@ -6,7 +6,7 @@ import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { previewProjectName } from "@/lib/preview/demo-data";
-import { clearWorkspaceBootstrapCache, fetchWorkspaceBootstrap, isWorkspaceBootstrapPath } from "@/lib/workspace/bootstrap-client";
+import { clearWorkspaceBootstrapCache } from "@/lib/workspace/bootstrap-client";
 import type { ProjectSelectionPayload } from "@/lib/workspace/bootstrap-types";
 
 type ProjectOption = {
@@ -78,7 +78,6 @@ async function readApiData<T>(input: RequestInfo, init?: RequestInit): Promise<T
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
-  const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentProjectRole, setCurrentProjectRole] = useState<ProjectMembershipRole | null>(null);
   const [availableProjects, setAvailableProjects] = useState<ProjectOption[]>([]);
@@ -180,11 +179,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
-    const projectRequest = shouldUseWorkspaceBootstrap
-      ? fetchWorkspaceBootstrap().then((data) => data.project)
-      : readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
-
-    void projectRequest
+    void readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" })
       .then((data) => {
         if (!isMounted) {
           return;
@@ -211,7 +206,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [applyProjectSelection, isPreview, shouldUseWorkspaceBootstrap]);
+  }, [applyProjectSelection, isPreview]);
 
   useEffect(() => {
     if (!isPreview) {

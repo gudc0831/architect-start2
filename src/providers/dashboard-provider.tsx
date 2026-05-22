@@ -15,6 +15,11 @@ import { usePathname } from "next/navigation";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import { localizeError, type ErrorCopyKey } from "@/lib/ui-copy";
+import {
+  readDashboardTaskSnapshot,
+  readLastDashboardSnapshotProjectId,
+  writeDashboardTaskSnapshot,
+} from "@/lib/workspace/dashboard-snapshot-cache";
 import { fetchWorkspaceBootstrap, isWorkspaceBootstrapPath } from "@/lib/workspace/bootstrap-client";
 import type { DashboardSystemMode } from "@/lib/workspace/bootstrap-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
@@ -227,6 +232,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const taskFilesInFlightRef = useRef<Record<string, { ownerKey: string; requestId: number; promise: Promise<void> }>>({});
   const taskFilesRequestIdRef = useRef<Record<string, number>>({});
   const projectChangeVersionRef = useRef<{ ownerKey: string; version: string | null }>({ ownerKey, version: null });
+  const snapshotRestoreAttemptedRef = useRef<Set<string>>(new Set());
 
   stateRef.current = providerState;
 
@@ -250,6 +256,90 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [ownerKey]);
 
   const visibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
+
+  useEffect(() => {
+    if (isPreview) {
+      return;
+    }
+
+    const snapshotProjectId = currentProjectId ?? readLastDashboardSnapshotProjectId();
+    if (!snapshotProjectId) {
+      return;
+    }
+
+    const restoreOwnerKey = ownerKey;
+    const restoreKey = `${restoreOwnerKey}:active:${snapshotProjectId}`;
+    if (snapshotRestoreAttemptedRef.current.has(restoreKey)) {
+      return;
+    }
+    snapshotRestoreAttemptedRef.current.add(restoreKey);
+
+    let cancelled = false;
+    void readDashboardTaskSnapshot(snapshotProjectId, "active")
+      .then((snapshot) => {
+        if (cancelled || !snapshot || stateRef.current.ownerKey !== restoreOwnerKey) {
+          return;
+        }
+
+        setProviderState((previous) => {
+          if (previous.ownerKey !== restoreOwnerKey) {
+            return previous;
+          }
+
+          const activeState = previous.stateByScope.active;
+          if (activeState.loaded || activeState.tasks.length > 0) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            stateByScope: {
+              ...previous.stateByScope,
+              active: {
+                ...activeState,
+                tasks: snapshot.tasks,
+                systemMode: activeState.systemMode ?? snapshot.systemMode,
+                errorMessage: null,
+                loaded: false,
+              },
+            },
+          };
+        });
+      })
+      .catch(() => {
+        // Snapshot restore is a best-effort paint acceleration. Server reads remain authoritative.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId, isPreview, ownerKey, projectLoaded]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId || providerState.ownerKey !== ownerKey) {
+      return;
+    }
+
+    const activeState = providerState.stateByScope.active;
+    if (!activeState.loaded || activeState.tasks.length === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void writeDashboardTaskSnapshot({
+        projectId: currentProjectId,
+        scope: "active",
+        tasks: activeState.tasks,
+        systemMode: activeState.systemMode,
+      }).catch(() => {
+        // Snapshot writes must never interfere with spreadsheet interactions.
+      });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentProjectId, isPreview, ownerKey, providerState]);
 
   const fetchDashboardScope = useCallback(
     async (scope: DashboardScope, options?: DashboardRefreshOptions) => {
