@@ -153,6 +153,10 @@ assert.equal(
   isDatabaseConnectivityError(Object.assign(new Error("Timed out fetching a new connection"), { code: "P2024" })),
   true,
 );
+assert.equal(
+  isDatabaseConnectivityError(Object.assign(new Error("(EMAXCONNSESSION) max clients reached in session mode"), { code: "EMAXCONNSESSION" })),
+  true,
+);
 assert.equal(isDatabaseConnectivityError(new Error("validation failed")), false);
 assert.equal(
   localizeError({ code: "DATABASE_UNAVAILABLE", fallbackKey: "loadTasksFailed" }),
@@ -355,6 +359,7 @@ const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf
 const taskReorderRouteSource = readFileSync(resolve("src/app/api/tasks/reorder/route.ts"), "utf8");
 const taskUpdateRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/route.ts"), "utf8");
 const taskTrashRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/trash/route.ts"), "utf8");
+const prismaSource = readFileSync(resolve("src/lib/prisma.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
@@ -393,6 +398,9 @@ assert.match(taskRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
+assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
+assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS = process\.env\.VERCEL \? 2_000 : 10_000/);
+assert.match(prismaSource, /allowExitOnIdle: true/);
 assert.match(taskWorkspaceSource, /const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);

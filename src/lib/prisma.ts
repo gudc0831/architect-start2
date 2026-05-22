@@ -6,7 +6,8 @@ const globalForPrisma = globalThis as typeof globalThis & {
   prisma?: PrismaClient;
 };
 
-const DEFAULT_DATABASE_POOL_MAX = 3;
+const DEFAULT_DATABASE_POOL_MAX = process.env.VERCEL ? 1 : 3;
+const DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS = process.env.VERCEL ? 2_000 : 10_000;
 
 function parsePositiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value);
@@ -21,11 +22,13 @@ function createPrismaClient() {
   }
 
   const poolMax = parsePositiveInteger(process.env.DATABASE_POOL_MAX, DEFAULT_DATABASE_POOL_MAX);
+  const idleTimeoutMillis = parsePositiveInteger(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS, DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS);
   const adapter = new PrismaPg({
     connectionString: databaseUrl,
     max: poolMax,
-    idleTimeoutMillis: 10_000,
+    idleTimeoutMillis,
     connectionTimeoutMillis: 10_000,
+    allowExitOnIdle: true,
   });
 
   return new PrismaClient({

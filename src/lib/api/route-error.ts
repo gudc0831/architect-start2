@@ -8,6 +8,7 @@ const databaseConnectivityErrorCodes = new Set([
   "ETIMEDOUT",
   "ENOTFOUND",
   "EAI_AGAIN",
+  "EMAXCONNSESSION",
   "P1001",
   "P1002",
   "P1017",
@@ -49,6 +50,8 @@ export function isDatabaseConnectivityError(error: unknown) {
   return (
     /Can't reach database server/i.test(message) ||
     /Timed out fetching a new connection/i.test(message) ||
+    /max clients reached/i.test(message) ||
+    /max client connections reached/i.test(message) ||
     /Connection terminated/i.test(message) ||
     /connection timeout/i.test(message) ||
     /\b(EACCES|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b/i.test(message)
