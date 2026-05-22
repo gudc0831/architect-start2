@@ -3602,6 +3602,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             continue;
           }
 
+          if (operation.status === "failed" && !options.manual) {
+            continue;
+          }
+
           if (!options.manual && operation.nextRetryAt && Date.parse(operation.nextRetryAt) > now) {
             continue;
           }

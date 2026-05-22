@@ -364,6 +364,7 @@ assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*return true;\s*
 assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);
+assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.manual/);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
