@@ -338,9 +338,21 @@ assert.equal(
 
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
+const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
+const taskReorderQueueSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback"),
+  taskWorkspaceSource.indexOf("useEffect(() => {", taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback")),
+);
 assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
+assert.doesNotMatch(
+  taskWorkspaceSource,
+  /if \(payload\.kind === "reorder"\) \{\s*let currentTasks = dashboardStateByScopeRef\.current\.active\.tasks;\s*if \(areTaskSiblingOrdersEqual\(currentTasks,\s*payload\.desiredTasks\)\)/,
+);
+assert.doesNotMatch(taskReorderQueueSource, /response\.status === 409\) \{\s*await refreshScope\(\{ force: true \}\);/);
+assert.match(taskWorkspaceSource, /const shouldShowWorkspaceLoadingPlaceholder =/);
+assert.match(taskReorderQueueSource, /buildTaskReorderRequestBody\(withTaskReorderExpectedVersions\(entry\.command, baseTasks\), baseTasks\)/);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;

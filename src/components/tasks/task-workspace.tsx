@@ -3699,7 +3699,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }, 500);
   }, [dailyMutationScope, dailyMutationSummary.totalActive, flushDailyMutationJournal]);
 
-  async function fetchDailySyncTasks(syncScope: DashboardScope) {
+  const fetchDailySyncTasks = useCallback(async (syncScope: DashboardScope) => {
     const response = await fetch(`/api/tasks${syncScope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" });
     if (!response.ok) {
       throw await readApiError(response, "loadTasksFailed");
@@ -3707,20 +3707,23 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     const json = (await response.json()) as { data: TaskRecord[] };
     return json.data.map(withEmptyTaskFileSummary);
-  }
+  }, []);
 
-  async function refreshDailyServerTaskStateForSync(options: { includeTrash?: boolean } = {}) {
-    const [activeTasks, trashTasks] = await Promise.all([
-      fetchDailySyncTasks("active"),
-      options.includeTrash ? fetchDailySyncTasks("trash") : Promise.resolve(dashboardStateByScopeRef.current.trash.tasks),
-    ]);
-    const operations = dailyMutationOperationsRef.current;
-    setDashboardScopeTasks("active", () => mergeDailyMutationOperationsIntoActiveTasks(activeTasks, operations));
-    if (options.includeTrash) {
-      setDashboardScopeTasks("trash", () => mergeDailyMutationOperationsIntoTrashTasks(trashTasks, operations));
-    }
-    return { activeTasks, trashTasks };
-  }
+  const refreshDailyServerTaskStateForSync = useCallback(
+    async (options: { includeTrash?: boolean } = {}) => {
+      const [activeTasks, trashTasks] = await Promise.all([
+        fetchDailySyncTasks("active"),
+        options.includeTrash ? fetchDailySyncTasks("trash") : Promise.resolve(dashboardStateByScopeRef.current.trash.tasks),
+      ]);
+      const operations = dailyMutationOperationsRef.current;
+      setDashboardScopeTasks("active", () => mergeDailyMutationOperationsIntoActiveTasks(activeTasks, operations));
+      if (options.includeTrash) {
+        setDashboardScopeTasks("trash", () => mergeDailyMutationOperationsIntoTrashTasks(trashTasks, operations));
+      }
+      return { activeTasks, trashTasks };
+    },
+    [fetchDailySyncTasks, setDashboardScopeTasks],
+  );
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -3864,12 +3867,6 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     if (payload.kind === "reorder") {
       let currentTasks = dashboardStateByScopeRef.current.active.tasks;
-      if (areTaskSiblingOrdersEqual(currentTasks, payload.desiredTasks)) {
-        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
-        await markDailyMutationSynced(operation);
-        return;
-      }
-
       const buildReorderRequest = (tasksForVersions: readonly TaskRecord[], reorderOperation: DailyMutationOperation) => {
         if (reorderOperation.payload.kind !== "reorder") {
           throw new Error("Daily reorder operation payload changed before sync.");
@@ -4280,19 +4277,36 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             continue;
           }
 
-          const baseTasks = dashboardStateByScopeRef.current.active.tasks;
-          const requestBody = buildTaskReorderRequestBody(entry.command, baseTasks);
-          const response = await fetch("/api/tasks/reorder", {
+          let baseTasks = dashboardStateByScopeRef.current.active.tasks;
+          let response = await fetch("/api/tasks/reorder", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
+            body: JSON.stringify(buildTaskReorderRequestBody(withTaskReorderExpectedVersions(entry.command, baseTasks), baseTasks)),
           });
 
+          if (!response.ok && response.status === 409) {
+            const latestState = await refreshDailyServerTaskStateForSync();
+            baseTasks = latestState.activeTasks;
+            const latestOptimisticTasks = applyStoredTaskReorderCommand(baseTasks, entry.command);
+            if (areTaskSiblingOrdersEqual(baseTasks, latestOptimisticTasks)) {
+              continue;
+            }
+
+            const rebasedCommand = withTaskReorderExpectedVersions(entry.command, baseTasks);
+            writePendingTaskReorderToStorage(taskReorderStorageKeyRef.current, rebasedCommand);
+            setActiveTasksForContinuousReorder(() => latestOptimisticTasks);
+            response = await fetch("/api/tasks/reorder", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(buildTaskReorderRequestBody(rebasedCommand, baseTasks)),
+            });
+          }
+
           if (!response.ok) {
-            setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
             queueState.entries = [];
-            const shouldRetainPendingOrder = shouldRetainPendingTaskReorderAfterFailure(response.status);
+            const shouldRetainPendingOrder = response.status === 409 || shouldRetainPendingTaskReorderAfterFailure(response.status);
             if (!shouldRetainPendingOrder) {
+              setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
               removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
               taskReorderUnloadPersistCommandRef.current = null;
               taskReorderUnloadPersistAttemptedRef.current = false;
@@ -4301,9 +4315,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             } else {
               scheduleTaskReorderStorageRetry();
             }
-            if (response.status === 409) {
-              await refreshScope({ force: true });
-            } else if (!shouldRetainPendingOrder) {
+            if (!shouldRetainPendingOrder) {
               setActiveTasksForContinuousReorder((currentTasks) =>
                 restoreTaskReorderSnapshot(currentTasks, entry.previousTasks, entry.command),
               );
@@ -4339,7 +4351,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     })();
   }, [
     clearTaskReorderStorageRetry,
-    refreshScope,
+    refreshDailyServerTaskStateForSync,
     scheduleTaskReorderStorageRetry,
     setActiveTasksForContinuousReorder,
     setErrorMessage,
@@ -6019,6 +6031,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     ) : null;
 
   const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isWorkspaceReadOnly) || canExportTasks;
+  const shouldShowWorkspaceLoadingPlaceholder =
+    loading && !(mode === "daily" && (tasks.length > 0 || dailyMutationSummary.totalActive > 0));
 
   return (
     <section
@@ -6149,7 +6163,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           ) : null}
         </div>
       ) : null}
-      {loading ? (
+      {shouldShowWorkspaceLoadingPlaceholder ? (
         <div className="empty-state">
           <h3>{t("workspace.loading")}</h3>
         </div>
@@ -9910,7 +9924,7 @@ function buildTaskReorderRequestBody(command: TaskReorderPersistCommand, tasks: 
   if (command.action === "set_sibling_order") {
     return {
       ...command,
-      expectedVersions: command.expectedVersions ?? buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
+      expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
     };
   }
 
