@@ -997,6 +997,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     return dailyMutationSummary.pending > 0 ? "서버 동기화 대기" : "로컬 반영됨";
   }, [dailyMutationSummary.failed, dailyMutationSummary.pending, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
+  const dailyMutationStatusDebug = useMemo(() => {
+    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+      return null;
+    }
+
+    const operation =
+      dailyMutationOperations.find((candidate) => candidate.status === "failed") ??
+      dailyMutationOperations.find((candidate) => candidate.status === "syncing") ??
+      dailyMutationOperations.find((candidate) => candidate.status === "pending") ??
+      null;
+
+    return operation
+      ? {
+          failureKind: operation.failureKind ?? "",
+          lastError: operation.lastError ?? "",
+          lastErrorCode: operation.lastErrorCode ?? "",
+          lastHttpStatus: operation.lastHttpStatus === null || operation.lastHttpStatus === undefined ? "" : String(operation.lastHttpStatus),
+          retryCount: String(operation.retryCount),
+          status: operation.status,
+          type: operation.type,
+        }
+      : null;
+  }, [dailyMutationOperations, dailyMutationSummary.totalActive, mode]);
   const canEditWorkspace =
     !isPreview &&
     Boolean(authUser) &&
@@ -6278,7 +6301,16 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       {errorMessage ? <p className="detail-panel__warning detail-panel__warning--error">{errorMessage}</p> : null}
       {dailyMutationStatusLabel ? (
-        <div className="daily-sync-status" data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}>
+        <div
+          className="daily-sync-status"
+          data-error-code={dailyMutationStatusDebug?.lastErrorCode || undefined}
+          data-failure-kind={dailyMutationStatusDebug?.failureKind || undefined}
+          data-http-status={dailyMutationStatusDebug?.lastHttpStatus || undefined}
+          data-operation-type={dailyMutationStatusDebug?.type || undefined}
+          data-retry-count={dailyMutationStatusDebug?.retryCount || undefined}
+          data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}
+          title={dailyMutationStatusDebug?.lastError || undefined}
+        >
           <span>{dailyMutationStatusLabel}</span>
           {dailyMutationSummary.failed > 0 ? (
             <button className="secondary-button" onClick={() => void discardFailedDailyMutations()} type="button">
