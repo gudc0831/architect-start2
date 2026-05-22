@@ -4,6 +4,24 @@ import type { TaskRecord } from "@/domains/task/types";
 
 export type DailyMutationOperationType = "create" | "update" | "trash" | "delete" | "reorder";
 export type DailyMutationStatus = "pending" | "syncing" | "synced" | "failed";
+export type DailyMutationFailureKind =
+  | "network_or_database"
+  | "version_conflict"
+  | "reorder_conflict"
+  | "not_found_desired_state_check"
+  | "auth_or_permission"
+  | "fatal";
+
+export type DailyMutationFlushErrorInfo = {
+  status: number | null;
+  code: string | null;
+  isNetworkError: boolean;
+};
+
+export type DailyMutationFailureDecision = {
+  kind: DailyMutationFailureKind;
+  retryable: boolean;
+};
 
 export type DailyMutationScope = {
   projectId: string;
@@ -71,6 +89,10 @@ export type DailyMutationOperation = {
   updatedAt: string;
   retryCount: number;
   lastError: string | null;
+  lastHttpStatus?: number | null;
+  lastErrorCode?: string | null;
+  failureKind?: DailyMutationFailureKind | null;
+  lastAttemptedAt?: string | null;
   nextRetryAt: string | null;
   tempTaskId: string | null;
   serverTaskId: string | null;
@@ -90,6 +112,7 @@ const DB_NAME = "architect-start.daily-mutations";
 const DB_VERSION = 1;
 const STORE_NAME = "operations";
 export const DAILY_MUTATION_PAYLOAD_SIZE_LIMIT_BYTES = 256 * 1024;
+export const DAILY_MUTATION_MAX_RETRY_COUNT = 6;
 const REORDER_OPERATION_ID_PREFIX = "daily-reorder:";
 
 type StoredOperation = DailyMutationOperation & {
@@ -146,6 +169,10 @@ export function buildDailyMutationOperation(input: {
     updatedAt: now,
     retryCount: 0,
     lastError: null,
+    lastHttpStatus: null,
+    lastErrorCode: null,
+    failureKind: null,
+    lastAttemptedAt: null,
     nextRetryAt: null,
     tempTaskId: input.tempTaskId ?? null,
     serverTaskId: input.serverTaskId ?? null,
@@ -307,6 +334,144 @@ export function coalesceDailyReorderOperations(operations: readonly DailyMutatio
   }
 
   return result;
+}
+
+export function classifyDailyMutationFlushFailure(
+  operation: DailyMutationOperation,
+  error: DailyMutationFlushErrorInfo,
+): DailyMutationFailureDecision {
+  if (error.isNetworkError || error.code === "DATABASE_UNAVAILABLE" || error.status === 408 || error.status === 425 || error.status === 429) {
+    return { kind: "network_or_database", retryable: true };
+  }
+
+  if (error.status !== null && error.status >= 500) {
+    return { kind: "network_or_database", retryable: true };
+  }
+
+  if (operation.payload.kind === "update" && error.status === 409 && error.code === "TASK_VERSION_CONFLICT") {
+    return { kind: "version_conflict", retryable: true };
+  }
+
+  if (operation.payload.kind === "reorder" && error.status === 409 && error.code === "TASK_REORDER_CONFLICT") {
+    return { kind: "reorder_conflict", retryable: true };
+  }
+
+  if ((operation.payload.kind === "trash" || operation.payload.kind === "delete") && error.status === 404) {
+    return { kind: "not_found_desired_state_check", retryable: true };
+  }
+
+  if (error.status === 401 || error.status === 403) {
+    return { kind: "auth_or_permission", retryable: false };
+  }
+
+  return { kind: "fatal", retryable: false };
+}
+
+export function shouldRecoverLegacyFailedDailyMutation(operation: DailyMutationOperation) {
+  return operation.status === "failed" && !operation.failureKind && operation.retryCount < DAILY_MUTATION_MAX_RETRY_COUNT;
+}
+
+export function shouldContinueRetryingDailyMutation(retryCount: number) {
+  return retryCount < DAILY_MUTATION_MAX_RETRY_COUNT;
+}
+
+export function rebaseDailyUpdateMutationOperation(
+  operation: DailyMutationOperation,
+  latestTask: Pick<TaskRecord, "version">,
+): DailyMutationOperation {
+  if (operation.payload.kind !== "update") {
+    return operation;
+  }
+
+  return {
+    ...operation,
+    status: "pending",
+    updatedAt: new Date().toISOString(),
+    lastError: null,
+    lastHttpStatus: null,
+    lastErrorCode: null,
+    failureKind: null,
+    nextRetryAt: null,
+    payload: {
+      ...operation.payload,
+      baseVersion: latestTask.version,
+    },
+  };
+}
+
+export function rebaseDailyReorderMutationOperation(
+  operation: DailyMutationOperation,
+  latestTasks: readonly TaskRecord[],
+): DailyMutationOperation {
+  if (operation.payload.kind !== "reorder") {
+    return operation;
+  }
+
+  const latestById = new Map(latestTasks.map((task) => [task.id, task]));
+  const desiredTasks = operation.payload.desiredTasks.map((task) => {
+    const latestTask = latestById.get(task.id);
+    return latestTask ? { ...latestTask, parentTaskId: task.parentTaskId, siblingOrder: task.siblingOrder } : task;
+  });
+
+  return {
+    ...operation,
+    status: "pending",
+    updatedAt: new Date().toISOString(),
+    lastError: null,
+    lastHttpStatus: null,
+    lastErrorCode: null,
+    failureKind: null,
+    nextRetryAt: null,
+    payload: {
+      ...operation.payload,
+      desiredTasks,
+    },
+  };
+}
+
+export function shouldMarkDailyTrashMutationSyncedFromServerState(
+  operation: DailyMutationOperation,
+  activeTasks: readonly TaskRecord[],
+  trashTasks: readonly TaskRecord[],
+) {
+  if (operation.payload.kind !== "trash") {
+    return false;
+  }
+
+  const affectedIds = new Set(operation.payload.affectedTasks.map((task) => task.id));
+  if (affectedIds.size === 0) {
+    affectedIds.add(operation.payload.taskId);
+  }
+
+  const activeIds = new Set(activeTasks.map((task) => task.id));
+  const trashIds = new Set(trashTasks.map((task) => task.id));
+
+  for (const taskId of affectedIds) {
+    if (activeIds.has(taskId)) {
+      return false;
+    }
+  }
+
+  return [...affectedIds].some((taskId) => trashIds.has(taskId)) || [...affectedIds].every((taskId) => !activeIds.has(taskId));
+}
+
+export function shouldMarkDailyDeleteMutationSyncedFromServerState(
+  operation: DailyMutationOperation,
+  activeTasks: readonly TaskRecord[],
+  trashTasks: readonly TaskRecord[],
+) {
+  if (operation.payload.kind !== "delete") {
+    return false;
+  }
+
+  const affectedIds = new Set(operation.payload.affectedTasks.map((task) => task.id));
+  if (affectedIds.size === 0) {
+    affectedIds.add(operation.payload.taskId);
+  }
+
+  const activeIds = new Set(activeTasks.map((task) => task.id));
+  const trashIds = new Set(trashTasks.map((task) => task.id));
+  return [...affectedIds].every((taskId) => !activeIds.has(taskId) && !trashIds.has(taskId));
 }
 
 export function shouldResetDailyMutationSyncingOperation(operation: DailyMutationOperation, now = Date.now()) {

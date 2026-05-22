@@ -372,6 +372,13 @@ export async function moveTaskToTrash(taskId: string, userId?: string | null) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
+  if (subtree.every((task) => task.deletedAt && !task.purgedAt)) {
+    return {
+      task: applyFoundationSettingsToTask(subtree[0], foundationSettings),
+      affectedTasks: subtree.map((task) => applyFoundationSettingsToTask(task, foundationSettings)),
+    };
+  }
+
   let updatedRoot = subtree[0];
   const updatedTasks: TaskRecord[] = [];
 

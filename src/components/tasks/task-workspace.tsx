@@ -49,6 +49,7 @@ import {
   buildDailyMutationOperation,
   buildDailyMutationScopeKey,
   buildDailyOptimisticTaskId,
+  classifyDailyMutationFlushFailure,
   computeDailyMutationRetryDelayMs,
   createDailyMutationId,
   deleteDailyMutationOperation,
@@ -57,10 +58,17 @@ import {
   mergeDailyMutationOperationsIntoActiveTasks,
   mergeDailyMutationOperationsIntoTrashTasks,
   putDailyMutationOperation,
+  rebaseDailyReorderMutationOperation,
+  rebaseDailyUpdateMutationOperation,
   reconcileDailyMutationCreateSuccess,
+  shouldContinueRetryingDailyMutation,
+  shouldMarkDailyDeleteMutationSyncedFromServerState,
+  shouldMarkDailyTrashMutationSyncedFromServerState,
+  shouldRecoverLegacyFailedDailyMutation,
   shouldResetDailyMutationSyncingOperation,
   summarizeDailyMutationOperations,
   updateDailyMutationOperation,
+  type DailyMutationFlushErrorInfo,
   type DailyMutationOperation,
   type DailyMutationScope,
   type DailyMutationSummary,
@@ -980,8 +988,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return "서버 동기화 중";
     }
 
-    return "로컬 반영됨";
-  }, [dailyMutationSummary.failed, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
+    return dailyMutationSummary.pending > 0 ? "서버 동기화 대기" : "로컬 반영됨";
+  }, [dailyMutationSummary.failed, dailyMutationSummary.pending, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
   const canEditWorkspace =
     !isPreview &&
     Boolean(authUser) &&
@@ -1293,6 +1301,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     let operations = await listDailyMutationOperations(dailyMutationScope);
     const staleSyncingOperations = operations.filter((operation) => shouldResetDailyMutationSyncingOperation(operation));
+    const legacyFailedOperations = operations.filter((operation) => shouldRecoverLegacyFailedDailyMutation(operation));
     if (staleSyncingOperations.length > 0) {
       await Promise.all(
         staleSyncingOperations.map((operation) =>
@@ -1302,6 +1311,24 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   ...current,
                   status: "pending",
                   lastError: current.lastError ?? "Previous sync was interrupted before completion.",
+                  nextRetryAt: null,
+                  updatedAt: new Date().toISOString(),
+                }
+              : current,
+          ),
+        ),
+      );
+      operations = await listDailyMutationOperations(dailyMutationScope);
+    }
+    if (legacyFailedOperations.length > 0) {
+      await Promise.all(
+        legacyFailedOperations.map((operation) =>
+          updateDailyMutationOperation(operation.operationId, (current) =>
+            shouldRecoverLegacyFailedDailyMutation(current)
+              ? {
+                  ...current,
+                  status: "pending",
+                  lastError: current.lastError ?? "Previous sync failed before recovery classification was available.",
                   nextRetryAt: null,
                   updatedAt: new Date().toISOString(),
                 }
@@ -3582,21 +3609,32 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             ...current,
             status: "syncing",
             updatedAt: new Date().toISOString(),
+            lastAttemptedAt: new Date().toISOString(),
             lastError: null,
+            lastHttpStatus: null,
+            lastErrorCode: null,
+            failureKind: null,
           }));
           await refreshDailyMutationJournal();
 
           try {
             await flushDailyMutationOperationRef.current(operation);
           } catch (error) {
+            const errorInfo = readDailyMutationFlushErrorInfo(error);
+            const failure = classifyDailyMutationFlushFailure(operation, errorInfo);
             const retryCount = operation.retryCount + 1;
-            const nextRetryAt = new Date(Date.now() + computeDailyMutationRetryDelayMs(retryCount)).toISOString();
+            const shouldRetry = failure.retryable && shouldContinueRetryingDailyMutation(retryCount);
+            const nextRetryAt = shouldRetry ? new Date(Date.now() + computeDailyMutationRetryDelayMs(retryCount)).toISOString() : null;
             await updateDailyMutationOperation(operation.operationId, (current) => ({
               ...current,
-              status: "failed",
+              status: shouldRetry ? "pending" : "failed",
               retryCount,
               nextRetryAt,
               updatedAt: new Date().toISOString(),
+              lastAttemptedAt: new Date().toISOString(),
+              lastHttpStatus: errorInfo.status,
+              lastErrorCode: errorInfo.code,
+              failureKind: failure.kind,
               lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
             }));
           }
@@ -3661,6 +3699,29 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }, 500);
   }, [dailyMutationScope, dailyMutationSummary.totalActive, flushDailyMutationJournal]);
 
+  async function fetchDailySyncTasks(syncScope: DashboardScope) {
+    const response = await fetch(`/api/tasks${syncScope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw await readApiError(response, "loadTasksFailed");
+    }
+
+    const json = (await response.json()) as { data: TaskRecord[] };
+    return json.data.map(withEmptyTaskFileSummary);
+  }
+
+  async function refreshDailyServerTaskStateForSync(options: { includeTrash?: boolean } = {}) {
+    const [activeTasks, trashTasks] = await Promise.all([
+      fetchDailySyncTasks("active"),
+      options.includeTrash ? fetchDailySyncTasks("trash") : Promise.resolve(dashboardStateByScopeRef.current.trash.tasks),
+    ]);
+    const operations = dailyMutationOperationsRef.current;
+    setDashboardScopeTasks("active", () => mergeDailyMutationOperationsIntoActiveTasks(activeTasks, operations));
+    if (options.includeTrash) {
+      setDashboardScopeTasks("trash", () => mergeDailyMutationOperationsIntoTrashTasks(trashTasks, operations));
+    }
+    return { activeTasks, trashTasks };
+  }
+
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
     resetDraftDirtyFields();
@@ -3717,16 +3778,26 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         dashboardStateByScopeRef.current.active.tasks.find((task) => task.id === taskId) ??
         dashboardStateByScopeRef.current.trash.tasks.find((task) => task.id === taskId);
       const version = currentTask?.version ?? payload.baseVersion;
-      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload.patch, version }),
-      });
+      const buildUpdateRequest = (nextVersion: number) =>
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload.patch, version: nextVersion }),
+        });
+      let response = await buildUpdateRequest(version);
+
+      if (!response.ok && response.status === 409) {
+        const latestState = await refreshDailyServerTaskStateForSync({ includeTrash: true });
+        const latestTask = [...latestState.activeTasks, ...latestState.trashTasks].find((task) => task.id === taskId);
+        if (latestTask) {
+          await updateDailyMutationOperation(operation.operationId, (current) =>
+            rebaseDailyUpdateMutationOperation(current, latestTask),
+          );
+          response = await buildUpdateRequest(latestTask.version);
+        }
+      }
 
       if (!response.ok) {
-        if (response.status === 409) {
-          await refreshScope({ force: true, silent: true });
-        }
         throw await readApiError(response, "updateTaskFailed");
       }
 
@@ -3747,7 +3818,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
       if (!response.ok) {
-        throw await readApiError(response, "moveTaskToTrashFailed");
+        const error = await readApiError(response, "moveTaskToTrashFailed");
+        if (error.status === 404) {
+          const latestState = await refreshDailyServerTaskStateForSync({ includeTrash: true });
+          if (shouldMarkDailyTrashMutationSyncedFromServerState(operation, latestState.activeTasks, latestState.trashTasks)) {
+            await markDailyMutationSynced(operation);
+            return;
+          }
+        }
+        throw error;
       }
 
       const json = (await response.json()) as { data?: TaskSubtreeMutationPayload | TaskRecord };
@@ -3763,7 +3842,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const taskId = resolveDailyMutationServerTaskId(payload.taskId);
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
       if (!response.ok) {
-        throw await readApiError(response, "deleteTaskFailed");
+        const error = await readApiError(response, "deleteTaskFailed");
+        if (error.status === 404) {
+          const latestState = await refreshDailyServerTaskStateForSync({ includeTrash: true });
+          if (shouldMarkDailyDeleteMutationSyncedFromServerState(operation, latestState.activeTasks, latestState.trashTasks)) {
+            await markDailyMutationSynced(operation);
+            return;
+          }
+        }
+        throw error;
       }
 
       const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
@@ -3776,24 +3863,43 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     if (payload.kind === "reorder") {
-      const currentTasks = dashboardStateByScopeRef.current.active.tasks;
+      let currentTasks = dashboardStateByScopeRef.current.active.tasks;
       if (areTaskSiblingOrdersEqual(currentTasks, payload.desiredTasks)) {
         removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
         await markDailyMutationSynced(operation);
         return;
       }
 
-      const command = withTaskReorderExpectedVersions(payload.command as TaskReorderPersistCommand, currentTasks);
-      const response = await fetch("/api/tasks/reorder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildTaskReorderRequestBody(command, currentTasks)),
-      });
+      const buildReorderRequest = (tasksForVersions: readonly TaskRecord[], reorderOperation: DailyMutationOperation) => {
+        if (reorderOperation.payload.kind !== "reorder") {
+          throw new Error("Daily reorder operation payload changed before sync.");
+        }
+
+        const command = withTaskReorderExpectedVersions(reorderOperation.payload.command as TaskReorderPersistCommand, tasksForVersions);
+        return fetch("/api/tasks/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildTaskReorderRequestBody(command, tasksForVersions)),
+        });
+      };
+
+      let response = await buildReorderRequest(currentTasks, operation);
+
+      if (!response.ok && response.status === 409) {
+        const latestState = await refreshDailyServerTaskStateForSync();
+        currentTasks = latestState.activeTasks;
+        if (areTaskSiblingOrdersEqual(currentTasks, payload.desiredTasks)) {
+          removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+          await markDailyMutationSynced(operation);
+          return;
+        }
+
+        const rebasedOperation = rebaseDailyReorderMutationOperation(operation, currentTasks);
+        await updateDailyMutationOperation(operation.operationId, () => rebasedOperation);
+        response = await buildReorderRequest(currentTasks, rebasedOperation);
+      }
 
       if (!response.ok) {
-        if (response.status === 409) {
-          await refreshScope({ force: true, silent: true });
-        }
         throw await readApiError(response, "updateTaskFailed");
       }
 
@@ -3818,8 +3924,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       serverTaskId: values.serverTaskId ?? current.serverTaskId,
       updatedAt: new Date().toISOString(),
       lastError: null,
+      lastHttpStatus: null,
+      lastErrorCode: null,
+      failureKind: null,
+      lastAttemptedAt: current.lastAttemptedAt,
       nextRetryAt: null,
     }));
+    await refreshDailyMutationJournal();
   }
 
   async function markDailyMutationPending(operation: DailyMutationOperation) {
@@ -3827,8 +3938,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       ...current,
       status: "pending",
       updatedAt: new Date().toISOString(),
+      lastHttpStatus: null,
+      lastErrorCode: null,
+      failureKind: null,
       nextRetryAt: new Date(Date.now() + computeDailyMutationRetryDelayMs(current.retryCount)).toISOString(),
     }));
+    await refreshDailyMutationJournal();
   }
 
   function resolveDailyMutationServerTaskId(taskId: string) {
@@ -10212,6 +10327,18 @@ class ApiResponseError extends Error {
 
 function isApiConflictError(error: unknown, code?: string) {
   return error instanceof ApiResponseError && error.status === 409 && (!code || error.code === code);
+}
+
+function readDailyMutationFlushErrorInfo(error: unknown): DailyMutationFlushErrorInfo {
+  if (error instanceof ApiResponseError) {
+    return { status: error.status, code: error.code, isNetworkError: false };
+  }
+
+  if (error instanceof Error && isFetchNetworkFailure(error)) {
+    return { status: null, code: null, isNetworkError: true };
+  }
+
+  return { status: null, code: null, isNetworkError: false };
 }
 
 function downloadBlob(blob: Blob, filename: string) {

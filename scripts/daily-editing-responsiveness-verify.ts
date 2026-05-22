@@ -9,13 +9,20 @@ import {
   mergePendingTaskPatchValues,
 } from "@/components/tasks/task-optimistic-patch-state";
 import {
+  classifyDailyMutationFlushFailure,
+  DAILY_MUTATION_MAX_RETRY_COUNT,
   buildCoalescedDailyReorderOperation,
   buildDailyMutationOperation,
   buildDailyOptimisticTaskId,
   coalesceDailyReorderOperations,
   mergeDailyMutationOperationsIntoActiveTasks,
   mergeDailyMutationOperationsIntoTrashTasks,
+  rebaseDailyReorderMutationOperation,
+  rebaseDailyUpdateMutationOperation,
   reconcileDailyMutationCreateSuccess,
+  shouldMarkDailyDeleteMutationSyncedFromServerState,
+  shouldMarkDailyTrashMutationSyncedFromServerState,
+  shouldRecoverLegacyFailedDailyMutation,
   summarizeDailyMutationOperations,
 } from "@/components/tasks/daily-mutation-journal";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
@@ -214,6 +221,18 @@ const pendingCreateOperation = buildDailyMutationOperation({
 assert.equal(mergeDailyMutationOperationsIntoActiveTasks([], [pendingCreateOperation])[0]?.id, tempTaskId);
 const serverCreatedTask = baseTask(createClientMutationId, { issueTitle: "local create", taskNumber: 27, actionId: 27 });
 assert.equal(reconcileDailyMutationCreateSuccess([tempTask], tempTaskId, serverCreatedTask)[0]?.id, createClientMutationId);
+const syncedCreateOperation = {
+  ...pendingCreateOperation,
+  status: "synced" as const,
+  serverTaskId: serverCreatedTask.id,
+};
+const trashCreatedTaskOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "trash",
+  now: "2026-05-21T00:00:01.500Z",
+  payload: { kind: "trash", taskId: tempTaskId, affectedTasks: [tempTask] },
+});
+assert.equal(mergeDailyMutationOperationsIntoActiveTasks([serverCreatedTask], [syncedCreateOperation, trashCreatedTaskOperation]).length, 0);
 const pendingUpdateOperation = buildDailyMutationOperation({
   scope: journalScope,
   type: "update",
@@ -238,16 +257,84 @@ assert.deepEqual(
 );
 const failedOperation = { ...pendingUpdateOperation, status: "failed" as const, retryCount: 1 };
 assert.equal(summarizeDailyMutationOperations([failedOperation]).failed, 1);
+assert.equal(shouldRecoverLegacyFailedDailyMutation(failedOperation), true);
+assert.equal(
+  shouldRecoverLegacyFailedDailyMutation({
+    ...failedOperation,
+    retryCount: DAILY_MUTATION_MAX_RETRY_COUNT,
+  }),
+  false,
+);
+const updateConflictDecision = classifyDailyMutationFlushFailure(pendingUpdateOperation, {
+  status: 409,
+  code: "TASK_VERSION_CONFLICT",
+  isNetworkError: false,
+});
+assert.equal(updateConflictDecision.kind, "version_conflict");
+assert.equal(updateConflictDecision.retryable, true);
+const reorderConflictDecision = classifyDailyMutationFlushFailure(secondReorderOperation, {
+  status: 409,
+  code: "TASK_REORDER_CONFLICT",
+  isNetworkError: false,
+});
+assert.equal(reorderConflictDecision.kind, "reorder_conflict");
+assert.equal(reorderConflictDecision.retryable, true);
+const networkDecision = classifyDailyMutationFlushFailure(pendingUpdateOperation, {
+  status: null,
+  code: null,
+  isNetworkError: true,
+});
+assert.equal(networkDecision.kind, "network_or_database");
+assert.equal(networkDecision.retryable, true);
+const permissionDecision = classifyDailyMutationFlushFailure(pendingUpdateOperation, {
+  status: 403,
+  code: "PROJECT_ACCESS_DENIED",
+  isNetworkError: false,
+});
+assert.equal(permissionDecision.kind, "auth_or_permission");
+assert.equal(permissionDecision.retryable, false);
+const rebasedUpdateOperation = rebaseDailyUpdateMutationOperation(pendingUpdateOperation, baseTask("task-1", { version: 9 }));
+assert.equal(rebasedUpdateOperation.payload.kind, "update");
+assert.equal(rebasedUpdateOperation.payload.kind === "update" ? rebasedUpdateOperation.payload.baseVersion : 0, 9);
+const rebasedReorderOperation = rebaseDailyReorderMutationOperation(secondReorderOperation, [
+  baseTask("task-1", { version: 5, siblingOrder: 7 }),
+  baseTask("task-2", { version: 6, siblingOrder: 8 }),
+]);
+assert.equal(rebasedReorderOperation.payload.kind, "reorder");
+assert.equal(rebasedReorderOperation.payload.kind === "reorder" ? rebasedReorderOperation.payload.desiredTasks[0]?.version : 0, 5);
 const pendingTrashOperation = buildDailyMutationOperation({
   scope: journalScope,
   type: "trash",
   now: "2026-05-21T00:00:02.000Z",
   payload: { kind: "trash", taskId: "task-1", affectedTasks: [baseTask("task-1", { deletedAt: null })] },
 });
+assert.equal(
+  shouldMarkDailyTrashMutationSyncedFromServerState(pendingTrashOperation, [], [baseTask("task-1", { deletedAt: "2026-05-21T00:00:02.000Z" })]),
+  true,
+);
+assert.equal(shouldMarkDailyTrashMutationSyncedFromServerState(pendingTrashOperation, [baseTask("task-1")], []), false);
 const firstTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pendingTrashOperation]);
 const secondTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pendingTrashOperation]);
 assert.deepEqual(secondTrashReplay, firstTrashReplay);
 assert.equal(firstTrashReplay[0]?.deletedAt, pendingTrashOperation.createdAt);
+const pendingDeleteOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "delete",
+  now: "2026-05-21T00:00:03.000Z",
+  payload: {
+    kind: "delete",
+    taskId: "task-1",
+    affectedTasks: [baseTask("task-1", { deletedAt: "2026-05-21T00:00:02.000Z" })],
+    affectedFileIds: [],
+  },
+});
+assert.equal(shouldMarkDailyDeleteMutationSyncedFromServerState(pendingDeleteOperation, [], []), true);
+assert.equal(
+  shouldMarkDailyDeleteMutationSyncedFromServerState(pendingDeleteOperation, [], [
+    baseTask("task-1", { deletedAt: "2026-05-21T00:00:02.000Z" }),
+  ]),
+  false,
+);
 
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
