@@ -15,6 +15,7 @@ import {
   buildDailyMutationOperation,
   buildDailyOptimisticTaskId,
   coalesceDailyReorderOperations,
+  isDailyReorderMutationSatisfiedByServerState,
   mergeDailyMutationOperationsIntoActiveTasks,
   mergeDailyMutationOperationsIntoTrashTasks,
   rebaseDailyReorderMutationOperation,
@@ -302,6 +303,20 @@ const rebasedReorderOperation = rebaseDailyReorderMutationOperation(secondReorde
 ]);
 assert.equal(rebasedReorderOperation.payload.kind, "reorder");
 assert.equal(rebasedReorderOperation.payload.kind === "reorder" ? rebasedReorderOperation.payload.desiredTasks[0]?.version : 0, 5);
+assert.equal(
+  isDailyReorderMutationSatisfiedByServerState(secondReorderOperation, [
+    baseTask("task-1", { actionId: 1, siblingOrder: -2 }),
+    baseTask("task-2", { actionId: 2, siblingOrder: -2 }),
+  ]),
+  true,
+);
+assert.equal(
+  isDailyReorderMutationSatisfiedByServerState(secondReorderOperation, [
+    baseTask("task-2", { actionId: 1, siblingOrder: -2 }),
+    baseTask("task-1", { actionId: 2, siblingOrder: -2 }),
+  ]),
+  false,
+);
 const pendingTrashOperation = buildDailyMutationOperation({
   scope: journalScope,
   type: "trash",
@@ -362,9 +377,13 @@ assert.match(taskWorkspaceSource, /dailyMutationScope && hasActiveDailyReorderJo
 assert.match(taskReorderActionSource, /let journalQueued = false/);
 assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*return true;\s*\}/);
 assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000/);
+assert.match(taskWorkspaceSource, /const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);
 assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.manual/);
+assert.match(taskWorkspaceSource, /settleDailyFailedReorderIfServerSatisfiedRef\.current\(operation, now\)/);
+assert.match(taskWorkspaceSource, /operation\.status === "failed" \|\| operation\.retryCount > 0/);
+assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\(operation, currentTasks\)/);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;

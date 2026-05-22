@@ -54,6 +54,7 @@ import {
   createDailyMutationId,
   deleteDailyMutationOperation,
   getDailyCreateClientMutationIdFromTempTaskId,
+  isDailyReorderMutationSatisfiedByServerState,
   listDailyMutationOperations,
   mergeDailyMutationOperationsIntoActiveTasks,
   mergeDailyMutationOperationsIntoTrashTasks,
@@ -651,6 +652,7 @@ const TASK_REORDER_RETRY_BASE_DELAY_MS = 1500;
 const TASK_REORDER_RETRY_MAX_DELAY_MS = 30000;
 const TASK_REORDER_RETRY_MAX_ATTEMPTS = 6;
 const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000;
+const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
@@ -907,6 +909,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const dailyMutationFlushTimerRef = useRef<number | null>(null);
   const dailyMutationFlushRunningRef = useRef(false);
   const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
+  const settleDailyFailedReorderIfServerSatisfiedRef = useRef<
+    (operation: DailyMutationOperation, now: number) => Promise<boolean>
+  >(async () => false);
   const boardCollapsedStorageReadyKeyRef = useRef<string | null>(null);
   const draftDirtyFieldsRef = useRef<DraftDirtyFieldMap>({});
   const draftRef = useRef<TaskRecord | null>(null);
@@ -3603,6 +3608,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           }
 
           if (operation.status === "failed" && !options.manual) {
+            if (
+              operation.payload.kind === "reorder" &&
+              (!operation.nextRetryAt || Date.parse(operation.nextRetryAt) <= now)
+            ) {
+              await settleDailyFailedReorderIfServerSatisfiedRef.current(operation, now);
+            }
             continue;
           }
 
@@ -3731,6 +3742,48 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [fetchDailySyncTasks, setDashboardScopeTasks],
   );
+
+  async function settleDailyFailedReorderIfServerSatisfied(operation: DailyMutationOperation, now: number) {
+    const nextRetryAt = new Date(now + DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS).toISOString();
+    try {
+      const latestState = await refreshDailyServerTaskStateForSync();
+      if (isDailyReorderMutationSatisfiedByServerState(operation, latestState.activeTasks)) {
+        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+        await markDailyMutationSynced(operation);
+        return true;
+      }
+
+      await updateDailyMutationOperation(operation.operationId, (current) =>
+        current.status === "failed"
+          ? {
+              ...current,
+              nextRetryAt,
+              updatedAt: new Date().toISOString(),
+            }
+          : current,
+      );
+      return false;
+    } catch (error) {
+      const errorInfo = readDailyMutationFlushErrorInfo(error);
+      await updateDailyMutationOperation(operation.operationId, (current) =>
+        current.status === "failed"
+          ? {
+              ...current,
+              nextRetryAt,
+              updatedAt: new Date().toISOString(),
+              lastAttemptedAt: new Date().toISOString(),
+              lastHttpStatus: errorInfo.status,
+              lastErrorCode: errorInfo.code,
+              failureKind: "network_or_database",
+              lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
+            }
+          : current,
+      );
+      return false;
+    }
+  }
+
+  settleDailyFailedReorderIfServerSatisfiedRef.current = settleDailyFailedReorderIfServerSatisfied;
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -3887,12 +3940,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         });
       };
 
+      if (operation.status === "failed" || operation.retryCount > 0) {
+        const latestState = await refreshDailyServerTaskStateForSync();
+        currentTasks = latestState.activeTasks;
+        if (isDailyReorderMutationSatisfiedByServerState(operation, currentTasks)) {
+          removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+          await markDailyMutationSynced(operation);
+          return;
+        }
+      }
+
       let response = await buildReorderRequest(currentTasks, operation);
 
       if (!response.ok && response.status === 409) {
         const latestState = await refreshDailyServerTaskStateForSync();
         currentTasks = latestState.activeTasks;
-        if (areTaskSiblingOrdersEqual(currentTasks, payload.desiredTasks)) {
+        if (isDailyReorderMutationSatisfiedByServerState(operation, currentTasks)) {
           removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
           await markDailyMutationSynced(operation);
           return;

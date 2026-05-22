@@ -1,6 +1,7 @@
 "use client";
 
 import type { TaskRecord } from "@/domains/task/types";
+import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 
 export type DailyMutationOperationType = "create" | "update" | "trash" | "delete" | "reorder";
 export type DailyMutationStatus = "pending" | "syncing" | "synced" | "failed";
@@ -474,6 +475,22 @@ export function shouldMarkDailyDeleteMutationSyncedFromServerState(
   return [...affectedIds].every((taskId) => !activeIds.has(taskId) && !trashIds.has(taskId));
 }
 
+export function isDailyReorderMutationSatisfiedByServerState(
+  operation: DailyMutationOperation,
+  activeTasks: readonly TaskRecord[],
+) {
+  if (operation.payload.kind !== "reorder") {
+    return false;
+  }
+
+  const command = operation.payload.command;
+  if (command.action === "set_sibling_order") {
+    return isSetSiblingOrderCommandSatisfiedByServerState(command, activeTasks);
+  }
+
+  return areDesiredSiblingFieldsOnServer(activeTasks, operation.payload.desiredTasks);
+}
+
 export function shouldResetDailyMutationSyncingOperation(operation: DailyMutationOperation, now = Date.now()) {
   return operation.status === "syncing" && Date.parse(operation.updatedAt) < now - 30_000;
 }
@@ -547,6 +564,42 @@ function buildServerIdByTempId(operations: readonly DailyMutationOperation[]) {
     }
   }
   return map;
+}
+
+function isSetSiblingOrderCommandSatisfiedByServerState(
+  command: Extract<DailyMutationReorderCommand, { action: "set_sibling_order" }>,
+  activeTasks: readonly TaskRecord[],
+) {
+  const parentTaskId = command.parentTaskId ?? null;
+  const desiredIds = command.orderedTaskIds.filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0);
+  if (desiredIds.length === 0) {
+    return false;
+  }
+
+  const desiredIdSet = new Set(desiredIds);
+  const currentKnownOrder = buildStoredOrderTaskTree(activeTasks)
+    .filter((task) => (task.parentTaskId ?? null) === parentTaskId && desiredIdSet.has(task.id))
+    .map((task) => task.id);
+  const currentIdSet = new Set(currentKnownOrder);
+  const desiredPresentOrder = desiredIds.filter((taskId) => currentIdSet.has(taskId));
+
+  return (
+    desiredPresentOrder.length > 0 &&
+    currentKnownOrder.length === desiredPresentOrder.length &&
+    currentKnownOrder.every((taskId, index) => taskId === desiredPresentOrder[index])
+  );
+}
+
+function areDesiredSiblingFieldsOnServer(activeTasks: readonly TaskRecord[], desiredTasks: readonly TaskRecord[]) {
+  const activeTaskById = new Map(activeTasks.map((task) => [task.id, task]));
+  return desiredTasks.every((desiredTask) => {
+    const activeTask = activeTaskById.get(desiredTask.id);
+    return (
+      activeTask &&
+      (activeTask.parentTaskId ?? null) === (desiredTask.parentTaskId ?? null) &&
+      activeTask.siblingOrder === desiredTask.siblingOrder
+    );
+  });
 }
 
 function mergeDesiredTaskOrder(tasks: readonly TaskRecord[], desiredTasks: readonly TaskRecord[]) {
