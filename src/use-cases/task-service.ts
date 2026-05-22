@@ -66,17 +66,14 @@ export async function reorderTasks(
   const project = selectedProject ?? (await getSelectedTaskProject());
 
   if (command.action === "set_sibling_order" && taskRepository.setTaskSiblingOrder) {
-    const [updatedTasks, foundationSettings] = await Promise.all([
-      taskRepository.setTaskSiblingOrder({
-        projectId: project.id,
-        parentTaskId: command.parentTaskId,
-        orderedTaskIds: command.orderedTaskIds,
-        updatedBy: userId ?? null,
-      }),
-      loadAdminFoundationSettings(),
-    ]);
+    const updatedTasks = await taskRepository.setTaskSiblingOrder({
+      projectId: project.id,
+      parentTaskId: command.parentTaskId,
+      orderedTaskIds: command.orderedTaskIds,
+      updatedBy: userId ?? null,
+    });
 
-    return applyFoundationSettingsToTasks(updatedTasks, foundationSettings).map((task) => ({
+    return updatedTasks.map((task) => ({
       ...task,
       fileSummary: emptyTaskFileSummary,
     }));

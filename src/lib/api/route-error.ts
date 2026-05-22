@@ -19,6 +19,8 @@ const databaseConnectivityErrorCodes = new Set([
   "57P01",
   "57P02",
   "57P03",
+  "55P03",
+  "57014",
 ]);
 
 function getErrorDetails(error: unknown) {

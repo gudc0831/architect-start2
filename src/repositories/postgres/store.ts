@@ -509,29 +509,24 @@ class PostgresTaskRepository implements TaskRepository {
     const parentPredicate = input.parentTaskId
       ? Prisma.sql`t.parent_task_id = ${input.parentTaskId}::uuid`
       : Prisma.sql`t.parent_task_id is null`;
-    const eligibleRows = await prisma.$queryRaw<Array<{ id: string }>>`
-      with input(id, sibling_order) as (
+    const result = await prisma.$queryRaw<Array<{ eligible_count: number; input_count: number; updated_count: number }>>`
+      with settings as materialized (
+        select
+          set_config('lock_timeout', '2000ms', true) as lock_timeout,
+          set_config('statement_timeout', '8000ms', true) as statement_timeout
+      ),
+      input(id, sibling_order) as (
         values ${inputRows}
-      )
-      select t.id
-      from tasks as t
-      join input on input.id = t.id
-      where t.project_id = ${input.projectId}::uuid
-        and ${parentPredicate}
-        and t.deleted_at is null
-        and t.purged_at is null
-    `;
-
-    if (eligibleRows.length !== orderedTaskIds.length) {
-      throw conflict(
-        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
-        "TASK_REORDER_CONFLICT",
-      );
-    }
-
-    const updatedIds = await prisma.$queryRaw<Array<{ id: string }>>`
-      with input(id, sibling_order) as (
-        values ${inputRows}
+      ),
+      eligible as (
+        select t.id
+        from tasks as t
+        join input on input.id = t.id
+        cross join settings
+        where t.project_id = ${input.projectId}::uuid
+          and ${parentPredicate}
+          and t.deleted_at is null
+          and t.purged_at is null
       ),
       updated as (
         update tasks as t
@@ -540,26 +535,27 @@ class PostgresTaskRepository implements TaskRepository {
           updated_by = coalesce(${input.updatedBy ?? null}::uuid, t.updated_by),
           version = t.version + 1,
           updated_at = now()
-        from input
+        from input, settings
         where t.id = input.id
+          and (select count(*) from eligible) = (select count(*) from input)
           and t.sibling_order is distinct from input.sibling_order
         returning t.id
       )
-      select id from updated
+      select
+        (select count(*)::integer from eligible) as eligible_count,
+        (select count(*)::integer from input) as input_count,
+        (select count(*)::integer from updated) as updated_count
     `;
 
-    if (updatedIds.length === 0) {
-      return [];
+    const summary = result[0];
+    if (!summary || summary.eligible_count !== summary.input_count) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
     }
 
-    const updated = await prisma.task.findMany({
-      where: { id: { in: updatedIds.map((row) => row.id) } },
-    });
-    const updatedById = new Map(updated.map((record) => [record.id, record]));
-    return orderedTaskIds
-      .map((taskId) => updatedById.get(taskId))
-      .filter((task): task is NonNullable<typeof task> => Boolean(task))
-      .map(toTaskRecord);
+    return [];
   }
 
   async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {

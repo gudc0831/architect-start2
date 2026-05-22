@@ -405,6 +405,10 @@ const reorderTasksSource = taskServiceSource.slice(
   taskServiceSource.indexOf("export async function reorderTasks"),
   taskServiceSource.indexOf("export async function createTask"),
 );
+const reorderTasksFastPathSource = reorderTasksSource.slice(
+  reorderTasksSource.indexOf('if (command.action === "set_sibling_order"'),
+  reorderTasksSource.indexOf("const [activeTasks, foundationSettings]"),
+);
 const taskReorderActionSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const reorderDailyTasks = useCallback"),
   taskWorkspaceSource.indexOf("const moveTaskByOffset = useCallback"),
@@ -413,9 +417,13 @@ assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
 assert.match(postgresStoreSource, /with input\(id, sibling_order, updated_by, expected_version, has_expected_version\) as/);
-assert.match(postgresSetTaskSiblingOrderSource, /with input\(id, sibling_order\) as/);
+assert.match(postgresSetTaskSiblingOrderSource, /input\(id, sibling_order\) as/);
 assert.match(postgresSetTaskSiblingOrderSource, /where t\.project_id = \$\{input\.projectId\}::uuid/);
+assert.match(postgresSetTaskSiblingOrderSource, /set_config\('lock_timeout', '2000ms', true\)/);
+assert.match(postgresSetTaskSiblingOrderSource, /set_config\('statement_timeout', '8000ms', true\)/);
 assert.match(postgresSetTaskSiblingOrderSource, /t\.sibling_order is distinct from input\.sibling_order/);
+assert.match(postgresSetTaskSiblingOrderSource, /\(select count\(\*\)::integer from updated\) as updated_count/);
+assert.match(postgresSetTaskSiblingOrderSource, /return \[\];/);
 assert.match(updateTaskOrdersSource, /eligible as/);
 assert.doesNotMatch(updateTaskOrdersSource, /prisma\.\$transaction/);
 assert.match(postgresStoreSource, /update tasks as t/);
@@ -460,10 +468,14 @@ assert.match(taskWorkspaceSource, /deleteDailyMutationOperation\(operation\.oper
 assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
 assert.match(reorderTasksSource, /command\.action === "set_sibling_order" && taskRepository\.setTaskSiblingOrder/);
 assert.match(reorderTasksSource, /taskRepository\.setTaskSiblingOrder\(\{/);
+assert.doesNotMatch(reorderTasksFastPathSource, /loadAdminFoundationSettings/);
+assert.doesNotMatch(reorderTasksFastPathSource, /listActiveTasks/);
 assert.doesNotMatch(reorderTasksSource, /loadTaskFileSummaryByScope\("active"/);
 assert.match(reorderTasksSource, /fileSummary: emptyTaskFileSummary/);
 assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(siblings,\s*expectedVersions\)/);
 assert.match(setTaskSiblingOrderSource, /expectedVersion: task\.version/);
+assert.equal(isDatabaseConnectivityError(Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" })), true);
+assert.equal(isDatabaseConnectivityError(Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" })), true);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
