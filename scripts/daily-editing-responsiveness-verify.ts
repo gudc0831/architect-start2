@@ -389,6 +389,10 @@ const updateTaskOrdersSource = postgresStoreSource.slice(
   postgresStoreSource.indexOf("async updateTaskOrders"),
   postgresStoreSource.indexOf("async syncProjectTaskIssueIds"),
 );
+const postgresSetTaskSiblingOrderSource = postgresStoreSource.slice(
+  postgresStoreSource.indexOf("async setTaskSiblingOrder"),
+  postgresStoreSource.indexOf("async updateTaskOrders"),
+);
 const taskReorderQueueSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback"),
   taskWorkspaceSource.indexOf("useEffect(() => {", taskWorkspaceSource.indexOf("const flushTaskReorderQueue = useCallback")),
@@ -409,6 +413,9 @@ assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
 assert.match(postgresStoreSource, /with input\(id, sibling_order, updated_by, expected_version, has_expected_version\) as/);
+assert.match(postgresSetTaskSiblingOrderSource, /with input\(id, sibling_order\) as/);
+assert.match(postgresSetTaskSiblingOrderSource, /where t\.project_id = \$\{input\.projectId\}::uuid/);
+assert.match(postgresSetTaskSiblingOrderSource, /t\.sibling_order is distinct from input\.sibling_order/);
 assert.match(updateTaskOrdersSource, /eligible as/);
 assert.doesNotMatch(updateTaskOrdersSource, /prisma\.\$transaction/);
 assert.match(postgresStoreSource, /update tasks as t/);
@@ -451,6 +458,8 @@ assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\
 assert.match(taskWorkspaceSource, /const discardFailedDailyMutations = useCallback/);
 assert.match(taskWorkspaceSource, /deleteDailyMutationOperation\(operation\.operationId\)/);
 assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
+assert.match(reorderTasksSource, /command\.action === "set_sibling_order" && taskRepository\.setTaskSiblingOrder/);
+assert.match(reorderTasksSource, /taskRepository\.setTaskSiblingOrder\(\{/);
 assert.doesNotMatch(reorderTasksSource, /loadTaskFileSummaryByScope\("active"/);
 assert.match(reorderTasksSource, /fileSummary: emptyTaskFileSummary/);
 assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(siblings,\s*expectedVersions\)/);

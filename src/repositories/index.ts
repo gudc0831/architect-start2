@@ -79,6 +79,45 @@ export const taskRepository: TaskRepository = {
   updateTaskWithVersion(taskId, input) {
     return getTaskRepository().updateTaskWithVersion(taskId, input);
   },
+  async setTaskSiblingOrder(input) {
+    const repository = getTaskRepository();
+    if (repository.setTaskSiblingOrder) {
+      return repository.setTaskSiblingOrder(input);
+    }
+
+    const activeTasks = await repository.listActiveTasks(input.projectId);
+    const parentTaskId = input.parentTaskId ?? null;
+    const siblings = activeTasks
+      .filter((task) => (task.parentTaskId ?? null) === parentTaskId)
+      .sort((left, right) => left.siblingOrder - right.siblingOrder || left.actionId - right.actionId || left.id.localeCompare(right.id));
+    const siblingIds = new Set(siblings.map((task) => task.id));
+    const seenIds = new Set<string>();
+    const orderedSiblings: typeof siblings = [];
+
+    for (const taskId of input.orderedTaskIds) {
+      if (seenIds.has(taskId) || !siblingIds.has(taskId)) {
+        continue;
+      }
+
+      const task = siblings.find((candidate) => candidate.id === taskId);
+      if (task) {
+        seenIds.add(taskId);
+        orderedSiblings.push(task);
+      }
+    }
+
+    for (const sibling of siblings) {
+      if (!seenIds.has(sibling.id)) {
+        orderedSiblings.push(sibling);
+      }
+    }
+
+    return repository.updateTaskOrders(
+      orderedSiblings
+        .map((task, siblingOrder) => ({ id: task.id, siblingOrder, expectedVersion: task.version, updatedBy: input.updatedBy }))
+        .filter((update) => activeTasks.find((task) => task.id === update.id)?.siblingOrder !== update.siblingOrder),
+    );
+  },
   updateTaskOrders(inputs) {
     return getTaskRepository().updateTaskOrders(inputs);
   },
