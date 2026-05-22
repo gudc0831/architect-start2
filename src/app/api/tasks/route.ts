@@ -6,6 +6,8 @@ import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { createTask, listTasks } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function GET(request: Request) {
   try {
     const user = await requireUser();

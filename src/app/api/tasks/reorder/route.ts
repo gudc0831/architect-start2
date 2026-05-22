@@ -7,6 +7,8 @@ import { requireUser } from "@/lib/auth/require-user";
 import type { TaskOrderingStrategy, TaskReorderCommand } from "@/domains/task/ordering";
 import { reorderTasks } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);

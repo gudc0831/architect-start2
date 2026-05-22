@@ -5,6 +5,8 @@ import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { moveTaskToTrash } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function POST(
   _request: Request,
   context: { params: Promise<{ taskId: string }> },

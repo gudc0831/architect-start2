@@ -651,7 +651,7 @@ const KEEPALIVE_REQUEST_BODY_SAFE_BYTES = 60 * 1024;
 const TASK_REORDER_RETRY_BASE_DELAY_MS = 1500;
 const TASK_REORDER_RETRY_MAX_DELAY_MS = 30000;
 const TASK_REORDER_RETRY_MAX_ATTEMPTS = 6;
-const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000;
+const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000;
 const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
@@ -10428,7 +10428,11 @@ function formatMutationNetworkError(error: unknown, fallbackKey: ErrorCopyKey) {
 }
 
 function isFetchNetworkFailure(error: Error) {
-  return error.name === "TypeError" || /failed to fetch|networkerror|fetch failed|load failed/i.test(error.message);
+  return (
+    error.name === "AbortError" ||
+    error.name === "TypeError" ||
+    /failed to fetch|networkerror|fetch failed|load failed|aborted/i.test(error.message)
+  );
 }
 
 function getUtf8ByteLength(value: string) {

@@ -352,6 +352,9 @@ assert.equal(
 );
 
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
+const taskReorderRouteSource = readFileSync(resolve("src/app/api/tasks/reorder/route.ts"), "utf8");
+const taskUpdateRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/route.ts"), "utf8");
+const taskTrashRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/trash/route.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
@@ -384,7 +387,12 @@ assert.match(taskWorkspaceSource, /dailyMutationScope && !dailyMutationJournalRe
 assert.match(taskWorkspaceSource, /dailyMutationScope && hasActiveDailyReorderJournal/);
 assert.match(taskReorderActionSource, /let journalQueued = false/);
 assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*return true;\s*\}/);
-assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000/);
+assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000/);
+assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
+assert.match(taskRouteSource, /export const maxDuration = 30/);
+assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
+assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
+assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
 assert.match(taskWorkspaceSource, /const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);

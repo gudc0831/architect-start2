@@ -5,6 +5,8 @@ import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { permanentlyDeleteTask, updateTask } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ taskId: string }> },
