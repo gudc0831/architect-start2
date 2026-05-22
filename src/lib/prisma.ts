@@ -14,6 +14,30 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function buildRuntimeDatabaseUrl(databaseUrl: string) {
+  const explicitRuntimeUrl = process.env.DATABASE_RUNTIME_URL?.trim();
+  if (explicitRuntimeUrl) {
+    return explicitRuntimeUrl;
+  }
+
+  if (!process.env.VERCEL || process.env.DATABASE_USE_TRANSACTION_POOLER === "false") {
+    return databaseUrl;
+  }
+
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.hostname.endsWith(".pooler.supabase.com") && parsed.port === "5432") {
+      parsed.port = "6543";
+      parsed.searchParams.set("pgbouncer", "true");
+      return parsed.toString();
+    }
+  } catch {
+    return databaseUrl;
+  }
+
+  return databaseUrl;
+}
+
 function createPrismaClient() {
   const databaseUrl = process.env.DATABASE_URL?.trim();
 
@@ -24,7 +48,7 @@ function createPrismaClient() {
   const poolMax = parsePositiveInteger(process.env.DATABASE_POOL_MAX, DEFAULT_DATABASE_POOL_MAX);
   const idleTimeoutMillis = parsePositiveInteger(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS, DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS);
   const adapter = new PrismaPg({
-    connectionString: databaseUrl,
+    connectionString: buildRuntimeDatabaseUrl(databaseUrl),
     max: poolMax,
     idleTimeoutMillis,
     connectionTimeoutMillis: 10_000,
