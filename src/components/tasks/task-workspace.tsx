@@ -650,6 +650,7 @@ const KEEPALIVE_REQUEST_BODY_SAFE_BYTES = 60 * 1024;
 const TASK_REORDER_RETRY_BASE_DELAY_MS = 1500;
 const TASK_REORDER_RETRY_MAX_DELAY_MS = 30000;
 const TASK_REORDER_RETRY_MAX_ATTEMPTS = 6;
+const DAILY_MUTATION_FETCH_TIMEOUT_MS = 15000;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
@@ -3593,7 +3594,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       dailyMutationFlushRunningRef.current = true;
       try {
         const now = Date.now();
-        const operations = await listDailyMutationOperations(scope);
+        const operations = await refreshDailyMutationJournal();
         dailyMutationOperationsRef.current = operations;
 
         for (const operation of operations) {
@@ -3700,7 +3701,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [dailyMutationScope, dailyMutationSummary.totalActive, flushDailyMutationJournal]);
 
   const fetchDailySyncTasks = useCallback(async (syncScope: DashboardScope) => {
-    const response = await fetch(`/api/tasks${syncScope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" });
+    const response = await fetchDailyMutationRequest(`/api/tasks${syncScope === "trash" ? "?scope=trash" : ""}`, {
+      cache: "no-store",
+    });
     if (!response.ok) {
       throw await readApiError(response, "loadTasksFailed");
     }
@@ -3745,7 +3748,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
 
-      const response = await fetch("/api/tasks", {
+      const response = await fetchDailyMutationRequest("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3782,7 +3785,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         dashboardStateByScopeRef.current.trash.tasks.find((task) => task.id === taskId);
       const version = currentTask?.version ?? payload.baseVersion;
       const buildUpdateRequest = (nextVersion: number) =>
-        fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload.patch, version: nextVersion }),
@@ -3819,7 +3822,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return;
       }
 
-      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
+      const response = await fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}/trash`, { method: "POST" });
       if (!response.ok) {
         const error = await readApiError(response, "moveTaskToTrashFailed");
         if (error.status === 404) {
@@ -3843,7 +3846,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     if (payload.kind === "delete") {
       const taskId = resolveDailyMutationServerTaskId(payload.taskId);
-      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      const response = await fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
       if (!response.ok) {
         const error = await readApiError(response, "deleteTaskFailed");
         if (error.status === 404) {
@@ -3873,7 +3876,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         }
 
         const command = withTaskReorderExpectedVersions(reorderOperation.payload.command as TaskReorderPersistCommand, tasksForVersions);
-        return fetch("/api/tasks/reorder", {
+        return fetchDailyMutationRequest("/api/tasks/reorder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildTaskReorderRequestBody(command, tasksForVersions)),
@@ -4278,7 +4281,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           }
 
           let baseTasks = dashboardStateByScopeRef.current.active.tasks;
-          let response = await fetch("/api/tasks/reorder", {
+          let response = await fetchDailyMutationRequest("/api/tasks/reorder", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(buildTaskReorderRequestBody(withTaskReorderExpectedVersions(entry.command, baseTasks), baseTasks)),
@@ -4295,7 +4298,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             const rebasedCommand = withTaskReorderExpectedVersions(entry.command, baseTasks);
             writePendingTaskReorderToStorage(taskReorderStorageKeyRef.current, rebasedCommand);
             setActiveTasksForContinuousReorder(() => latestOptimisticTasks);
-            response = await fetch("/api/tasks/reorder", {
+            response = await fetchDailyMutationRequest("/api/tasks/reorder", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(buildTaskReorderRequestBody(rebasedCommand, baseTasks)),
@@ -9957,6 +9960,16 @@ function buildTaskReorderRequestBody(command: TaskReorderPersistCommand, tasks: 
     ...command,
     expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
   };
+}
+
+async function fetchDailyMutationRequest(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), DAILY_MUTATION_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: init?.signal ?? controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function withTaskReorderExpectedVersions(
