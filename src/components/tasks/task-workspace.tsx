@@ -906,6 +906,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const taskReorderRetryAttemptRef = useRef(0);
   const dailyMutationOperationsRef = useRef<DailyMutationOperation[]>([]);
   const dailyMutationScopeRef = useRef<DailyMutationScope | null>(null);
+  const localFirstActiveTasksRef = useRef<TaskRecord[]>([]);
   const dailyMutationFlushTimerRef = useRef<number | null>(null);
   const dailyMutationFlushRunningRef = useRef(false);
   const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
@@ -2423,21 +2424,34 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     void ensureLoaded();
   }, [ensureLoaded]);
 
+  const localFirstTasks = useMemo(() => {
+    if (mode !== "daily" || !dailyMutationJournalReady || dailyMutationOperations.length === 0) {
+      return tasks;
+    }
+
+    const next = mergeDailyMutationOperationsIntoActiveTasks(tasks, dailyMutationOperations);
+    return areTaskCollectionsEquivalent(tasks, next) ? tasks : next;
+  }, [dailyMutationJournalReady, dailyMutationOperations, mode, tasks]);
+
+  useEffect(() => {
+    localFirstActiveTasksRef.current = localFirstTasks;
+  }, [localFirstTasks]);
+
   useEffect(() => {
     const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
     const nextSelectedTaskId =
-      focusTaskId && tasks.some((task) => task.id === focusTaskId)
+      focusTaskId && localFirstTasks.some((task) => task.id === focusTaskId)
         ? focusTaskId
-        : previousSelectedTaskId && tasks.some((task) => task.id === previousSelectedTaskId)
+        : previousSelectedTaskId && localFirstTasks.some((task) => task.id === previousSelectedTaskId)
           ? previousSelectedTaskId
           : isPreviewDaily
             ? null
-            : tasks[0]?.id ?? null;
+            : localFirstTasks[0]?.id ?? null;
     setTaskListSelection(nextSelectedTaskId);
-  }, [focusTaskId, isPreviewDaily, setTaskListSelection, taskListRowInteractionStore, tasks]);
+  }, [focusTaskId, isPreviewDaily, localFirstTasks, setTaskListSelection, taskListRowInteractionStore]);
 
   const currentDayKey = todayKey();
-  const sortedTasks = useMemo(() => buildStoredOrderTaskTree(tasks), [tasks]);
+  const sortedTasks = useMemo(() => buildStoredOrderTaskTree(localFirstTasks), [localFirstTasks]);
   const hasActiveDailyFilters = useMemo(
     () => dailyCategoricalFilterFieldKeys.some((fieldKey) => normalizedSelectedCategoricalFilters[fieldKey] !== undefined),
     [normalizedSelectedCategoricalFilters],
@@ -4453,7 +4467,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const commandSignature = getTaskReorderCommandSignature(pendingReorder.command);
-    const previousTasks = dashboardStateByScopeRef.current.active.tasks;
+    const previousTasks = localFirstActiveTasksRef.current.length
+      ? localFirstActiveTasksRef.current
+      : dashboardStateByScopeRef.current.active.tasks;
     const optimisticTasks = applyStoredTaskReorderCommand(previousTasks, pendingReorder.command);
     if (!areTaskSiblingOrdersEqual(previousTasks, optimisticTasks)) {
       setActiveTasksForContinuousReorder(() => optimisticTasks);
@@ -4517,7 +4533,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       setErrorMessage(null);
 
-      const previousTasks = dashboardStateByScopeRef.current.active.tasks;
+      const previousTasks = localFirstActiveTasksRef.current.length
+        ? localFirstActiveTasksRef.current
+        : dashboardStateByScopeRef.current.active.tasks;
       const optimisticTasks = buildOptimisticReorderedTasks(previousTasks, command);
       taskReorderRetryAttemptRef.current = 0;
       setActiveTasksForContinuousReorder(() => optimisticTasks);

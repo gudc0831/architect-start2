@@ -27,6 +27,7 @@ import {
   summarizeDailyMutationOperations,
 } from "@/components/tasks/daily-mutation-journal";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
+import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import type { TaskRecord } from "@/domains/task/types";
 import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
 import { resolvePublicSiteUrl } from "@/lib/auth/public-site-url";
@@ -256,6 +257,27 @@ const secondReorderOperation = buildCoalescedDailyReorderOperation({
   desiredTasks: [baseTask("task-1", { siblingOrder: 0 }), baseTask("task-2", { siblingOrder: 1 })],
   now: "2026-05-21T00:00:01.000Z",
 });
+const reloadReorderReplayOperation = buildCoalescedDailyReorderOperation({
+  scope: journalScope,
+  command: { action: "set_sibling_order", parentTaskId: null, orderedTaskIds: ["task-3", "task-1"] },
+  desiredTasks: [
+    baseTask("task-1", { siblingOrder: 0 }),
+    baseTask("task-2", { siblingOrder: 1 }),
+    baseTask("task-3", { siblingOrder: 2 }),
+  ],
+  now: "2026-05-21T00:00:02.000Z",
+});
+const replayedReloadOrder = buildStoredOrderTaskTree(
+  mergeDailyMutationOperationsIntoActiveTasks(
+    [
+      baseTask("task-1", { siblingOrder: 0 }),
+      baseTask("task-2", { siblingOrder: 1 }),
+      baseTask("task-3", { siblingOrder: 2 }),
+    ],
+    [reloadReorderReplayOperation],
+  ),
+).map((task) => task.id);
+assert.deepEqual(replayedReloadOrder, ["task-3", "task-1", "task-2"]);
 assert.deepEqual(
   coalesceDailyReorderOperations([firstReorderOperation, secondReorderOperation]).map((operation) => operation.clientMutationId),
   [secondReorderOperation.clientMutationId],
@@ -407,6 +429,9 @@ assert.match(prismaSource, /parsed\.searchParams\.set\("pgbouncer", "true"\)/);
 assert.match(prismaSource, /allowExitOnIdle: true/);
 assert.match(taskWorkspaceSource, /const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
+assert.match(taskWorkspaceSource, /const localFirstTasks = useMemo/);
+assert.match(taskWorkspaceSource, /buildStoredOrderTaskTree\(localFirstTasks\)/);
+assert.match(taskWorkspaceSource, /localFirstActiveTasksRef\.current\.length/);
 assert.match(taskWorkspaceSource, /const operations = await refreshDailyMutationJournal\(\);/);
 assert.match(taskWorkspaceSource, /operation\.status === "failed" && !options\.manual/);
 assert.match(taskWorkspaceSource, /settleDailyFailedReorderIfServerSatisfiedRef\.current\(operation, now\)/);

@@ -253,7 +253,7 @@ export function mergeDailyMutationOperationsIntoActiveTasks(
       case "delete":
         break;
       case "reorder":
-        next = mergeDesiredTaskOrder(next, payload.desiredTasks);
+        next = mergeDailyReorderPayload(next, payload);
         break;
     }
   }
@@ -599,6 +599,64 @@ function areDesiredSiblingFieldsOnServer(activeTasks: readonly TaskRecord[], des
       (activeTask.parentTaskId ?? null) === (desiredTask.parentTaskId ?? null) &&
       activeTask.siblingOrder === desiredTask.siblingOrder
     );
+  });
+}
+
+function mergeDailyReorderPayload(
+  tasks: readonly TaskRecord[],
+  payload: Extract<DailyMutationPayload, { kind: "reorder" }>,
+) {
+  if (payload.command.action === "set_sibling_order") {
+    return mergeSetSiblingOrderCommand(tasks, payload.command, payload.desiredTasks);
+  }
+
+  return mergeDesiredTaskOrder(tasks, payload.desiredTasks);
+}
+
+function mergeSetSiblingOrderCommand(
+  tasks: readonly TaskRecord[],
+  command: Extract<DailyMutationReorderCommand, { action: "set_sibling_order" }>,
+  desiredTasks: readonly TaskRecord[],
+) {
+  const parentTaskId = command.parentTaskId ?? null;
+  const desiredIds = command.orderedTaskIds.filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0);
+  if (desiredIds.length === 0) {
+    return mergeDesiredTaskOrder(tasks, desiredTasks);
+  }
+
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const siblings = buildStoredOrderTaskTree(tasks).filter((task) => (task.parentTaskId ?? null) === parentTaskId);
+  const seen = new Set<string>();
+  const orderedSiblings: TaskRecord[] = [];
+
+  for (const taskId of desiredIds) {
+    if (seen.has(taskId)) {
+      continue;
+    }
+
+    const task = taskById.get(taskId);
+    if (!task || (task.parentTaskId ?? null) !== parentTaskId) {
+      continue;
+    }
+
+    seen.add(taskId);
+    orderedSiblings.push(task);
+  }
+
+  for (const sibling of siblings) {
+    if (!seen.has(sibling.id)) {
+      orderedSiblings.push(sibling);
+    }
+  }
+
+  if (orderedSiblings.length === 0) {
+    return mergeDesiredTaskOrder(tasks, desiredTasks);
+  }
+
+  const siblingOrderById = new Map(orderedSiblings.map((task, siblingOrder) => [task.id, siblingOrder]));
+  return tasks.map((task) => {
+    const siblingOrder = siblingOrderById.get(task.id);
+    return siblingOrder === undefined ? task : { ...task, siblingOrder, parentTaskId };
   });
 }
 
