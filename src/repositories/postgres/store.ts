@@ -512,8 +512,8 @@ class PostgresTaskRepository implements TaskRepository {
     const result = await prisma.$queryRaw<Array<{ eligible_count: number; input_count: number; updated_count: number }>>`
       with settings as materialized (
         select
-          set_config('lock_timeout', '2000ms', true) as lock_timeout,
-          set_config('statement_timeout', '8000ms', true) as statement_timeout
+          set_config('lock_timeout', '15000ms', true) as lock_timeout,
+          set_config('statement_timeout', '24000ms', true) as statement_timeout
       ),
       input(id, sibling_order) as (
         values ${inputRows}

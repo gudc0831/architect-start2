@@ -419,8 +419,8 @@ assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
 assert.match(postgresStoreSource, /with input\(id, sibling_order, updated_by, expected_version, has_expected_version\) as/);
 assert.match(postgresSetTaskSiblingOrderSource, /input\(id, sibling_order\) as/);
 assert.match(postgresSetTaskSiblingOrderSource, /where t\.project_id = \$\{input\.projectId\}::uuid/);
-assert.match(postgresSetTaskSiblingOrderSource, /set_config\('lock_timeout', '2000ms', true\)/);
-assert.match(postgresSetTaskSiblingOrderSource, /set_config\('statement_timeout', '8000ms', true\)/);
+assert.match(postgresSetTaskSiblingOrderSource, /set_config\('lock_timeout', '15000ms', true\)/);
+assert.match(postgresSetTaskSiblingOrderSource, /set_config\('statement_timeout', '24000ms', true\)/);
 assert.match(postgresSetTaskSiblingOrderSource, /t\.sibling_order is distinct from input\.sibling_order/);
 assert.match(postgresSetTaskSiblingOrderSource, /\(select count\(\*\)::integer from updated\) as updated_count/);
 assert.match(postgresSetTaskSiblingOrderSource, /return \[\];/);
@@ -476,6 +476,15 @@ assert.doesNotMatch(setTaskSiblingOrderSource, /assertExpectedTaskVersions\(sibl
 assert.match(setTaskSiblingOrderSource, /expectedVersion: task\.version/);
 assert.equal(isDatabaseConnectivityError(Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" })), true);
 assert.equal(isDatabaseConnectivityError(Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" })), true);
+assert.equal(
+  isDatabaseConnectivityError(
+    Object.assign(new Error("Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`"), {
+      code: "P2010",
+      meta: { code: "57014" },
+    }),
+  ),
+  true,
+);
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;

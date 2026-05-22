@@ -48,6 +48,13 @@ export function isDatabaseConnectivityError(error: unknown) {
     return true;
   }
 
+  const meta = "meta" in error ? (error as { meta?: unknown }).meta : null;
+  const metaCode =
+    meta && typeof meta === "object" && "code" in meta ? String((meta as { code?: unknown }).code ?? "") : "";
+  if (databaseConnectivityErrorCodes.has(metaCode)) {
+    return true;
+  }
+
   const message = error instanceof Error ? error.message : "";
   return (
     /Can't reach database server/i.test(message) ||
@@ -56,6 +63,7 @@ export function isDatabaseConnectivityError(error: unknown) {
     /max client connections reached/i.test(message) ||
     /Connection terminated/i.test(message) ||
     /connection timeout/i.test(message) ||
+    /canceling statement due to (statement|lock) timeout/i.test(message) ||
     /\b(EACCES|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b/i.test(message)
   );
 }
