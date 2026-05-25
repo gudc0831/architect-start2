@@ -33,6 +33,7 @@ export function Sidebar() {
     href: (isPreview ? `/preview${item.href}` : item.href) as Route,
   }));
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
+  const canShowProjectAdminLink = !isPreview && authUser?.role === "admin";
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
   const navSectionLabel = isPreview ? "미리보기 경로" : "작업공간 경로";
@@ -83,7 +84,7 @@ export function Sidebar() {
             {showProjectSwitcher ? <span className="sidebar__project-count">{availableProjects.length}</span> : null}
           </div>
           <div className="sidebar__project-name">{projectName}</div>
-          {!isPreview && authUser?.role === "admin" ? (
+          {canShowProjectAdminLink ? (
             <Link className="secondary-button" href={adminHref}>
               프로젝트 관리
             </Link>
