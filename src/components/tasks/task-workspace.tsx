@@ -798,6 +798,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isPreview = pathname.startsWith("/preview");
   const { themeId } = useTheme();
   const isWarmStudio = themeId === "posthog";
+  const isAppleWorkbench = themeId === "apple-workbench";
   const isPreviewDaily = isPreview && mode === "daily";
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
@@ -6192,7 +6193,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         <header className="workspace__header">
           <div className="workspace__header-main">
             <div className="workspace__header-topline">
-              <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+              {!isAppleWorkbench ? <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p> : null}
               <div className="workspace__mode-pills">
                 <span className="workspace__mode-pill">{labelForMode(mode)}</span>
                 {isPreview ? <span className="workspace__mode-pill workspace__mode-pill--preview">미리보기</span> : null}
@@ -6252,11 +6253,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       ) : (
         <header className="workspace__header">
           <div>
-            <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p>
+            {!isAppleWorkbench ? <p className="workspace__eyebrow">{authUser?.displayName ?? t("workspace.fallbackEyebrow")}</p> : null}
             <p className="workspace__project">{projectName || t("workspace.fallbackProjectName")}</p>
             <h2>{titleByMode(mode)}</h2>
-            <p className="workspace__copy">{t("workspace.headerCopy")}</p>
-            {systemMode ? (
+            {!isAppleWorkbench ? <p className="workspace__copy">{t("workspace.headerCopy")}</p> : null}
+            {!isAppleWorkbench && systemMode ? (
               <>
                 <p className="workspace__meta">
                   {t("workspace.dataUploadSummary", {
@@ -6347,7 +6348,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             {!isTrashMode && sortedTasks.length === 0 && files.length === 0 ? (
               <div className="empty-state">
                 <h3>{t("workspace.noItemsTitle")}</h3>
-                <p>{t("workspace.noItemsBody")}</p>
+                {!isAppleWorkbench ? <p>{t("workspace.noItemsBody")}</p> : null}
               </div>
             ) : null}
 
@@ -6362,6 +6363,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   title: "집중 영역",
                 }}
                 groups={boardOverviewGroups}
+                hideDescriptions={isAppleWorkbench}
                 summaryCards={boardSummaryCards}
               />
             ) : null}
@@ -6372,6 +6374,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   <TaskQuickCreate
                     canCollapse={canCollapseCreateForm}
                     composerMode={quickCreateComposerMode}
+                    hideBody={isAppleWorkbench}
+                    hideEyebrow={isAppleWorkbench}
                     copy={{
                       eyebrow: t("workspace.quickCreateEyebrow"),
                       title: t("workspace.quickCreateTitle"),
@@ -6408,11 +6412,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                   <div className="daily-sheet__focus-header">
                     <div>
                       <p className="workspace__eyebrow">집중 영역</p>
-                      <p className="workspace__meta">{t("workspace.dailyFocusSummary")}</p>
+                      {!isAppleWorkbench ? <p className="workspace__meta">{t("workspace.dailyFocusSummary")}</p> : null}
                     </div>
                   </div>
                   <div className="daily-sheet__focus-summary-bar">
-                    <p className="daily-sheet__focus-copy">{t("workspace.dailyFocusSummary")}</p>
+                    {!isAppleWorkbench ? <p className="daily-sheet__focus-copy">{t("workspace.dailyFocusSummary")}</p> : null}
                     <div aria-label={t("workspace.dailyListViewModeAria")} className="daily-sheet__view-mode-toggle" role="group">
                       <button
                         aria-pressed={dailyListViewMode === "full"}
@@ -6762,7 +6766,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                 <section className="calendar-nav">
                   <div className="calendar-nav__heading">
                     <h3>{activeCalendarMonthLabel}</h3>
-                    <p>{labelForMode("calendar")}</p>
+                    {!isAppleWorkbench ? <p>{labelForMode("calendar")}</p> : null}
                   </div>
                   <div className="calendar-nav__actions">
                     <button className="secondary-button calendar-nav__button" onClick={goToPreviousCalendarMonth} type="button">
@@ -6791,7 +6795,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     {!hasVisibleCalendarTasks ? (
                       <div className="calendar-empty-state">
                         <h3>{calendarEmptyState.title}</h3>
-                        <p>{calendarEmptyState.body}</p>
+                        {!isAppleWorkbench ? <p>{calendarEmptyState.body}</p> : null}
                       </div>
                     ) : (
                       agendaGroups.map((group) => (
@@ -6841,7 +6845,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     {!hasVisibleCalendarTasks ? (
                       <div className="calendar-empty-state calendar-empty-state--inline">
                         <h3>{calendarEmptyState.title}</h3>
-                        <p>{calendarEmptyState.body}</p>
+                        {!isAppleWorkbench ? <p>{calendarEmptyState.body}</p> : null}
                       </div>
                     ) : null}
                     <div className="calendar-weekdays">

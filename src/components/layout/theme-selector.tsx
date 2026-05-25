@@ -8,6 +8,7 @@ import { useTheme } from "@/providers/theme-provider";
 export function ThemeSelector() {
   const { themeId, themes, isLoaded, isSaving, error, setThemeId, clearError } = useTheme();
   const statusCopy = isSaving ? t("themes.saving") : error ?? describeTheme(themeId);
+  const hideThemeDescription = themeId === "apple-workbench" && !error;
 
   return (
     <div className="sidebar__theme">
@@ -15,7 +16,7 @@ export function ThemeSelector() {
         <span className="sidebar__theme-label">{t("themes.label")}</span>
         {!isLoaded ? <span className="sidebar__theme-badge">{t("system.loading")}</span> : null}
       </div>
-      <p className="sidebar__theme-help">{t("themes.helper")}</p>
+      {hideThemeDescription ? null : <p className="sidebar__theme-help">{t("themes.helper")}</p>}
       <label className="sidebar__theme-field">
         <span className="sr-only">{t("themes.label")}</span>
         <select
@@ -38,7 +39,7 @@ export function ThemeSelector() {
           ))}
         </select>
       </label>
-      <p className={clsx("sidebar__theme-status", error && "sidebar__theme-status--error")}>{statusCopy}</p>
+      {hideThemeDescription ? null : <p className={clsx("sidebar__theme-status", error && "sidebar__theme-status--error")}>{statusCopy}</p>}
     </div>
   );
 }

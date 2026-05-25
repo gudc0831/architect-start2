@@ -241,11 +241,71 @@
   --theme-radius: 6px;
 }
 
+[data-theme="apple-workbench"] {
+  --theme-page-bg: #ffffff;
+  --theme-page-bg-accent: #ffffff;
+  --theme-page-radial: rgba(255, 255, 255, 0.82);
+  --theme-surface-panel: #ffffff;
+  --theme-surface-panel-strong: #ffffff;
+  --theme-surface-sidebar: #ffffff;
+  --theme-surface-sidebar-mobile: #ffffff;
+  --theme-surface-soft: #ffffff;
+  --theme-surface-soft-strong: #ffffff;
+  --theme-surface-interactive-subtle: rgba(255, 255, 255, 0.52);
+  --theme-surface-interactive-hover: #ffffff;
+  --theme-surface-empty: rgba(250, 250, 252, 0.78);
+  --theme-surface-field: #ffffff;
+  --theme-surface-secondary-button: #ffffff;
+  --theme-surface-secondary-button-hover: #f5f5f7;
+  --theme-surface-note: rgba(245, 245, 247, 0.86);
+  --theme-border-default: #d2d2d7;
+  --theme-border-strong: #a1a1a6;
+  --theme-border-subtle: rgba(210, 210, 215, 0.68);
+  --theme-border-subtle-strong: rgba(210, 210, 215, 0.88);
+  --theme-border-field: rgba(161, 161, 166, 0.62);
+  --theme-border-field-soft: rgba(210, 210, 215, 0.82);
+  --theme-border-field-strong: rgba(161, 161, 166, 0.78);
+  --theme-border-field-hover: rgba(0, 102, 204, 0.55);
+  --theme-text-primary: #1d1d1f;
+  --theme-text-muted: #6e6e73;
+  --theme-text-placeholder: #86868b;
+  --theme-text-subtle: #424245;
+  --theme-text-accent: #0066cc;
+  --theme-text-accent-strong: #0057b8;
+  --theme-text-contrast: #ffffff;
+  --theme-accent: #0066cc;
+  --theme-accent-soft: #f5f5f7;
+  --theme-accent-soft-ghost: rgba(29, 29, 31, 0.018);
+  --theme-accent-soft-ghost-hover: rgba(29, 29, 31, 0.04);
+  --theme-accent-border-subtle: rgba(0, 102, 204, 0.16);
+  --theme-accent-border: rgba(0, 102, 204, 0.28);
+  --theme-accent-border-strong: rgba(0, 102, 204, 0.72);
+  --theme-accent-focus-ring: rgba(0, 113, 227, 0.16);
+  --theme-accent-focus-ring-soft: rgba(0, 113, 227, 0.06);
+  --theme-accent-solid-hover: #0071e3;
+  --theme-warn: #b42318;
+  --theme-warn-soft: #fff0ed;
+  --theme-warn-border: rgba(180, 35, 24, 0.24);
+  --theme-warn-border-strong: rgba(180, 35, 24, 0.34);
+  --theme-shadow: 0 18px 42px rgba(29, 29, 31, 0.08);
+  --theme-shadow-soft: none;
+  --theme-surface-form-label: rgba(255, 255, 255, 0.92);
+  --theme-surface-field-highlight: rgba(255, 255, 255, 0.94);
+  --theme-empty-border: rgba(161, 161, 166, 0.6);
+  --theme-board-focus-surface: linear-gradient(180deg, #fbfbfd, #f5f5f7);
+  --theme-panel-gradient: linear-gradient(180deg, #fbfbfd, #f5f5f7);
+  --theme-preview-surface: linear-gradient(180deg, #fbfbfd, #f5f5f7);
+  --theme-warning-surface: rgba(255, 240, 237, 0.84);
+  --theme-warning-text: #912018;
+  --theme-radius: 14px;
+}
+
 :root,
 [data-theme="classic"],
 [data-theme="swiss-modern"],
 [data-theme="productivity"],
-[data-theme="posthog"] {
+[data-theme="posthog"],
+[data-theme="apple-workbench"] {
   --bg: var(--theme-page-bg);
   --bg-accent: var(--theme-page-bg-accent);
   --panel: var(--theme-surface-panel);
@@ -5699,7 +5759,912 @@ html[data-theme="posthog"] .workspace--posthog .calendar-empty-state h3 {
   line-height: 1.16;
 }
 
+html[data-theme="apple-workbench"] body {
+  background: #ffffff;
+  font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-kerning: normal;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-theme="apple-workbench"] button,
+html[data-theme="apple-workbench"] input,
+html[data-theme="apple-workbench"] select,
+html[data-theme="apple-workbench"] textarea {
+  font-family: inherit;
+  letter-spacing: 0;
+}
+
+html[data-theme="apple-workbench"] .shell {
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .sidebar {
+  border-right-color: var(--theme-border-subtle-strong);
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .sidebar__brand,
+html[data-theme="apple-workbench"] .sidebar__note,
+html[data-theme="apple-workbench"] .workspace__header,
+html[data-theme="apple-workbench"] .workspace__main,
+html[data-theme="apple-workbench"] .detail-panel,
+html[data-theme="apple-workbench"] .composer-card,
+html[data-theme="apple-workbench"] .board-column,
+html[data-theme="apple-workbench"] .calendar-month,
+html[data-theme="apple-workbench"] .calendar-agenda__day,
+html[data-theme="apple-workbench"] .trash-card,
+html[data-theme="apple-workbench"] .file-pill,
+html[data-theme="apple-workbench"] .daily-task-card,
+html[data-theme="apple-workbench"] .login-card {
+  border-color: var(--theme-border-subtle);
+  background: var(--theme-surface-panel);
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .sidebar__brand,
+html[data-theme="apple-workbench"] .sidebar__note,
+html[data-theme="apple-workbench"] .sidebar__project-panel,
+html[data-theme="apple-workbench"] .board-summary__card {
+  background: var(--theme-surface-soft-strong);
+}
+
+html[data-theme="apple-workbench"] .sidebar__eyebrow,
+html[data-theme="apple-workbench"] .workspace__eyebrow,
+html[data-theme="apple-workbench"] .sidebar__project-label,
+html[data-theme="apple-workbench"] .sidebar__project-count,
+html[data-theme="apple-workbench"] .sidebar__theme-label {
+  color: var(--theme-text-muted);
+  letter-spacing: 0;
+}
+
+html[data-theme="apple-workbench"] .sidebar__project-name,
+html[data-theme="apple-workbench"] .workspace__project,
+html[data-theme="apple-workbench"] .workspace__header h2,
+html[data-theme="apple-workbench"] .detail-panel__header h3,
+html[data-theme="apple-workbench"] .board-column__header h3,
+html[data-theme="apple-workbench"] .calendar-agenda__header h3,
+html[data-theme="apple-workbench"] .trash-section__header h3,
+html[data-theme="apple-workbench"] .empty-state h3,
+html[data-theme="apple-workbench"] .login-card__header h1,
+html[data-theme="apple-workbench"] .composer-card__header h3,
+html[data-theme="apple-workbench"] .task-card__main h4 {
+  font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+html[data-theme="apple-workbench"] .workspace__header {
+  padding: 0.98rem 1.08rem;
+  border-color: #eeeeef;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .workspace__header-main {
+  display: grid;
+  gap: 0.26rem;
+}
+
+html[data-theme="apple-workbench"] .workspace__eyebrow {
+  margin-bottom: 0.12rem;
+  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #6e6e73;
+}
+
+html[data-theme="apple-workbench"] .workspace__project {
+  margin: 0;
+  font-size: clamp(18px, 1.18vw, 20px);
+  line-height: 1.18;
+}
+
+html[data-theme="apple-workbench"] .workspace__header h2 {
+  margin-top: 0.04rem;
+  font-size: clamp(20px, 1.25vw, 23px);
+  line-height: 1.12;
+  color: #1d1d1f;
+}
+
+html[data-theme="apple-workbench"] .workspace__copy,
+html[data-theme="apple-workbench"] .workspace__meta {
+  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #6e6e73;
+}
+
+html[data-theme="apple-workbench"] .workspace__copy {
+  margin-top: 0.26rem;
+}
+
+html[data-theme="apple-workbench"] .composer-card {
+  gap: 0.68rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+}
+
+html[data-theme="apple-workbench"] .composer-card__header {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+html[data-theme="apple-workbench"] .composer-card__header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.16;
+  color: #1d1d1f;
+}
+
+html[data-theme="apple-workbench"] .composer-card .detail-actions--inline {
+  justify-content: flex-start;
+}
+
+html[data-theme="apple-workbench"] .composer-card .detail-actions--inline .primary-button {
+  min-height: 34px;
+  min-width: 96px;
+  padding: 0.46rem 0.86rem;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+html[data-theme="apple-workbench"] .composer-form-grid {
+  gap: 0.48rem;
+}
+
+html[data-theme="apple-workbench"] .composer-form-grid label {
+  gap: 0.28rem;
+  padding: 0.54rem;
+  border-color: #e5e5ea;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .composer-form-grid label span {
+  color: #6e6e73;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.18;
+}
+
+html[data-theme="apple-workbench"] .composer-form-grid > label:not(.detail-checkbox-field) input,
+html[data-theme="apple-workbench"] .composer-form-grid > label:not(.detail-checkbox-field) select,
+html[data-theme="apple-workbench"] .composer-form-grid > label:not(.detail-checkbox-field) textarea,
+html[data-theme="apple-workbench"] .composer-form-grid .detail-select-field.task-categorical-multiselect__trigger,
+html[data-theme="apple-workbench"] .composer-form-grid .form-field--date .detail-date-shell {
+  min-height: 36px;
+  border-color: #d2d2d7;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 400;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .workspace__header-main > .workspace__copy,
+html[data-theme="apple-workbench"] .workspace__header-main > .workspace__facts,
+html[data-theme="apple-workbench"] .workspace__header-main > .workspace__eyebrow,
+html[data-theme="apple-workbench"] .workspace__header > div:first-child > .workspace__copy,
+html[data-theme="apple-workbench"] .workspace__header > div:first-child > .workspace__eyebrow,
+html[data-theme="apple-workbench"] .workspace__header > div:first-child > .workspace__meta,
+html[data-theme="apple-workbench"] .sidebar__brand-meta,
+html[data-theme="apple-workbench"] .sidebar__note > p,
+html[data-theme="apple-workbench"] .sidebar__theme-help,
+html[data-theme="apple-workbench"] .sidebar__theme-status:not(.sidebar__theme-status--error),
+html[data-theme="apple-workbench"] .composer-card__header .workspace__meta,
+html[data-theme="apple-workbench"] .daily-sheet__focus-header .workspace__meta,
+html[data-theme="apple-workbench"] .daily-sheet__focus-copy,
+html[data-theme="apple-workbench"] .calendar-nav__heading p,
+html[data-theme="apple-workbench"] .board-column__header p,
+html[data-theme="apple-workbench"] .empty-state p,
+html[data-theme="apple-workbench"] .calendar-empty-state p {
+  display: none;
+}
+
+html[data-theme="apple-workbench"] .workspace__header .primary-button,
+html[data-theme="apple-workbench"] .workspace__header .secondary-button {
+  min-height: 38px;
+  padding: 0.58rem 0.92rem;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+html[data-theme="apple-workbench"] .sidebar__link {
+  position: relative;
+  border-radius: 12px;
+  background: transparent;
+  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+html[data-theme="apple-workbench"] .sidebar__link:hover,
+html[data-theme="apple-workbench"] .sidebar__link--active {
+  transform: none;
+  border-color: var(--theme-border-subtle-strong);
+  background: #f5f5f7;
+}
+
+html[data-theme="apple-workbench"] .sidebar__link:hover {
+  color: #1d1d1f;
+  font-weight: 500;
+}
+
+html[data-theme="apple-workbench"] .sidebar__link--active {
+  color: var(--theme-text-accent);
+  font-weight: 600;
+}
+
+html[data-theme="apple-workbench"] .sidebar__link--active::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.72rem;
+  left: 0.42rem;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--theme-accent);
+}
+
+html[data-theme="apple-workbench"] .primary-button {
+  border: 1px solid var(--theme-accent);
+  border-radius: 999px;
+  background: var(--theme-accent);
+  color: var(--theme-text-contrast);
+}
+
+html[data-theme="apple-workbench"] .primary-button:hover:not(:disabled) {
+  border-color: var(--theme-accent-solid-hover);
+  background: var(--theme-accent-solid-hover);
+}
+
+html[data-theme="apple-workbench"] .secondary-button {
+  border: 1px solid var(--theme-border-subtle-strong);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1d1d1f;
+}
+
+html[data-theme="apple-workbench"] .sidebar__project-panel .secondary-button {
+  min-height: 38px;
+  border-radius: 10px;
+  padding: 0.62rem 0.75rem;
+  line-height: 1.25;
+}
+
+html[data-theme="apple-workbench"] .secondary-button:hover:not(:disabled) {
+  border-color: var(--theme-accent-border);
+  background: #ffffff;
+  color: var(--theme-text-accent);
+}
+
+html[data-theme="apple-workbench"] .danger-button {
+  border: 1px solid var(--theme-warn);
+  border-radius: 999px;
+}
+
+html[data-theme="apple-workbench"] input,
+html[data-theme="apple-workbench"] select,
+html[data-theme="apple-workbench"] textarea {
+  border-color: var(--theme-border-field);
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+html[data-theme="apple-workbench"] input:focus,
+html[data-theme="apple-workbench"] select:focus,
+html[data-theme="apple-workbench"] textarea:focus,
+html[data-theme="apple-workbench"] .sidebar__link:focus-visible,
+html[data-theme="apple-workbench"] .primary-button:focus-visible,
+html[data-theme="apple-workbench"] .secondary-button:focus-visible,
+html[data-theme="apple-workbench"] .danger-button:focus-visible,
+html[data-theme="apple-workbench"] .detail-panel__summary-button:focus-visible,
+html[data-theme="apple-workbench"] .detail-panel__icon-button:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__order-trigger:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__column-resize-handle:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__row-resize-handle:focus-visible,
+html[data-theme="apple-workbench"] .detail-panel-splitter:focus-visible {
+  outline: none;
+  border-color: var(--theme-accent-border-strong);
+  box-shadow: 0 0 0 3px var(--theme-accent-focus-ring);
+}
+
+html[data-theme="apple-workbench"] .workspace__header,
+html[data-theme="apple-workbench"] .daily-grid-v2__header,
+html[data-theme="apple-workbench"] .calendar-nav {
+  background: linear-gradient(180deg, #fbfbfd, #f5f5f7);
+}
+
+html[data-theme="apple-workbench"] .daily-sheet__focus,
+html[data-theme="apple-workbench"] .sheet-wrapper {
+  border-color: #e5e5ea;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .daily-grid-v2__header {
+  background: #fbfbfd;
+  border-bottom-color: #e5e5ea;
+}
+
+html[data-theme="apple-workbench"] .daily-grid-v2__header-cell,
+html[data-theme="apple-workbench"] .daily-grid-v2__cell,
+html[data-theme="apple-workbench"] .sheet-table th,
+html[data-theme="apple-workbench"] .sheet-table td {
+  border-color: #eeeeef;
+}
+
+html[data-theme="apple-workbench"] .daily-grid-v2__row {
+  border-bottom-color: #eeeeef;
+}
+
+html[data-theme="apple-workbench"] .sheet-table__cell-shell {
+  padding: 0.42rem 0.6rem 0.48rem;
+}
+
+html[data-theme="apple-workbench"] .sheet-wrapper--daily [data-task-column] .sheet-table__head-label {
+  color: #86868b;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+html[data-theme="apple-workbench"] .sheet-wrapper--daily [data-task-column] .sheet-table__cell-content,
+html[data-theme="apple-workbench"] .sheet-table__measure-host--daily [data-task-column] .sheet-table__cell-content {
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.34;
+}
+
+html[data-theme="apple-workbench"] .sheet-wrapper--daily [data-task-column="issueTitle"] .sheet-table__cell-content,
+html[data-theme="apple-workbench"] .sheet-table__measure-host--daily [data-task-column="issueTitle"] .sheet-table__cell-content {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.32;
+}
+
+html[data-theme="apple-workbench"] .calendar-month,
+html[data-theme="apple-workbench"] .calendar-nav,
+html[data-theme="apple-workbench"] .calendar-cell,
+html[data-theme="apple-workbench"] .calendar-agenda__day {
+  border-color: var(--theme-border-subtle-strong);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .calendar-month {
+  gap: 0.86rem;
+}
+
+html[data-theme="apple-workbench"] .calendar-nav {
+  border-radius: 14px;
+}
+
+html[data-theme="apple-workbench"] .calendar-nav__heading h3 {
+  font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: 0;
+  color: #1d1d1f;
+}
+
+html[data-theme="apple-workbench"] .calendar-nav__heading p,
+html[data-theme="apple-workbench"] .calendar-nav__picker {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #6e6e73;
+}
+
+html[data-theme="apple-workbench"] .calendar-nav__button,
+html[data-theme="apple-workbench"] .calendar-nav__picker input {
+  min-height: 38px;
+  border-color: var(--theme-border-subtle-strong);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .calendar-nav__button:hover:not(:disabled),
+html[data-theme="apple-workbench"] .calendar-nav__picker input:hover {
+  border-color: var(--theme-accent-border);
+  background: #ffffff;
+  color: var(--theme-text-accent);
+}
+
+html[data-theme="apple-workbench"] .calendar-nav__button:disabled {
+  border-color: #e5e5ea;
+  background: #f5f5f7;
+  color: #a1a1a6;
+  opacity: 1;
+}
+
+html[data-theme="apple-workbench"] .calendar-weekdays {
+  gap: 0.68rem;
+}
+
+html[data-theme="apple-workbench"] .calendar-weekdays__label {
+  border-radius: 10px;
+  background: transparent;
+  color: #6e6e73;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+html[data-theme="apple-workbench"] .calendar-weekdays__label--holiday {
+  background: transparent;
+  color: #b42318;
+}
+
+html[data-theme="apple-workbench"] .calendar-grid {
+  gap: 0.68rem;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell {
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell--muted {
+  background: #fafafc;
+  opacity: 1;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell--today {
+  border-color: var(--theme-accent-border);
+  box-shadow: inset 0 0 0 1px var(--theme-accent-border-subtle);
+}
+
+html[data-theme="apple-workbench"] .calendar-cell--holiday,
+html[data-theme="apple-workbench"] .calendar-agenda__day--holiday {
+  border-color: rgba(180, 35, 24, 0.24);
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell__header {
+  gap: 0.35rem;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell__header span {
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell__header small {
+  color: #6e6e73;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell--today .calendar-cell__header span {
+  display: inline-flex;
+  min-width: 1.52rem;
+  height: 1.52rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--theme-accent);
+  color: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell--holiday .calendar-cell__header span,
+html[data-theme="apple-workbench"] .calendar-cell--holiday .calendar-cell__header small,
+html[data-theme="apple-workbench"] .calendar-agenda__day--holiday .calendar-agenda__header h3,
+html[data-theme="apple-workbench"] .calendar-agenda__day--holiday .calendar-agenda__header p {
+  color: #b42318;
+}
+
+html[data-theme="apple-workbench"] .calendar-agenda__header span {
+  min-width: 1.86rem;
+  height: 1.86rem;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+html[data-theme="apple-workbench"] .calendar-cell__items {
+  gap: 0.4rem;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda {
+  border-color: #e5e5ea;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month:hover,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month:focus-visible,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda:hover,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda:focus-visible {
+  border-color: var(--theme-accent-border);
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month.task-state-card--overdue,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda.task-state-card--overdue {
+  border-color: rgba(180, 35, 24, 0.28);
+  border-inline-start-color: rgba(180, 35, 24, 0.62);
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month.task-state-card--due-today,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda.task-state-card--due-today {
+  border-color: #e5e5ea;
+  border-inline-start-color: var(--theme-accent);
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month.task-state-card--due-soon,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda.task-state-card--due-soon,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month.task-state-card--done,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda.task-state-card--done {
+  border-color: #e5e5ea;
+  border-inline-start-color: #a1a1a6;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month .task-preview-card__number,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda .task-preview-card__number,
+html[data-theme="apple-workbench"] .calendar-month .status-pill,
+html[data-theme="apple-workbench"] .calendar-agenda__day .status-pill {
+  border-color: #e5e5ea;
+  background: #f5f5f7;
+  color: #6e6e73;
+  font-weight: 500;
+}
+
+html[data-theme="apple-workbench"] .status-pill {
+  min-height: 1.35rem;
+  padding: 0.18rem 0.46rem;
+  border-color: var(--status-pill-border, #e5e5ea);
+  border-radius: 8px;
+  background: var(--status-pill-bg, #f5f5f7);
+  color: var(--status-pill-text, #6e6e73);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .status-pill--selected {
+  box-shadow: inset 0 0 0 1px var(--status-pill-border, #d2d2d7);
+}
+
+html[data-theme="apple-workbench"] .status-pill--new {
+  --status-pill-bg: #ffffff;
+  --status-pill-border: #d2d2d7;
+  --status-pill-text: #424245;
+  --status-pill-ring: rgba(0, 0, 0, 0.045);
+}
+
+html[data-theme="apple-workbench"] .status-pill--in_review {
+  --status-pill-bg: #f2f8ff;
+  --status-pill-border: rgba(0, 102, 204, 0.22);
+  --status-pill-text: #0057b8;
+  --status-pill-ring: rgba(0, 102, 204, 0.08);
+}
+
+html[data-theme="apple-workbench"] .status-pill--in_discussion {
+  --status-pill-bg: #f5f3ff;
+  --status-pill-border: rgba(88, 86, 214, 0.24);
+  --status-pill-text: #4f46b8;
+  --status-pill-ring: rgba(88, 86, 214, 0.08);
+}
+
+html[data-theme="apple-workbench"] .status-pill--blocked {
+  --status-pill-bg: #fff8e6;
+  --status-pill-border: rgba(191, 134, 0, 0.26);
+  --status-pill-text: #8a5a00;
+  --status-pill-ring: rgba(191, 134, 0, 0.1);
+}
+
+html[data-theme="apple-workbench"] .status-pill--done {
+  --status-pill-bg: #f5f5f7;
+  --status-pill-border: #d2d2d7;
+  --status-pill-text: #424245;
+  --status-pill-ring: rgba(0, 0, 0, 0.045);
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month .task-card__title,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda .task-card__title {
+  color: #1d1d1f;
+  font-weight: 600;
+}
+
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month .task-card__due,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda .task-card__due,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-month .task-preview-card__meta-line,
+html[data-theme="apple-workbench"] .task-preview-card--calendar-agenda .task-preview-card__meta-line {
+  color: #6e6e73;
+  font-weight: 400;
+}
+
+html[data-theme="apple-workbench"] .daily-grid-v2__header,
+html[data-theme="apple-workbench"] .sheet-wrapper {
+  border-color: var(--theme-border-subtle-strong);
+}
+
+html[data-theme="apple-workbench"] .sheet-table__head-label {
+  color: var(--theme-text-muted);
+}
+
+html[data-theme="apple-workbench"] .sheet-wrapper--daily [data-task-column="actionId"] .sheet-table__head-label {
+  white-space: nowrap;
+}
+
+html[data-theme="apple-workbench"] .sheet-table__cell-shell--tree .sheet-table__cell-content {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+html[data-theme="apple-workbench"] .task-tree {
+  flex-wrap: nowrap;
+  min-width: max-content;
+  max-width: none;
+}
+
+html[data-theme="apple-workbench"] .task-tree__badge {
+  flex: 0 0 auto;
+  min-width: 2.2rem;
+  height: 1.45rem;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .task-tree__badge--parent {
+  border-color: var(--theme-accent);
+  border-radius: 8px;
+}
+
+html[data-theme="apple-workbench"] .task-tree__badge--child,
+html[data-theme="apple-workbench"] .task-tree__badge--branch {
+  border-color: #e5e5ea;
+  background: #ffffff;
+  color: #0066cc;
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item {
+  --focus-chip-bg: #ffffff;
+  --focus-chip-hover-bg: #fafafc;
+  --focus-chip-text: #1d1d1f;
+  --focus-chip-hint: #6e6e73;
+  --focus-chip-border: #d2d2d7;
+  --focus-chip-hover-border: #a1a1a6;
+  --focus-chip-active-bg: #f5f5f7;
+  --focus-chip-active-text: #1d1d1f;
+  --focus-chip-active-hint: #424245;
+  --focus-chip-active-border: #a1a1a6;
+  --focus-chip-ring: rgba(0, 0, 0, 0.035);
+  min-height: 2.25rem;
+  padding: 0.46rem 0.68rem;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item--in_review {
+  --focus-chip-text: #1d1d1f;
+  --focus-chip-hint: #6e6e73;
+  --focus-chip-border: #d2d2d7;
+  --focus-chip-active-border: rgba(0, 102, 204, 0.4);
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item--in_discussion {
+  --focus-chip-text: #1d1d1f;
+  --focus-chip-hint: #6e6e73;
+  --focus-chip-border: #d2d2d7;
+  --focus-chip-active-border: rgba(0, 102, 204, 0.32);
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item--blocked {
+  --focus-chip-text: #1d1d1f;
+  --focus-chip-hint: #6e6e73;
+  --focus-chip-border: #d2d2d7;
+  --focus-chip-active-border: rgba(180, 126, 0, 0.42);
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item--overdue {
+  --focus-chip-text: #1d1d1f;
+  --focus-chip-hint: #6e6e73;
+  --focus-chip-border: rgba(180, 35, 24, 0.28);
+  --focus-chip-active-bg: #fff7f5;
+  --focus-chip-active-text: #b42318;
+  --focus-chip-active-hint: #912018;
+  --focus-chip-active-border: rgba(180, 35, 24, 0.45);
+  --focus-chip-ring: rgba(180, 35, 24, 0.08);
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item:hover,
+html[data-theme="apple-workbench"] .task-focus-strip__item:focus-visible {
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__item--active,
+html[data-theme="apple-workbench"] .task-focus-strip__item--active:hover,
+html[data-theme="apple-workbench"] .task-focus-strip__item--active:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus-chip-active-border);
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__count {
+  color: var(--focus-chip-active-border);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+html[data-theme="apple-workbench"] .task-focus-strip__label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+html[data-theme="apple-workbench"] .task-state-row:hover td .sheet-table__cell-shell,
+html[data-theme="apple-workbench"] .task-state-row:hover .daily-grid-v2__cell .sheet-table__cell-shell {
+  background: #fbfbfd;
+}
+
+html[data-theme="apple-workbench"] .sheet-row--active td .sheet-table__cell-shell,
+html[data-theme="apple-workbench"] .sheet-row--active .daily-grid-v2__cell .sheet-table__cell-shell {
+  background: #f5f5f7;
+  box-shadow: inset 0 0 0 1px #d2d2d7;
+}
+
+html[data-theme="apple-workbench"] .task-card,
+html[data-theme="apple-workbench"] .task-preview-card--navigate-only,
+html[data-theme="apple-workbench"] .trash-card {
+  border-color: var(--theme-border-subtle);
+  background: #ffffff;
+}
+
+html[data-theme="apple-workbench"] .task-card:hover,
+html[data-theme="apple-workbench"] .task-card:focus-within,
+html[data-theme="apple-workbench"] .task-preview-card--navigate-only:hover,
+html[data-theme="apple-workbench"] .task-preview-card--navigate-only:focus-visible {
+  border-color: #d2d2d7;
+  background: #ffffff;
+  transform: none;
+}
+
+html[data-theme="apple-workbench"] .empty-state,
+html[data-theme="apple-workbench"] .board-column__empty,
+html[data-theme="apple-workbench"] .calendar-empty-state {
+  border-color: var(--theme-empty-border);
+  background: var(--theme-surface-empty);
+}
+
+html[data-theme="apple-workbench"] .sidebar__brand,
+html[data-theme="apple-workbench"] .sidebar__note,
+html[data-theme="apple-workbench"] .sidebar__project-panel,
+html[data-theme="apple-workbench"] .workspace__main,
+html[data-theme="apple-workbench"] .detail-panel,
+html[data-theme="apple-workbench"] .board-column,
+html[data-theme="apple-workbench"] .board-summary__card,
+html[data-theme="apple-workbench"] .calendar-nav,
+html[data-theme="apple-workbench"] .calendar-cell,
+html[data-theme="apple-workbench"] .calendar-month,
+html[data-theme="apple-workbench"] .calendar-agenda__day,
+html[data-theme="apple-workbench"] .task-card,
+html[data-theme="apple-workbench"] .task-preview-card--navigate-only,
+html[data-theme="apple-workbench"] .trash-card,
+html[data-theme="apple-workbench"] .file-pill {
+  border-radius: 12px;
+}
+
+html[data-theme="apple-workbench"] .secondary-button,
+html[data-theme="apple-workbench"] .sheet-table__order-trigger,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger,
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-toggle,
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-button {
+  border-radius: 9px;
+}
+
+html[data-theme="apple-workbench"] .composer-form-grid label:focus-within {
+  border-color: #d2d2d7;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.06);
+}
+
+html[data-theme="apple-workbench"] .sheet-table__order-trigger,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger,
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-toggle {
+  border-color: #d2d2d7;
+  background: #ffffff;
+  color: #424245;
+  box-shadow: none;
+}
+
+html[data-theme="apple-workbench"] .sheet-table__order-trigger:hover,
+html[data-theme="apple-workbench"] .sheet-table__order-trigger:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__order-trigger--active,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger:hover,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger:focus-visible,
+html[data-theme="apple-workbench"] .sheet-table__filter-trigger--active {
+  border-color: #a1a1a6;
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+
+html[data-theme="apple-workbench"] .sheet-table__filter-popover,
+html[data-theme="apple-workbench"] .sheet-table__order-popover {
+  border-color: #d2d2d7;
+  border-top-color: #a1a1a6;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow:
+    inset 0 1px 0 #e5e5ea,
+    0 14px 30px rgba(29, 29, 31, 0.12);
+}
+
+html[data-theme="apple-workbench"] .sheet-table__filter-toolbar,
+html[data-theme="apple-workbench"] .sheet-table__filter-auxiliary,
+html[data-theme="apple-workbench"] .sheet-table__filter-footer,
+html[data-theme="apple-workbench"] .sheet-table__order-auxiliary {
+  border-color: #e5e5ea;
+  background: #fbfbfd;
+}
+
+html[data-theme="apple-workbench"] .sheet-table__filter-option:hover,
+html[data-theme="apple-workbench"] .sheet-table__order-option:hover,
+html[data-theme="apple-workbench"] .sheet-table__filter-option:focus-within,
+html[data-theme="apple-workbench"] .sheet-table__order-option:focus-visible {
+  background: #f5f5f7;
+}
+
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-button {
+  min-height: 1.75rem;
+  padding: 0.32rem 0.62rem;
+  color: #6e6e73;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-button:hover:not(:disabled),
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-button:focus-visible,
+html[data-theme="apple-workbench"] .daily-sheet__view-mode-button--active {
+  background: #f5f5f7;
+  color: #1d1d1f;
+  box-shadow: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html[data-theme="apple-workbench"] .sidebar__link,
+  html[data-theme="apple-workbench"] .primary-button,
+  html[data-theme="apple-workbench"] .secondary-button,
+  html[data-theme="apple-workbench"] .danger-button,
+  html[data-theme="apple-workbench"] .task-card,
+  html[data-theme="apple-workbench"] .task-preview-card--navigate-only {
+    transition: none;
+  }
+
   html[data-theme="posthog"] .sidebar,
   html[data-theme="posthog"] .workspace__header,
   html[data-theme="posthog"] .workspace__main,
@@ -5761,5 +6726,218 @@ html[data-theme="posthog"] .workspace--posthog .calendar-empty-state h3 {
 
   html[data-theme="posthog"] .workspace--posthog .calendar-cell {
     min-height: 152px;
+  }
+}
+
+/* Shared compact presentation: hide support copy while preserving theme colors and layout tokens. */
+html[data-theme] .workspace__header-main > .workspace__copy,
+html[data-theme] .workspace__header-main > .workspace__facts,
+html[data-theme] .workspace__header-main > .workspace__eyebrow,
+html[data-theme] .workspace__header > div:first-child > .workspace__copy,
+html[data-theme] .workspace__header > div:first-child > .workspace__eyebrow,
+html[data-theme] .workspace__header > div:first-child > .workspace__meta,
+html[data-theme] .sidebar__brand-meta,
+html[data-theme] .sidebar__note > p,
+html[data-theme] .sidebar__theme-help,
+html[data-theme] .sidebar__theme-status:not(.sidebar__theme-status--error),
+html[data-theme] .composer-card__header .workspace__eyebrow,
+html[data-theme] .composer-card__header .workspace__meta,
+html[data-theme] .daily-sheet__focus-header,
+html[data-theme] .daily-sheet__focus-copy,
+html[data-theme] .board-summary__hint,
+html[data-theme] .board-focus__description,
+html[data-theme] .board-column__header p,
+html[data-theme] .calendar-nav__heading p,
+html[data-theme] .empty-state p,
+html[data-theme] .calendar-empty-state p {
+  display: none;
+}
+
+html[data-theme] .workspace__project,
+html[data-theme="apple-workbench"] .workspace__project {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+html[data-theme] .workspace__header h2,
+html[data-theme="posthog"] .workspace--posthog .workspace__header h2,
+html[data-theme="apple-workbench"] .workspace__header h2 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: 0;
+}
+
+html[data-theme] .composer-card__header h3,
+html[data-theme="apple-workbench"] .composer-card__header h3,
+html[data-theme] .board-focus__title,
+html[data-theme] .board-column__header h3,
+html[data-theme] .calendar-nav__heading h3,
+html[data-theme="posthog"] .workspace--posthog .calendar-nav__heading h3,
+html[data-theme="apple-workbench"] .calendar-nav__heading h3,
+html[data-theme] .empty-state h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+html[data-theme] .sidebar__link,
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link-label,
+html[data-theme="apple-workbench"] .sidebar__link {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+html[data-theme] .sidebar__project-heading {
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+html[data-theme] .sidebar__project-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme] .sidebar__project-count {
+  display: none;
+}
+
+html[data-theme] .sidebar__project-panel .secondary-button {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: 0.25rem;
+  font-size: 0.6rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme] .sidebar__theme-select {
+  min-width: 0;
+  padding-inline: 0.5rem 1rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
+html[data-theme] .sheet-wrapper--daily [data-task-column="actionId"] .sheet-table__head-label {
+  white-space: nowrap;
+}
+
+html[data-theme] .sheet-table__cell-shell--tree .sheet-table__cell-content {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+html[data-theme] .task-tree {
+  flex-wrap: nowrap;
+  min-width: max-content;
+  max-width: none;
+}
+
+html[data-theme] .task-tree__badge {
+  flex: 0 0 auto;
+  min-width: 2.2rem;
+  height: 1.45rem;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-theme] .sidebar__link--active {
+  border-color: var(--theme-accent-border-strong);
+  box-shadow: inset 0 0 0 1px var(--theme-accent-border);
+}
+
+html[data-theme]:not([data-theme="posthog"]):not([data-theme="apple-workbench"]) .sidebar__link {
+  position: relative;
+  gap: 0.55rem;
+}
+
+html[data-theme]:not([data-theme="posthog"]):not([data-theme="apple-workbench"]) .sidebar__link--active::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.46rem;
+  height: 0.46rem;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--theme-accent);
+}
+
+/* Warm Studio keeps its color and radius language, but follows the shared app sizing. */
+html[data-theme="posthog"] {
+  --shell-sidebar-width: 200px;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header {
+  position: static;
+  top: auto;
+  padding: 1.35rem;
+  line-height: normal;
+}
+
+html[data-theme="posthog"] .sidebar--posthog {
+  line-height: normal;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-topline {
+  display: none;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-side {
+  min-width: 0;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header-actions {
+  width: auto;
+}
+
+html[data-theme="posthog"] .workspace--posthog .workspace__header h2 {
+  max-width: none;
+}
+
+html[data-theme="posthog"] .workspace--posthog .primary-button,
+html[data-theme="posthog"] .workspace--posthog .secondary-button,
+html[data-theme="posthog"] .workspace--posthog .danger-button {
+  min-height: 42px;
+  line-height: normal;
+}
+
+html[data-theme="posthog"] .sidebar--posthog .sidebar__link {
+  line-height: normal;
+}
+
+@media (max-width: 1100px) {
+  html[data-theme="posthog"] .sidebar--posthog {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  html[data-theme="posthog"] .sidebar--posthog .sidebar__section {
+    gap: 0;
+  }
+
+  html[data-theme="posthog"] .sidebar--posthog .sidebar__section > .sidebar__section-label {
+    display: none;
   }
 }
