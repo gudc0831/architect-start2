@@ -128,6 +128,14 @@ export const taskRepository: TaskRepository = {
         .filter((update) => activeTasks.find((task) => task.id === update.id)?.siblingOrder !== update.siblingOrder),
     );
   },
+  listTaskUserOrders(projectId, profileId) {
+    const repository = getTaskRepository();
+    return repository.listTaskUserOrders ? repository.listTaskUserOrders(projectId, profileId) : Promise.resolve([]);
+  },
+  setTaskUserSiblingOrder(input) {
+    const repository = getTaskRepository();
+    return repository.setTaskUserSiblingOrder ? repository.setTaskUserSiblingOrder(input) : Promise.resolve([]);
+  },
   updateTaskOrders(inputs) {
     return getTaskRepository().updateTaskOrders(inputs);
   },

@@ -14,7 +14,8 @@ export async function GET(request: Request) {
     const context = await requireCurrentProjectAccess(user);
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
-    const data = await listTasks(scope, context.project);
+    const orderProfileId = scope === "active" && searchParams.get("orderScope") === "daily" ? user.id : null;
+    const data = await listTasks(scope, context.project, { orderProfileId });
 
     return NextResponse.json({ data });
   } catch (error) {

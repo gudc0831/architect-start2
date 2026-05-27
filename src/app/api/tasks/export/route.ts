@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     const body = await readRequestBody(request);
     const [project, tasks, allFiles, storedLayout, categoryDefinitions, foundationSettings] = await Promise.all([
       getSelectedTaskProject(),
-      listTasks("active"),
+      listTasks("active", undefined, { orderProfileId: user.id }),
       listFiles("active"),
       getTaskListLayout(user.id),
       listEffectiveTaskCategoriesForSession(user),

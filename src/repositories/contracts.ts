@@ -19,6 +19,23 @@ export type SetTaskSiblingOrderInput = {
   updatedBy?: string | null;
 };
 
+export type SetTaskUserSiblingOrderInput = {
+  projectId: string;
+  profileId: string;
+  parentTaskId: string | null;
+  orderedTaskIds: readonly string[];
+  siblingOrderStart?: number;
+};
+
+export type TaskUserOrderRecord = {
+  projectId: string;
+  profileId: string;
+  taskId: string;
+  parentTaskId: string | null;
+  siblingOrder: number;
+  updatedAt: string;
+};
+
 export type CreateTaskInput = {
   id?: string;
   projectId: string;
@@ -125,6 +142,8 @@ export interface TaskRepository {
   updateTask(taskId: string, input: UpdateTaskInput): Promise<TaskRecord>;
   updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput): Promise<TaskRecord | null>;
   setTaskSiblingOrder?(input: SetTaskSiblingOrderInput): Promise<TaskRecord[]>;
+  listTaskUserOrders?(projectId: string, profileId: string): Promise<TaskUserOrderRecord[]>;
+  setTaskUserSiblingOrder?(input: SetTaskUserSiblingOrderInput): Promise<TaskUserOrderRecord[]>;
   updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>): Promise<TaskRecord[]>;
   syncProjectTaskIssueIds(projectId: string, projectName: string, updatedBy?: string | null): Promise<number>;
   moveTaskToTrash(taskId: string, updatedBy?: string | null): Promise<TaskRecord>;

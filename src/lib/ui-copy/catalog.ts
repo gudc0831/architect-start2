@@ -403,7 +403,7 @@ export const uiCopyCatalog = {
       parentTaskNumberPlaceholder: "#12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
       headerFilterAria: "{{field}} 필터: {{label}}",
-      hideIssueIdOverdueBadge: "이슈 ID 지연 표시 숨기기",
+      hideIssueIdOverdueBadge: "Task 번호 지연 표시 숨기기",
       dailyFocusSummary: "집중 영역 · 실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.",
       autoAfterCreate: "생성 후 자동 지정",
       autoValue: "자동",
@@ -452,7 +452,7 @@ export const uiCopyCatalog = {
       previewLoading: "미리보기를 불러오는 중...",
     },
     fields: {
-      actionId: "이슈 ID",
+      actionId: "Task 번호",
       dueDate: "마감일",
       workType: "작업 유형",
       coordinationScope: "협업 범위",
@@ -471,7 +471,7 @@ export const uiCopyCatalog = {
       statusHistory: "상태 변경 이력",
       decision: "결정 사항",
       linkedDocuments: "첨부 문서",
-      parentActionId: "상위 이슈 ID",
+      parentActionId: "상위 Task 번호",
     },
     status: {
       labels: {
@@ -603,7 +603,7 @@ export const uiCopyCatalog = {
       fileVersionConflict: "다른 사용자가 먼저 같은 파일 버전을 만들었습니다. 파일 목록을 새로 불러온 뒤 다시 업로드하세요.",
       invalidParentTask: "올바르지 않은 상위 작업입니다.",
       parentTaskNotFound: "상위 작업을 찾을 수 없습니다.",
-      parentTaskNumberInvalid: "상위 이슈 ID 또는 번호 형식이 올바르지 않습니다.",
+      parentTaskNumberInvalid: "상위 Task 번호 또는 issueId 형식이 올바르지 않습니다.",
       taskStatusInvalid: "상태 값이 올바르지 않습니다.",
       taskCoordinationScopeInvalid: "협업범위 값이 올바르지 않습니다.",
       taskRequestedByInvalid: "요청자 값이 올바르지 않습니다.",
@@ -786,7 +786,7 @@ export const uiCopyCatalog = {
       previewLoading: "Loading preview...",
     },
     fields: {
-      actionId: "Issue ID",
+      actionId: "Task No.",
       dueDate: "Due Date",
       workType: "Work Type",
       coordinationScope: "Coordination Scope",
@@ -805,7 +805,7 @@ export const uiCopyCatalog = {
       statusHistory: "Status History",
       decision: "Decision",
       linkedDocuments: "Linked Documents",
-      parentActionId: "Parent Issue ID",
+      parentActionId: "Parent Task No.",
     },
     status: {
       labels: {
@@ -937,7 +937,7 @@ export const uiCopyCatalog = {
       fileVersionConflict: "Another user created the same file version first. Reload the latest files and upload again.",
       invalidParentTask: "Invalid parent task.",
       parentTaskNotFound: "Parent task not found.",
-      parentTaskNumberInvalid: "Parent issue ID or numeric reference format is invalid.",
+      parentTaskNumberInvalid: "Parent task number or issueId reference format is invalid.",
       taskStatusInvalid: "Status is invalid.",
       taskCoordinationScopeInvalid: "Coordination scope is invalid.",
       taskRequestedByInvalid: "Requested by is invalid.",

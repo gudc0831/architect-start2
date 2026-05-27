@@ -13,7 +13,6 @@ import type { RequestedProjectRole } from "@/lib/auth/project-capabilities";
 import { requireUser } from "@/lib/auth/require-user";
 import { requireCurrentProjectAccess, requireProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
 import { getProjectSessionProjectId } from "@/lib/project-session";
-import { taskRepository } from "@/repositories";
 import { adminRepository } from "@/repositories/admin";
 
 function sanitizeName(value: string) {
@@ -172,27 +171,12 @@ export async function renameCurrentProjectForSession(projectId: string, name: st
     throw badRequest("project name is required", "PROJECT_NAME_REQUIRED");
   }
 
-  const managerContext = await requireProjectManager(normalizedProjectId, user);
-  const selectedProject = managerContext.project;
+  await requireProjectManager(normalizedProjectId, user);
 
   const updatedProject = await adminRepository.updateProject(normalizedProjectId, {
     name: normalizedName,
     updatedBy: user.id,
   });
-
-  try {
-    await taskRepository.syncProjectTaskIssueIds(updatedProject.id, updatedProject.name, user.id);
-  } catch (error) {
-    if (selectedProject.name !== updatedProject.name) {
-      await adminRepository.updateProject(normalizedProjectId, {
-        name: selectedProject.name,
-        updatedBy: user.id,
-      });
-      await taskRepository.syncProjectTaskIssueIds(selectedProject.id, selectedProject.name, user.id);
-    }
-
-    throw error;
-  }
 
   return {
     id: updatedProject.id,

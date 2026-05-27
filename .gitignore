@@ -17,3 +17,4 @@ uploads
 output/playwright/
 output/data-guard/
 output/browser-check/
+.vercel

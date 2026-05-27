@@ -41,8 +41,14 @@ type TaskProjectContext = {
   id: string;
   name: string;
 };
+type ListTaskOptions = {
+  orderProfileId?: string | null;
+};
+type ReorderTaskOptions = {
+  orderProfileId?: string | null;
+};
 
-export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectContext) {
+export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectContext, options?: ListTaskOptions) {
   const project = selectedProject ?? (await getSelectedTaskProject());
   const [tasks, foundationSettings, fileSummaryByTaskId] = await Promise.all([
     scope === "trash"
@@ -51,7 +57,9 @@ export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectC
     loadAdminFoundationSettings(),
     loadTaskFileSummaryByScope(scope, project.id),
   ]);
-  const orderedTasks = scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
+  const taskOrderInput =
+    scope === "active" && options?.orderProfileId ? await applyUserTaskOrder(tasks, project.id, options.orderProfileId) : tasks;
+  const orderedTasks = scope === "trash" ? sortTrashTasks(taskOrderInput) : flattenTaskTree(taskOrderInput);
   return applyFoundationSettingsToTasks(orderedTasks, foundationSettings).map((task) => ({
     ...task,
     fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
@@ -62,8 +70,16 @@ export async function reorderTasks(
   command: TaskReorderCommand,
   userId?: string | null,
   selectedProject?: TaskProjectContext,
+  options?: ReorderTaskOptions,
 ): Promise<TaskRecord[]> {
   const project = selectedProject ?? (await getSelectedTaskProject());
+
+  if (options?.orderProfileId && taskRepository.setTaskUserSiblingOrder) {
+    const activeTasks = await taskRepository.listActiveTasks(project.id);
+    const orderedTasks = await applyUserTaskOrder(activeTasks, project.id, options.orderProfileId);
+    await persistUserTaskOrder(command, orderedTasks, project.id, options.orderProfileId);
+    return [];
+  }
 
   if (command.action === "set_sibling_order" && taskRepository.setTaskSiblingOrder) {
     const updatedTasks = await taskRepository.setTaskSiblingOrder({
@@ -191,6 +207,86 @@ export async function createTask(
   });
 
   return applyFoundationSettingsToTask(task, foundationSettings);
+}
+
+async function persistUserTaskOrder(
+  command: TaskReorderCommand,
+  activeTasks: TaskRecord[],
+  projectId: string,
+  profileId: string,
+) {
+  if (!taskRepository.setTaskUserSiblingOrder) {
+    return;
+  }
+
+  if (command.action === "set_sibling_order") {
+    await taskRepository.setTaskUserSiblingOrder({
+      projectId,
+      profileId,
+      parentTaskId: command.parentTaskId,
+      orderedTaskIds: command.orderedTaskIds,
+      siblingOrderStart: command.siblingOrderStart,
+    });
+    return;
+  }
+
+  if (command.action === "auto_sort") {
+    const taskById = new Map(activeTasks.map((task) => [task.id, task]));
+    const updatesByParent = new Map<string | null, Array<{ id: string; siblingOrder: number }>>();
+    for (const update of buildSiblingOrderUpdates(activeTasks, command.strategy)) {
+      const parentTaskId = taskById.get(update.id)?.parentTaskId ?? null;
+      const updates = updatesByParent.get(parentTaskId) ?? [];
+      updates.push(update);
+      updatesByParent.set(parentTaskId, updates);
+    }
+
+    for (const [parentTaskId, updates] of updatesByParent) {
+      await taskRepository.setTaskUserSiblingOrder({
+        projectId,
+        profileId,
+        parentTaskId,
+        orderedTaskIds: updates.sort((left, right) => left.siblingOrder - right.siblingOrder).map((update) => update.id),
+        siblingOrderStart: 0,
+      });
+    }
+    return;
+  }
+
+  const movedTask = activeTasks.find((task) => task.id === command.movedTaskId);
+  if (!movedTask) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const currentParentTaskId = movedTask.parentTaskId ?? null;
+  const normalizedTargetParentTaskId = command.targetParentTaskId ?? null;
+  if (currentParentTaskId !== normalizedTargetParentTaskId) {
+    throw badRequest("Cross-parent moves are not supported", "INVALID_PARENT_TASK");
+  }
+
+  if (!Number.isInteger(command.targetIndex) || command.targetIndex < 0) {
+    throw badRequest("targetIndex is invalid", "TASK_REORDER_TARGET_INDEX_INVALID");
+  }
+
+  const siblings = activeTasks
+    .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
+    .sort(compareTasksBySiblingOrder);
+  const currentIndex = siblings.findIndex((task) => task.id === command.movedTaskId);
+  if (currentIndex === -1) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const nextSiblings = siblings.filter((task) => task.id !== command.movedTaskId);
+  const normalizedInsertionIndex = command.targetIndex > currentIndex ? command.targetIndex - 1 : command.targetIndex;
+  const insertionIndex = Math.min(normalizedInsertionIndex, nextSiblings.length);
+  nextSiblings.splice(insertionIndex, 0, movedTask);
+
+  await taskRepository.setTaskUserSiblingOrder({
+    projectId,
+    profileId,
+    parentTaskId: currentParentTaskId,
+    orderedTaskIds: nextSiblings.map((task) => task.id),
+    siblingOrderStart: 0,
+  });
 }
 
 async function reorderTaskWithinParent(
@@ -921,6 +1017,26 @@ async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
       },
     ]),
   );
+}
+
+async function applyUserTaskOrder(tasks: TaskRecord[], projectId: string, profileId: string) {
+  const userOrders = await taskRepository.listTaskUserOrders?.(projectId, profileId);
+  if (!userOrders?.length) {
+    return tasks;
+  }
+
+  const orderByTaskId = new Map(userOrders.map((order) => [order.taskId, order]));
+  return tasks.map((task) => {
+    const order = orderByTaskId.get(task.id);
+    if (!order || (order.parentTaskId ?? null) !== (task.parentTaskId ?? null)) {
+      return task;
+    }
+
+    return {
+      ...task,
+      siblingOrder: order.siblingOrder,
+    };
+  });
 }
 
 function flattenTaskTree(tasks: TaskRecord[]) {

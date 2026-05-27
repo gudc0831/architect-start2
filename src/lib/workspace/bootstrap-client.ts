@@ -1,6 +1,8 @@
 import type { WorkspaceBootstrapPayload } from "@/lib/workspace/bootstrap-types";
 
-let workspaceBootstrapPromise: Promise<WorkspaceBootstrapPayload> | null = null;
+type WorkspaceBootstrapOrderScope = "daily" | null;
+
+const workspaceBootstrapPromises = new Map<string, Promise<WorkspaceBootstrapPayload>>();
 
 function shouldRetryWorkspaceBootstrap(status: number) {
   return status === 500 || status === 502 || status === 503 || status === 504;
@@ -23,13 +25,17 @@ async function readWorkspaceBootstrapResponse(response: Response): Promise<Works
   return json.data;
 }
 
-async function requestWorkspaceBootstrap(): Promise<WorkspaceBootstrapPayload> {
+function buildWorkspaceBootstrapUrl(orderScope: WorkspaceBootstrapOrderScope) {
+  return orderScope === "daily" ? "/api/workspace/bootstrap?orderScope=daily" : "/api/workspace/bootstrap";
+}
+
+async function requestWorkspaceBootstrap(orderScope: WorkspaceBootstrapOrderScope): Promise<WorkspaceBootstrapPayload> {
   const maxAttempts = 3;
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await fetch("/api/workspace/bootstrap", { cache: "no-store" });
+      const response = await fetch(buildWorkspaceBootstrapUrl(orderScope), { cache: "no-store" });
       if (response.ok || !shouldRetryWorkspaceBootstrap(response.status) || attempt === maxAttempts) {
         return readWorkspaceBootstrapResponse(response);
       }
@@ -46,19 +52,22 @@ async function requestWorkspaceBootstrap(): Promise<WorkspaceBootstrapPayload> {
   throw lastError instanceof Error ? lastError : new Error("Workspace bootstrap failed");
 }
 
-export async function fetchWorkspaceBootstrap(): Promise<WorkspaceBootstrapPayload> {
+export async function fetchWorkspaceBootstrap(orderScope: WorkspaceBootstrapOrderScope = null): Promise<WorkspaceBootstrapPayload> {
+  const cacheKey = orderScope ?? "default";
+  let workspaceBootstrapPromise = workspaceBootstrapPromises.get(cacheKey);
   if (!workspaceBootstrapPromise) {
-    workspaceBootstrapPromise = requestWorkspaceBootstrap().catch((error) => {
-      workspaceBootstrapPromise = null;
+    workspaceBootstrapPromise = requestWorkspaceBootstrap(orderScope).catch((error) => {
+      workspaceBootstrapPromises.delete(cacheKey);
       throw error;
     });
+    workspaceBootstrapPromises.set(cacheKey, workspaceBootstrapPromise);
   }
 
   return workspaceBootstrapPromise;
 }
 
 export function clearWorkspaceBootstrapCache() {
-  workspaceBootstrapPromise = null;
+  workspaceBootstrapPromises.clear();
 }
 
 export function isWorkspaceBootstrapPath(pathname: string) {

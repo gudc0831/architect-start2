@@ -108,13 +108,11 @@ import {
 import { DEFAULT_TASK_STATUS, isTaskStatus, TASK_STATUS_ORDER } from "@/domains/task/status";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
-import { extractProjectIssueNumber } from "@/domains/task/identifiers";
 import { buildSiblingOrderUpdates, buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import {
   buildTaskTreePages,
   buildTaskTreeRows,
   dailyTaskListColumns,
-  formatActionId,
   formatTaskDisplayId,
   formatDateTimeField,
   sortTasksByActionId,
@@ -271,6 +269,7 @@ type TaskDetailPanelInteractionState = {
 };
 
 type TaskFormDisplayState = {
+  taskNumber?: string | number | null;
   actionId?: string | number | null;
   issueId?: string | null;
   dueDate: string;
@@ -796,6 +795,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const taskReorderOrderScope = !isPreview && mode === "daily" ? "daily" : null;
   const { themeId } = useTheme();
   const isWarmStudio = themeId === "posthog";
   const isAppleWorkbench = themeId === "apple-workbench";
@@ -1411,7 +1411,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       taskReorderUnloadPersistAttemptedRef.current = true;
-      const body = JSON.stringify(buildTaskReorderRequestBody(command, dashboardStateByScopeRef.current.active.tasks));
+      const body = JSON.stringify(
+        buildTaskReorderRequestBody(command, dashboardStateByScopeRef.current.active.tasks, taskReorderOrderScope),
+      );
       if (getUtf8ByteLength(body) > KEEPALIVE_REQUEST_BODY_SAFE_BYTES) {
         return;
       }
@@ -1444,7 +1446,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       document.removeEventListener("visibilitychange", persistLatestTaskReorderWhenHidden);
       window.removeEventListener("pagehide", persistLatestTaskReorderBeforeUnload);
     };
-  }, []);
+  }, [taskReorderOrderScope]);
 
   useEffect(() => {
     if (mode !== "daily" || isPreview || !currentProjectId) {
@@ -3755,7 +3757,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [dailyMutationScope, dailyMutationSummary.totalActive, flushDailyMutationJournal]);
 
   const fetchDailySyncTasks = useCallback(async (syncScope: DashboardScope) => {
-    const response = await fetchDailyMutationRequest(`/api/tasks${syncScope === "trash" ? "?scope=trash" : ""}`, {
+    const taskParams = new URLSearchParams();
+    if (syncScope === "trash") {
+      taskParams.set("scope", "trash");
+    } else {
+      taskParams.set("orderScope", "daily");
+    }
+    const response = await fetchDailyMutationRequest(`/api/tasks?${taskParams.toString()}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -3986,7 +3994,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         return fetchDailyMutationRequest("/api/tasks/reorder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildTaskReorderRequestBody(command, tasksForVersions)),
+          body: JSON.stringify(buildTaskReorderRequestBody(command, tasksForVersions, taskReorderOrderScope)),
         });
       };
 
@@ -4401,7 +4409,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           let response = await fetchDailyMutationRequest("/api/tasks/reorder", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(buildTaskReorderRequestBody(withTaskReorderExpectedVersions(entry.command, baseTasks), baseTasks)),
+            body: JSON.stringify(
+              buildTaskReorderRequestBody(
+                withTaskReorderExpectedVersions(entry.command, baseTasks),
+                baseTasks,
+                taskReorderOrderScope,
+              ),
+            ),
           });
 
           if (!response.ok && response.status === 409) {
@@ -4418,7 +4432,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             response = await fetchDailyMutationRequest("/api/tasks/reorder", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(buildTaskReorderRequestBody(rebasedCommand, baseTasks)),
+              body: JSON.stringify(buildTaskReorderRequestBody(rebasedCommand, baseTasks, taskReorderOrderScope)),
             });
           }
 
@@ -4475,6 +4489,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     scheduleTaskReorderStorageRetry,
     setActiveTasksForContinuousReorder,
     setErrorMessage,
+    taskReorderOrderScope,
   ]);
 
   useEffect(() => {
@@ -4774,8 +4789,8 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             },
             {
               key: "issue-id",
-              label: "Issue ID 순서로 복원",
-              description: "기본 이슈 번호 순서로 다시 정렬합니다.",
+              label: "Task 번호 순서로 복원",
+              description: "기본 Task 번호 순서로 다시 정렬합니다.",
               onSelect: () => {
                 void reorderDailyTasks({ action: "auto_sort", strategy: "action_id" }, "auto");
               },
@@ -6080,7 +6095,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         <div className="detail-form-grid">
           <label className="form-field--compact">
             <span>{labelForField("actionId")}</span>
-            <input readOnly value={formatReadonlyActionId(selectedTask.actionId, selectedTask.issueId)} />
+            <input readOnly value={formatReadonlyTaskNumber(selectedTask.taskNumber, selectedTask.actionId)} />
           </label>
           <label className="form-field--compact">
             <span>{labelForField("parentActionId")}</span>
@@ -8315,7 +8330,7 @@ function TaskFormFields({
     <div className={gridClassName}>
       <label {...getLabelProps("actionId", "form-field--compact")}>
         <span>{labelForField("actionId")}</span>
-        <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyActionId(form.actionId, form.issueId)} />
+        <input readOnly={Boolean(readonly.actionId)} value={formatReadonlyTaskNumber(form.taskNumber, form.actionId)} />
         {renderResizeHandle("actionId")}
       </label>
       <label {...getLabelProps("dueDate", "form-field--compact form-field--date")}>
@@ -10105,18 +10120,17 @@ function buildTaskReorderExpectedVersions(
   return Object.fromEntries(impactedTasks.map((task) => [task.id, task.version]));
 }
 
-function buildTaskReorderRequestBody(command: TaskReorderPersistCommand, tasks: readonly TaskRecord[]) {
-  if (command.action === "set_sibling_order") {
-    return {
-      ...command,
-      expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
-    };
-  }
-
-  return {
+function buildTaskReorderRequestBody(
+  command: TaskReorderPersistCommand,
+  tasks: readonly TaskRecord[],
+  orderScope: "daily" | null,
+) {
+  const body = {
     ...command,
     expectedVersions: buildTaskReorderExpectedVersions(command, buildStoredOrderTaskTree(tasks)),
   };
+
+  return orderScope === "daily" ? { ...body, orderScope } : body;
 }
 
 async function fetchDailyMutationRequest(input: RequestInfo | URL, init?: RequestInit) {
@@ -10835,14 +10849,13 @@ function resolveExportFilename(contentDisposition: string | null) {
   return `daily-tasks-export-${todayKey()}.xlsx`;
 }
 
-function formatReadonlyActionId(actionId: number | string | null | undefined, issueId?: string | null) {
-  const issueNumber = extractProjectIssueNumber(String(issueId ?? ""));
-  if (issueNumber) {
-    return issueNumber;
-  }
+function formatReadonlyTaskNumber(
+  taskNumber: number | string | null | undefined,
+  actionId: number | string | null | undefined,
+) {
+  const formatted = formatTaskDisplayId({ actionId, taskNumber });
 
-  const raw = String(actionId ?? "").trim();
-  return raw ? formatActionId(raw) : t("workspace.autoAfterCreate");
+  return formatted || t("workspace.autoAfterCreate");
 }
 
 function formatReadonlyValue(value: string | null | undefined) {

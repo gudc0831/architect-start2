@@ -25,9 +25,11 @@ import type {
   ProjectRepository,
   SearchFileAnalysesInput,
   SetTaskSiblingOrderInput,
+  SetTaskUserSiblingOrderInput,
   TaskFileSummaryMap,
   TaskOrderUpdateInput,
   TaskRepository,
+  TaskUserOrderRecord,
   UpdateProjectInput,
   UpdateTaskInput,
   VersionedTaskUpdateInput,
@@ -133,6 +135,24 @@ function toTaskRecord(task: {
     updatedBy: task.updatedBy,
     deletedAt: task.deletedAt ? task.deletedAt.toISOString() : null,
     purgedAt: task.purgedAt ? task.purgedAt.toISOString() : null,
+  };
+}
+
+function toTaskUserOrderRecord(order: {
+  projectId: string;
+  profileId: string;
+  taskId: string;
+  parentTaskId: string | null;
+  siblingOrder: number;
+  updatedAt: Date;
+}): TaskUserOrderRecord {
+  return {
+    projectId: order.projectId,
+    profileId: order.profileId,
+    taskId: order.taskId,
+    parentTaskId: order.parentTaskId,
+    siblingOrder: order.siblingOrder,
+    updatedAt: order.updatedAt.toISOString(),
   };
 }
 
@@ -560,6 +580,89 @@ class PostgresTaskRepository implements TaskRepository {
     }
 
     return [];
+  }
+
+  async listTaskUserOrders(projectId: string, profileId: string) {
+    const rows = await prisma.taskUserOrder.findMany({
+      where: {
+        projectId,
+        profileId,
+      },
+    });
+
+    return rows.map(toTaskUserOrderRecord);
+  }
+
+  async setTaskUserSiblingOrder(input: SetTaskUserSiblingOrderInput) {
+    const orderedTaskIds = [...new Set(input.orderedTaskIds.filter(Boolean))];
+    if (orderedTaskIds.length === 0) {
+      return [];
+    }
+
+    const siblingOrderStart =
+      Number.isInteger(input.siblingOrderStart) && (input.siblingOrderStart ?? 0) >= 0 ? input.siblingOrderStart ?? 0 : 0;
+    const inputRows = Prisma.join(
+      orderedTaskIds.map((taskId, index) => Prisma.sql`(${taskId}::uuid, ${siblingOrderStart + index}::integer)`),
+    );
+    const parentPredicate = input.parentTaskId
+      ? Prisma.sql`t.parent_task_id = ${input.parentTaskId}::uuid`
+      : Prisma.sql`t.parent_task_id is null`;
+    const parentTaskIdValue = input.parentTaskId ? Prisma.sql`${input.parentTaskId}::uuid` : Prisma.sql`null::uuid`;
+    const result = await prisma.$queryRaw<Array<{ eligible_count: number; input_count: number; upserted_count: number }>>`
+      with input(id, sibling_order) as (
+        values ${inputRows}
+      ),
+      eligible as (
+        select t.id, input.sibling_order
+        from tasks as t
+        join input on input.id = t.id
+        where t.project_id = ${input.projectId}::uuid
+          and ${parentPredicate}
+          and t.deleted_at is null
+          and t.purged_at is null
+      ),
+      upserted as (
+        insert into task_user_orders (
+          project_id,
+          profile_id,
+          task_id,
+          parent_task_id,
+          sibling_order,
+          created_at,
+          updated_at
+        )
+        select
+          ${input.projectId}::uuid,
+          ${input.profileId}::uuid,
+          eligible.id,
+          ${parentTaskIdValue},
+          eligible.sibling_order,
+          now(),
+          now()
+        from eligible
+        where (select count(*) from eligible) = (select count(*) from input)
+        on conflict (project_id, profile_id, task_id)
+        do update set
+          parent_task_id = excluded.parent_task_id,
+          sibling_order = excluded.sibling_order,
+          updated_at = now()
+        returning task_id
+      )
+      select
+        (select count(*)::integer from eligible) as eligible_count,
+        (select count(*)::integer from input) as input_count,
+        (select count(*)::integer from upserted) as upserted_count
+    `;
+
+    const summary = result[0];
+    if (!summary || summary.eligible_count !== summary.input_count || summary.upserted_count !== summary.input_count) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+
+    return this.listTaskUserOrders(input.projectId, input.profileId);
   }
 
   async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {

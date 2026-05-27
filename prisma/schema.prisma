@@ -60,6 +60,7 @@ model Profile {
   createdTasks    Task[]             @relation("TaskCreatedBy")
   updatedTasks    Task[]             @relation("TaskUpdatedBy")
   assignedTasks   Task[]             @relation("TaskAssignedTo")
+  taskUserOrders   TaskUserOrder[]
   uploadedFiles   File[]             @relation("FileUploadedBy")
   projectMemberships ProjectMembership[]
   acceptedInvitations ProjectInvitation[] @relation("InvitationAcceptedBy")
@@ -87,6 +88,7 @@ model Project {
   accessRequests AccessRequest[]
   editLeases EditLease[]
   tasks     Task[]
+  taskUserOrders TaskUserOrder[]
   files     File[]
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
@@ -139,6 +141,7 @@ model Task {
   updater            Profile?    @relation("TaskUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
   assigneeProfile    Profile?    @relation("TaskAssignedTo", fields: [assigneeProfileId], references: [id], onDelete: SetNull)
   files              File[]
+  userOrders         TaskUserOrder[]
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
 
@@ -147,6 +150,25 @@ model Task {
   @@index([projectId, assigneeProfileId])
   @@index([parentTaskId])
   @@map("tasks")
+}
+
+model TaskUserOrder {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String   @map("project_id") @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  taskId        String   @map("task_id") @db.Uuid
+  parentTaskId  String?  @map("parent_task_id") @db.Uuid
+  siblingOrder  Int      @default(0) @map("sibling_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profile       Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, profileId, taskId])
+  @@index([projectId, profileId, parentTaskId, siblingOrder])
+  @@index([profileId])
+  @@map("task_user_orders")
 }
 
 model File {

@@ -16,12 +16,18 @@ export async function POST(request: Request) {
     const context = await requireCurrentProjectEditor(user);
     const body = await request.json();
     const command = buildReorderCommand(body);
-    const data = await reorderTasks(command, user.id, context.project);
+    const data = await reorderTasks(command, user.id, context.project, {
+      orderProfileId: readOrderProfileId(body, user.id),
+    });
 
     return NextResponse.json({ data });
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function readOrderProfileId(body: unknown, userId: string) {
+  return isRecord(body) && body.orderScope === "daily" ? userId : null;
 }
 
 function buildReorderCommand(body: unknown): TaskReorderCommand {

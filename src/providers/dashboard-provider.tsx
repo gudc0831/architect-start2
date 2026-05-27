@@ -99,8 +99,15 @@ function createEmptyStateByScope(): DashboardStateByScope {
   };
 }
 
-function buildDashboardOwnerKey(currentProjectId: string | null, selectionVersion: number, isPreview: boolean) {
-  return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}`;
+type ActiveTaskOrderScope = "daily" | null;
+
+function buildDashboardOwnerKey(
+  currentProjectId: string | null,
+  selectionVersion: number,
+  isPreview: boolean,
+  activeTaskOrderScope: ActiveTaskOrderScope,
+) {
+  return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}:${activeTaskOrderScope ?? "default"}`;
 }
 
 function groupFilesByTaskId(files: FileRecord[]) {
@@ -205,8 +212,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
+  const activeTaskOrderScope: ActiveTaskOrderScope = pathname === "/daily" ? "daily" : null;
   const { currentProjectId, projectLoaded, selectionVersion } = useProjectMeta();
-  const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview);
+  const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview, activeTaskOrderScope);
   const emptyStateByScope = useMemo(() => createEmptyStateByScope(), []);
   const [providerState, setProviderState] = useState<DashboardProviderState>(() => ({
     ownerKey,
@@ -258,7 +266,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const visibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
 
   useEffect(() => {
-    if (isPreview) {
+    if (isPreview || activeTaskOrderScope === "daily") {
       return;
     }
 
@@ -313,10 +321,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [currentProjectId, isPreview, ownerKey, projectLoaded]);
+  }, [activeTaskOrderScope, currentProjectId, isPreview, ownerKey, projectLoaded]);
 
   useEffect(() => {
-    if (isPreview || !currentProjectId || providerState.ownerKey !== ownerKey) {
+    if (isPreview || activeTaskOrderScope === "daily" || !currentProjectId || providerState.ownerKey !== ownerKey) {
       return;
     }
 
@@ -339,7 +347,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [currentProjectId, isPreview, ownerKey, providerState]);
+  }, [activeTaskOrderScope, currentProjectId, isPreview, ownerKey, providerState]);
 
   const fetchDashboardScope = useCallback(
     async (scope: DashboardScope, options?: DashboardRefreshOptions) => {
@@ -389,7 +397,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           const taskJson =
             shouldUseWorkspaceBootstrap && scope === "active" && !force
               ? await (async () => {
-                  const bootstrap = await fetchWorkspaceBootstrap();
+                  const bootstrap = await fetchWorkspaceBootstrap(activeTaskOrderScope);
                   if (!bootstrap.activeTasks) {
                     throw new Error(
                       localizeError({ code: bootstrap.activeTasksError?.code ?? undefined, fallbackKey: "loadTasksFailed" }),
@@ -399,9 +407,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                   return { data: bootstrap.activeTasks };
                 })()
               : await (async () => {
-                  const taskResponse = await fetchDashboardRead(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, {
-                    cache: "no-store",
-                  });
+                  const taskParams = new URLSearchParams();
+                  if (scope === "trash") {
+                    taskParams.set("scope", "trash");
+                  } else if (activeTaskOrderScope === "daily") {
+                    taskParams.set("orderScope", "daily");
+                  }
+                  const taskUrl = `/api/tasks${taskParams.size > 0 ? `?${taskParams.toString()}` : ""}`;
+                  const taskResponse = await fetchDashboardRead(taskUrl, { cache: "no-store" });
 
                   if (!taskResponse.ok) {
                     throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
@@ -507,7 +520,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       };
       return request;
     },
-    [isPreview, ownerKey, projectLoaded, shouldUseWorkspaceBootstrap],
+    [activeTaskOrderScope, isPreview, ownerKey, projectLoaded, shouldUseWorkspaceBootstrap],
   );
 
   const ensureDashboardScopeLoaded = useCallback(

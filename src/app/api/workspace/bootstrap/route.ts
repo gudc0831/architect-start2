@@ -6,9 +6,12 @@ import { loadWorkspaceBootstrap } from "@/lib/workspace/bootstrap-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const data = await loadWorkspaceBootstrap();
+    const { searchParams } = new URL(request.url);
+    const data = await loadWorkspaceBootstrap({
+      activeTaskOrderScope: searchParams.get("orderScope") === "daily" ? "daily" : null,
+    });
     const response = NextResponse.json({ data });
     response.headers.set("Cache-Control", "no-store");
     return applyProjectSessionProjectId(response, data.project.currentProjectId);

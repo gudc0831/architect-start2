@@ -1,6 +1,6 @@
 import type { TaskListColumnKey } from "@/domains/preferences/types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
-import { extractProjectIssueNumber, looksLikeProjectIssueId } from "@/domains/task/identifiers";
+import { looksLikeProjectIssueId } from "@/domains/task/identifiers";
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { TaskCategoricalFilterFieldKey } from "@/lib/task-categorical-filter";
 import { t } from "@/lib/ui-copy";
@@ -63,7 +63,22 @@ export function formatActionId(actionId: number | string | null | undefined) {
   return Number.isFinite(numeric) ? "#" + numeric : raw;
 }
 
-export function formatTaskBacklogId(task: Pick<TaskRecord, "issueId" | "actionId" | "taskNumber">) {
+export function formatTaskNumber(taskNumber: number | string | null | undefined) {
+  const numeric = Number(String(taskNumber ?? "").trim());
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  return String(Math.trunc(numeric)).padStart(3, "0");
+}
+
+type TaskIdentifierFields = {
+  actionId?: number | string | null;
+  issueId?: string | null;
+  taskNumber?: number | string | null;
+};
+
+export function formatTaskBacklogId(task: TaskIdentifierFields) {
   const issueId = String(task.issueId ?? "").trim();
   if (issueId && looksLikeProjectIssueId(issueId)) {
     return issueId;
@@ -72,13 +87,10 @@ export function formatTaskBacklogId(task: Pick<TaskRecord, "issueId" | "actionId
   return formatActionId(task.actionId ?? task.taskNumber);
 }
 
-export function formatTaskDisplayId(task: Pick<TaskRecord, "issueId" | "actionId" | "taskNumber">) {
-  const issueNumber = extractProjectIssueNumber(String(task.issueId ?? ""));
-  if (issueNumber) {
-    return issueNumber;
-  }
+export function formatTaskDisplayId(task: TaskIdentifierFields) {
+  const taskNumber = formatTaskNumber(task.taskNumber) ?? formatTaskNumber(task.actionId);
 
-  return formatActionId(task.actionId ?? task.taskNumber);
+  return taskNumber ?? t("workspace.autoAfterCreate");
 }
 
 export function formatDateTimeField(value: string | null | undefined) {

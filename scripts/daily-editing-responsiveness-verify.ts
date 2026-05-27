@@ -178,14 +178,16 @@ assert.match(
   dashboardProviderSource,
   /const setDashboardTasks = useCallback\(\s*\(scope: DashboardScope, updater: SetStateAction<TaskRecord\[\]>\) => \{\s*invalidateDashboardScopeRead\(scope\);/s,
 );
-assert.match(workspaceBootstrapRouteSource, /loadWorkspaceBootstrap\(\)/);
-assert.match(workspaceBootstrapClientSource, /let workspaceBootstrapPromise: Promise<WorkspaceBootstrapPayload> \| null = null;/);
+assert.match(workspaceBootstrapRouteSource, /loadWorkspaceBootstrap\(\{/);
+assert.match(workspaceBootstrapRouteSource, /activeTaskOrderScope: searchParams\.get\("orderScope"\) === "daily" \? "daily" : null/);
+assert.match(workspaceBootstrapClientSource, /const workspaceBootstrapPromises = new Map<string, Promise<WorkspaceBootstrapPayload>>\(\);/);
 assert.match(workspaceBootstrapClientSource, /export async function fetchWorkspaceBootstrap/);
 assert.match(workspaceBootstrapClientSource, /export function clearWorkspaceBootstrapCache/);
 assert.doesNotMatch(authProviderSource, /fetchWorkspaceBootstrap\(\)/);
 assert.doesNotMatch(projectProviderSource, /fetchWorkspaceBootstrap\(\)/);
-assert.match(dashboardProviderSource, /fetchWorkspaceBootstrap\(\)/);
+assert.match(dashboardProviderSource, /fetchWorkspaceBootstrap\(activeTaskOrderScope\)/);
 assert.match(dashboardProviderSource, /scope === "active"/);
+assert.match(dashboardProviderSource, /orderScope", "daily"/);
 assert.match(dashboardSnapshotCacheSource, /indexedDB\.open/);
 assert.match(dashboardSnapshotCacheSource, /export async function readDashboardTaskSnapshot/);
 assert.match(dashboardSnapshotCacheSource, /export async function writeDashboardTaskSnapshot/);
@@ -487,7 +489,11 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(taskReorderQueueSource, /response\.status === 409\) \{\s*await refreshScope\(\{ force: true \}\);/);
 assert.match(taskWorkspaceSource, /const shouldShowWorkspaceLoadingPlaceholder =/);
-assert.match(taskReorderQueueSource, /buildTaskReorderRequestBody\(withTaskReorderExpectedVersions\(entry\.command, baseTasks\), baseTasks\)/);
+assert.match(taskWorkspaceSource, /const taskReorderOrderScope = !isPreview && mode === "daily" \? "daily" : null/);
+assert.match(
+  taskReorderQueueSource,
+  /buildTaskReorderRequestBody\(\s*withTaskReorderExpectedVersions\(entry\.command, baseTasks\),\s*baseTasks,\s*taskReorderOrderScope,\s*\)/,
+);
 assert.match(taskWorkspaceSource, /dailyMutationScope && !dailyMutationJournalReady/);
 assert.match(taskWorkspaceSource, /dailyMutationScope && hasActiveDailyReorderJournal/);
 assert.match(taskReorderActionSource, /let journalQueued = false/);
@@ -496,7 +502,8 @@ assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000
 assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
 assert.match(taskRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
-assert.match(taskReorderRouteSource, /reorderTasks\(command, user\.id, context\.project\)/);
+assert.match(taskReorderRouteSource, /reorderTasks\(command, user\.id, context\.project, \{/);
+assert.match(taskReorderRouteSource, /orderProfileId: readOrderProfileId\(body, user\.id\)/);
 assert.match(taskReorderRouteSource, /readOptionalSiblingOrderStart\(body\.siblingOrderStart\)/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);

@@ -58,8 +58,10 @@ const META_REQUIRED_COLUMNS = [
   "exportRowIndex",
   "taskId",
   "actionId",
+  "issueId",
   "parentTaskId",
   "parentActionId",
+  "parentIssueId",
   "rootTaskId",
   "depth",
   "siblingOrder",
@@ -74,6 +76,7 @@ const CHECKBOX_TRUE_GLYPH = "\u2611";
 const CHECKBOX_FALSE_GLYPH = "\u2610";
 const DEFAULT_META_SHEET_NAME = "__task_meta";
 const MAX_HEADER_SCAN_ROWS = 12;
+const TASK_NUMBER_PATTERN = /^\d{3,}$/;
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -345,7 +348,9 @@ function verifyMetaRow(row: SheetRow, expectedExportRowIndex: number, failures: 
   const parentTaskId = normalizeText(cellText(row.values.parentTaskId));
   const hierarchyPath = normalizeText(cellText(row.values.hierarchyPath));
   const actionId = normalizeText(cellText(row.values.actionId));
+  const issueId = normalizeText(cellText(row.values.issueId));
   const parentActionId = normalizeText(cellText(row.values.parentActionId));
+  const parentIssueId = normalizeText(cellText(row.values.parentIssueId));
 
   if (exportRowIndex !== expectedExportRowIndex) {
     failures.push({
@@ -361,10 +366,17 @@ function verifyMetaRow(row: SheetRow, expectedExportRowIndex: number, failures: 
     });
   }
 
-  if (!looksLikeProjectIssueId(actionId)) {
+  if (!TASK_NUMBER_PATTERN.test(actionId)) {
     failures.push({
       row: row.rowIndex,
-      message: `actionId should use the project issue format, got '${actionId}'`,
+      message: `actionId should use the task display number format, got '${actionId}'`,
+    });
+  }
+
+  if (!looksLikeProjectIssueId(issueId)) {
+    failures.push({
+      row: row.rowIndex,
+      message: `issueId should use the project issue format, got '${issueId}'`,
     });
   }
 
@@ -418,6 +430,13 @@ function verifyMetaRow(row: SheetRow, expectedExportRowIndex: number, failures: 
         message: "child rows must have a parentActionId",
       });
     }
+
+    if (!looksLikeProjectIssueId(parentIssueId)) {
+      failures.push({
+        row: row.rowIndex,
+        message: `parentIssueId should use the project issue format, got '${parentIssueId}'`,
+      });
+    }
   }
 }
 
@@ -448,10 +467,10 @@ function verifyMainRow(
   const calendarLinkedCell = row.values.calendarLinked;
   const worksheetRow = actionIdCell?.worksheet.getRow(row.rowIndex);
 
-  if (!looksLikeProjectIssueId(actionId)) {
+  if (!TASK_NUMBER_PATTERN.test(actionId)) {
     failures.push({
       row: row.rowIndex,
-      message: `actionId should use the project issue format, got '${actionId}'`,
+      message: `actionId should use the task display number format, got '${actionId}'`,
     });
   }
 

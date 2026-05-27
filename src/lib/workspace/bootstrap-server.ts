@@ -7,7 +7,11 @@ import type { TaskRecord } from "@/domains/task/types";
 import type { WorkspaceBootstrapPayload } from "@/lib/workspace/bootstrap-types";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 
-export async function loadWorkspaceBootstrap(): Promise<WorkspaceBootstrapPayload> {
+type WorkspaceBootstrapOptions = {
+  activeTaskOrderScope?: "daily" | null;
+};
+
+export async function loadWorkspaceBootstrap(options: WorkspaceBootstrapOptions = {}): Promise<WorkspaceBootstrapPayload> {
   const user = await requireUser();
   const selection = await listProjectsForSession(user);
   const selectedProject =
@@ -25,7 +29,9 @@ export async function loadWorkspaceBootstrap(): Promise<WorkspaceBootstrapPayloa
 
   const [effectiveCategories, activeTasksResult] = await Promise.all([
     listEffectiveTaskCategoriesForProject(selectedProject.id),
-    listTasks("active", selectedProject)
+    listTasks("active", selectedProject, {
+      orderProfileId: options.activeTaskOrderScope === "daily" ? user.id : null,
+    })
       .then((activeTasks) => ({ activeTasks, error: null }))
       .catch((error: unknown) => {
         console.warn("[workspace-bootstrap] active task preload failed", error);
