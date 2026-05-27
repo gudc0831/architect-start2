@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   DEFAULT_THEME_ID,
   orderedThemeDefinitions,
+  sanitizeThemeId,
   sanitizeThemePreference,
   type ThemeDefinition,
   type ThemeId,
@@ -32,6 +33,50 @@ const ThemeContext = createContext<ThemeContextValue>({
   clearError: () => {},
 });
 
+const themePreferenceStorageKey = "architect-start.theme-id";
+const themePreferenceCookieMaxAge = 60 * 60 * 24 * 365;
+
+function readThemeCookie() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const prefix = `${themePreferenceStorageKey}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+}
+
+function readCachedThemeId(pathname: string): ThemeId {
+  if (typeof window === "undefined" || pathname.startsWith("/preview")) {
+    return DEFAULT_THEME_ID;
+  }
+
+  try {
+    return sanitizeThemeId(window.localStorage.getItem(themePreferenceStorageKey) ?? readThemeCookie());
+  } catch {
+    return sanitizeThemeId(readThemeCookie());
+  }
+}
+
+function writeCachedThemeId(themeId: ThemeId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(themePreferenceStorageKey, themeId);
+    document.cookie = `${themePreferenceStorageKey}=${encodeURIComponent(themeId)}; Path=/; Max-Age=${themePreferenceCookieMaxAge}; SameSite=Lax${
+      window.location.protocol === "https:" ? "; Secure" : ""
+    }`;
+  } catch {
+    // Theme cache is a paint optimization; persistence still lives in the backend.
+  }
+}
+
 async function readThemePreference() {
   const response = await fetch("/api/preferences/theme", { cache: "no-store" });
 
@@ -47,7 +92,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuthState();
   const isPreview = pathname.startsWith("/preview");
-  const [themeId, setThemeIdState] = useState<ThemeId>(DEFAULT_THEME_ID);
+  const [themeId, setThemeIdState] = useState<ThemeId>(() => readCachedThemeId(pathname));
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +130,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }
 
         setThemeIdState(preference.themeId);
+        writeCachedThemeId(preference.themeId);
         setError(null);
         setIsLoaded(true);
       })
@@ -93,7 +139,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        setThemeIdState(DEFAULT_THEME_ID);
         setError(null);
         setIsLoaded(true);
       });
@@ -111,6 +156,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const previousThemeId = themeId;
 
     setThemeIdState(nextThemeId);
+    writeCachedThemeId(nextThemeId);
     setIsSaving(true);
     setError(null);
 
@@ -128,8 +174,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const json = (await response.json()) as { data?: unknown };
       const preference = sanitizeThemePreference(json.data);
       setThemeIdState(preference.themeId);
+      writeCachedThemeId(preference.themeId);
     } catch {
       setThemeIdState(previousThemeId);
+      writeCachedThemeId(previousThemeId);
       setError(t("themes.saveFailed"));
     } finally {
       setIsSaving(false);

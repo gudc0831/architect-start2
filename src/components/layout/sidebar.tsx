@@ -11,6 +11,8 @@ import { useDashboardData, type DashboardScope } from "@/providers/dashboard-pro
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
+import { fetchWorkspaceDailyTaskUserOrders } from "@/lib/workspace/bootstrap-client";
+import { markWorkspaceRouteTransition } from "@/lib/workspace/route-timing";
 
 const items = [
   { href: "/board", mode: "board" },
@@ -29,7 +31,7 @@ type SidebarIdleHandle =
       id: number;
     };
 
-function scheduleSidebarIdleWork(callback: () => void, timeout = 2000): SidebarIdleHandle | null {
+function scheduleSidebarIdleWork(callback: () => void, timeout = 500): SidebarIdleHandle | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -43,7 +45,7 @@ function scheduleSidebarIdleWork(callback: () => void, timeout = 2000): SidebarI
 
   return {
     kind: "timeout",
-    id: window.setTimeout(callback, 250),
+    id: window.setTimeout(callback, 80),
   };
 }
 
@@ -100,10 +102,23 @@ export function Sidebar() {
         return;
       }
 
-      void ensureDashboardScopeLoaded(scopeForMode(mode)).catch(() => undefined);
+      void ensureDashboardScopeLoaded(scopeForMode(mode))
+        .then(() => {
+          if (mode === "daily") {
+            return fetchWorkspaceDailyTaskUserOrders();
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
     },
     [currentProjectId, ensureDashboardScopeLoaded, isPreview, projectLoaded, router],
   );
+
+  const warmAdminNavigation = useCallback(() => {
+    if (!isPreview) {
+      router.prefetch(adminHref);
+    }
+  }, [adminHref, isPreview, router]);
 
   useEffect(() => {
     if (isPreview || !projectLoaded || !currentProjectId) {
@@ -111,16 +126,18 @@ export function Sidebar() {
     }
 
     const handle = scheduleSidebarIdleWork(() => {
-      navItems
-        .filter((item) => item.mode !== "trash")
-        .forEach((item) => {
-          router.prefetch(item.href);
-        });
-      void ensureDashboardScopeLoaded("active").catch(() => undefined);
+      navItems.forEach((item) => {
+        router.prefetch(item.href);
+      });
+      warmAdminNavigation();
+      void ensureDashboardScopeLoaded("active")
+        .then(() => fetchWorkspaceDailyTaskUserOrders())
+        .catch(() => undefined);
+      void ensureDashboardScopeLoaded("trash").catch(() => undefined);
     });
 
     return () => cancelSidebarIdleWork(handle);
-  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router]);
+  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router, warmAdminNavigation]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -201,15 +218,24 @@ export function Sidebar() {
                 className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                 key={item.href}
                 href={item.href}
+                onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
                 onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                 onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
+                onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
               >
                 <span aria-hidden="true" className="sidebar__link-index">{String(index + 1).padStart(2, "0")}</span>
                 <span className="sidebar__link-label">{item.label}</span>
               </Link>
             ))}
             {!isPreview && authUser?.role === "admin" ? (
-              <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
+              <Link
+                className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
+                href={adminHref}
+                onClickCapture={() => markWorkspaceRouteTransition("admin", adminHref)}
+                onFocus={warmAdminNavigation}
+                onMouseEnter={warmAdminNavigation}
+                onPointerDownCapture={warmAdminNavigation}
+              >
                 <span aria-hidden="true" className="sidebar__link-index">99</span>
                 <span className="sidebar__link-label">관리자</span>
               </Link>
@@ -223,14 +249,23 @@ export function Sidebar() {
               className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
               key={item.href}
               href={item.href}
+              onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
               onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
               onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
+              onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
             >
               {item.label}
             </Link>
           ))}
           {!isPreview && authUser?.role === "admin" ? (
-            <Link className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")} href={adminHref}>
+            <Link
+              className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
+              href={adminHref}
+              onClickCapture={() => markWorkspaceRouteTransition("admin", adminHref)}
+              onFocus={warmAdminNavigation}
+              onMouseEnter={warmAdminNavigation}
+              onPointerDownCapture={warmAdminNavigation}
+            >
               관리자
             </Link>
           ) : null}

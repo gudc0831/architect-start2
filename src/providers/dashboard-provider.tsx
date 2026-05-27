@@ -20,8 +20,12 @@ import {
   readLastDashboardSnapshotProjectId,
   writeDashboardTaskSnapshot,
 } from "@/lib/workspace/dashboard-snapshot-cache";
-import { fetchWorkspaceBootstrap, isWorkspaceBootstrapPath } from "@/lib/workspace/bootstrap-client";
-import type { DashboardSystemMode } from "@/lib/workspace/bootstrap-types";
+import {
+  fetchWorkspaceBootstrap,
+  fetchWorkspaceDailyTaskUserOrders,
+  isWorkspaceBootstrapPath,
+} from "@/lib/workspace/bootstrap-client";
+import type { DashboardSystemMode, WorkspaceTaskUserOrder } from "@/lib/workspace/bootstrap-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 
 export type DashboardScope = "active" | "trash";
@@ -38,6 +42,8 @@ type DashboardScopeState = {
   loading: boolean;
   loaded: boolean;
   errorMessage: string | null;
+  dailyTaskUserOrders: WorkspaceTaskUserOrder[];
+  dailyTaskUserOrdersLoaded: boolean;
 };
 
 type DashboardStateByScope = Record<DashboardScope, DashboardScopeState>;
@@ -90,6 +96,8 @@ const emptyScopeState = (): DashboardScopeState => ({
   loading: false,
   loaded: false,
   errorMessage: null,
+  dailyTaskUserOrders: [],
+  dailyTaskUserOrdersLoaded: false,
 });
 
 function createEmptyStateByScope(): DashboardStateByScope {
@@ -105,9 +113,8 @@ function buildDashboardOwnerKey(
   currentProjectId: string | null,
   selectionVersion: number,
   isPreview: boolean,
-  activeTaskOrderScope: ActiveTaskOrderScope,
 ) {
-  return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}:${activeTaskOrderScope ?? "default"}`;
+  return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}`;
 }
 
 function groupFilesByTaskId(files: FileRecord[]) {
@@ -123,6 +130,51 @@ function groupFilesByTaskId(files: FileRecord[]) {
 
 function flattenFilesByTaskId(filesByTaskId: Record<string, FileRecord[]>) {
   return Object.values(filesByTaskId).flat();
+}
+
+function applyDailyTaskUserOrders(tasks: TaskRecord[], userOrders: readonly WorkspaceTaskUserOrder[]) {
+  if (userOrders.length === 0 || tasks.length === 0) {
+    return tasks;
+  }
+
+  const orderByTaskId = new Map(userOrders.map((order) => [order.taskId, order]));
+  let changed = false;
+  const nextTasks = tasks.map((task) => {
+    const order = orderByTaskId.get(task.id);
+    if (!order || (order.parentTaskId ?? null) !== (task.parentTaskId ?? null)) {
+      return task;
+    }
+
+    if (order.siblingOrder === task.siblingOrder) {
+      return task;
+    }
+
+    changed = true;
+    return { ...task, siblingOrder: order.siblingOrder };
+  });
+
+  return changed ? nextTasks : tasks;
+}
+
+function buildDailyTaskUserOrdersFromTasks(tasks: readonly TaskRecord[]): WorkspaceTaskUserOrder[] {
+  return tasks.map((task) => ({
+    taskId: task.id,
+    parentTaskId: task.parentTaskId ?? null,
+    siblingOrder: task.siblingOrder,
+  }));
+}
+
+function mergeDailyVisibleTasksIntoCanonicalTasks(canonicalTasks: readonly TaskRecord[], visibleTasks: readonly TaskRecord[]) {
+  const canonicalById = new Map(canonicalTasks.map((task) => [task.id, task]));
+
+  return visibleTasks.map((visibleTask) => {
+    const canonicalTask = canonicalById.get(visibleTask.id);
+    if (!canonicalTask || (canonicalTask.parentTaskId ?? null) !== (visibleTask.parentTaskId ?? null)) {
+      return visibleTask;
+    }
+
+    return { ...visibleTask, siblingOrder: canonicalTask.siblingOrder };
+  });
 }
 
 const DashboardDataContext = createContext<DashboardDataContextValue | null>(null);
@@ -149,6 +201,8 @@ function buildPreviewScopeState(scope: DashboardScope): DashboardScopeState {
     loading: false,
     loaded: true,
     errorMessage: null,
+    dailyTaskUserOrders: [],
+    dailyTaskUserOrdersLoaded: true,
   };
 }
 
@@ -214,7 +268,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
   const activeTaskOrderScope: ActiveTaskOrderScope = pathname === "/daily" ? "daily" : null;
   const { currentProjectId, projectLoaded, selectionVersion } = useProjectMeta();
-  const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview, activeTaskOrderScope);
+  const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview);
   const emptyStateByScope = useMemo(() => createEmptyStateByScope(), []);
   const [providerState, setProviderState] = useState<DashboardProviderState>(() => ({
     ownerKey,
@@ -263,10 +317,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     });
   }, [ownerKey]);
 
-  const visibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
+  const rawVisibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
+  const visibleStateByScope = useMemo<DashboardStateByScope>(() => {
+    if (activeTaskOrderScope !== "daily") {
+      return rawVisibleStateByScope;
+    }
+
+    const activeState = rawVisibleStateByScope.active;
+    const dailyTasks = applyDailyTaskUserOrders(activeState.tasks, activeState.dailyTaskUserOrders);
+    if (dailyTasks === activeState.tasks) {
+      return rawVisibleStateByScope;
+    }
+
+    return {
+      ...rawVisibleStateByScope,
+      active: {
+        ...activeState,
+        tasks: dailyTasks,
+      },
+    };
+  }, [activeTaskOrderScope, rawVisibleStateByScope]);
 
   useEffect(() => {
-    if (isPreview || activeTaskOrderScope === "daily") {
+    if (isPreview) {
       return;
     }
 
@@ -321,10 +394,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [activeTaskOrderScope, currentProjectId, isPreview, ownerKey, projectLoaded]);
+  }, [currentProjectId, isPreview, ownerKey, projectLoaded]);
 
   useEffect(() => {
-    if (isPreview || activeTaskOrderScope === "daily" || !currentProjectId || providerState.ownerKey !== ownerKey) {
+    if (isPreview || !currentProjectId || providerState.ownerKey !== ownerKey) {
       return;
     }
 
@@ -347,7 +420,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [activeTaskOrderScope, currentProjectId, isPreview, ownerKey, providerState]);
+  }, [currentProjectId, isPreview, ownerKey, providerState]);
 
   const fetchDashboardScope = useCallback(
     async (scope: DashboardScope, options?: DashboardRefreshOptions) => {
@@ -359,15 +432,26 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const currentState =
         stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
+      const needsDailyTaskUserOrders =
+        scope === "active" && activeTaskOrderScope === "daily" && !currentState.dailyTaskUserOrdersLoaded;
       const shouldShowLoading = !options?.silent || !currentState.loaded;
       const shouldSurfaceError = shouldShowLoading;
-      if (!force && currentState.loaded) {
+      if (!force && currentState.loaded && !needsDailyTaskUserOrders) {
         return;
       }
 
       const currentInFlight = inFlightRef.current[scope];
       if (!force && currentInFlight?.ownerKey === ownerKey) {
-        return currentInFlight.promise;
+        if (!needsDailyTaskUserOrders) {
+          return currentInFlight.promise;
+        }
+
+        await currentInFlight.promise.catch(() => undefined);
+        const latestState =
+          stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
+        if (latestState.dailyTaskUserOrdersLoaded) {
+          return;
+        }
       }
 
       if (shouldShowLoading) {
@@ -394,8 +478,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const taskJson =
-            shouldUseWorkspaceBootstrap && scope === "active" && !force
+          const taskJson: { data: TaskRecord[]; dailyTaskUserOrders?: WorkspaceTaskUserOrder[] | null } =
+            shouldUseWorkspaceBootstrap && scope === "active" && !force && needsDailyTaskUserOrders && currentState.loaded
+              ? { data: currentState.tasks, dailyTaskUserOrders: await fetchWorkspaceDailyTaskUserOrders() }
+              : shouldUseWorkspaceBootstrap && scope === "active" && !force
               ? await (async () => {
                   const bootstrap = await fetchWorkspaceBootstrap(activeTaskOrderScope);
                   if (!bootstrap.activeTasks) {
@@ -404,14 +490,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                     );
                   }
 
-                  return { data: bootstrap.activeTasks };
+                  return { data: bootstrap.activeTasks, dailyTaskUserOrders: bootstrap.activeTaskUserOrders ?? null };
                 })()
               : await (async () => {
                   const taskParams = new URLSearchParams();
                   if (scope === "trash") {
                     taskParams.set("scope", "trash");
-                  } else if (activeTaskOrderScope === "daily") {
-                    taskParams.set("orderScope", "daily");
                   }
                   const taskUrl = `/api/tasks${taskParams.size > 0 ? `?${taskParams.toString()}` : ""}`;
                   const taskResponse = await fetchDashboardRead(taskUrl, { cache: "no-store" });
@@ -432,21 +516,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               return previous;
             }
 
+            const previousScope = previous.stateByScope[scope];
+            const shouldUpdateDailyTaskUserOrders =
+              scope === "active" && taskJson.dailyTaskUserOrders !== undefined;
+
             return {
               ...previous,
               stateByScope: {
                 ...previous.stateByScope,
                 [scope]: {
                   tasks: taskJson.data,
-                  files: previous.stateByScope[scope].files,
-                  filesByTaskId: previous.stateByScope[scope].filesByTaskId,
-                  loadedTaskFileIds: previous.stateByScope[scope].loadedTaskFileIds,
-                  requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds,
-                  loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds,
-                  systemMode: previous.stateByScope[scope].systemMode,
+                  files: previousScope.files,
+                  filesByTaskId: previousScope.filesByTaskId,
+                  loadedTaskFileIds: previousScope.loadedTaskFileIds,
+                  requestedTaskFileIds: previousScope.requestedTaskFileIds,
+                  loadingTaskFileIds: previousScope.loadingTaskFileIds,
+                  systemMode: previousScope.systemMode,
                   loading: false,
                   loaded: true,
                   errorMessage: null,
+                  dailyTaskUserOrders: shouldUpdateDailyTaskUserOrders
+                    ? taskJson.dailyTaskUserOrders ?? []
+                    : previousScope.dailyTaskUserOrders,
+                  dailyTaskUserOrdersLoaded: shouldUpdateDailyTaskUserOrders ? true : previousScope.dailyTaskUserOrdersLoaded,
                 },
               },
             };
@@ -783,20 +875,31 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           return previous;
         }
 
+        const previousScope = previous.stateByScope[scope];
+        const isDailyActiveScope = scope === "active" && activeTaskOrderScope === "daily";
+        const previousTasks = isDailyActiveScope
+          ? applyDailyTaskUserOrders(previousScope.tasks, previousScope.dailyTaskUserOrders)
+          : previousScope.tasks;
+        const nextTasks = typeof updater === "function" ? updater(previousTasks) : updater;
+
         return {
           ...previous,
           stateByScope: {
             ...previous.stateByScope,
             [scope]: {
-              ...previous.stateByScope[scope],
-              tasks: typeof updater === "function" ? updater(previous.stateByScope[scope].tasks) : updater,
+              ...previousScope,
+              tasks: isDailyActiveScope ? mergeDailyVisibleTasksIntoCanonicalTasks(previousScope.tasks, nextTasks) : nextTasks,
               loaded: true,
+              dailyTaskUserOrders: isDailyActiveScope
+                ? buildDailyTaskUserOrdersFromTasks(nextTasks)
+                : previousScope.dailyTaskUserOrders,
+              dailyTaskUserOrdersLoaded: isDailyActiveScope ? true : previousScope.dailyTaskUserOrdersLoaded,
             },
           },
         };
       });
     },
-    [invalidateDashboardScopeRead, ownerKey],
+    [activeTaskOrderScope, invalidateDashboardScopeRead, ownerKey],
   );
 
   const setDashboardFiles = useCallback(
@@ -903,7 +1006,8 @@ export function useDashboardScope(scope: DashboardScope) {
   } = context;
   const previewState = useMemo(() => buildPreviewScopeState(scope), [scope]);
   const scopeState = stateByScope[scope];
-  const computedLoading = scopeState.loading || (!scopeState.loaded && !scopeState.errorMessage);
+  const needsDailyTaskUserOrders = pathname === "/daily" && scope === "active" && !scopeState.dailyTaskUserOrdersLoaded;
+  const computedLoading = scopeState.loading || (!scopeState.loaded && !scopeState.errorMessage) || needsDailyTaskUserOrders;
   const files = useMemo(() => flattenFilesByTaskId(scopeState.filesByTaskId), [scopeState.filesByTaskId]);
   const filesByTaskId = useMemo(() => scopeState.filesByTaskId, [scopeState.filesByTaskId]);
 

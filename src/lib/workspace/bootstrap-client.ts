@@ -25,17 +25,28 @@ async function readWorkspaceBootstrapResponse(response: Response): Promise<Works
   return json.data;
 }
 
-function buildWorkspaceBootstrapUrl(orderScope: WorkspaceBootstrapOrderScope) {
-  return orderScope === "daily" ? "/api/workspace/bootstrap?orderScope=daily" : "/api/workspace/bootstrap";
+function buildWorkspaceBootstrapUrl(orderScope: WorkspaceBootstrapOrderScope, includeActiveTasks = true) {
+  const params = new URLSearchParams();
+  if (orderScope === "daily") {
+    params.set("orderScope", "daily");
+  }
+  if (!includeActiveTasks) {
+    params.set("includeActiveTasks", "0");
+  }
+
+  return `/api/workspace/bootstrap${params.size > 0 ? `?${params.toString()}` : ""}`;
 }
 
-async function requestWorkspaceBootstrap(orderScope: WorkspaceBootstrapOrderScope): Promise<WorkspaceBootstrapPayload> {
+async function requestWorkspaceBootstrap(
+  orderScope: WorkspaceBootstrapOrderScope,
+  includeActiveTasks = true,
+): Promise<WorkspaceBootstrapPayload> {
   const maxAttempts = 3;
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await fetch(buildWorkspaceBootstrapUrl(orderScope), { cache: "no-store" });
+      const response = await fetch(buildWorkspaceBootstrapUrl(orderScope, includeActiveTasks), { cache: "no-store" });
       if (response.ok || !shouldRetryWorkspaceBootstrap(response.status) || attempt === maxAttempts) {
         return readWorkspaceBootstrapResponse(response);
       }
@@ -64,6 +75,27 @@ export async function fetchWorkspaceBootstrap(orderScope: WorkspaceBootstrapOrde
   }
 
   return workspaceBootstrapPromise;
+}
+
+export async function fetchWorkspaceDailyTaskUserOrders() {
+  const fullWorkspaceBootstrap = workspaceBootstrapPromises.get("daily") ?? workspaceBootstrapPromises.get("default");
+  if (fullWorkspaceBootstrap) {
+    const payload = await fullWorkspaceBootstrap;
+    return payload.activeTaskUserOrders ?? [];
+  }
+
+  const cacheKey = "daily-orders";
+  let workspaceBootstrapPromise = workspaceBootstrapPromises.get(cacheKey);
+  if (!workspaceBootstrapPromise) {
+    workspaceBootstrapPromise = requestWorkspaceBootstrap("daily", false).catch((error) => {
+      workspaceBootstrapPromises.delete(cacheKey);
+      throw error;
+    });
+    workspaceBootstrapPromises.set(cacheKey, workspaceBootstrapPromise);
+  }
+
+  const payload = await workspaceBootstrapPromise;
+  return payload.activeTaskUserOrders ?? [];
 }
 
 export function clearWorkspaceBootstrapCache() {

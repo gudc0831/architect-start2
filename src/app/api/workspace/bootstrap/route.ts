@@ -11,6 +11,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const data = await loadWorkspaceBootstrap({
       activeTaskOrderScope: searchParams.get("orderScope") === "daily" ? "daily" : null,
+      includeActiveTasks: searchParams.get("includeActiveTasks") !== "0",
     });
     const response = NextResponse.json({ data });
     response.headers.set("Cache-Control", "no-store");

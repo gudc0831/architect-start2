@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import type { AdminProfileSummary, ProjectMembershipRecord } from "@/domains/admin/types";
 import { useAuthUser } from "@/providers/auth-provider";
 import {
@@ -16,6 +17,7 @@ import {
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
 import { labelForField } from "@/lib/ui-copy";
+import { recordWorkspaceRouteReady } from "@/lib/workspace/route-timing";
 import { useProjectMeta } from "@/providers/project-provider";
 import styles from "./admin-foundation-shell.module.css";
 
@@ -304,6 +306,7 @@ function CategoryPane({
 }
 
 export function AdminFoundationShell() {
+  const pathname = usePathname();
   const authUser = useAuthUser();
   const { currentProjectId, currentProjectRole, availableProjects, switchProject, refreshProjects, refreshWorkTypes } = useProjectMeta();
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -447,6 +450,16 @@ export function AdminFoundationShell() {
       .then(() => setStatusMessage(null))
       .catch(() => setStatusMessage("프로젝트 데이터를 불러오지 못했습니다."));
   }, [currentProjectId, loadProjectScopedData, selectedProject?.name]);
+
+  useEffect(() => {
+    recordWorkspaceRouteReady({
+      fileCount: 0,
+      hasError: Boolean(statusMessage),
+      mode: "admin",
+      pathname,
+      taskCount: 0,
+    });
+  }, [pathname, statusMessage]);
 
   async function saveCategoryDefinition(definitionId: string, next: SaveCategoryDefinitionInput) {
     await readJson(`/api/admin/categories/${definitionId}`, {

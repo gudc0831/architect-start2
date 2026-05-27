@@ -97,6 +97,7 @@ import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-type
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
+import { recordWorkspaceRouteReady } from "@/lib/workspace/route-timing";
 import {
   matchesTaskCategoricalFilter,
   normalizeTaskCategoricalFilterSelection,
@@ -6197,6 +6198,20 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const showWarmStudioWorkspaceHeaderActions = (isTrashMode && !isWorkspaceReadOnly) || canExportTasks;
   const hasLocallyVisibleWorkspaceData = tasks.length > 0 || (mode === "daily" && dailyMutationSummary.totalActive > 0);
   const shouldShowWorkspaceLoadingPlaceholder = loading && !hasLocallyVisibleWorkspaceData;
+
+  useEffect(() => {
+    if (loading || shouldShowWorkspaceLoadingPlaceholder) {
+      return;
+    }
+
+    recordWorkspaceRouteReady({
+      fileCount: files.length,
+      hasError: Boolean(errorMessage),
+      mode,
+      pathname,
+      taskCount: sortedTasks.length,
+    });
+  }, [errorMessage, files.length, loading, mode, pathname, shouldShowWorkspaceLoadingPlaceholder, sortedTasks.length]);
 
   return (
     <section

@@ -21,10 +21,17 @@ export type DashboardSystemMode = {
   hasFirebaseProjectId: boolean;
 };
 
+export type WorkspaceTaskUserOrder = {
+  taskId: string;
+  parentTaskId: string | null;
+  siblingOrder: number;
+};
+
 export type WorkspaceBootstrapPayload = {
   user: AuthUser;
   project: ProjectSelectionPayload;
   activeTasks: TaskRecord[] | null;
+  activeTaskUserOrders?: WorkspaceTaskUserOrder[] | null;
   activeTasksError?: {
     code?: string | null;
     message?: string | null;
