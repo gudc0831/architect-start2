@@ -38,17 +38,17 @@ function WorkspaceAccessGate({ children }: { children: React.ReactNode }) {
     }
 
     if (user.accessStatus === "pending") {
-      router.replace("/auth/pending-access");
+      router.replace("/auth/pending-access" as Route);
       return;
     }
 
     if (user.accessStatus === "disabled") {
-      router.replace("/auth/no-access");
+      router.replace("/auth/no-access" as Route);
       return;
     }
 
     if (projectLoaded && isWorkspacePath && availableProjects.length === 0) {
-      router.replace(user.role === "admin" ? "/admin" : "/auth/no-access");
+      router.replace((user.role === "admin" ? "/admin" : "/auth/no-access") as Route);
     }
   }, [availableProjects.length, isPreview, isPublicShellPath, isWorkspacePath, loading, pathname, projectLoaded, router, user]);
 

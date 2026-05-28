@@ -10,7 +10,7 @@ export default async function NoAccessPage() {
   const user = await requirePageUser("/auth/no-access");
 
   if (user.role === "admin") {
-    redirect("/admin");
+    redirect("/admin" as Route);
   }
 
   if (user.accessStatus === "pending") {

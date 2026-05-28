@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { Route } from "next";
 import { NoAccessActions } from "@/components/auth/no-access-actions";
 import { requirePageUser } from "@/lib/auth/require-page-user";
 
@@ -8,7 +9,7 @@ export default async function PendingAccessPage() {
   const user = await requirePageUser("/auth/pending-access");
 
   if (user.accessStatus === "active") {
-    redirect("/auth/post-login");
+    redirect("/auth/post-login" as Route);
   }
 
   return (
