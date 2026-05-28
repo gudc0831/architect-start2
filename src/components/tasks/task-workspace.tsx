@@ -575,6 +575,14 @@ type TrashFileItem = {
 };
 
 type TrashItem = TrashTaskItem | TrashFileItem;
+type TrashSortMode = "deletedAt" | "createdAt";
+type TrashListViewMode = "full" | "paged";
+type TrashItemPage = {
+  items: TrashItem[];
+  startItemNumber: number;
+  endItemNumber: number;
+};
+type PageNavigationItem = { key: string; kind: "page"; page: number } | { key: string; kind: "ellipsis" };
 type BoardCollapsedStatusMap = Partial<Record<TaskStatus, true>>;
 type TaskSubtreeMutationPayload = {
   task?: TaskRecord;
@@ -656,9 +664,13 @@ const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000;
 const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000;
 const BOARD_COLUMN_STORAGE_KEY_PREFIX = "architect-start.board-columns:";
 const CATEGORICAL_FILTER_STORAGE_KEY_PREFIX = "architect-start.categorical-filter:";
+const TRASH_VIEW_PREFERENCE_STORAGE_KEY_PREFIX = "architect-start.trash-view:";
 const DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE = "hide-issue-id-overdue-badge";
 const DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE = "list-view-mode";
+const TRASH_VIEW_PREFERENCE_SORT_MODE = "sort-mode";
+const TRASH_VIEW_PREFERENCE_LIST_VIEW_MODE = "list-view-mode";
 const DAILY_TASK_PAGE_SIZE = 50;
+const TRASH_PAGE_SIZE = 50;
 const DAILY_TASK_TABLE_VIRTUAL_OVERSCAN = 2;
 const DAILY_TASK_TABLE_ROW_CHROME_HEIGHT = 1;
 const TASK_INLINE_PATCH_DEBOUNCE_MS = 1200;
@@ -851,6 +863,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [hideIssueIdOverdueBadge, setHideIssueIdOverdueBadge] = useState(false);
   const [dailyListViewMode, setDailyListViewMode] = useState<DailyListViewMode>("full");
   const [dailyTaskPage, setDailyTaskPage] = useState(1);
+  const [trashSortMode, setTrashSortMode] = useState<TrashSortMode>("deletedAt");
+  const [trashListViewMode, setTrashListViewMode] = useState<TrashListViewMode>("paged");
+  const [trashPage, setTrashPage] = useState(1);
+  const [expandedTrashItemKeys, setExpandedTrashItemKeys] = useState<string[]>([]);
   const [collapsedBoardStatuses, setCollapsedBoardStatuses] = useState<BoardCollapsedStatusMap>(() => createDefaultBoardCollapsedStatusMap());
   const [boardPageByStatus, setBoardPageByStatus] = useState<Partial<Record<TaskStatus, number>>>({});
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
@@ -900,6 +916,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const categoricalFilterStorageReadyKeyRef = useRef<string | null>(null);
   const dailyViewPreferenceReadyKeyRef = useRef<string | null>(null);
   const dailyListViewModePreferenceReadyKeyRef = useRef<string | null>(null);
+  const trashViewPreferenceReadyKeyRef = useRef<string | null>(null);
   const skipDailyTaskPageSelectionSyncRef = useRef(false);
   const taskReorderUnloadPersistCommandRef = useRef<TaskReorderPersistCommand | null>(null);
   const taskReorderUnloadPersistAttemptedRef = useRef(false);
@@ -981,6 +998,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [authUser?.id, currentProjectId, isLocalAuthPlaceholder, isPreview, mode]);
   const isDetailExpanded = detailPanelState === "expanded";
   const isPagedDailyListView = mode === "daily" && dailyListViewMode === "paged";
+  const isPagedTrashListView = mode === "trash" && trashListViewMode === "paged";
   const shouldRenderDailyDetailPanel = mode === "daily" && (!isPreviewDaily || selectedTaskId !== null);
   const isDetailPanelResizable = shouldRenderDailyDetailPanel && isDetailDocked && isDetailExpanded;
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
@@ -1079,11 +1097,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     mode === "daily" && currentProjectId && (authUser?.id || isPreview)
       ? getCategoricalFilterStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
       : null;
+  const trashViewPreferenceStorageBaseKey =
+    mode === "trash" && currentProjectId && (authUser?.id || isPreview)
+      ? getTrashViewPreferenceStorageBaseKey(authUser?.id ?? "preview", currentProjectId)
+      : null;
   const issueIdOverdueBadgePreferenceStorageKey = categoricalFilterStorageBaseKey
     ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_HIDE_OVERDUE_BADGE)
     : null;
   const dailyListViewModePreferenceStorageKey = categoricalFilterStorageBaseKey
     ? getDailyViewPreferenceStorageKey(categoricalFilterStorageBaseKey, DAILY_VIEW_PREFERENCE_LIST_VIEW_MODE)
+    : null;
+  const trashSortModePreferenceStorageKey = trashViewPreferenceStorageBaseKey
+    ? getTrashViewPreferenceStorageKey(trashViewPreferenceStorageBaseKey, TRASH_VIEW_PREFERENCE_SORT_MODE)
+    : null;
+  const trashListViewModePreferenceStorageKey = trashViewPreferenceStorageBaseKey
+    ? getTrashViewPreferenceStorageKey(trashViewPreferenceStorageBaseKey, TRASH_VIEW_PREFERENCE_LIST_VIEW_MODE)
     : null;
   const boardCollapsedStorageKey =
     mode === "board" && currentProjectId && (authUser?.id || isPreview)
@@ -1746,6 +1774,56 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
     writeDailyListViewModeToStorage(dailyListViewModePreferenceStorageKey, dailyListViewMode);
   }, [dailyListViewMode, dailyListViewModePreferenceStorageKey]);
+
+  useEffect(() => {
+    if (mode !== "trash") {
+      setTrashSortMode("deletedAt");
+      setTrashListViewMode("paged");
+      setTrashPage(1);
+      setExpandedTrashItemKeys([]);
+      trashViewPreferenceReadyKeyRef.current = null;
+      return;
+    }
+
+    if (!trashViewPreferenceStorageBaseKey || !trashSortModePreferenceStorageKey || !trashListViewModePreferenceStorageKey) {
+      setTrashSortMode("deletedAt");
+      setTrashListViewMode("paged");
+      setTrashPage(1);
+      setExpandedTrashItemKeys([]);
+      trashViewPreferenceReadyKeyRef.current = "__none__";
+      return;
+    }
+
+    setTrashSortMode(readTrashSortModeFromStorage(trashSortModePreferenceStorageKey));
+    setTrashListViewMode(readTrashListViewModeFromStorage(trashListViewModePreferenceStorageKey));
+    setTrashPage(1);
+    setExpandedTrashItemKeys([]);
+    trashViewPreferenceReadyKeyRef.current = trashViewPreferenceStorageBaseKey;
+  }, [mode, trashListViewModePreferenceStorageKey, trashSortModePreferenceStorageKey, trashViewPreferenceStorageBaseKey]);
+
+  useEffect(() => {
+    if (!trashViewPreferenceStorageBaseKey || !trashSortModePreferenceStorageKey) {
+      return;
+    }
+
+    if (trashViewPreferenceReadyKeyRef.current !== trashViewPreferenceStorageBaseKey) {
+      return;
+    }
+
+    writeTrashSortModeToStorage(trashSortModePreferenceStorageKey, trashSortMode);
+  }, [trashSortMode, trashSortModePreferenceStorageKey, trashViewPreferenceStorageBaseKey]);
+
+  useEffect(() => {
+    if (!trashViewPreferenceStorageBaseKey || !trashListViewModePreferenceStorageKey) {
+      return;
+    }
+
+    if (trashViewPreferenceReadyKeyRef.current !== trashViewPreferenceStorageBaseKey) {
+      return;
+    }
+
+    writeTrashListViewModeToStorage(trashListViewModePreferenceStorageKey, trashListViewMode);
+  }, [trashListViewMode, trashListViewModePreferenceStorageKey, trashViewPreferenceStorageBaseKey]);
 
   useEffect(() => {
     if (mode !== "board") {
@@ -2524,7 +2602,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [dailyTaskPage, dailyTaskPageCount],
   );
   const dailyTaskPageNavigationItems = useMemo(
-    () => buildDailyTaskPageNavigationItems(Math.max(dailyTaskPageCount, 1), resolvedDailyTaskPage),
+    () => buildPageNavigationItems(Math.max(dailyTaskPageCount, 1), resolvedDailyTaskPage),
     [dailyTaskPageCount, resolvedDailyTaskPage],
   );
   const activeDailyTaskPage = useMemo<DailyTaskTreePage | null>(
@@ -2897,20 +2975,49 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const trashFileIdSet = useMemo(() => new Set(files.map((file) => file.id)), [files]);
   const selectedTrashTaskIdSet = useMemo(() => new Set(selectedTrashTaskIds), [selectedTrashTaskIds]);
   const selectedTrashFileIdSet = useMemo(() => new Set(selectedTrashFileIds), [selectedTrashFileIds]);
+  const expandedTrashItemKeySet = useMemo(() => new Set(expandedTrashItemKeys), [expandedTrashItemKeys]);
   const trashItems = useMemo<TrashItem[]>(() => {
     if (!isTrashMode) return [];
 
     return [
       ...tasks.map((task) => ({ kind: "task" as const, id: task.id, deletedAt: task.deletedAt, task })),
       ...files.map((file) => ({ kind: "file" as const, id: file.id, deletedAt: file.deletedAt, file })),
-    ].sort((left, right) => {
-      const deletedCompare = (right.deletedAt ?? "").localeCompare(left.deletedAt ?? "");
-      if (deletedCompare !== 0) return deletedCompare;
-      return left.kind.localeCompare(right.kind);
+    ].sort((left, right) => compareTrashItems(left, right, trashSortMode));
+  }, [files, isTrashMode, tasks, trashSortMode]);
+  const trashItemPages = useMemo(() => buildTrashItemPages(trashItems, TRASH_PAGE_SIZE), [trashItems]);
+  const trashPageCount = trashItemPages.length;
+  const resolvedTrashPage = useMemo(() => clampBoardPage(trashPage, Math.max(trashPageCount, 1)), [trashPage, trashPageCount]);
+  const trashPageNavigationItems = useMemo(
+    () => buildPageNavigationItems(Math.max(trashPageCount, 1), resolvedTrashPage),
+    [resolvedTrashPage, trashPageCount],
+  );
+  const activeTrashPage = useMemo<TrashItemPage | null>(() => trashItemPages[resolvedTrashPage - 1] ?? null, [resolvedTrashPage, trashItemPages]);
+  const displayedTrashItems = useMemo(
+    () => (isPagedTrashListView ? activeTrashPage?.items ?? [] : trashItems),
+    [activeTrashPage, isPagedTrashListView, trashItems],
+  );
+  const displayedTrashRangeLabel = useMemo(() => {
+    if (!isPagedTrashListView || !activeTrashPage) {
+      return null;
+    }
+
+    return t("workspace.trashListPageRange", {
+      from: activeTrashPage.startItemNumber,
+      to: activeTrashPage.endItemNumber,
+      total: trashItems.length,
     });
-  }, [files, isTrashMode, tasks]);
+  }, [activeTrashPage, isPagedTrashListView, trashItems.length]);
   const selectedTrashCount = selectedTrashTaskIds.length + selectedTrashFileIds.length;
   const allTrashSelected = trashItems.length > 0 && selectedTrashCount === trashItems.length;
+
+  useEffect(() => {
+    if (mode !== "trash") {
+      return;
+    }
+
+    const nextTrashItemKeys = new Set(trashItems.map((item) => getTrashItemKey(item)));
+    setExpandedTrashItemKeys((previous) => previous.filter((key) => nextTrashItemKeys.has(key)));
+  }, [mode, trashItems]);
 
   useEffect(() => {
     const nextVisibleTaskIds = new Set((mode === "daily" ? visibleDailyTasks : tasks).map((task) => task.id));
@@ -5914,6 +6021,58 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     ],
   );
 
+  const handleTrashSortModeChange = useCallback(
+    (nextMode: TrashSortMode) => {
+      if (nextMode === trashSortMode) {
+        return;
+      }
+
+      startTransition(() => {
+        setTrashSortMode(nextMode);
+        setTrashPage(1);
+      });
+    },
+    [trashSortMode],
+  );
+
+  const handleTrashListViewModeChange = useCallback(
+    (nextMode: TrashListViewMode) => {
+      if (nextMode === trashListViewMode) {
+        return;
+      }
+
+      startTransition(() => {
+        setTrashListViewMode(nextMode);
+        setTrashPage(1);
+      });
+    },
+    [trashListViewMode],
+  );
+
+  const goToTrashPage = useCallback(
+    (nextPage: number) => {
+      if (!isPagedTrashListView) {
+        return;
+      }
+
+      const clampedPage = clampBoardPage(nextPage, Math.max(trashPageCount, 1));
+      if (clampedPage === resolvedTrashPage) {
+        return;
+      }
+
+      startTransition(() => {
+        setTrashPage(clampedPage);
+      });
+    },
+    [isPagedTrashListView, resolvedTrashPage, trashPageCount],
+  );
+
+  const toggleTrashItemExpansion = useCallback((itemKey: string) => {
+    setExpandedTrashItemKeys((previous) =>
+      previous.includes(itemKey) ? previous.filter((key) => key !== itemKey) : [...previous, itemKey],
+    );
+  }, []);
+
   function handleWorkspaceBackgroundClick(event: ReactMouseEvent<HTMLElement>) {
     if (mode !== "daily") return;
     const target = event.target;
@@ -6937,84 +7096,288 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             ) : null}
 
             {mode === "trash" ? (
-              <div className="trash-list">
-                {trashItems.length === 0 ? <div className="board-column__empty">{t("empty.noDeletedTasks")}</div> : null}
-                {trashItems.map((item) => {
-                  const isTask = item.kind === "task";
-                  const checked = !isWorkspaceReadOnly && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
+              <div className="trash-panel">
+                <div className="trash-controls">
+                  <div className="trash-controls__group">
+                    <span className="trash-controls__label">{t("workspace.trashSortLabel")}</span>
+                    <div aria-label={t("workspace.trashSortModeAria")} className="daily-sheet__view-mode-toggle trash-controls__toggle" role="group">
+                      <button
+                        aria-pressed={trashSortMode === "deletedAt"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          trashSortMode === "deletedAt" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleTrashSortModeChange("deletedAt")}
+                        type="button"
+                      >
+                        {t("workspace.trashSortDeletedDate")}
+                      </button>
+                      <button
+                        aria-pressed={trashSortMode === "createdAt"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          trashSortMode === "createdAt" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleTrashSortModeChange("createdAt")}
+                        type="button"
+                      >
+                        {t("workspace.trashSortCreatedDate")}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="trash-controls__group">
+                    <span className="trash-controls__label">{t("workspace.trashListViewLabel")}</span>
+                    <div aria-label={t("workspace.trashListViewModeAria")} className="daily-sheet__view-mode-toggle trash-controls__toggle" role="group">
+                      <button
+                        aria-pressed={trashListViewMode === "full"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          trashListViewMode === "full" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleTrashListViewModeChange("full")}
+                        type="button"
+                      >
+                        {t("workspace.trashListViewFull")}
+                      </button>
+                      <button
+                        aria-pressed={trashListViewMode === "paged"}
+                        className={clsx(
+                          "daily-sheet__view-mode-button",
+                          trashListViewMode === "paged" && "daily-sheet__view-mode-button--active",
+                        )}
+                        onClick={() => handleTrashListViewModeChange("paged")}
+                        type="button"
+                      >
+                        {t("workspace.trashListViewPaged")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-                  return (
-                    <article
-                      className={clsx("trash-card", checked && "trash-card--selected")}
-                      data-selected={isWarmStudio && checked ? "true" : undefined}
-                      key={`${item.kind}:${item.id}`}
-                    >
-                      {!isWorkspaceReadOnly ? (
-                        <label className="trash-card__checkbox">
-                          <input
-                            aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
-                            checked={checked}
-                            onChange={() => {
-                              if (isTask) {
-                                toggleTrashTaskSelection(item.id);
-                                return;
-                              }
-
-                              toggleTrashFileSelection(item.id);
-                            }}
-                            type="checkbox"
-                          />
-                        </label>
-                      ) : null}
-                      <div className="trash-card__content">
-                        {isTask ? (
-                          <>
-                            <div className="trash-card__meta-row">
-                              <span className="trash-card__type trash-card__type--task">{t("workspace.trashItemTask")}</span>
-                              <strong>{formatTaskDisplayId(item.task)}</strong>
-                            </div>
-                            <p>{item.task.issueTitle || t("empty.noDescription")}</p>
-                            <small>{t("workspace.deletedDateMeta", { date: fileSafeDate(item.task.deletedAt) })}</small>
-                          </>
-                        ) : (
-                          <>
-                            <div className="trash-card__meta-row">
-                              <span className="trash-card__type trash-card__type--file">{t("workspace.trashItemFile")}</span>
-                              <strong>
-                                {item.file.originalName} <span className="file-pill__version">{item.file.versionLabel}</span>
-                              </strong>
-                            </div>
-                            <p>{formatFileAttachmentMeta(item.file)}</p>
-                            <small>{t("workspace.deletedDateMeta", { date: fileSafeDate(item.file.deletedAt) })}</small>
-                          </>
+                {isPagedTrashListView && activeTrashPage ? (
+                  <div className="daily-task-list__toolbar trash-pagination">
+                    <div className="daily-task-list__toolbar-meta">
+                      {displayedTrashRangeLabel ? <span className="daily-task-list__toolbar-range">{displayedTrashRangeLabel}</span> : null}
+                      <span className="daily-task-list__toolbar-page">
+                        {t("workspace.pageStatus", { current: resolvedTrashPage, total: Math.max(trashPageCount, 1) })}
+                      </span>
+                    </div>
+                    <div className="daily-task-list__toolbar-actions">
+                      <button
+                        className="secondary-button daily-task-list__toolbar-button daily-task-list__toolbar-nav-button"
+                        disabled={resolvedTrashPage <= 1}
+                        onClick={() => goToTrashPage(resolvedTrashPage - 1)}
+                        type="button"
+                      >
+                        {t("actions.back")}
+                      </button>
+                      <div aria-label={t("workspace.trashListPaginationAria")} className="daily-task-list__toolbar-pages" role="group">
+                        {trashPageNavigationItems.map((pageItem) =>
+                          pageItem.kind === "ellipsis" ? (
+                            <span aria-hidden="true" className="daily-task-list__toolbar-ellipsis" key={pageItem.key}>
+                              ...
+                            </span>
+                          ) : (
+                            <button
+                              aria-current={pageItem.page === resolvedTrashPage ? "page" : undefined}
+                              aria-label={t("workspace.trashListGoToPage", { page: pageItem.page })}
+                              className={clsx(
+                                "secondary-button daily-task-list__toolbar-page-button",
+                                pageItem.page === resolvedTrashPage && "daily-task-list__toolbar-page-button--active",
+                              )}
+                              disabled={pageItem.page === resolvedTrashPage}
+                              key={pageItem.key}
+                              onClick={() => goToTrashPage(pageItem.page)}
+                              type="button"
+                            >
+                              {pageItem.page}
+                            </button>
+                          ),
                         )}
                       </div>
-                      {!isWorkspaceReadOnly ? (
-                        <div className="trash-card__actions">
-                          {isTask ? (
-                            <>
-                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreTask(item.task.id)} type="button">
-                                {t("actions.restore")}
-                              </button>
-                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteTaskPermanently(item.task)} type="button">
-                                {t("actions.deletePermanently")}
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreFile(item.file.id)} type="button">
-                                {t("actions.restore")}
-                              </button>
-                              <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteFilePermanently(item.file)} type="button">
-                                {t("actions.deletePermanently")}
-                              </button>
-                            </>
-                          )}
+                      <button
+                        className="secondary-button daily-task-list__toolbar-button daily-task-list__toolbar-nav-button"
+                        disabled={resolvedTrashPage >= trashPageCount}
+                        onClick={() => goToTrashPage(resolvedTrashPage + 1)}
+                        type="button"
+                      >
+                        {t("actions.next")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="trash-list">
+                  {trashItems.length === 0 ? <div className="board-column__empty">{t("empty.noDeletedTasks")}</div> : null}
+                  {displayedTrashItems.map((item) => {
+                    const isTask = item.kind === "task";
+                    const itemKey = getTrashItemKey(item);
+                    const expanded = expandedTrashItemKeySet.has(itemKey);
+                    const checked = !isWorkspaceReadOnly && (isTask ? selectedTrashTaskIdSet.has(item.id) : selectedTrashFileIdSet.has(item.id));
+                    const title = isTask ? item.task.issueTitle || t("empty.noDescription") : item.file.originalName;
+                    const createdDate = fileSafeDate(getTrashItemDateValue(item, "createdAt"));
+                    const deletedDate = fileSafeDate(getTrashItemDateValue(item, "deletedAt"));
+                    const primaryDateMeta =
+                      trashSortMode === "createdAt"
+                        ? t("workspace.createdDateMeta", { date: createdDate })
+                        : t("workspace.deletedDateMeta", { date: deletedDate });
+                    const secondaryDateMeta =
+                      trashSortMode === "createdAt"
+                        ? t("workspace.deletedDateMeta", { date: deletedDate })
+                        : t("workspace.createdDateMeta", { date: createdDate });
+
+                    return (
+                      <article
+                        className={clsx(
+                          "trash-card",
+                          isWorkspaceReadOnly && "trash-card--readonly",
+                          expanded && "trash-card--expanded",
+                          checked && "trash-card--selected",
+                        )}
+                        data-selected={isWarmStudio && checked ? "true" : undefined}
+                        key={itemKey}
+                      >
+                        {!isWorkspaceReadOnly ? (
+                          <label className="trash-card__checkbox">
+                            <input
+                              aria-label={isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
+                              checked={checked}
+                              onChange={() => {
+                                if (isTask) {
+                                  toggleTrashTaskSelection(item.id);
+                                  return;
+                                }
+
+                                toggleTrashFileSelection(item.id);
+                              }}
+                              type="checkbox"
+                            />
+                          </label>
+                        ) : null}
+                        <div className="trash-card__content">
+                          <div className="trash-card__summary">
+                            <div className="trash-card__meta-row">
+                              <span className={clsx("trash-card__type", isTask ? "trash-card__type--task" : "trash-card__type--file")}>
+                                {isTask ? t("workspace.trashItemTask") : t("workspace.trashItemFile")}
+                              </span>
+                              <strong className="trash-card__identifier">
+                                {isTask ? formatTaskDisplayId(item.task) : item.file.versionLabel}
+                              </strong>
+                            </div>
+                            <h3 className="trash-card__title">{title}</h3>
+                            <div className="trash-card__summary-meta">
+                              <small>{primaryDateMeta}</small>
+                              <small>{secondaryDateMeta}</small>
+                            </div>
+                          </div>
+
+                          {expanded ? (
+                            <div className="trash-card__details" id={`${itemKey}-details`}>
+                              {isTask ? (
+                                <>
+                                  <dl className="trash-card__detail-grid">
+                                    <div>
+                                      <dt>{labelForField("status")}</dt>
+                                      <dd>
+                                        <span className={clsx("status-pill", `status-pill--${item.task.status}`)}>{labelForStatus(item.task.status)}</span>
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt>{labelForField("assignee")}</dt>
+                                      <dd>{item.task.assignee || t("empty.unassigned")}</dd>
+                                    </div>
+                                    <div>
+                                      <dt>{labelForField("dueDate")}</dt>
+                                      <dd>{item.task.dueDate || "-"}</dd>
+                                    </div>
+                                    <div>
+                                      <dt>{labelForField("reviewedAt")}</dt>
+                                      <dd>{fileSafeDate(item.task.reviewedAt)}</dd>
+                                    </div>
+                                    <div>
+                                      <dt>{t("workspace.createdDateLabel")}</dt>
+                                      <dd>{createdDate}</dd>
+                                    </div>
+                                    <div>
+                                      <dt>{t("workspace.deletedDateLabel")}</dt>
+                                      <dd>{deletedDate}</dd>
+                                    </div>
+                                  </dl>
+                                  <div className="trash-card__detail-note">
+                                    <span>{labelForField("issueDetailNote")}</span>
+                                    <p>{item.task.issueDetailNote || t("empty.noDescription")}</p>
+                                  </div>
+                                  {item.task.fileSummary?.count ? (
+                                    <p className="trash-card__detail-footnote">
+                                      {t("workspace.fileCount", { count: item.task.fileSummary.count })}
+                                      {item.task.fileSummary.latestFileName ? ` · ${item.task.fileSummary.latestFileName}` : ""}
+                                    </p>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <dl className="trash-card__detail-grid">
+                                  <div>
+                                    <dt>{t("workspace.trashFileMetaLabel")}</dt>
+                                    <dd>{formatFileAttachmentMeta(item.file)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>{t("workspace.trashFileVersionLabel")}</dt>
+                                    <dd>{item.file.versionLabel}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>{t("workspace.trashFileTaskIdLabel")}</dt>
+                                    <dd>{item.file.taskId}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>{t("workspace.createdDateLabel")}</dt>
+                                    <dd>{createdDate}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>{t("workspace.deletedDateLabel")}</dt>
+                                    <dd>{deletedDate}</dd>
+                                  </div>
+                                </dl>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
+                        <div className="trash-card__actions">
+                          {!isWorkspaceReadOnly ? (
+                            isTask ? (
+                              <>
+                                <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreTask(item.task.id)} type="button">
+                                  {t("actions.restore")}
+                                </button>
+                                <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteTaskPermanently(item.task)} type="button">
+                                  {t("actions.deletePermanently")}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button className={clsx("primary-button", isWarmStudio && "trash-card__restore-button")} onClick={() => void restoreFile(item.file.id)} type="button">
+                                  {t("actions.restore")}
+                                </button>
+                                <button className={clsx("danger-button", isWarmStudio && "trash-card__delete-button")} onClick={() => void deleteFilePermanently(item.file)} type="button">
+                                  {t("actions.deletePermanently")}
+                                </button>
+                              </>
+                            )
+                          ) : null}
+                          <button
+                            aria-controls={`${itemKey}-details`}
+                            aria-expanded={expanded}
+                            aria-label={expanded ? t("workspace.collapseTrashItem", { title }) : t("workspace.expandTrashItem", { title })}
+                            className="secondary-button trash-card__expand-button"
+                            onClick={() => toggleTrashItemExpansion(itemKey)}
+                            type="button"
+                          >
+                            {expanded ? t("workspace.trashCollapseButton") : t("workspace.trashExpandButton")}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
           </div>
@@ -9145,6 +9508,14 @@ function getDailyViewPreferenceStorageKey(baseKey: string, preferenceKey: string
   return `${baseKey}:view:${preferenceKey}`;
 }
 
+function getTrashViewPreferenceStorageBaseKey(userId: string, projectId: string) {
+  return `${TRASH_VIEW_PREFERENCE_STORAGE_KEY_PREFIX}${userId}:${projectId}`;
+}
+
+function getTrashViewPreferenceStorageKey(baseKey: string, preferenceKey: string) {
+  return `${baseKey}:${preferenceKey}`;
+}
+
 type StoredCategoricalFilterSelection =
   | { mode: "none" }
   | { mode: "custom"; values: string[] };
@@ -9261,12 +9632,90 @@ function writeDailyListViewModeToStorage(storageKey: string, value: DailyListVie
   }
 }
 
+function readTrashSortModeFromStorage(storageKey: string): TrashSortMode {
+  if (typeof window === "undefined") {
+    return "deletedAt";
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) === "createdAt" ? "createdAt" : "deletedAt";
+  } catch {
+    return "deletedAt";
+  }
+}
+
+function writeTrashSortModeToStorage(storageKey: string, value: TrashSortMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (value === "deletedAt") {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // Ignore storage write failures and keep the in-memory preference.
+  }
+}
+
+function readTrashListViewModeFromStorage(storageKey: string): TrashListViewMode {
+  if (typeof window === "undefined") {
+    return "paged";
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) === "full" ? "full" : "paged";
+  } catch {
+    return "paged";
+  }
+}
+
+function writeTrashListViewModeToStorage(storageKey: string, value: TrashListViewMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (value === "paged") {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // Ignore storage write failures and keep the in-memory preference.
+  }
+}
+
 function getDailyTaskPageForTask(pages: readonly DailyTaskTreePage[], taskId: string) {
   const pageIndex = pages.findIndex((page) => page.rows.some((row) => row.task.id === taskId));
   return pageIndex < 0 ? null : pageIndex + 1;
 }
 
-function buildDailyTaskPageNavigationItems(totalPages: number, currentPage: number) {
+function buildTrashItemPages(items: readonly TrashItem[], pageSize: number): TrashItemPage[] {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const normalizedPageSize = Math.max(1, Math.floor(pageSize));
+  const pages: TrashItemPage[] = [];
+
+  for (let index = 0; index < items.length; index += normalizedPageSize) {
+    const pageItems = items.slice(index, index + normalizedPageSize);
+    pages.push({
+      items: pageItems,
+      startItemNumber: index + 1,
+      endItemNumber: index + pageItems.length,
+    });
+  }
+
+  return pages;
+}
+
+function buildPageNavigationItems(totalPages: number, currentPage: number): PageNavigationItem[] {
   const normalizedTotalPages = Math.max(1, Math.floor(totalPages));
   const normalizedCurrentPage = clampBoardPage(currentPage, normalizedTotalPages);
   const visiblePages = new Set<number>([1, normalizedTotalPages, normalizedCurrentPage]);
@@ -9290,7 +9739,7 @@ function buildDailyTaskPageNavigationItems(totalPages: number, currentPage: numb
   }
 
   const sortedPages = [...visiblePages].filter((page) => page >= 1 && page <= normalizedTotalPages).sort((left, right) => left - right);
-  const items: Array<{ key: string; kind: "page"; page: number } | { key: string; kind: "ellipsis" }> = [];
+  const items: PageNavigationItem[] = [];
   let previousPage = 0;
 
   for (const page of sortedPages) {
@@ -9303,6 +9752,28 @@ function buildDailyTaskPageNavigationItems(totalPages: number, currentPage: numb
   }
 
   return items;
+}
+
+function getTrashItemKey(item: TrashItem) {
+  return `${item.kind}:${item.id}`;
+}
+
+function getTrashItemDateValue(item: TrashItem, sortMode: TrashSortMode) {
+  if (item.kind === "task") {
+    return sortMode === "createdAt" ? item.task.createdAt : item.task.deletedAt;
+  }
+
+  return sortMode === "createdAt" ? item.file.createdAt : item.file.deletedAt;
+}
+
+function compareTrashItems(left: TrashItem, right: TrashItem, sortMode: TrashSortMode) {
+  const dateCompare = (getTrashItemDateValue(right, sortMode) ?? "").localeCompare(getTrashItemDateValue(left, sortMode) ?? "");
+  if (dateCompare !== 0) return dateCompare;
+
+  const kindCompare = left.kind.localeCompare(right.kind);
+  if (kindCompare !== 0) return kindCompare;
+
+  return left.id.localeCompare(right.id);
 }
 
 function buildDailyTaskTableWindow({

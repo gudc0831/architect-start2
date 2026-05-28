@@ -74,6 +74,9 @@ export type UICatalog = {
     dueDateMeta: string;
     fileCount: string;
     deletedDateMeta: string;
+    createdDateMeta: string;
+    createdDateLabel: string;
+    deletedDateLabel: string;
     deletedTasksTitle: string;
     deletedFilesTitle: string;
     deleteFilePermanentlyConfirm: string;
@@ -82,6 +85,24 @@ export type UICatalog = {
     emptyTrashConfirm: string;
     trashItemTask: string;
     trashItemFile: string;
+    trashSortLabel: string;
+    trashSortModeAria: string;
+    trashSortDeletedDate: string;
+    trashSortCreatedDate: string;
+    trashListViewLabel: string;
+    trashListViewModeAria: string;
+    trashListViewFull: string;
+    trashListViewPaged: string;
+    trashListPaginationAria: string;
+    trashListGoToPage: string;
+    trashListPageRange: string;
+    trashExpandButton: string;
+    trashCollapseButton: string;
+    expandTrashItem: string;
+    collapseTrashItem: string;
+    trashFileMetaLabel: string;
+    trashFileTaskIdLabel: string;
+    trashFileVersionLabel: string;
     selectedCount: string;
     taskDetailsTitle: string;
     downloadAvailable: string;
@@ -383,6 +404,9 @@ export const uiCopyCatalog = {
       dueDateMeta: "마감 {{date}}",
       fileCount: "{{count}}개 파일",
       deletedDateMeta: "삭제일 {{date}}",
+      createdDateMeta: "생성일 {{date}}",
+      createdDateLabel: "생성일",
+      deletedDateLabel: "삭제일",
       deletedTasksTitle: "삭제된 작업",
       deletedFilesTitle: "삭제된 파일",
       deleteFilePermanentlyConfirm: "{{name}} {{version}} 파일을 완전 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
@@ -391,6 +415,24 @@ export const uiCopyCatalog = {
       emptyTrashConfirm: "휴지통의 모든 항목을 완전 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       trashItemTask: "작업",
       trashItemFile: "파일",
+      trashSortLabel: "정렬",
+      trashSortModeAria: "휴지통 정렬 기준",
+      trashSortDeletedDate: "삭제일",
+      trashSortCreatedDate: "생성일",
+      trashListViewLabel: "보기",
+      trashListViewModeAria: "휴지통 보기 전환",
+      trashListViewFull: "전체",
+      trashListViewPaged: "50개씩",
+      trashListPaginationAria: "휴지통 페이지 이동",
+      trashListGoToPage: "{{page}}페이지로 이동",
+      trashListPageRange: "{{from}}-{{to}} / {{total}}",
+      trashExpandButton: "펼치기",
+      trashCollapseButton: "접기",
+      expandTrashItem: "{{title}} 세부내용 펼치기",
+      collapseTrashItem: "{{title}} 세부내용 접기",
+      trashFileMetaLabel: "파일 정보",
+      trashFileTaskIdLabel: "연결 작업",
+      trashFileVersionLabel: "버전",
       selectedCount: "{{count}}개 선택",
       taskDetailsTitle: "작업 상세",
       downloadAvailable: "다운로드 가능",
@@ -717,6 +759,9 @@ export const uiCopyCatalog = {
       dueDateMeta: "Due {{date}}",
       fileCount: "{{count}} files",
       deletedDateMeta: "Deleted {{date}}",
+      createdDateMeta: "Created {{date}}",
+      createdDateLabel: "Created",
+      deletedDateLabel: "Deleted",
       deletedTasksTitle: "Deleted tasks",
       deletedFilesTitle: "Deleted files",
       deleteFilePermanentlyConfirm: "Delete {{name}} {{version}} permanently? This action cannot be undone.",
@@ -725,6 +770,24 @@ export const uiCopyCatalog = {
       emptyTrashConfirm: "Delete every item in the trash permanently? This action cannot be undone.",
       trashItemTask: "Task",
       trashItemFile: "File",
+      trashSortLabel: "Sort",
+      trashSortModeAria: "Trash sort mode",
+      trashSortDeletedDate: "Deleted",
+      trashSortCreatedDate: "Created",
+      trashListViewLabel: "View",
+      trashListViewModeAria: "Switch trash view",
+      trashListViewFull: "All",
+      trashListViewPaged: "50 per page",
+      trashListPaginationAria: "Trash pagination",
+      trashListGoToPage: "Go to page {{page}}",
+      trashListPageRange: "{{from}}-{{to}} / {{total}}",
+      trashExpandButton: "Expand",
+      trashCollapseButton: "Collapse",
+      expandTrashItem: "Expand details for {{title}}",
+      collapseTrashItem: "Collapse details for {{title}}",
+      trashFileMetaLabel: "File info",
+      trashFileTaskIdLabel: "Linked task",
+      trashFileVersionLabel: "Version",
       selectedCount: "{{count}} selected",
       taskDetailsTitle: "Task details",
       downloadAvailable: "Download available",
