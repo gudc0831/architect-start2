@@ -14,7 +14,7 @@ import {
   type AssistantRunPolicy,
   type AssistantUsageEvent,
 } from "@/domains/assistant/saas-api-mode";
-import { badRequest, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
+import { badRequest, conflict, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
 import {
   AssistantProviderError,
   estimateCostCents,
@@ -1286,6 +1286,12 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const question = normalizeRequiredText(input.question, "question");
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
   const retrieved = await retrieveAssistantEvidence({ taskId, question });
+  if (retrieved.evidence.some((item) => item.kind === "regulation")) {
+    throw conflict(
+      "Legal/regulation SaaS generation must use /api/assistant/task-review so official-law verification runs server-side.",
+      "ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW",
+    );
+  }
 
   return generateAssistantWithVerifiedEvidence(
     {

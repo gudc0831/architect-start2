@@ -96,6 +96,10 @@ async function main() {
     new URL("../src/app/api/assistant/task-review/route.ts", import.meta.url),
     "utf8",
   );
+  const saasServiceSource = await readFile(
+    new URL("../src/use-cases/assistant-saas-mode-service.ts", import.meta.url),
+    "utf8",
+  );
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   const combinedSource = `${serviceSource}\n${routeSource}`;
   assert.match(envExample, /^LAW_OPEN_DATA_OC=/m);
@@ -112,6 +116,8 @@ async function main() {
   assert.equal(combinedSource.includes("/approve"), false);
   assert.equal(combinedSource.includes("requireKnowledgeAdmin"), false);
   assert.match(combinedSource, /approvalAttempted:\s*false/);
+  assert.match(saasServiceSource, /ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW/);
+  assert.match(saasServiceSource, /item\.kind === "regulation"/);
 
   console.log(
     JSON.stringify({
