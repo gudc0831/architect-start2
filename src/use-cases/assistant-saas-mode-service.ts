@@ -1310,20 +1310,33 @@ export async function generateAssistantWithVerifiedEvidence(
   input: GenerateAssistantWithEvidenceInput,
   user: AuthUser,
 ): Promise<AssistantGenerateResult> {
+  const projectId = await resolveProjectId(normalizeRequiredText(input.taskContext.projectId, "projectId"), user);
+  const taskId = normalizeRequiredText(input.taskContext.taskId, "taskId");
+  const task = await taskRepository.findTaskById(taskId);
+  if (!task || task.projectId !== projectId || task.purgedAt) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+  const taskContext = {
+    ...input.taskContext,
+    taskId: task.id,
+    projectId,
+    title: task.issueTitle,
+    issueId: task.issueId,
+  };
   const question = normalizeRequiredText(input.question, "question");
   const instruction =
     normalizeOptionalText(input.instruction) ||
     "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
-  const policy = await getStoredOrDefaultPolicy(input.taskContext.projectId);
+  const policy = await getStoredOrDefaultPolicy(taskContext.projectId);
   const promptText = buildPromptText({
-    taskTitle: input.taskContext.title,
+    taskTitle: taskContext.title,
     question,
     instruction,
     evidence: input.evidence,
   });
   const inputTokens = estimateTokens(promptText);
   const requestHash = createRequestHash({
-    taskId: input.taskContext.taskId,
+    taskId: taskContext.taskId,
     question,
     instruction,
     evidenceIds: input.evidence.map((item) => item.id),
@@ -1334,17 +1347,17 @@ export async function generateAssistantWithVerifiedEvidence(
 
   await enforcePolicy({
     policy,
-    taskId: input.taskContext.taskId,
+    taskId: taskContext.taskId,
     profileId: user.id,
     evidence: input.evidence,
     inputTokens,
     requestHash,
   });
 
-  const taskLabel = input.taskContext.issueId || input.taskContext.taskId;
+  const taskLabel = taskContext.issueId || taskContext.taskId;
   const providerResult = await runProviderOrRecordFailure({
     policy,
-    taskId: input.taskContext.taskId,
+    taskId: taskContext.taskId,
     taskLabel,
     profileId: user.id,
     question,
@@ -1357,7 +1370,7 @@ export async function generateAssistantWithVerifiedEvidence(
 
   await assistantRepository.createUsageEvent({
     projectId: policy.projectId,
-    taskId: input.taskContext.taskId,
+    taskId: taskContext.taskId,
     profileId: user.id,
     executionMode: "saas-api",
     runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
@@ -1385,7 +1398,7 @@ export async function generateAssistantWithVerifiedEvidence(
     profileId: user.id,
     eventType: "assistant.generate.success",
     targetType: "task",
-    targetId: input.taskContext.taskId,
+    targetId: taskContext.taskId,
     metadata: {
       executionMode: "saas-api",
       requestHash,
