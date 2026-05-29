@@ -489,12 +489,7 @@ function parseLawSearchResults(value: unknown): LawSearchResult[] {
 
 function selectBestLawSearchResult(lawName: string, results: LawSearchResult[]) {
   const normalized = normalizeLawName(lawName);
-  return (
-    results.find((result) => normalizeLawName(result.lawName) === normalized) ??
-    results.find((result) => normalizeLawName(result.lawName).includes(normalized)) ??
-    results[0] ??
-    null
-  );
+  return results.find((result) => normalizeLawName(result.lawName) === normalized) ?? null;
 }
 
 function extractArticleText(value: unknown, articleNumber?: string) {

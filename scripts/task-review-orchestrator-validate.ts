@@ -222,6 +222,36 @@ async function main() {
   assert.equal(partialReport.sources.some((source) => source.status !== "verified"), true);
   assert.equal(partialReport.sources.some((source) => source.articleNumber === "099900" && source.status === "not_found"), true);
 
+  const wrongLawExactArticleReport = await verifyOfficialLawEvidence({
+    question: "건축법 제49조 피난시설 검토",
+    evidence: regulationEvidence,
+    oc: "server-secret-oc",
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/lawSearch.do")) {
+        return jsonResponse({
+          LawSearch: {
+            law: [
+              {
+                법령명한글: "건축법 시행령",
+                법령ID: "001761",
+                시행일자: "20260529",
+                법령상세링크: "/법령/건축법 시행령?OC=server-secret-oc",
+              },
+            ],
+          },
+        });
+      }
+
+      throw new Error(`wrong-law search result must not call lawService API: ${String(input)}`);
+    },
+    now: () => new Date("2026-05-29T00:00:00.000Z"),
+  });
+
+  assert.equal(wrongLawExactArticleReport.status, "failed");
+  assert.equal(wrongLawExactArticleReport.sources[0].status, "not_found");
+  assert.equal(wrongLawExactArticleReport.sources.some((source) => source.status === "verified"), false);
+
   let inFlight = 0;
   let maxConcurrent = 0;
   const concurrentFetch: typeof fetch = async (input, init) => {
@@ -303,6 +333,7 @@ async function main() {
         "recorded official API and source URLs redact OC",
         "task-review evidence source URLs redact OC before generation/save",
         "law-name-only official verification does not verify arbitrary first article",
+        "official law verification rejects non-exact law-name search results",
         "keyword-only legal prompts require official law verification",
         "missing LAW_OPEN_DATA_OC blocks verification",
         "task-review orchestrator does not call WIKI approve/admin routes",
