@@ -17,10 +17,38 @@ const regulationEvidence: AssistantEvidence[] = [
   },
 ];
 
+const multiLocatorEvidence: AssistantEvidence[] = [
+  ...regulationEvidence,
+  {
+    id: "regulation:parking",
+    kind: "regulation",
+    priority: 2,
+    title: "주차장법 시행규칙 제6조",
+    excerpt: "주차장법 시행규칙 제6조 설치 기준 검토 seed",
+    confidenceWeight: 0.7,
+  },
+];
+
 const fetchImpl: typeof fetch = async (input) => {
   const url = new URL(String(input));
   if (url.pathname.endsWith("/lawSearch.do")) {
     assert.equal(url.searchParams.get("OC"), "server-secret-oc");
+    const query = url.searchParams.get("query");
+    if (query === "주차장법 시행규칙") {
+      return jsonResponse({
+        LawSearch: {
+          law: [
+            {
+              법령명한글: "주차장법 시행규칙",
+              법령ID: "007564",
+              시행일자: "20260529",
+              법령상세링크: "/법령/주차장법 시행규칙",
+            },
+          ],
+        },
+      });
+    }
+
     return jsonResponse({
       LawSearch: {
         law: [
@@ -37,15 +65,21 @@ const fetchImpl: typeof fetch = async (input) => {
 
   if (url.pathname.endsWith("/lawService.do")) {
     assert.equal(url.searchParams.get("OC"), "server-secret-oc");
-    assert.equal(url.searchParams.get("JO"), "004900");
+    const articleNumber = url.searchParams.get("JO");
+    assert.ok(articleNumber === "004900" || articleNumber === "000600");
     return jsonResponse({
       법령: {
         조문: {
           조문단위: [
-            {
-              조문번호: "49",
-              조문내용: "제49조 건축물의 피난시설 및 용도제한 등에 관한 기준.",
-            },
+            articleNumber === "000600"
+              ? {
+                  조문번호: "6",
+                  조문내용: "제6조 주차장의 구조 및 설비기준.",
+                }
+              : {
+                  조문번호: "49",
+                  조문내용: "제49조 건축물의 피난시설 및 용도제한 등에 관한 기준.",
+                },
           ],
         },
       },
@@ -140,6 +174,28 @@ async function main() {
   assert.equal(partialReport.sources.some((source) => source.status === "verified"), true);
   assert.equal(partialReport.sources.some((source) => source.status !== "verified"), true);
   assert.equal(partialReport.sources.some((source) => source.articleNumber === "099900" && source.status === "not_found"), true);
+
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  const concurrentFetch: typeof fetch = async (input, init) => {
+    inFlight += 1;
+    maxConcurrent = Math.max(maxConcurrent, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    try {
+      return await fetchImpl(input, init);
+    } finally {
+      inFlight -= 1;
+    }
+  };
+
+  await verifyOfficialLawEvidence({
+    question: "건축법 제49조와 주차장법 시행규칙 제6조 검토",
+    evidence: multiLocatorEvidence,
+    oc: "server-secret-oc",
+    fetchImpl: concurrentFetch,
+    now: () => new Date("2026-05-29T00:00:00.000Z"),
+  });
+  assert.ok(maxConcurrent >= 2, "official law locators should be verified concurrently");
 
   const previousOc = process.env.LAW_OPEN_DATA_OC;
   delete process.env.LAW_OPEN_DATA_OC;

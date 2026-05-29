@@ -218,10 +218,9 @@ export async function verifyOfficialLawEvidence(
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
 
-  const sources: OfficialLawApiSource[] = [];
-  for (const locator of locators) {
-    sources.push(await fetchOfficialLawArticle(locator, config, checkedAt));
-  }
+  const sources = await Promise.all(
+    locators.map((locator) => fetchOfficialLawArticle(locator, config, checkedAt)),
+  );
 
   const failures = sources.filter((source) => source.status !== "verified").map((source) => source.reason);
 
