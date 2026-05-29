@@ -181,7 +181,6 @@ function buildEvidenceDigest(evidence: AssistantEvidence[]) {
 function buildOfficialLawDigest(lawReport: OfficialLawVerificationReport) {
   return digestJson({
     status: lawReport.status,
-    checkedAt: lawReport.checkedAt,
     failures: lawReport.failures,
     sources: lawReport.sources.map((source) => ({
       lawName: source.lawName,
