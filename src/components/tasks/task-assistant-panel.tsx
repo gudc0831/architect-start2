@@ -87,8 +87,15 @@ type RetrieveResponse = {
 
 type SavedAssistantRecord = {
   id: string;
+  taskId?: string;
   confidenceScore: number;
   confidenceReason?: string;
+  executionMode?: "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
+  runtimeMode?: string;
+  candidateState?: "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected";
+  draftSummary?: DraftSummary | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type AssistantRecordHistoryItem = {
@@ -162,6 +169,37 @@ type AssistantGenerateResponse = {
     model: string;
     callMode: "mock" | "live";
     requestId: string | null;
+  };
+};
+
+type TaskReviewResponse = {
+  status: "blocked" | "ready_for_generation" | "generated";
+  reason: string;
+  taskContext: AssistantTaskContext;
+  retrievedEvidence: {
+    count: number;
+    regulationCount: number;
+    unavailableEvidenceKinds: string[];
+  };
+  officialLawVerification: {
+    status: "not_required" | "verified" | "failed";
+    checkedAt: string;
+    failures: string[];
+    retry: string[];
+  };
+  evidence: AssistantEvidence[];
+  evidenceReadiness: Array<{
+    kind: "central_knowledge" | "project_document" | "web_or_skill";
+    status: "available" | "missing";
+    action: string;
+  }>;
+  generated?: AssistantGenerateResponse;
+  savedRecord: SavedAssistantRecord | null;
+  wiki: {
+    candidateCreated: false;
+    approvalAttempted: false;
+    approvedKnowledgeItemId: null;
+    reason?: string;
   };
 };
 
@@ -544,6 +582,49 @@ export function TaskAssistantPanel({
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
     try {
+      if (executionMode === "saas-api") {
+        const review = await postTaskReviewJson({
+          taskId: selectedTask.id,
+          question,
+          instruction,
+          mode: "generate",
+        });
+
+        setRetrieveResult({
+          taskContext: review.taskContext,
+          evidence: review.evidence,
+          unavailableEvidenceKinds: review.retrievedEvidence.unavailableEvidenceKinds,
+        });
+
+        if (review.status !== "generated" || !review.generated || !review.savedRecord) {
+          const failures = review.officialLawVerification.failures.join(" / ");
+          const readiness = review.evidenceReadiness
+            .filter((item) => item.status === "missing")
+            .map((item) => `${item.kind}: ${item.action}`)
+            .join(" / ");
+          throw new Error([failures || review.reason, readiness].filter(Boolean).join(" / "));
+        }
+
+        const generatedOutput: AssistantOutput = {
+          answer: [
+            review.generated.answer,
+            "",
+            `SaaS API mode: ${review.generated.provider.callMode} ${review.generated.provider.provider}/${review.generated.provider.model}`,
+            `Usage: input ${review.generated.usage.inputTokens}, output ${review.generated.usage.outputTokens}, estimated ${review.generated.usage.estimatedCostCents} cents.`,
+          ].join("\n"),
+          draftSummary: review.generated.suggestedDraftSummary,
+        };
+
+        setOutput(generatedOutput);
+        setSummaryDraft(generatedOutput.draftSummary);
+        setSummaryTagsInput(generatedOutput.draftSummary.tags.join(", "));
+        setClosureAcknowledged(false);
+        setRecord(review.savedRecord);
+        await refreshAssistantRecords(review.taskContext.taskId);
+        setStatus(`공식 법규 검증 경유 SaaS API 검토 의견을 저장했습니다. 신뢰도 ${review.savedRecord.confidenceScore}%.`);
+        return;
+      }
+
       const retrieved = await postJson<RetrieveResponse>("/api/assistant/retrieve", {
         taskId: selectedTask.id,
         question,
@@ -551,13 +632,7 @@ export function TaskAssistantPanel({
       setRetrieveResult(retrieved);
 
       const generated =
-        executionMode === "saas-api"
-          ? await generateSaasApiReview({
-              instruction,
-              question,
-              taskId: retrieved.taskContext.taskId,
-            })
-          : executionMode === "local-codex"
+        executionMode === "local-codex"
             ? await generateLocalCodexReview({
                 evidence: retrieved.evidence,
                 instruction,
@@ -581,21 +656,12 @@ export function TaskAssistantPanel({
         answer: generated.answer,
         evidence: retrieved.evidence,
         executionMode: toRecordExecutionMode(executionMode),
-        runtimeMode:
-          executionMode === "saas-api"
-            ? "saas-api-daily-task-panel"
-            : executionMode === "local-codex"
-              ? "extension-native-bridge-in-page"
-              : "saas-daily-task-panel",
+        runtimeMode: executionMode === "local-codex" ? "extension-native-bridge-in-page" : "saas-daily-task-panel",
         draftSummary: generated.draftSummary,
       });
       setRecord(savedRecord);
       await refreshAssistantRecords(retrieved.taskContext.taskId);
-      setStatus(
-        executionMode === "saas-api"
-          ? `SaaS API 모드 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
-          : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
-      );
+      setStatus(`검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`);
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -2004,23 +2070,6 @@ function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
-async function generateSaasApiReview(input: { taskId: string; question: string; instruction: string }): Promise<AssistantOutput> {
-  const generated = await postJson<AssistantGenerateResponse>("/api/assistant/generate", {
-    taskId: input.taskId,
-    question: input.question,
-    instruction: input.instruction,
-  });
-
-  return {
-    answer: [
-      generated.answer,
-      `Provider: ${generated.provider.provider} / ${generated.provider.model} / ${generated.provider.callMode}`,
-      `사용량: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
-    ].join("\n\n"),
-    draftSummary: generated.suggestedDraftSummary,
-  };
-}
-
 async function generateLocalCodexReview(input: {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
@@ -2368,6 +2417,28 @@ async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   }
 
   return parsed.data as T;
+}
+
+async function postTaskReviewJson(body: {
+  taskId: string;
+  question: string;
+  instruction: string;
+  mode: "generate";
+}): Promise<TaskReviewResponse> {
+  const response = await fetch("/api/assistant/task-review", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = (await response.json()) as { data?: TaskReviewResponse; error?: { message?: string } };
+  if (!response.ok && response.status !== 409) {
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
+  }
+  if (!parsed.data) {
+    throw new Error(parsed.error?.message ?? "task-review 응답이 비어 있습니다.");
+  }
+
+  return parsed.data;
 }
 
 async function patchJson<T = unknown>(path: string, body: unknown): Promise<T> {
