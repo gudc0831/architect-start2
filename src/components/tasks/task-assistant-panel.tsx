@@ -315,6 +315,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const [externalLoading, setExternalLoading] = useState(false);
+  const [externalExpanded, setExternalExpanded] = useState(false);
   const [externalAllowed, setExternalAllowed] = useState(false);
   const [externalEvidence, setExternalEvidence] = useState<ExternalEvidenceRecord[]>([]);
   const [externalSourceType, setExternalSourceType] = useState<ExternalEvidenceSourceType>("web_page");
@@ -362,6 +363,37 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     () => selectedAssistantFile?.metadata?.analysis ?? [],
     [selectedAssistantFile],
   );
+  const reviewFlowSteps = useMemo(
+    () => [
+      { label: "질문 입력", complete: Boolean(question.trim()), active: !question.trim() },
+      { label: "근거 확인", complete: Boolean(retrieveResult), active: Boolean(question.trim()) && !retrieveResult },
+      { label: "검토안 생성", complete: Boolean(output), active: Boolean(retrieveResult) && !output },
+      {
+        label: "요약 처리",
+        complete: summarySaveState === "approved" || summarySaveState === "deferred",
+        active: Boolean(output) && !summarySaveState,
+      },
+    ],
+    [output, question, retrieveResult, summarySaveState],
+  );
+  const reviewActionHint = useMemo(() => {
+    if (!selectedTask) {
+      return "일일목록에서 task를 선택하면 검토 흐름이 시작됩니다.";
+    }
+    if (!question.trim()) {
+      return "검토 질문을 입력하세요.";
+    }
+    if (!retrieveResult) {
+      return "근거 조회와 의견 생성을 한 번에 실행합니다.";
+    }
+    if (!output) {
+      return "근거를 확인했습니다. 검토 의견 생성을 계속 진행하세요.";
+    }
+    if (!summarySaveState) {
+      return "검토 의견을 확인한 뒤 작업 기록을 승인하거나 보류하세요.";
+    }
+    return "검토 흐름이 처리되었습니다.";
+  }, [output, question, retrieveResult, selectedTask, summarySaveState]);
 
   useEffect(() => {
     setRetrieveResult(null);
@@ -392,6 +424,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
     setExecutionMode(DEFAULT_ASSISTANT_EXECUTION_MODE);
     setAssistantPolicy(null);
     setExternalEvidence([]);
+    setExternalExpanded(false);
     setExternalAllowed(false);
     setExternalTitle("");
     setExternalUrl("");
@@ -985,6 +1018,23 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
           </header>
 
           <div className="task-assistant__body">
+            <section className="task-assistant__flow" aria-label="AI 검토 진행 단계">
+              {reviewFlowSteps.map((step, index) => (
+                <span
+                  className={
+                    step.complete
+                      ? "task-assistant__flow-step task-assistant__flow-step--complete"
+                      : step.active
+                        ? "task-assistant__flow-step task-assistant__flow-step--active"
+                        : "task-assistant__flow-step"
+                  }
+                  key={step.label}
+                >
+                  <b>{index + 1}</b>
+                  {step.label}
+                </span>
+              ))}
+            </section>
             {selectedTask ? (
               <section className="task-assistant__task">
                 <strong>{selectedTask.issueTitle || "제목 없음"}</strong>
@@ -1245,76 +1295,89 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>외부 웹/스킬 근거</h4>
-                  <span>{externalLoading ? "불러오는 중" : `${externalEvidence.length}`}</span>
-                </div>
-                <label className="task-assistant__toggle">
-                  <input
-                    checked={externalAllowed}
-                    disabled={busy}
-                    onChange={(event) => setExternalAllowed(event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span>사용자 승인 근거로 저장</span>
-                </label>
-                <label className="task-assistant__field task-assistant__field--plain">
-                  <span>출처 유형</span>
-                  <select
-                    disabled={busy || !externalAllowed}
-                    onChange={(event) => setExternalSourceType(event.target.value as ExternalEvidenceSourceType)}
-                    value={externalSourceType}
+                  <button
+                    aria-expanded={externalExpanded}
+                    className="task-assistant__subtle-button"
+                    onClick={() => setExternalExpanded((current) => !current)}
+                    type="button"
                   >
-                    {externalSourceOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="task-assistant__field task-assistant__field--plain">
-                  <span>제목</span>
-                  <input
-                    disabled={busy || !externalAllowed}
-                    onChange={(event) => setExternalTitle(event.target.value)}
-                    placeholder="예: 방화문 제조사 시방서"
-                    value={externalTitle}
-                  />
-                </label>
-                <label className="task-assistant__field task-assistant__field--plain">
-                  <span>출처 URL</span>
-                  <input
-                    disabled={busy || !externalAllowed}
-                    onChange={(event) => setExternalUrl(event.target.value)}
-                    placeholder="https://..."
-                    value={externalUrl}
-                  />
-                </label>
-                <label className="task-assistant__field task-assistant__field--plain">
-                  <span>스킬/도구 이름</span>
-                  <input
-                    disabled={busy || !externalAllowed}
-                    onChange={(event) => setExternalToolName(event.target.value)}
-                    placeholder="예: browser-use, 제조사 검색"
-                    value={externalToolName}
-                  />
-                </label>
-                <label className="task-assistant__field task-assistant__field--plain">
-                  <span>핵심 내용</span>
-                  <textarea
-                    disabled={busy || !externalAllowed}
-                    onChange={(event) => setExternalExcerpt(event.target.value)}
-                    placeholder="assistant가 참고할 확인 문장과 제한 사항을 적으세요."
-                    rows={3}
-                    value={externalExcerpt}
-                  />
-                </label>
-                <button
-                  className="secondary-button"
-                  disabled={busy || !externalAllowed || !externalTitle.trim() || !externalExcerpt.trim()}
-                  onClick={() => void saveExternalEvidence()}
-                  type="button"
-                >
-                  외부 근거 저장
-                </button>
+                    {externalExpanded ? "접기" : `추가 ${externalLoading ? "" : externalEvidence.length}`}
+                  </button>
+                </div>
+                {!externalExpanded ? (
+                  <p className="task-assistant__hint">일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다.</p>
+                ) : (
+                  <div className="task-assistant__external-body">
+                    <label className="task-assistant__toggle">
+                      <input
+                        checked={externalAllowed}
+                        disabled={busy}
+                        onChange={(event) => setExternalAllowed(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>사용자 승인 근거로 저장</span>
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>출처 유형</span>
+                      <select
+                        disabled={busy || !externalAllowed}
+                        onChange={(event) => setExternalSourceType(event.target.value as ExternalEvidenceSourceType)}
+                        value={externalSourceType}
+                      >
+                        {externalSourceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>제목</span>
+                      <input
+                        disabled={busy || !externalAllowed}
+                        onChange={(event) => setExternalTitle(event.target.value)}
+                        placeholder="예: 방화문 제조사 시방서"
+                        value={externalTitle}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>출처 URL</span>
+                      <input
+                        disabled={busy || !externalAllowed}
+                        onChange={(event) => setExternalUrl(event.target.value)}
+                        placeholder="https://..."
+                        value={externalUrl}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>스킬/도구 이름</span>
+                      <input
+                        disabled={busy || !externalAllowed}
+                        onChange={(event) => setExternalToolName(event.target.value)}
+                        placeholder="예: browser-use, 제조사 검색"
+                        value={externalToolName}
+                      />
+                    </label>
+                    <label className="task-assistant__field task-assistant__field--plain">
+                      <span>핵심 내용</span>
+                      <textarea
+                        disabled={busy || !externalAllowed}
+                        onChange={(event) => setExternalExcerpt(event.target.value)}
+                        placeholder="assistant가 참고할 확인 문장과 제한 사항을 적으세요."
+                        rows={3}
+                        value={externalExcerpt}
+                      />
+                    </label>
+                    <button
+                      className="secondary-button"
+                      disabled={busy || !externalAllowed || !externalTitle.trim() || !externalExcerpt.trim()}
+                      onClick={() => void saveExternalEvidence()}
+                      type="button"
+                    >
+                      외부 근거 저장
+                    </button>
+                  </div>
+                )}
                 {externalEvidence.length ? (
                   <div className="task-assistant__evidence-list">
                     {externalEvidence.slice(0, 3).map((item) => (
@@ -1420,6 +1483,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                 보류 저장
               </button>
             </div>
+            <p className="task-assistant__hint">{reviewActionHint}</p>
 
             {retrieveResult ? (
               <section className="task-assistant__section">
@@ -1427,6 +1491,12 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
                   <h4>근거</h4>
                   <span>{retrieveResult.evidence.length}</span>
                 </div>
+                {retrieveResult.unavailableEvidenceKinds.length ? (
+                  <div className="task-assistant__missing-evidence" role="status">
+                    <strong>사용할 수 없는 근거</strong>
+                    <p>{retrieveResult.unavailableEvidenceKinds.map(formatUnavailableEvidenceKind).join(", ")}</p>
+                  </div>
+                ) : null}
                 <div className="task-assistant__evidence-list">
                   {retrieveResult.evidence.slice(0, 10).map((item) => (
                       <article className="task-assistant__evidence" key={item.id}>
@@ -1719,6 +1789,14 @@ function evidenceKindLabel(kind: AssistantEvidence["kind"]) {
     default:
       return kind;
   }
+}
+
+function formatUnavailableEvidenceKind(kind: string) {
+  return isAssistantEvidenceKind(kind) ? evidenceKindLabel(kind) : kind;
+}
+
+function isAssistantEvidenceKind(kind: string): kind is AssistantEvidence["kind"] {
+  return kind === "central_knowledge" || kind === "regulation" || kind === "task" || kind === "project_document" || kind === "web_or_skill";
 }
 
 function externalSourceTypeLabel(sourceType: ExternalEvidenceSourceType) {
