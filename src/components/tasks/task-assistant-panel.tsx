@@ -83,6 +83,7 @@ type RetrieveResponse = {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
   unavailableEvidenceKinds: string[];
+  evidenceReadinessWarnings?: Array<{ code: string; message: string }>;
 };
 
 type SavedAssistantRecord = {
@@ -1501,6 +1502,12 @@ export function TaskAssistantPanel({
                   <div className="task-assistant__missing-evidence" role="status">
                     <strong>사용할 수 없는 근거</strong>
                     <p>{retrieveResult.unavailableEvidenceKinds.map(formatUnavailableEvidenceKind).join(", ")}</p>
+                  </div>
+                ) : null}
+                {retrieveResult.evidenceReadinessWarnings?.length ? (
+                  <div className="task-assistant__missing-evidence" role="status">
+                    <strong>Evidence readiness</strong>
+                    <p>{retrieveResult.evidenceReadinessWarnings.map((warning) => warning.message).join(" ")}</p>
                   </div>
                 ) : null}
                 <div className="task-assistant__evidence-list">

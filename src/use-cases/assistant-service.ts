@@ -38,6 +38,16 @@ type RetrieveAssistantEvidenceInput = {
   question: string;
 };
 
+type EvidenceReadinessWarning = {
+  code: string;
+  message: string;
+};
+
+type VerifiedLegalEvidenceBundleResult = {
+  evidence: AssistantEvidence[];
+  warnings: EvidenceReadinessWarning[];
+};
+
 type SaveAssistantRecordInput = {
   taskId: string;
   question: string;
@@ -109,32 +119,41 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     queryEmbedding: queryEmbedding ?? undefined,
   });
   const regulationResults = searchFoundationRegulations(question, 4);
-  const evidence = buildEvidence({
-    task,
-    projectName: project.name,
+  const verifiedLegalEvidence = await fetchVerifiedLegalEvidenceBundle({
     question,
-    tasks,
-    files,
-    projectFileAnalysisMatches,
-    previousRecords,
-    externalEvidence,
-    approvedKnowledge,
-    regulationResults,
+    sourceIds: selectVerifiedLegalEvidenceSourceIds(),
   });
+  const evidence = [
+    ...buildEvidence({
+      task,
+      projectName: project.name,
+      question,
+      tasks,
+      files,
+      projectFileAnalysisMatches,
+      previousRecords,
+      externalEvidence,
+      approvedKnowledge,
+      regulationResults,
+    }),
+    ...verifiedLegalEvidence.evidence,
+  ].sort((left, right) => left.priority - right.priority);
   const hasFileAnalysisEvidence = evidence.some(
     (item) =>
       item.kind === "project_document" &&
       (item.id.startsWith("file-analysis:") || item.id.startsWith("project-file-analysis:")),
   );
-  const hasExternalEvidence = externalEvidence.length > 0;
+  const hasProjectDocumentEvidence = evidence.some((item) => item.kind === "project_document");
+  const hasExternalEvidence = externalEvidence.length > 0 || evidence.some((item) => item.kind === "web_or_skill");
+  const hasRegulationEvidence = evidence.some((item) => item.kind === "regulation");
   const unavailableEvidenceKinds: AssistantEvidence["kind"][] = [];
-  if (regulationResults.length === 0) {
+  if (!hasRegulationEvidence) {
     unavailableEvidenceKinds.push("regulation");
   }
   if (approvedKnowledge.length === 0) {
     unavailableEvidenceKinds.push("central_knowledge");
   }
-  if (!hasFileAnalysisEvidence) {
+  if (!hasFileAnalysisEvidence && !hasProjectDocumentEvidence) {
     unavailableEvidenceKinds.push("project_document");
   }
   if (!hasExternalEvidence) {
@@ -145,7 +164,225 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     taskContext: toTaskContext(task, project.name),
     evidence,
     unavailableEvidenceKinds,
+    evidenceReadinessWarnings: verifiedLegalEvidence.warnings,
   };
+}
+
+async function fetchVerifiedLegalEvidenceBundle(input: {
+  question: string;
+  sourceIds: string[];
+}): Promise<VerifiedLegalEvidenceBundleResult> {
+  const serviceUrl = process.env.VERIFIED_LEGAL_EVIDENCE_API_URL?.trim();
+  if (!serviceUrl) {
+    return { evidence: [], warnings: [] };
+  }
+  if (input.sourceIds.length === 0) {
+    return {
+      evidence: [],
+      warnings: [
+        {
+          code: "VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS_MISSING",
+          message: "Verified Legal Evidence API is configured, but the SaaS server has no selected evidence source ids.",
+        },
+      ],
+    };
+  }
+
+  let endpoint: URL;
+  try {
+    endpoint = new URL("/api/evidence/bundle", serviceUrl.endsWith("/") ? serviceUrl : `${serviceUrl}/`);
+  } catch {
+    return {
+      evidence: [],
+      warnings: [
+        {
+          code: "VERIFIED_LEGAL_EVIDENCE_API_URL_INVALID",
+          message: "Verified Legal Evidence API URL is invalid.",
+        },
+      ],
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: input.question,
+        sourceIds: input.sourceIds,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return {
+        evidence: [],
+        warnings: [
+          {
+            code: "VERIFIED_LEGAL_EVIDENCE_API_HTTP_ERROR",
+            message: `Verified Legal Evidence API returned ${response.status}.`,
+          },
+        ],
+      };
+    }
+
+    return mapVerifiedLegalEvidenceBundle(await response.json());
+  } catch {
+    return {
+      evidence: [],
+      warnings: [
+        {
+          code: "VERIFIED_LEGAL_EVIDENCE_API_UNREACHABLE",
+          message: "Verified Legal Evidence API is unavailable; existing task-review evidence was used.",
+        },
+      ],
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function mapVerifiedLegalEvidenceBundle(payload: unknown): VerifiedLegalEvidenceBundleResult {
+  if (!isRecord(payload)) {
+    return {
+      evidence: [],
+      warnings: [{ code: "VERIFIED_LEGAL_EVIDENCE_BUNDLE_INVALID", message: "Verified legal evidence bundle is invalid." }],
+    };
+  }
+
+  const status = normalizeText(payload.status);
+  const officialLawVerified = status === "verified" || status === "partial";
+  const warnings = readVerifiedLegalEvidenceWarnings(payload.warnings);
+  const evidenceItems = Array.isArray(payload.evidence) ? payload.evidence : [];
+  if (status === "failed") {
+    warnings.push({
+      code: "VERIFIED_LEGAL_EVIDENCE_FAILED",
+      message: "Verified Legal Evidence API returned failed status; official-law evidence was not treated as verified.",
+    });
+  }
+
+  const evidence = evidenceItems
+    .map((item, index) => mapVerifiedLegalEvidenceItem(item, index, officialLawVerified))
+    .filter((item): item is AssistantEvidence => Boolean(item));
+
+  return { evidence, warnings };
+}
+
+function selectVerifiedLegalEvidenceSourceIds(): string[] {
+  return (process.env.VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS ?? "")
+    .split(",")
+    .map((sourceId) => sourceId.trim())
+    .filter(Boolean);
+}
+
+function mapVerifiedLegalEvidenceItem(
+  value: unknown,
+  index: number,
+  officialLawVerified: boolean,
+): AssistantEvidence | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const serviceKind = normalizeText(value.kind);
+  const kind = mapVerifiedLegalEvidenceKind(serviceKind, officialLawVerified);
+  if (!kind) {
+    return null;
+  }
+
+  const title = normalizeText(value.title) || "Verified legal evidence";
+  const excerpt = normalizeText(value.excerpt);
+  if (!excerpt) {
+    return null;
+  }
+
+  const sourceId = normalizeText(value.sourceId) || normalizeText(value.id) || `item-${index}`;
+  if (containsOfficialLawCredential([sourceId, title, excerpt])) {
+    return null;
+  }
+  return {
+    id: `verified-legal-evidence:${sourceId}`,
+    kind,
+    priority: kind === "regulation" ? 2 : kind === "project_document" ? 4 : 5,
+    title,
+    excerpt,
+    sourceUrl: normalizeOptionalHttpUrl(value.sourceUrl),
+    recordId: sourceId,
+    confidenceWeight: normalizeConfidenceWeight(value.confidenceWeight, kind),
+  };
+}
+
+function mapVerifiedLegalEvidenceKind(
+  serviceKind: string,
+  officialLawVerified: boolean,
+): AssistantEvidence["kind"] | null {
+  if (serviceKind === "official_law") {
+    return officialLawVerified ? "regulation" : null;
+  }
+  if (serviceKind === "reference_file" || serviceKind === "local_ordinance") {
+    return "project_document";
+  }
+  if (serviceKind === "expert_note") {
+    return "web_or_skill";
+  }
+
+  return null;
+}
+
+function readVerifiedLegalEvidenceWarnings(value: unknown): EvidenceReadinessWarning[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const code = normalizeText(item.code) || "VERIFIED_LEGAL_EVIDENCE_WARNING";
+      const message = normalizeText(item.message);
+      return message ? { code, message } : null;
+    })
+    .filter((item): item is EvidenceReadinessWarning => Boolean(item));
+}
+
+function normalizeOptionalHttpUrl(value: unknown) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return undefined;
+  }
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+    url.searchParams.delete("OC");
+    const sanitized = url.toString();
+    const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
+    if (sanitized.includes(`OC${"="}`) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
+      return undefined;
+    }
+
+    return sanitized;
+  } catch {
+    return undefined;
+  }
+}
+
+function containsOfficialLawCredential(values: string[]) {
+  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
+  return values.some((value) => value.includes(`OC${"="}`) || Boolean(officialLawCredential && value.includes(officialLawCredential)));
+}
+
+function normalizeConfidenceWeight(value: unknown, kind: AssistantEvidence["kind"]) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    return Math.max(0, Math.min(1, numeric));
+  }
+
+  return kind === "regulation" ? 0.78 : kind === "project_document" ? 0.38 : 0.28;
 }
 
 async function createFileAnalysisQueryEmbedding(question: string) {
@@ -735,4 +972,8 @@ function normalizeOptionalText(value: unknown) {
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
