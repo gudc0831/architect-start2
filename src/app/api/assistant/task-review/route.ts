@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import type { TaskReviewRequest } from "@/domains/assistant/task-review";
@@ -10,8 +10,13 @@ export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    await requireCurrentProjectAccess(user);
     const body = (await request.json()) as Partial<TaskReviewRequest>;
+    if (body.mode === "generate") {
+      await requireCurrentProjectEditor(user);
+    } else {
+      await requireCurrentProjectAccess(user);
+    }
+
     const data = await reviewTaskWithServerOrchestrator(
       {
         taskId: String(body.taskId ?? ""),
