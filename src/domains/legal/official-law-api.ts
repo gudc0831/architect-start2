@@ -102,7 +102,7 @@ export function requiresOfficialLawVerification(question: string, evidence: Assi
     return true;
   }
 
-  return /법규|법령|건축법|시행령|시행규칙|조례|고시|인허가|허가|적법|조항|피난|방화|용적률|건폐율|주차장/.test(
+  return /법규|법령|법적|법률|규정|기준|건축법|시행령|시행규칙|조례|고시|인허가|허가|적법|조항|피난|방화|용적률|건폐율|주차장/.test(
     question,
   ) || /주택건설기준|공동주택|단지\s*(?:내|안)|도로\s*경사/.test(question);
 }
@@ -304,6 +304,20 @@ async function fetchOfficialLawArticle(
       apiUrl: OFFICIAL_LAW_API_DOCS_URL,
       checkedAt,
       reason: "법령명이 비어 있어 공식 API 조회를 건너뛰었습니다.",
+      evidenceId: locator.evidenceId,
+    };
+  }
+
+  if (!locator.articleNumber) {
+    return {
+      status: "missing_query",
+      lawName: locator.lawName,
+      articleLabel: locator.articleLabel,
+      articleNumber: locator.articleNumber,
+      sourceUrl: locatorSourceUrl,
+      apiUrl: OFFICIAL_LAW_API_DOCS_URL,
+      checkedAt,
+      reason: `${locator.lawName} 조문 번호가 없어 공식 법령 API 검증을 건너뛰었습니다.`,
       evidenceId: locator.evidenceId,
     };
   }

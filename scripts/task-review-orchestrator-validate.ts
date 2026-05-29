@@ -2,8 +2,10 @@ import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import {
   officialLawSourceToEvidence,
+  requiresOfficialLawVerification,
   verifyOfficialLawEvidence,
 } from "../src/domains/legal/official-law-api";
+import { sanitizeTaskReviewEvidence } from "../src/use-cases/task-review-service";
 import type { AssistantEvidence } from "../src/domains/assistant/types";
 
 const regulationEvidence: AssistantEvidence[] = [
@@ -115,6 +117,45 @@ async function main() {
   assert.equal(officialEvidence?.priority, 0);
   assert.equal(officialEvidence?.sourceUrl?.includes("OC="), false);
   assert.equal(officialEvidence?.sourceUrl?.includes("server-secret-oc"), false);
+
+  const sanitizedTaskReviewEvidence = sanitizeTaskReviewEvidence([
+    {
+      id: "regulation:raw-oc",
+      kind: "regulation",
+      priority: 3,
+      title: "건축법 raw OC",
+      excerpt: "retrieved evidence URL must be redacted before review/generation/save",
+      sourceUrl: "https://www.law.go.kr/법령/건축법?JO=004900&OC=server-secret-oc#article",
+      confidenceWeight: 0.5,
+    },
+    {
+      id: "regulation:relative-oc",
+      kind: "regulation",
+      priority: 4,
+      title: "건축법 relative OC",
+      excerpt: "relative law URLs must also be redacted",
+      sourceUrl: "/법령/건축법?JO=004900&OC=server-secret-oc",
+      confidenceWeight: 0.5,
+    },
+  ]);
+  assert.equal(sanitizedTaskReviewEvidence.some((item) => item.sourceUrl?.includes("OC=")), false);
+  assert.equal(sanitizedTaskReviewEvidence.some((item) => item.sourceUrl?.includes("server-secret-oc")), false);
+  assert.equal(sanitizedTaskReviewEvidence[0].sourceUrl?.includes("JO=004900"), true);
+  assert.equal(sanitizedTaskReviewEvidence[0].sourceUrl?.endsWith("#article"), true);
+  assert.equal(requiresOfficialLawVerification("법적 기준 검토", []), true);
+
+  const lawNameOnlyReport = await verifyOfficialLawEvidence({
+    question: "건축법 기준 검토",
+    evidence: [],
+    oc: "server-secret-oc",
+    fetchImpl: async (input) => {
+      throw new Error(`law-name-only query must not call official API: ${String(input)}`);
+    },
+    now: () => new Date("2026-05-29T00:00:00.000Z"),
+  });
+  assert.equal(lawNameOnlyReport.status, "failed");
+  assert.equal(lawNameOnlyReport.sources[0].status === "missing_query" || lawNameOnlyReport.sources[0].status === "not_found", true);
+  assert.equal(lawNameOnlyReport.sources.some((source) => source.status === "verified"), false);
 
   const partialReport = await verifyOfficialLawEvidence({
     question: "건축법 제49조와 건축법 제999조 검토",
@@ -235,6 +276,8 @@ async function main() {
   assert.match(taskReviewRouteSource, /mode === "generate"/);
   assert.match(taskReviewRouteSource, /requireCurrentProjectAccess/);
   assert.match(taskReviewSource, /candidateState:\s*"not_candidate"/);
+  assert.match(taskReviewSource, /sanitizeTaskReviewEvidence/);
+  assert.match(taskReviewSource, /searchParams\.delete\(key\)/);
   assert.match(taskReviewSource, /assistantRepository\.createRecord/);
   assert.doesNotMatch(taskReviewSource, /reviewKnowledgeCandidate/);
   assert.doesNotMatch(taskReviewRouteSource, /reviewKnowledgeCandidate/);
@@ -258,6 +301,9 @@ async function main() {
       checks: [
         "official law verification succeeds with mocked law.go.kr responses",
         "recorded official API and source URLs redact OC",
+        "task-review evidence source URLs redact OC before generation/save",
+        "law-name-only official verification does not verify arbitrary first article",
+        "keyword-only legal prompts require official law verification",
         "missing LAW_OPEN_DATA_OC blocks verification",
         "task-review orchestrator does not call WIKI approve/admin routes",
       ],

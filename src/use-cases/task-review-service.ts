@@ -40,7 +40,9 @@ export async function reviewTaskWithServerOrchestrator(
     fetchImpl: input.fetchImpl,
   });
   const officialEvidence = lawReport.sources.map(officialLawSourceToEvidence).filter((item): item is AssistantEvidence => Boolean(item));
-  const evidence = [...officialEvidence, ...retrieved.evidence].sort((left, right) => left.priority - right.priority);
+  const evidence = sanitizeTaskReviewEvidence([...officialEvidence, ...retrieved.evidence]).sort(
+    (left, right) => left.priority - right.priority,
+  );
   const evidenceDigest = buildEvidenceDigest(evidence);
   const officialLawDigest = buildOfficialLawDigest(lawReport);
   const evidenceReadiness = buildEvidenceReadiness({ unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds });
@@ -162,6 +164,55 @@ export async function reviewTaskWithServerOrchestrator(
 
 function digestJson(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function sanitizeTaskReviewEvidence(evidence: AssistantEvidence[]) {
+  return evidence.map((item) => ({
+    ...item,
+    sourceUrl: sanitizeEvidenceSourceUrl(item.sourceUrl),
+  }));
+}
+
+function sanitizeEvidenceSourceUrl(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const sanitized = new URL(value);
+      for (const key of Array.from(sanitized.searchParams.keys())) {
+        if (key.toUpperCase() === "OC") {
+          sanitized.searchParams.delete(key);
+        }
+      }
+      return sanitized.toString();
+    } catch {
+      return value;
+    }
+  }
+
+  return stripOcQueryParam(value);
+}
+
+function stripOcQueryParam(value: string) {
+  const queryIndex = value.indexOf("?");
+  if (queryIndex === -1) {
+    return value;
+  }
+
+  const hashIndex = value.indexOf("#", queryIndex);
+  const withoutHash = hashIndex === -1 ? value : value.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : value.slice(hashIndex);
+  const base = withoutHash.slice(0, queryIndex);
+  const params = new URLSearchParams(withoutHash.slice(queryIndex + 1));
+  for (const key of Array.from(params.keys())) {
+    if (key.toUpperCase() === "OC") {
+      params.delete(key);
+    }
+  }
+  const query = params.toString();
+  return `${base}${query ? `?${query}` : ""}${hash}`;
 }
 
 function buildEvidenceDigest(evidence: AssistantEvidence[]) {
