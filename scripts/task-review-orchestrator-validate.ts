@@ -117,7 +117,13 @@ async function main() {
   assert.equal(combinedSource.includes("requireKnowledgeAdmin"), false);
   assert.match(combinedSource, /approvalAttempted:\s*false/);
   assert.match(saasServiceSource, /ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW/);
+  assert.match(saasServiceSource, /requiresOfficialLawVerification/);
+  assert.match(saasServiceSource, /requiresOfficialLawVerification\(question,\s*retrieved\.evidence\)/);
   assert.match(saasServiceSource, /item\.kind === "regulation"/);
+  assert.equal(
+    /if\s*\(\s*retrieved\.evidence\.some\(\(item\) => item\.kind === "regulation"\)\s*\)/.test(saasServiceSource),
+    false,
+  );
 
   console.log(
     JSON.stringify({

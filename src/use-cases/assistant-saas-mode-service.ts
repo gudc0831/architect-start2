@@ -26,6 +26,7 @@ import { assistantRepository } from "@/repositories/assistant";
 import { taskRepository } from "@/repositories";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
+import { requiresOfficialLawVerification } from "@/domains/legal/official-law-api";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
 
 type UpdateAssistantRunPolicyInput = {
@@ -1286,7 +1287,10 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const question = normalizeRequiredText(input.question, "question");
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
   const retrieved = await retrieveAssistantEvidence({ taskId, question });
-  if (retrieved.evidence.some((item) => item.kind === "regulation")) {
+  if (
+    retrieved.evidence.some((item) => item.kind === "regulation") ||
+    requiresOfficialLawVerification(question, retrieved.evidence)
+  ) {
     throw conflict(
       "Legal/regulation SaaS generation must use /api/assistant/task-review so official-law verification runs server-side.",
       "ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW",
