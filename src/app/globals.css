@@ -3883,6 +3883,26 @@ a {
   color: #266047;
 }
 
+.assistant-preview-page {
+  min-height: 100vh;
+  padding: clamp(1rem, 2vw, 2rem);
+}
+
+.assistant-preview-page__surface {
+  max-width: 720px;
+  padding: 1.25rem;
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.assistant-preview-page__surface h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+  letter-spacing: 0;
+}
+
 .task-assistant__task,
 .task-assistant__empty,
 .task-assistant__field,

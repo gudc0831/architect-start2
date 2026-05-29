@@ -268,6 +268,8 @@ type FollowUpTaskProposal = {
 
 type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
+  defaultOpen?: boolean;
+  defaultExecutionMode?: AssistantExecutionMode;
 };
 
 const defaultInstruction =
@@ -281,8 +283,12 @@ const externalSourceOptions: Array<{ value: ExternalEvidenceSourceType; label: s
   { value: "public_standard", label: "공개 기준" },
 ];
 
-export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function TaskAssistantPanel({
+  selectedTask,
+  defaultOpen = false,
+  defaultExecutionMode = DEFAULT_ASSISTANT_EXECUTION_MODE,
+}: TaskAssistantPanelProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [question, setQuestion] = useState("");
   const [instruction, setInstruction] = useState(defaultInstruction);
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
@@ -310,7 +316,7 @@ export function TaskAssistantPanel({ selectedTask }: TaskAssistantPanelProps) {
   const [analysisCropSourceUrl, setAnalysisCropSourceUrl] = useState("");
   const [analysisCropSourceTitle, setAnalysisCropSourceTitle] = useState("");
   const [analysisCropCapturedAt, setAnalysisCropCapturedAt] = useState("");
-  const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>(DEFAULT_ASSISTANT_EXECUTION_MODE);
+  const [executionMode, setExecutionMode] = useState<AssistantExecutionMode>(defaultExecutionMode);
   const [assistantPolicy, setAssistantPolicy] = useState<AssistantPolicyResponse | null>(null);
   const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
