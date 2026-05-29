@@ -76,6 +76,65 @@ async function main() {
   assert.equal(officialEvidence?.kind, "regulation");
   assert.equal(officialEvidence?.priority, 0);
 
+  const partialReport = await verifyOfficialLawEvidence({
+    question: "건축법 제49조와 건축법 제999조 검토",
+    evidence: [
+      ...regulationEvidence,
+      {
+        id: "regulation:missing-article",
+        kind: "regulation",
+        priority: 1,
+        title: "건축법 제999조",
+        excerpt: "건축법 제999조 존재하지 않는 조문 검토 seed",
+        confidenceWeight: 0.74,
+      },
+    ],
+    oc: "server-secret-oc",
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/lawSearch.do")) {
+        return jsonResponse({
+          LawSearch: {
+            law: [
+              {
+                법령명한글: "건축법",
+                법령ID: "001760",
+                시행일자: "20260529",
+                법령상세링크: "/법령/건축법",
+              },
+            ],
+          },
+        });
+      }
+
+      if (url.pathname.endsWith("/lawService.do")) {
+        const articleNumber = url.searchParams.get("JO");
+        return jsonResponse({
+          법령: {
+            조문: {
+              조문단위:
+                articleNumber === "004900"
+                  ? [
+                      {
+                        조문번호: "49",
+                        조문내용: "제49조 건축물의 피난시설 및 용도제한 등에 관한 기준.",
+                      },
+                    ]
+                  : [],
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unexpected URL ${url.toString()}`);
+    },
+    now: () => new Date("2026-05-29T00:00:00.000Z"),
+  });
+
+  assert.equal(partialReport.status, "failed");
+  assert.equal(partialReport.sources.some((source) => source.status === "verified"), true);
+  assert.equal(partialReport.sources.some((source) => source.status !== "verified"), true);
+
   const previousOc = process.env.LAW_OPEN_DATA_OC;
   delete process.env.LAW_OPEN_DATA_OC;
   const blockedReport = await verifyOfficialLawEvidence({

@@ -223,11 +223,10 @@ export async function verifyOfficialLawEvidence(
     sources.push(await fetchOfficialLawArticle(locator, config, checkedAt));
   }
 
-  const verifiedSources = sources.filter((source) => source.status === "verified");
   const failures = sources.filter((source) => source.status !== "verified").map((source) => source.reason);
 
   return {
-    status: verifiedSources.length > 0 ? "verified" : "failed",
+    status: failures.length === 0 ? "verified" : "failed",
     checkedAt,
     provider,
     locators,
