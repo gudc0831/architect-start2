@@ -120,7 +120,12 @@ async function main() {
                         조문내용: "제49조 건축물의 피난시설 및 용도제한 등에 관한 기준.",
                       },
                     ]
-                  : [],
+                  : [
+                      {
+                        조문번호: "1",
+                        조문내용: "제1조 목적.",
+                      },
+                    ],
             },
           },
         });
@@ -134,6 +139,7 @@ async function main() {
   assert.equal(partialReport.status, "failed");
   assert.equal(partialReport.sources.some((source) => source.status === "verified"), true);
   assert.equal(partialReport.sources.some((source) => source.status !== "verified"), true);
+  assert.equal(partialReport.sources.some((source) => source.articleNumber === "099900" && source.status === "not_found"), true);
 
   const previousOc = process.env.LAW_OPEN_DATA_OC;
   delete process.env.LAW_OPEN_DATA_OC;

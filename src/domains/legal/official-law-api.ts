@@ -485,8 +485,8 @@ function selectBestLawSearchResult(lawName: string, results: LawSearchResult[]) 
 function extractArticleText(value: unknown, articleNumber?: string) {
   const articleRecords = collectRecords(value).filter((record) => hasAnyKey(record, ["조문내용", "조문제목", "항내용"]));
   const selected =
-    articleNumber && articleRecords.length > 1
-      ? articleRecords.find((record) => articleMatches(record, articleNumber)) ?? articleRecords[0]
+    articleNumber && articleRecords.length > 0
+      ? articleRecords.find((record) => articleMatches(record, articleNumber))
       : articleRecords[0];
 
   return selected ? normalizeWhitespace(flattenArticleRecord(selected)).slice(0, 6000) : "";
