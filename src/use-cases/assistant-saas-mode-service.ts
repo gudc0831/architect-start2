@@ -47,6 +47,21 @@ type GenerateAssistantInput = {
   instruction?: unknown;
 };
 
+type GenerateAssistantWithEvidenceInput = {
+  taskContext: {
+    taskId: string;
+    projectId: string;
+    title: string;
+    issueId: string;
+  };
+  question: string;
+  instruction?: string;
+  evidence: AssistantEvidence[];
+  evidenceDigest: string;
+  officialLawDigest: string;
+  officialLawStatus: "not_required" | "verified" | "failed";
+};
+
 type GetAssistantActionAuditReviewInput = {
   projectId?: string | null;
   month?: string | null;
@@ -1271,47 +1286,78 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const question = normalizeRequiredText(input.question, "question");
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
   const retrieved = await retrieveAssistantEvidence({ taskId, question });
-  const policy = await getStoredOrDefaultPolicy(retrieved.taskContext.projectId);
+
+  return generateAssistantWithVerifiedEvidence(
+    {
+      taskContext: retrieved.taskContext,
+      question,
+      instruction,
+      evidence: retrieved.evidence,
+      evidenceDigest: createRequestHash({
+        taskId: retrieved.taskContext.taskId,
+        question,
+        instruction,
+        evidenceIds: retrieved.evidence.map((item) => item.id),
+      }),
+      officialLawDigest: "legacy-unverified",
+      officialLawStatus: "not_required",
+    },
+    user,
+  );
+}
+
+export async function generateAssistantWithVerifiedEvidence(
+  input: GenerateAssistantWithEvidenceInput,
+  user: AuthUser,
+): Promise<AssistantGenerateResult> {
+  const question = normalizeRequiredText(input.question, "question");
+  const instruction =
+    normalizeOptionalText(input.instruction) ||
+    "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
+  const policy = await getStoredOrDefaultPolicy(input.taskContext.projectId);
   const promptText = buildPromptText({
-    taskTitle: retrieved.taskContext.title,
+    taskTitle: input.taskContext.title,
     question,
     instruction,
-    evidence: retrieved.evidence,
+    evidence: input.evidence,
   });
   const inputTokens = estimateTokens(promptText);
   const requestHash = createRequestHash({
-    taskId: retrieved.taskContext.taskId,
+    taskId: input.taskContext.taskId,
     question,
     instruction,
-    evidenceIds: retrieved.evidence.map((item) => item.id),
+    evidenceIds: input.evidence.map((item) => item.id),
+    evidenceDigest: input.evidenceDigest,
+    officialLawDigest: input.officialLawDigest,
+    officialLawStatus: input.officialLawStatus,
   });
 
   await enforcePolicy({
     policy,
-    taskId: retrieved.taskContext.taskId,
+    taskId: input.taskContext.taskId,
     profileId: user.id,
-    evidence: retrieved.evidence,
+    evidence: input.evidence,
     inputTokens,
     requestHash,
   });
 
-  const taskLabel = retrieved.taskContext.issueId || retrieved.taskContext.taskId;
+  const taskLabel = input.taskContext.issueId || input.taskContext.taskId;
   const providerResult = await runProviderOrRecordFailure({
     policy,
-    taskId: retrieved.taskContext.taskId,
+    taskId: input.taskContext.taskId,
     taskLabel,
     profileId: user.id,
     question,
     instruction,
     promptText,
-    evidence: retrieved.evidence,
+    evidence: input.evidence,
     inputTokens,
     requestHash,
   });
 
   await assistantRepository.createUsageEvent({
     projectId: policy.projectId,
-    taskId: retrieved.taskContext.taskId,
+    taskId: input.taskContext.taskId,
     profileId: user.id,
     executionMode: "saas-api",
     runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
@@ -1324,8 +1370,11 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     policyDecision: "allowed",
     requestHash,
     metadata: {
-      evidenceCount: retrieved.evidence.length,
-      evidenceKinds: [...new Set(retrieved.evidence.map((item) => item.kind))],
+      evidenceCount: input.evidence.length,
+      evidenceKinds: [...new Set(input.evidence.map((item) => item.kind))],
+      evidenceDigest: input.evidenceDigest,
+      officialLawDigest: input.officialLawDigest,
+      officialLawStatus: input.officialLawStatus,
       providerCallMode: providerResult.callMode,
       providerRequestId: providerResult.providerRequestId,
       ...providerResult.metadata,
@@ -1336,11 +1385,14 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     profileId: user.id,
     eventType: "assistant.generate.success",
     targetType: "task",
-    targetId: retrieved.taskContext.taskId,
+    targetId: input.taskContext.taskId,
     metadata: {
       executionMode: "saas-api",
       requestHash,
-      evidenceCount: retrieved.evidence.length,
+      evidenceCount: input.evidence.length,
+      evidenceDigest: input.evidenceDigest,
+      officialLawDigest: input.officialLawDigest,
+      officialLawStatus: input.officialLawStatus,
       provider: policy.provider,
       model: policy.model,
       providerCallMode: providerResult.callMode,
@@ -1352,7 +1404,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   return {
     answer: providerResult.answer,
     suggestedDraftSummary: providerResult.suggestedDraftSummary,
-    citations: retrieved.evidence.slice(0, 8).map((item) => ({
+    citations: input.evidence.slice(0, 8).map((item) => ({
       sourceType: item.kind,
       sourceId: item.id,
       title: item.title,
@@ -1579,7 +1631,15 @@ function buildPromptText(input: { taskTitle: string; question: string; instructi
   ].join("\n");
 }
 
-function createRequestHash(input: { taskId: string; question: string; instruction: string; evidenceIds: string[] }) {
+function createRequestHash(input: {
+  taskId: string;
+  question: string;
+  instruction: string;
+  evidenceIds: string[];
+  evidenceDigest?: string;
+  officialLawDigest?: string;
+  officialLawStatus?: "not_required" | "verified" | "failed";
+}) {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
