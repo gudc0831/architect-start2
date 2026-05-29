@@ -72,6 +72,14 @@ export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
   externalEvidence?: ExternalEvidenceRecord;
+  taskReview?: {
+    source: "assistant-task-review";
+    officialLawStatus: "not_required" | "verified" | "failed";
+    evidenceDigest: string;
+    officialLawDigest: string;
+    providerCallMode: "mock" | "live";
+    savedByOrchestrator: true;
+  };
 };
 
 export type AssistantRecord = {
