@@ -1,16 +1,21 @@
+import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
 import type { AssistantEvidence } from "@/domains/assistant/types";
+import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode";
 import type {
   EvidenceReadinessItem,
   StructuredTaskReviewSchema,
   TaskReviewMode,
   TaskReviewResponse,
+  TaskReviewSavedRecord,
 } from "@/domains/assistant/task-review";
 import {
   officialLawSourceToEvidence,
   verifyOfficialLawEvidence,
   type OfficialLawVerificationReport,
 } from "@/domains/legal/official-law-api";
+import { assistantRepository } from "@/repositories/assistant";
+import { generateAssistantWithVerifiedEvidence } from "@/use-cases/assistant-saas-mode-service";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
 
 export type ReviewTaskInput = {
@@ -25,7 +30,6 @@ export async function reviewTaskWithServerOrchestrator(
   input: ReviewTaskInput,
   user: AuthUser,
 ): Promise<TaskReviewResponse> {
-  void user;
   const retrieved = await retrieveAssistantEvidence({
     taskId: input.taskId,
     question: input.question,
@@ -37,6 +41,10 @@ export async function reviewTaskWithServerOrchestrator(
   });
   const officialEvidence = lawReport.sources.map(officialLawSourceToEvidence).filter((item): item is AssistantEvidence => Boolean(item));
   const evidence = [...officialEvidence, ...retrieved.evidence].sort((left, right) => left.priority - right.priority);
+  const evidenceDigest = buildEvidenceDigest(evidence);
+  const officialLawDigest = buildOfficialLawDigest(lawReport);
+  const evidenceReadiness = buildEvidenceReadiness({ unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds });
+  const structuredReviewSchema = buildStructuredReviewPreview(input.question, evidence, lawReport);
 
   if (lawReport.status === "failed") {
     return {
@@ -50,7 +58,7 @@ export async function reviewTaskWithServerOrchestrator(
       },
       officialLawVerification: lawReport,
       evidence,
-      evidenceReadiness: buildEvidenceReadiness(),
+      evidenceReadiness,
       generation: {
         status: "blocked" as const,
         reason: "Generation is blocked until official law verification succeeds.",
@@ -61,6 +69,62 @@ export async function reviewTaskWithServerOrchestrator(
         approvalAttempted: false,
         approvedKnowledgeItemId: null,
         reason: "WIKI candidate creation is skipped when official law API verification has no verified source.",
+      },
+    };
+  }
+
+  if ((input.mode ?? "preview") === "generate") {
+    const generated = await generateAssistantWithVerifiedEvidence(
+      {
+        taskContext: retrieved.taskContext,
+        question: input.question,
+        instruction: input.instruction,
+        evidence,
+        evidenceDigest,
+        officialLawDigest,
+        officialLawStatus: lawReport.status,
+      },
+      user,
+    );
+    const savedRecord = await saveGeneratedTaskReviewRecord({
+      generated,
+      user,
+      taskId: retrieved.taskContext.taskId,
+      projectId: retrieved.taskContext.projectId,
+      question: input.question,
+      evidence,
+      regulationCount: retrieved.evidence.filter((item) => item.kind === "regulation").length,
+      lawReport,
+      evidenceDigest,
+      officialLawDigest,
+    });
+
+    return {
+      status: "generated" as const,
+      reason:
+        lawReport.status === "verified"
+          ? "Official law verification succeeded and the generated task review was saved server-side."
+          : "Official law verification was not required and the generated task review was saved server-side.",
+      taskContext: retrieved.taskContext,
+      retrievedEvidence: {
+        count: retrieved.evidence.length,
+        regulationCount: retrieved.evidence.filter((item) => item.kind === "regulation").length,
+        unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
+      },
+      officialLawVerification: lawReport,
+      evidence,
+      evidenceReadiness,
+      structuredReviewSchema,
+      generation: {
+        status: "generated" as const,
+      },
+      generated,
+      savedRecord,
+      wiki: {
+        candidateCreated: false,
+        approvalAttempted: false,
+        approvedKnowledgeItemId: null,
+        reason: "Generated task-review records are saved as not_candidate and are not submitted to WIKI approval.",
       },
     };
   }
@@ -79,8 +143,8 @@ export async function reviewTaskWithServerOrchestrator(
     },
     officialLawVerification: lawReport,
     evidence,
-    evidenceReadiness: buildEvidenceReadiness(),
-    structuredReviewSchema: buildStructuredReviewPreview(input.question, evidence, lawReport),
+    evidenceReadiness,
+    structuredReviewSchema,
     generation: {
       status: "blocked" as const,
       reason:
@@ -96,8 +160,118 @@ export async function reviewTaskWithServerOrchestrator(
   };
 }
 
-function buildEvidenceReadiness(): EvidenceReadinessItem[] {
-  return [];
+function digestJson(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function buildEvidenceDigest(evidence: AssistantEvidence[]) {
+  return digestJson(
+    evidence.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      title: item.title,
+      excerpt: item.excerpt,
+      sourceUrl: item.sourceUrl,
+      recordId: item.recordId,
+      confidenceWeight: item.confidenceWeight,
+    })),
+  );
+}
+
+function buildOfficialLawDigest(lawReport: OfficialLawVerificationReport) {
+  return digestJson({
+    status: lawReport.status,
+    checkedAt: lawReport.checkedAt,
+    failures: lawReport.failures,
+    sources: lawReport.sources.map((source) => ({
+      lawName: source.lawName,
+      articleLabel: source.articleLabel,
+      apiUrl: source.apiUrl,
+      searchApiUrl: source.searchApiUrl,
+    })),
+  });
+}
+
+function buildEvidenceReadiness(input: { unavailableEvidenceKinds: string[] }): EvidenceReadinessItem[] {
+  const missing = new Set(input.unavailableEvidenceKinds);
+  return [
+    {
+      kind: "central_knowledge",
+      status: missing.has("central_knowledge") ? "missing" : "available",
+      action: missing.has("central_knowledge")
+        ? "Approve a WIKI item or link an existing approved knowledge item before relying on central knowledge."
+        : "Use approved WIKI evidence as reusable central knowledge.",
+    },
+    {
+      kind: "project_document",
+      status: missing.has("project_document") ? "missing" : "available",
+      action: missing.has("project_document")
+        ? "Attach or confirm project document analysis before treating document evidence as final."
+        : "Use available project document evidence with source references.",
+    },
+    {
+      kind: "web_or_skill",
+      status: missing.has("web_or_skill") ? "missing" : "available",
+      action: missing.has("web_or_skill")
+        ? "Capture external web or skill evidence with user approval when extra context is required."
+        : "Use captured external evidence only within its recorded permission scope.",
+    },
+  ];
+}
+
+async function saveGeneratedTaskReviewRecord(input: {
+  generated: AssistantGenerateResult;
+  user: AuthUser;
+  projectId: string;
+  taskId: string;
+  question: string;
+  evidence: AssistantEvidence[];
+  regulationCount: number;
+  lawReport: OfficialLawVerificationReport;
+  evidenceDigest: string;
+  officialLawDigest: string;
+}): Promise<TaskReviewSavedRecord> {
+  const providerCallMode = input.generated.provider.callMode;
+  const record = await assistantRepository.createRecord({
+    projectId: input.projectId,
+    taskId: input.taskId,
+    profileId: input.user.id,
+    question: input.question,
+    answer: input.generated.answer,
+    evidence: input.evidence,
+    confidenceScore: Math.min(95, Math.max(60, 80 + input.regulationCount)),
+    confidenceReason:
+      input.lawReport.status === "verified"
+        ? "Official law API verification succeeded and the record was generated from the server-verified evidence bundle."
+        : "Official law verification was not required and the record was generated from the server-verified evidence bundle.",
+    executionMode: "saas-api",
+    runtimeMode: providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
+    draftSummary: input.generated.suggestedDraftSummary,
+    candidateState: "not_candidate",
+    metadata: {
+      taskReview: {
+        source: "assistant-task-review",
+        officialLawStatus: input.lawReport.status,
+        evidenceDigest: input.evidenceDigest,
+        officialLawDigest: input.officialLawDigest,
+        providerCallMode,
+        savedByOrchestrator: true,
+      },
+    },
+  });
+
+  return {
+    id: record.id,
+    taskId: record.taskId,
+    confidenceScore: record.confidenceScore,
+    confidenceReason: record.confidenceReason,
+    executionMode: record.executionMode,
+    runtimeMode: record.runtimeMode,
+    candidateState: "not_candidate",
+    draftSummary: record.draftSummary,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
 }
 
 function buildStructuredReviewPreview(

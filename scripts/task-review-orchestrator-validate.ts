@@ -90,11 +90,24 @@ async function main() {
   assert.match(blockedReport.failures.join(" "), /LAW_OPEN_DATA_OC/);
 
   const serviceSource = await readFile(new URL("../src/use-cases/task-review-service.ts", import.meta.url), "utf8");
+  const taskReviewSource = await readFile(new URL("../src/use-cases/task-review-service.ts", import.meta.url), "utf8");
   const routeSource = await readFile(new URL("../src/app/api/assistant/task-review/route.ts", import.meta.url), "utf8");
+  const taskReviewRouteSource = await readFile(
+    new URL("../src/app/api/assistant/task-review/route.ts", import.meta.url),
+    "utf8",
+  );
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   const combinedSource = `${serviceSource}\n${routeSource}`;
   assert.match(envExample, /^LAW_OPEN_DATA_OC=/m);
   assert.match(envExample, /National Law Information Center|국가법령정보센터|LAW OPEN DATA/);
+  assert.match(taskReviewRouteSource, /requireCurrentProjectEditor/);
+  assert.match(taskReviewRouteSource, /mode === "generate"/);
+  assert.match(taskReviewRouteSource, /requireCurrentProjectAccess/);
+  assert.match(taskReviewSource, /candidateState:\s*"not_candidate"/);
+  assert.match(taskReviewSource, /assistantRepository\.createRecord/);
+  assert.doesNotMatch(taskReviewSource, /reviewKnowledgeCandidate/);
+  assert.doesNotMatch(taskReviewRouteSource, /reviewKnowledgeCandidate/);
+  assert.doesNotMatch(taskReviewRouteSource, /\/approve/);
   assert.equal(combinedSource.includes("reviewKnowledgeCandidate"), false);
   assert.equal(combinedSource.includes("/approve"), false);
   assert.equal(combinedSource.includes("requireKnowledgeAdmin"), false);
