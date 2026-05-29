@@ -24,6 +24,7 @@
     "regulation:seed:validate": "tsx scripts/regulation-seed-validate.ts",
     "regulation:governance:validate": "tsx scripts/regulation-governance-validate.ts",
     "retrieval:hybrid:validate": "tsx scripts/retrieval-hybrid-validate.ts",
+    "task-review:validate": "tsx scripts/task-review-orchestrator-validate.ts",
     "task-review:smoke": "powershell -ExecutionPolicy Bypass -File scripts/task-review-service-smoke.ps1",
     "file-analysis:embedding:plan": "tsx scripts/file-analysis-embedding-backfill-plan.ts",
     "file-analysis:embedding:worker": "tsx scripts/file-analysis-embedding-worker.ts",
