@@ -131,7 +131,7 @@ export function extractLawArticleLocators(question: string, evidence: AssistantE
         articleLabel: article?.articleLabel,
         articleNumber: article?.articleNumber,
         evidenceId: item.id,
-        sourceUrl: item.sourceUrl,
+        sourceUrl: sanitizeOfficialSourceUrl(item.sourceUrl),
       });
     }
   }
@@ -201,7 +201,7 @@ export async function verifyOfficialLawEvidence(
         lawName: locator.lawName,
         articleLabel: locator.articleLabel,
         articleNumber: locator.articleNumber,
-        sourceUrl: locator.sourceUrl,
+        sourceUrl: sanitizeOfficialSourceUrl(locator.sourceUrl),
         apiUrl: OFFICIAL_LAW_API_DOCS_URL,
         checkedAt,
         reason: "서버 환경변수 LAW_OPEN_DATA_OC가 없어 공식 법령 API 검증을 수행할 수 없습니다.",
@@ -260,7 +260,7 @@ export function officialLawSourceToEvidence(source: OfficialLawApiSource): Assis
       `${OFFICIAL_LAW_PROVIDER_NAME} Open API로 ${source.checkedAt}에 확인했습니다.${effectiveDate}`,
       trimText(source.articleText, 900),
     ].join("\n"),
-    sourceUrl: source.sourceUrl || source.apiUrl,
+    sourceUrl: sanitizeOfficialSourceUrl(source.sourceUrl || source.apiUrl) || source.apiUrl,
     recordId: source.evidenceId,
     confidenceWeight: 0.95,
   };
@@ -292,13 +292,15 @@ async function fetchOfficialLawArticle(
   config: OfficialLawApiConfig,
   checkedAt: string,
 ): Promise<OfficialLawApiSource> {
+  const locatorSourceUrl = sanitizeOfficialSourceUrl(locator.sourceUrl);
+
   if (!locator.lawName.trim()) {
     return {
       status: "missing_query",
       lawName: locator.lawName,
       articleLabel: locator.articleLabel,
       articleNumber: locator.articleNumber,
-      sourceUrl: locator.sourceUrl,
+      sourceUrl: locatorSourceUrl,
       apiUrl: OFFICIAL_LAW_API_DOCS_URL,
       checkedAt,
       reason: "법령명이 비어 있어 공식 API 조회를 건너뛰었습니다.",
@@ -322,7 +324,7 @@ async function fetchOfficialLawArticle(
         lawName: locator.lawName,
         articleLabel: locator.articleLabel,
         articleNumber: locator.articleNumber,
-        sourceUrl: locator.sourceUrl,
+        sourceUrl: locatorSourceUrl,
         apiUrl: sanitizeOfficialApiUrl(searchUrl),
         searchApiUrl: sanitizeOfficialApiUrl(searchUrl),
         checkedAt,
@@ -347,7 +349,7 @@ async function fetchOfficialLawArticle(
         effectiveDate: selected.effectiveDate,
         promulgationDate: selected.promulgationDate,
         ministry: selected.ministry,
-        sourceUrl: selected.sourceUrl || locator.sourceUrl,
+        sourceUrl: sanitizeOfficialSourceUrl(selected.sourceUrl || locatorSourceUrl),
         apiUrl: sanitizeOfficialApiUrl(articleUrl),
         searchApiUrl: sanitizeOfficialApiUrl(searchUrl),
         checkedAt,
@@ -366,7 +368,7 @@ async function fetchOfficialLawArticle(
       effectiveDate: selected.effectiveDate,
       promulgationDate: selected.promulgationDate,
       ministry: selected.ministry,
-      sourceUrl: selected.sourceUrl || locator.sourceUrl,
+      sourceUrl: sanitizeOfficialSourceUrl(selected.sourceUrl || locatorSourceUrl),
       apiUrl: sanitizeOfficialApiUrl(articleUrl),
       searchApiUrl: sanitizeOfficialApiUrl(searchUrl),
       checkedAt,
@@ -380,7 +382,7 @@ async function fetchOfficialLawArticle(
       lawName: locator.lawName,
       articleLabel: locator.articleLabel,
       articleNumber: locator.articleNumber,
-      sourceUrl: locator.sourceUrl,
+      sourceUrl: locatorSourceUrl,
       apiUrl: currentApiUrl,
       searchApiUrl: currentSearchApiUrl,
       checkedAt,
@@ -745,11 +747,50 @@ function normalizeOfficialSourceUrl(value: string) {
   if (!value) {
     return "";
   }
-  if (/^https?:\/\//i.test(value)) {
-    return value.replace(/^http:\/\//i, "https://");
+
+  const normalized = /^https?:\/\//i.test(value)
+    ? value.replace(/^http:\/\//i, "https://")
+    : `https://www.law.go.kr${value.startsWith("/") ? "" : "/"}${value}`;
+
+  return sanitizeOfficialSourceUrl(normalized) || normalized;
+}
+
+function sanitizeOfficialSourceUrl(value?: string) {
+  if (!value) {
+    return undefined;
   }
 
-  return `https://www.law.go.kr${value.startsWith("/") ? "" : "/"}${value}`;
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const sanitized = new URL(value);
+      sanitized.searchParams.delete("OC");
+      return sanitized.toString();
+    } catch {
+      return value;
+    }
+  }
+
+  return stripOcQueryParam(value);
+}
+
+function stripOcQueryParam(value: string) {
+  const queryIndex = value.indexOf("?");
+  if (queryIndex === -1) {
+    return value;
+  }
+
+  const hashIndex = value.indexOf("#", queryIndex);
+  const withoutHash = hashIndex === -1 ? value : value.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : value.slice(hashIndex);
+  const base = withoutHash.slice(0, queryIndex);
+  const params = new URLSearchParams(withoutHash.slice(queryIndex + 1));
+  if (!params.has("OC")) {
+    return value;
+  }
+
+  params.delete("OC");
+  const query = params.toString();
+  return `${base}${query ? `?${query}` : ""}${hash}`;
 }
 
 function sanitizeOfficialApiUrl(value: URL) {

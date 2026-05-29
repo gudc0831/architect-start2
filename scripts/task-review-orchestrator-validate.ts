@@ -13,6 +13,7 @@ const regulationEvidence: AssistantEvidence[] = [
     priority: 1,
     title: "건축법 제49조",
     excerpt: "건축법 제49조 피난시설 관련 검토 seed",
+    sourceUrl: "https://www.law.go.kr/법령/건축법?JO=004900&OC=server-secret-oc",
     confidenceWeight: 0.74,
   },
 ];
@@ -42,7 +43,7 @@ const fetchImpl: typeof fetch = async (input) => {
               법령명한글: "주차장법 시행규칙",
               법령ID: "007564",
               시행일자: "20260529",
-              법령상세링크: "/법령/주차장법 시행규칙",
+              법령상세링크: "/법령/주차장법 시행규칙?OC=server-secret-oc",
             },
           ],
         },
@@ -56,7 +57,7 @@ const fetchImpl: typeof fetch = async (input) => {
             법령명한글: "건축법",
             법령ID: "001760",
             시행일자: "20260529",
-            법령상세링크: "/법령/건축법",
+            법령상세링크: "/법령/건축법?OC=server-secret-oc",
           },
         ],
       },
@@ -105,10 +106,15 @@ async function main() {
   assert.match(report.sources[0].apiUrl, /lawService\.do/);
   assert.equal(report.sources[0].apiUrl.includes("OC="), false);
   assert.equal(report.sources[0].searchApiUrl?.includes("OC="), false);
+  assert.equal(report.locators[0].sourceUrl?.includes("server-secret-oc"), false);
+  assert.equal(report.sources[0].sourceUrl?.includes("OC="), false);
+  assert.equal(report.sources[0].sourceUrl?.includes("server-secret-oc"), false);
 
   const officialEvidence = officialLawSourceToEvidence(report.sources[0]);
   assert.equal(officialEvidence?.kind, "regulation");
   assert.equal(officialEvidence?.priority, 0);
+  assert.equal(officialEvidence?.sourceUrl?.includes("OC="), false);
+  assert.equal(officialEvidence?.sourceUrl?.includes("server-secret-oc"), false);
 
   const partialReport = await verifyOfficialLawEvidence({
     question: "건축법 제49조와 건축법 제999조 검토",
@@ -134,7 +140,7 @@ async function main() {
                 법령명한글: "건축법",
                 법령ID: "001760",
                 시행일자: "20260529",
-                법령상세링크: "/법령/건축법",
+                법령상세링크: "/법령/건축법?OC=server-secret-oc",
               },
             ],
           },
@@ -251,7 +257,7 @@ async function main() {
       status: "passed",
       checks: [
         "official law verification succeeds with mocked law.go.kr responses",
-        "recorded official API URLs redact OC",
+        "recorded official API and source URLs redact OC",
         "missing LAW_OPEN_DATA_OC blocks verification",
         "task-review orchestrator does not call WIKI approve/admin routes",
       ],
