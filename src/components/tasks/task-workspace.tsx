@@ -803,6 +803,10 @@ function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
   };
 }
 
+function isWorkspaceNavigationTarget(target: HTMLElement) {
+  return Boolean(target.closest('[data-workspace-navigation="true"]'));
+}
+
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
   const router = useRouter();
@@ -6124,6 +6128,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     function handleDocumentPointerDown(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (isWorkspaceNavigationTarget(target)) return;
 
       const taskPortalElement = target.closest<HTMLElement>('[data-task-portal-interaction="true"]');
       if (taskPortalElement) return;

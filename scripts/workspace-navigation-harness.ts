@@ -21,9 +21,9 @@ assert.match(adminPageSource, /<AdminFoundationShell \/>/);
 const appShellSource = source("src/components/layout/app-shell.tsx");
 assert.match(appShellSource, /function WorkspaceAccessGate/);
 assert.match(appShellSource, /router\.replace\(buildLoginRedirect\(pathname\) as Route\)/);
-assert.match(appShellSource, /router\.replace\("\/auth\/pending-access"\)/);
-assert.match(appShellSource, /router\.replace\("\/auth\/no-access"\)/);
-assert.match(appShellSource, /router\.replace\(user\.role === "admin" \? "\/admin" : "\/auth\/no-access"\)/);
+assert.match(appShellSource, /router\.replace\("\/auth\/pending-access"(?: as Route)?\)/);
+assert.match(appShellSource, /router\.replace\("\/auth\/no-access"(?: as Route)?\)/);
+assert.match(appShellSource, /router\.replace\(\(user\.role === "admin" \? "\/admin" : "\/auth\/no-access"\) as Route\)/);
 
 const rootLayoutSource = source("src/app/layout.tsx");
 assert.match(rootLayoutSource, /const themeBootstrapScript =/);
@@ -48,11 +48,16 @@ const sidebarSource = source("src/components/layout/sidebar.tsx");
 assert.match(sidebarSource, /function scheduleSidebarIdleWork\(callback: \(\) => void, timeout = 500\)/);
 assert.match(sidebarSource, /const warmAdminNavigation = useCallback/);
 assert.match(sidebarSource, /router\.prefetch\(adminHref\)/);
+assert.match(sidebarSource, /data-workspace-navigation="true"/);
 assert.match(sidebarSource, /onPointerDownCapture=\{\(\) => warmWorkspaceNavigation\(item\.href, item\.mode\)\}/);
 assert.match(sidebarSource, /onClickCapture=\{\(\) => markWorkspaceRouteTransition\("admin", adminHref\)\}/);
 
 const routeTimingSource = source("src/lib/workspace/route-timing.ts");
 assert.match(routeTimingSource, /export type WorkspaceRouteMode = DashboardMode \| "admin"/);
+
+const taskWorkspaceSource = source("src/components/tasks/task-workspace.tsx");
+assert.match(taskWorkspaceSource, /function isWorkspaceNavigationTarget\(target: HTMLElement\)/);
+assert.match(taskWorkspaceSource, /target\.closest\('\[data-workspace-navigation="true"\]'\)/);
 
 const adminShellSource = source("src/components/admin/admin-foundation-shell.tsx");
 assert.match(adminShellSource, /recordWorkspaceRouteReady\(\{/);

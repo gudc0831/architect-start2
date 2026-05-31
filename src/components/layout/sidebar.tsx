@@ -212,7 +212,7 @@ export function Sidebar() {
       {isWarmStudio ? (
         <div className="sidebar__section">
           <p className="sidebar__section-label">{navSectionLabel}</p>
-          <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
+          <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav" data-workspace-navigation="true">
             {navItems.map((item, index) => (
               <Link
                 className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
@@ -243,7 +243,7 @@ export function Sidebar() {
           </nav>
         </div>
       ) : (
-        <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav">
+        <nav aria-label={t("brand.primaryNavAriaLabel")} className="sidebar__nav" data-workspace-navigation="true">
           {navItems.map((item) => (
             <Link
               className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
