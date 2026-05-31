@@ -6,6 +6,10 @@ import type {
   ApprovedKnowledgeItem,
   AssistantCandidateState,
   AssistantRecord,
+  AssistantThread,
+  AssistantThreadMessage,
+  AssistantThreadMessageRole,
+  AssistantThreadSummaryProvenance,
   AssistantWorkSummaryDraft,
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
@@ -46,6 +50,23 @@ export type SaveAssistantWorkSummaryDraftInput = {
   scope: string;
   followUpAction: string;
   status: "draft" | "approved" | "deferred";
+};
+
+export type CreateAssistantThreadInput = {
+  projectId: string;
+  taskId?: string | null;
+  profileId: string;
+  title: string;
+  summary?: string;
+  summaryProvenance?: AssistantThreadSummaryProvenance;
+};
+
+export type AppendAssistantThreadMessageInput = {
+  threadId: string;
+  assistantRecordId?: string | null;
+  role: AssistantThreadMessageRole;
+  content: string;
+  evidenceSnapshot?: AssistantEvidence[];
 };
 
 export type ReviewKnowledgeCandidateInput =
@@ -144,6 +165,11 @@ export interface AssistantRepository {
   searchApprovedKnowledge(input: SearchApprovedKnowledgeInput): Promise<ApprovedKnowledgeItem[]>;
   findRecordById(recordId: string): Promise<AssistantRecord | null>;
   findWorkSummaryDraftByRecordId(recordId: string): Promise<AssistantWorkSummaryDraft | null>;
+  createThread(input: CreateAssistantThreadInput): Promise<AssistantThread>;
+  appendThreadMessage(input: AppendAssistantThreadMessageInput): Promise<AssistantThreadMessage>;
+  listRecentThreadMessages(threadId: string, limit: number): Promise<AssistantThreadMessage[]>;
+  updateThreadSummary(threadId: string, summary: string, provenance: AssistantThreadSummaryProvenance): Promise<void>;
+  findThreadByTask(taskId: string): Promise<AssistantThread | null>;
   createRecord(input: CreateAssistantRecordInput): Promise<AssistantRecord>;
   createExternalEvidence(input: CreateExternalEvidenceInput): Promise<ExternalEvidenceRecord>;
   saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput): Promise<AssistantWorkSummaryDraft>;

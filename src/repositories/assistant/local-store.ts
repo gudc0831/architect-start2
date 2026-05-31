@@ -4,11 +4,22 @@ import {
   externalEvidenceToAssistantEvidence,
   normalizeExternalEvidenceMetadata,
 } from "@/domains/assistant/external-evidence";
-import type { ApprovedKnowledgeItem, AssistantCandidateState, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
+import { normalizeThreadSummaryUpdate } from "@/domains/assistant/thread-memory";
+import type {
+  ApprovedKnowledgeItem,
+  AssistantCandidateState,
+  AssistantRecord,
+  AssistantThread,
+  AssistantThreadMessage,
+  AssistantThreadSummaryProvenance,
+  AssistantWorkSummaryDraft,
+} from "@/domains/assistant/types";
 import type { AssistantAuditEvent, AssistantRunPolicy, AssistantUsageEvent } from "@/domains/assistant/saas-api-mode";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
 import type {
   AssistantRepository,
+  AppendAssistantThreadMessageInput,
+  CreateAssistantThreadInput,
   CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
   CreateAssistantUsageEventInput,
@@ -22,6 +33,8 @@ import type {
 type AssistantLocalStore = {
   records: AssistantRecord[];
   summaries: AssistantWorkSummaryDraft[];
+  threads: AssistantThread[];
+  threadMessages: AssistantThreadMessage[];
   runPolicies: AssistantRunPolicy[];
   usageEvents: AssistantUsageEvent[];
   auditEvents: AssistantAuditEvent[];
@@ -30,6 +43,8 @@ type AssistantLocalStore = {
 const emptyStore: AssistantLocalStore = {
   records: [],
   summaries: [],
+  threads: [],
+  threadMessages: [],
   runPolicies: [],
   usageEvents: [],
   auditEvents: [],
@@ -43,9 +58,28 @@ function normalizeStore(value: Partial<AssistantLocalStore>): AssistantLocalStor
   return {
     records: Array.isArray(value.records) ? value.records.map(normalizeRecord) : [],
     summaries: Array.isArray(value.summaries) ? value.summaries : [],
+    threads: Array.isArray(value.threads) ? value.threads.map(normalizeThread) : [],
+    threadMessages: Array.isArray(value.threadMessages) ? value.threadMessages.map(normalizeThreadMessage) : [],
     runPolicies: Array.isArray(value.runPolicies) ? value.runPolicies : [],
     usageEvents: Array.isArray(value.usageEvents) ? value.usageEvents : [],
     auditEvents: Array.isArray(value.auditEvents) ? value.auditEvents : [],
+  };
+}
+
+function normalizeThread(thread: AssistantThread): AssistantThread {
+  return {
+    ...thread,
+    taskId: thread.taskId ?? null,
+    summary: thread.summary ?? "",
+    summaryProvenance: thread.summaryProvenance ?? {},
+  };
+}
+
+function normalizeThreadMessage(message: AssistantThreadMessage): AssistantThreadMessage {
+  return {
+    ...message,
+    assistantRecordId: message.assistantRecordId ?? null,
+    evidenceSnapshot: Array.isArray(message.evidenceSnapshot) ? message.evidenceSnapshot : [],
   };
 }
 
@@ -105,6 +139,95 @@ class LocalAssistantRepository implements AssistantRepository {
   async findWorkSummaryDraftByRecordId(recordId: string) {
     const store = await readStore();
     return store.summaries.find((summary) => summary.recordId === recordId) ?? null;
+  }
+
+  async createThread(input: CreateAssistantThreadInput) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const summaryUpdate = normalizeThreadSummaryUpdate({
+      summary: input.summary ?? "",
+      provenance: input.summaryProvenance ?? {},
+    });
+    const thread: AssistantThread = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId ?? null,
+      profileId: input.profileId,
+      title: input.title,
+      summary: summaryUpdate.summary,
+      summaryProvenance: summaryUpdate.provenance,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore("assistant", { ...store, threads: [thread, ...store.threads] }, { reason: "assistant.thread.create" });
+    return thread;
+  }
+
+  async appendThreadMessage(input: AppendAssistantThreadMessageInput) {
+    const store = await readStore();
+    const threadExists = store.threads.some((thread) => thread.id === input.threadId);
+    if (!threadExists) {
+      throw new Error("Assistant thread not found");
+    }
+    const timestamp = nowIso();
+    const message: AssistantThreadMessage = {
+      id: randomUUID(),
+      threadId: input.threadId,
+      assistantRecordId: input.assistantRecordId ?? null,
+      role: input.role,
+      content: input.content,
+      evidenceSnapshot: input.evidenceSnapshot ?? [],
+      createdAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        threads: store.threads.map((thread) => (thread.id === input.threadId ? { ...thread, updatedAt: timestamp } : thread)),
+        threadMessages: [...store.threadMessages, message],
+      },
+      { reason: "assistant.thread-message.append" },
+    );
+    return message;
+  }
+
+  async listRecentThreadMessages(threadId: string, limit: number) {
+    const store = await readStore();
+    return store.threadMessages
+      .filter((message) => message.threadId === threadId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+      .slice(-normalizeRecentMessageLimit(limit));
+  }
+
+  async updateThreadSummary(threadId: string, summary: string, provenance: AssistantThreadSummaryProvenance) {
+    const store = await readStore();
+    const threadExists = store.threads.some((thread) => thread.id === threadId);
+    if (!threadExists) {
+      throw new Error("Assistant thread not found");
+    }
+    const timestamp = nowIso();
+    const summaryUpdate = normalizeThreadSummaryUpdate({ summary, provenance });
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        threads: store.threads.map((thread) =>
+          thread.id === threadId
+            ? { ...thread, summary: summaryUpdate.summary, summaryProvenance: summaryUpdate.provenance, updatedAt: timestamp }
+            : thread,
+        ),
+      },
+      { reason: "assistant.thread-summary.update" },
+    );
+  }
+
+  async findThreadByTask(taskId: string) {
+    const store = await readStore();
+    return store.threads
+      .filter((thread) => thread.taskId === taskId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))[0] ?? null;
   }
 
   async createRecord(input: CreateAssistantRecordInput) {
@@ -402,4 +525,12 @@ function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {
 function scoreApprovedKnowledge(item: ApprovedKnowledgeItem, terms: string[]) {
   const haystack = `${item.title} ${item.summary} ${item.bodyMarkdown} ${item.tags.join(" ")}`.toLowerCase();
   return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function normalizeRecentMessageLimit(limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return 6;
+  }
+
+  return Math.max(1, Math.min(50, Math.floor(limit)));
 }

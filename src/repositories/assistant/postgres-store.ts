@@ -5,6 +5,7 @@ import {
   externalEvidenceToAssistantEvidence,
   normalizeExternalEvidenceMetadata,
 } from "@/domains/assistant/external-evidence";
+import { normalizeThreadSummaryUpdate } from "@/domains/assistant/thread-memory";
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
@@ -12,6 +13,9 @@ import type {
   AssistantCandidateState,
   AssistantRecordMetadata,
   AssistantRecord,
+  AssistantThread,
+  AssistantThreadMessage,
+  AssistantThreadSummaryProvenance,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
 import type {
@@ -24,6 +28,8 @@ import { normalizeAllowedEvidenceKinds } from "@/domains/assistant/saas-api-mode
 import { prisma } from "@/lib/prisma";
 import type {
   AssistantRepository,
+  AppendAssistantThreadMessageInput,
+  CreateAssistantThreadInput,
   CreateAssistantAuditEventInput,
   CreateAssistantRecordInput,
   CreateAssistantUsageEventInput,
@@ -67,6 +73,28 @@ type PrismaAssistantWorkSummaryDraft = {
   status: string;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type PrismaAssistantThread = {
+  id: string;
+  projectId: string;
+  taskId: string | null;
+  profileId: string;
+  title: string;
+  summary: string;
+  summaryProvenance: Prisma.JsonValue;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaAssistantThreadMessage = {
+  id: string;
+  threadId: string;
+  assistantRecordId: string | null;
+  role: string;
+  content: string;
+  evidenceSnapshot: Prisma.JsonValue;
+  createdAt: Date;
 };
 
 type PrismaAssistantRunPolicy = {
@@ -126,6 +154,15 @@ type PrismaApprovedKnowledgeSearchRow = {
 };
 
 const assistantPrisma = prisma as typeof prisma & {
+  assistantThread: {
+    create: (...args: unknown[]) => Promise<PrismaAssistantThread>;
+    findFirst: (...args: unknown[]) => Promise<PrismaAssistantThread | null>;
+    update: (...args: unknown[]) => Promise<PrismaAssistantThread>;
+  };
+  assistantThreadMessage: {
+    create: (...args: unknown[]) => Promise<PrismaAssistantThreadMessage>;
+    findMany: (...args: unknown[]) => Promise<PrismaAssistantThreadMessage[]>;
+  };
   assistantRunPolicy: {
     findUnique: (...args: unknown[]) => Promise<PrismaAssistantRunPolicy | null>;
     upsert: (...args: unknown[]) => Promise<PrismaAssistantRunPolicy>;
@@ -155,6 +192,10 @@ function asTags(value: Prisma.JsonValue): string[] {
 
 function asMetadata(value: Prisma.JsonValue): AssistantRecordMetadata {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as AssistantRecordMetadata) : {};
+}
+
+function asSummaryProvenance(value: Prisma.JsonValue): AssistantThreadSummaryProvenance {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as AssistantThreadSummaryProvenance) : {};
 }
 
 function asRecordMetadata(value: Prisma.JsonValue): Record<string, unknown> {
@@ -201,6 +242,32 @@ function toSummary(record: PrismaAssistantWorkSummaryDraft): AssistantWorkSummar
     status: record.status as AssistantWorkSummaryDraft["status"],
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function toThread(thread: PrismaAssistantThread): AssistantThread {
+  return {
+    id: thread.id,
+    projectId: thread.projectId,
+    taskId: thread.taskId,
+    profileId: thread.profileId,
+    title: thread.title,
+    summary: thread.summary,
+    summaryProvenance: asSummaryProvenance(thread.summaryProvenance),
+    createdAt: thread.createdAt.toISOString(),
+    updatedAt: thread.updatedAt.toISOString(),
+  };
+}
+
+function toThreadMessage(message: PrismaAssistantThreadMessage): AssistantThreadMessage {
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    assistantRecordId: message.assistantRecordId,
+    role: message.role as AssistantThreadMessage["role"],
+    content: message.content,
+    evidenceSnapshot: asEvidence(message.evidenceSnapshot),
+    createdAt: message.createdAt.toISOString(),
   };
 }
 
@@ -374,6 +441,72 @@ class PostgresAssistantRepository implements AssistantRepository {
   async findWorkSummaryDraftByRecordId(recordId: string) {
     const summary = await prisma.assistantWorkSummaryDraft.findUnique({ where: { recordId } });
     return summary ? toSummary(summary) : null;
+  }
+
+  async createThread(input: CreateAssistantThreadInput) {
+    const summaryUpdate = normalizeThreadSummaryUpdate({
+      summary: input.summary ?? "",
+      provenance: input.summaryProvenance ?? {},
+    });
+    const thread = await assistantPrisma.assistantThread.create({
+      data: {
+        projectId: input.projectId,
+        taskId: input.taskId ?? null,
+        profileId: input.profileId,
+        title: input.title,
+        summary: summaryUpdate.summary,
+        summaryProvenance: summaryUpdate.provenance as Prisma.InputJsonValue,
+      },
+    });
+    return toThread(thread);
+  }
+
+  async appendThreadMessage(input: AppendAssistantThreadMessageInput) {
+    const message = await prisma.$transaction(async (tx) => {
+      const assistantTx = tx as unknown as typeof assistantPrisma;
+      await assistantTx.assistantThread.update({
+        where: { id: input.threadId },
+        data: { updatedAt: new Date() },
+      });
+      return assistantTx.assistantThreadMessage.create({
+        data: {
+          threadId: input.threadId,
+          assistantRecordId: input.assistantRecordId ?? null,
+          role: input.role,
+          content: input.content,
+          evidenceSnapshot: (input.evidenceSnapshot ?? []) as Prisma.InputJsonValue,
+        },
+      });
+    });
+    return toThreadMessage(message);
+  }
+
+  async listRecentThreadMessages(threadId: string, limit: number) {
+    const messages = await assistantPrisma.assistantThreadMessage.findMany({
+      where: { threadId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: normalizeRecentMessageLimit(limit),
+    });
+    return messages.map(toThreadMessage).reverse();
+  }
+
+  async updateThreadSummary(threadId: string, summary: string, provenance: AssistantThreadSummaryProvenance) {
+    const summaryUpdate = normalizeThreadSummaryUpdate({ summary, provenance });
+    await assistantPrisma.assistantThread.update({
+      where: { id: threadId },
+      data: {
+        summary: summaryUpdate.summary,
+        summaryProvenance: summaryUpdate.provenance as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  async findThreadByTask(taskId: string) {
+    const thread = await assistantPrisma.assistantThread.findFirst({
+      where: { taskId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    });
+    return thread ? toThread(thread) : null;
   }
 
   async createRecord(input: CreateAssistantRecordInput) {
@@ -682,4 +815,12 @@ function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {
 function scoreApprovedKnowledge(item: ApprovedKnowledgeItem, terms: string[]) {
   const haystack = `${item.title} ${item.summary} ${item.bodyMarkdown} ${item.tags.join(" ")}`.toLowerCase();
   return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function normalizeRecentMessageLimit(limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return 6;
+  }
+
+  return Math.max(1, Math.min(50, Math.floor(limit)));
 }

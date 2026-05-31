@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { LegalBatchAuditStatusPanel } from "@/components/admin/legal-batch-audit-status-panel";
+import { LegalChangeMonitorPanel } from "@/components/admin/legal-change-monitor-panel";
 import styles from "@/components/admin/knowledge-admin-shell.module.css";
 
 type CandidateState = "candidate" | "pending_review" | "approved" | "rejected" | "not_candidate";
@@ -3108,6 +3110,8 @@ export function KnowledgeAdminShell({ initialCandidates }: KnowledgeAdminShellPr
         </aside>
 
         <main className={styles.detail}>
+          <LegalBatchAuditStatusPanel />
+          <LegalChangeMonitorPanel />
           {detail ? (
             <>
               <section className={styles.summaryBand}>

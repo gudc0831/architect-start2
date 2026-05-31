@@ -144,7 +144,7 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
   assistant: {
     path: localAssistantStorePath,
     snapshotName: "assistant-records.json",
-    fallback: { records: [], summaries: [], runPolicies: [], usageEvents: [], auditEvents: [] },
+    fallback: { records: [], summaries: [], threads: [], threadMessages: [], runPolicies: [], usageEvents: [], auditEvents: [] },
     countRecords(value) {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return 0;
@@ -153,6 +153,8 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
       const store = value as {
         records?: unknown;
         summaries?: unknown;
+        threads?: unknown;
+        threadMessages?: unknown;
         runPolicies?: unknown;
         usageEvents?: unknown;
         auditEvents?: unknown;
@@ -160,6 +162,8 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
       return (
         (Array.isArray(store.records) ? store.records.length : 0) +
         (Array.isArray(store.summaries) ? store.summaries.length : 0) +
+        (Array.isArray(store.threads) ? store.threads.length : 0) +
+        (Array.isArray(store.threadMessages) ? store.threadMessages.length : 0) +
         (Array.isArray(store.runPolicies) ? store.runPolicies.length : 0) +
         (Array.isArray(store.usageEvents) ? store.usageEvents.length : 0) +
         (Array.isArray(store.auditEvents) ? store.auditEvents.length : 0)

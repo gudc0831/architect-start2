@@ -3,12 +3,13 @@ import type { AuthUser } from "@/domains/auth/types";
 import type { AssistantEvidence, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
 import { readAssistantAction, toAssistantActionAuditRecord } from "@/domains/assistant/action-audit";
 import {
+  buildAssistantPromptText,
   defaultAssistantRunPolicy,
   normalizeAllowedEvidenceKinds,
-  summarizeEvidenceForPrompt,
   type AssistantActionAuditAction,
   type AssistantActionAuditRecord,
   type AssistantGenerateResult,
+  type AssistantRetrievedEvidenceSnapshot,
   type AssistantPolicyDecision,
   type AssistantPolicyProvider,
   type AssistantRunPolicy,
@@ -1272,25 +1273,29 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
   const retrieved = await retrieveAssistantEvidence({ taskId, question });
   const policy = await getStoredOrDefaultPolicy(retrieved.taskContext.projectId);
-  const promptText = buildPromptText({
+  const promptEvidence = retrieved.evidence.slice(0, 10);
+  const promptText = buildAssistantPromptText({
     taskTitle: retrieved.taskContext.title,
     question,
     instruction,
-    evidence: retrieved.evidence,
+    conversationMemory: retrieved.conversationMemory,
+    evidence: promptEvidence,
+    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
   });
   const inputTokens = estimateTokens(promptText);
   const requestHash = createRequestHash({
     taskId: retrieved.taskContext.taskId,
     question,
     instruction,
-    evidenceIds: retrieved.evidence.map((item) => item.id),
+    evidenceIds: promptEvidence.map((item) => item.id),
+    promptText: promptText,
   });
 
   await enforcePolicy({
     policy,
     taskId: retrieved.taskContext.taskId,
     profileId: user.id,
-    evidence: retrieved.evidence,
+    evidence: promptEvidence,
     inputTokens,
     requestHash,
   });
@@ -1304,7 +1309,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     question,
     instruction,
     promptText,
-    evidence: retrieved.evidence,
+    evidence: promptEvidence,
     inputTokens,
     requestHash,
   });
@@ -1324,8 +1329,8 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     policyDecision: "allowed",
     requestHash,
     metadata: {
-      evidenceCount: retrieved.evidence.length,
-      evidenceKinds: [...new Set(retrieved.evidence.map((item) => item.kind))],
+      evidenceCount: promptEvidence.length,
+      evidenceKinds: [...new Set(promptEvidence.map((item) => item.kind))],
       providerCallMode: providerResult.callMode,
       providerRequestId: providerResult.providerRequestId,
       ...providerResult.metadata,
@@ -1340,7 +1345,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     metadata: {
       executionMode: "saas-api",
       requestHash,
-      evidenceCount: retrieved.evidence.length,
+      evidenceCount: promptEvidence.length,
       provider: policy.provider,
       model: policy.model,
       providerCallMode: providerResult.callMode,
@@ -1349,10 +1354,18 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     },
   });
 
+  const retrievalSnapshot = toAssistantGenerateRetrievalSnapshot({
+    taskContext: retrieved.taskContext,
+    evidence: promptEvidence,
+    unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
+    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+    conversationMemory: retrieved.conversationMemory,
+  });
+
   return {
-    answer: providerResult.answer,
+    answer: appendLegalChangeReviewNotice(providerResult.answer, retrievalSnapshot),
     suggestedDraftSummary: providerResult.suggestedDraftSummary,
-    citations: retrieved.evidence.slice(0, 8).map((item) => ({
+    citations: promptEvidence.slice(0, 8).map((item) => ({
       sourceType: item.kind,
       sourceId: item.id,
       title: item.title,
@@ -1376,7 +1389,47 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
       callMode: providerResult.callMode,
       requestId: providerResult.providerRequestId,
     },
+    retrieval: retrievalSnapshot,
   };
+}
+
+export function toAssistantGenerateRetrievalSnapshot(input: {
+  taskContext: AssistantRetrievedEvidenceSnapshot["taskContext"];
+  evidence: AssistantRetrievedEvidenceSnapshot["evidence"];
+  unavailableEvidenceKinds: AssistantRetrievedEvidenceSnapshot["unavailableEvidenceKinds"];
+  evidenceReadinessWarnings?: AssistantRetrievedEvidenceSnapshot["evidenceReadinessWarnings"];
+  conversationMemory?: AssistantRetrievedEvidenceSnapshot["conversationMemory"];
+}): AssistantRetrievedEvidenceSnapshot {
+  return {
+    taskContext: input.taskContext,
+    evidence: input.evidence,
+    unavailableEvidenceKinds: input.unavailableEvidenceKinds,
+    evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+    conversationMemory: input.conversationMemory ?? "",
+  };
+}
+
+const LEGAL_CHANGE_IMPACT_WARNING =
+  "인용된 근거 중 변경 감지된 법령이 있습니다. 적용일자와 최신 조문을 확인하세요.";
+
+function appendLegalChangeReviewNotice(answer: string, retrieval: AssistantRetrievedEvidenceSnapshot): string {
+  if (!hasLegalChangeImpactWarning(retrieval) || answer.includes(LEGAL_CHANGE_IMPACT_WARNING)) {
+    return answer;
+  }
+
+  return [
+    answer,
+    [
+      "Legal change detected - requires review",
+      LEGAL_CHANGE_IMPACT_WARNING,
+      "Confidence is lowered and the answer requires review.",
+    ].join("\n"),
+  ].join("\n\n");
+}
+
+function hasLegalChangeImpactWarning(retrieval: AssistantRetrievedEvidenceSnapshot): boolean {
+  return retrieval.evidenceReadinessWarnings.some((warning) => /LEGAL_CHANGE|STALE/i.test(`${warning.code} ${warning.message}`)) ||
+    retrieval.evidence.some((item) => item.legal?.stale || (item.legal?.legalChangeWarnings.length ?? 0) > 0);
 }
 
 async function runProviderOrRecordFailure(input: {
@@ -1569,17 +1622,13 @@ async function resolveProjectId(projectId: string | null | undefined, user: Auth
   return context.project.id;
 }
 
-function buildPromptText(input: { taskTitle: string; question: string; instruction: string; evidence: AssistantEvidence[] }) {
-  return [
-    `Task: ${input.taskTitle}`,
-    `Question: ${input.question}`,
-    `Instruction: ${input.instruction}`,
-    "Evidence:",
-    summarizeEvidenceForPrompt(input.evidence),
-  ].join("\n");
-}
-
-function createRequestHash(input: { taskId: string; question: string; instruction: string; evidenceIds: string[] }) {
+function createRequestHash(input: {
+  taskId: string;
+  question: string;
+  instruction: string;
+  evidenceIds: string[];
+  promptText: string;
+}) {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 

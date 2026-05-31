@@ -1,4 +1,10 @@
-import type { AssistantDraftSummary, AssistantEvidence, AssistantEvidenceKind } from "@/domains/assistant/types";
+import type {
+  AssistantDraftSummary,
+  AssistantEvidence,
+  AssistantEvidenceKind,
+  AssistantLegalEvidenceMetadata,
+  AssistantTaskContext,
+} from "@/domains/assistant/types";
 
 export type AssistantPolicyScopeType = "project";
 export type AssistantPolicyProvider = "mock" | "openai";
@@ -88,6 +94,19 @@ export type AssistantActionAuditRecord = {
   createdAt: string;
 };
 
+export type AssistantEvidenceReadinessWarning = {
+  code: string;
+  message: string;
+};
+
+export type AssistantRetrievedEvidenceSnapshot = {
+  taskContext: AssistantTaskContext;
+  evidence: AssistantEvidence[];
+  unavailableEvidenceKinds: string[];
+  evidenceReadinessWarnings: AssistantEvidenceReadinessWarning[];
+  conversationMemory: string;
+};
+
 export type AssistantGenerateResult = {
   answer: string;
   suggestedDraftSummary: AssistantDraftSummary;
@@ -110,6 +129,7 @@ export type AssistantGenerateResult = {
     callMode: AssistantProviderCallMode;
     requestId: string | null;
   };
+  retrieval: AssistantRetrievedEvidenceSnapshot;
 };
 
 export const ASSISTANT_EVIDENCE_KINDS: AssistantEvidenceKind[] = [
@@ -163,6 +183,88 @@ export function normalizeAllowedEvidenceKinds(value: unknown): AssistantEvidence
 export function summarizeEvidenceForPrompt(evidence: AssistantEvidence[]) {
   return evidence
     .slice(0, 10)
-    .map((item, index) => `${index + 1}. [${item.kind}] ${item.title}: ${item.excerpt}`)
+    .map((item, index) => {
+      const legalMetadata = summarizeLegalEvidenceForPrompt(item);
+      return [
+        `${index + 1}. [${item.kind}] ${item.title}: ${item.excerpt}`,
+        legalMetadata,
+      ].filter(Boolean).join("\n");
+    })
     .join("\n");
+}
+
+function summarizeLegalEvidenceForPrompt(item: AssistantEvidence) {
+  if (!item.legal) {
+    return "";
+  }
+
+  const metadata = [
+    `source kind: ${item.legal.sourceKind}`,
+    `authority rank: ${item.legal.authorityRank}`,
+    summarizeLegalEffectiveForPrompt(item.legal.effective),
+    item.sourceUrl ? `source URL: ${item.sourceUrl}` : "",
+    item.legal.locator ? `source locator: ${JSON.stringify(item.legal.locator)}` : "",
+    item.legal.stale ? "stale: true" : "stale: false",
+    item.legal.legalChangeWarnings.length > 0
+      ? `legal change warnings: ${item.legal.legalChangeWarnings.join(", ")}`
+      : "",
+    item.legal.confidenceReason ? `confidence reason: ${item.legal.confidenceReason}` : "",
+  ].filter(Boolean);
+
+  return metadata.length ? `   Legal metadata: ${metadata.join("; ")}` : "";
+}
+
+function summarizeLegalEffectiveForPrompt(effective: AssistantLegalEvidenceMetadata["effective"] | undefined) {
+  if (!effective) {
+    return "";
+  }
+  if (effective.effectiveFrom && effective.effectiveTo) {
+    return `effective: ${effective.effectiveFrom} to ${effective.effectiveTo}`;
+  }
+  if (effective.effectiveFrom) {
+    return `effective: from ${effective.effectiveFrom}`;
+  }
+  if (effective.effectiveTo) {
+    return `effective: until ${effective.effectiveTo}`;
+  }
+  return effective.promulgatedAt ? `promulgated at: ${effective.promulgatedAt}` : "";
+}
+
+export function buildAssistantPromptText(input: {
+  taskTitle: string;
+  question: string;
+  instruction: string;
+  conversationMemory?: string;
+  evidence: AssistantEvidence[];
+  evidenceReadinessWarnings?: AssistantEvidenceReadinessWarning[];
+}) {
+  return [
+    `Task: ${input.taskTitle}`,
+    `Question: ${input.question}`,
+    `Instruction: ${input.instruction}`,
+    summarizeConversationMemoryForPrompt(input.conversationMemory),
+    "Evidence:",
+    summarizeEvidenceForPrompt(input.evidence),
+    summarizeEvidenceReadinessWarningsForPrompt(input.evidenceReadinessWarnings),
+  ].filter((section) => section.length > 0).join("\n");
+}
+
+function summarizeConversationMemoryForPrompt(conversationMemory: string | undefined) {
+  const normalized = conversationMemory?.trim() ?? "";
+  if (!normalized) {
+    return "";
+  }
+
+  return ["Conversation memory:", normalized].join("\n");
+}
+
+function summarizeEvidenceReadinessWarningsForPrompt(warnings: AssistantEvidenceReadinessWarning[] | undefined) {
+  if (!warnings?.length) {
+    return "";
+  }
+
+  return [
+    "Evidence readiness warnings:",
+    ...warnings.slice(0, 8).map((warning, index) => `${index + 1}. [${warning.code}] ${warning.message}`),
+  ].join("\n");
 }

@@ -69,6 +69,7 @@ model Profile {
   heldEditLeases EditLease[] @relation("EditLeaseHolder")
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
+  assistantThreads AssistantThread[]
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -92,6 +93,7 @@ model Project {
   files     File[]
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
+  assistantThreads AssistantThread[]
   workTypeDefinitions WorkTypeDefinition[]
 
   @@map("projects")
@@ -144,6 +146,7 @@ model Task {
   userOrders         TaskUserOrder[]
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
+  assistantThreads AssistantThread[]
 
   @@unique([projectId, taskNumber])
   @@index([projectId, deletedAt, purgedAt])
@@ -372,6 +375,7 @@ model AssistantTaskRecord {
   task             Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   profile          Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   workSummaryDraft AssistantWorkSummaryDraft?
+  threadMessages   AssistantThreadMessage[]
 
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
@@ -399,6 +403,40 @@ model AssistantWorkSummaryDraft {
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
   @@map("assistant_work_summary_drafts")
+}
+
+model AssistantThread {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  taskId            String?  @map("task_id") @db.Uuid
+  profileId         String   @map("profile_id") @db.Uuid
+  title             String
+  summary           String   @default("")
+  summaryProvenance Json     @default("{}") @map("summary_provenance")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task              Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  profile           Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  messages          AssistantThreadMessage[]
+
+  @@index([projectId, taskId, updatedAt])
+  @@map("assistant_threads")
+}
+
+model AssistantThreadMessage {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId          String   @map("thread_id") @db.Uuid
+  assistantRecordId String?  @map("assistant_record_id") @db.Uuid
+  role              String
+  content           String
+  evidenceSnapshot  Json     @default("[]") @map("evidence_snapshot")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  thread            AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  assistantRecord   AssistantTaskRecord? @relation(fields: [assistantRecordId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@map("assistant_thread_messages")
 }
 
 model AssistantRunPolicy {

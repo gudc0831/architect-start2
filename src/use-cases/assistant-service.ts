@@ -1,11 +1,14 @@
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
+  AssistantLegalEvidenceMetadata,
   AssistantExecutionMode,
+  AssistantThreadMessage,
   AssistantRecord,
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import { buildThreadMemory, type AssistantThreadMemoryMessage } from "@/domains/assistant/thread-memory";
 import type {
   AssistantActionAuditAction,
   AssistantActionAuditRecord,
@@ -32,6 +35,9 @@ import { assistantRepository } from "@/repositories/assistant";
 import { fileRepository, taskRepository } from "@/repositories";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
+import { fetchVerifiedLegalSearchEvidence, selectLegalSearchContext } from "@/use-cases/verified-legal-search-service";
+
+const ASSISTANT_MEMORY_RETRIEVAL_QUERY_LIMIT = 6000;
 
 type RetrieveAssistantEvidenceInput = {
   taskId: string;
@@ -103,31 +109,50 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const project = await getSelectedTaskProject();
   const question = normalizeText(input.question);
+  const thread = await assistantRepository.findThreadByTask(task.id);
+  const recentThreadMessages = thread ? await assistantRepository.listRecentThreadMessages(thread.id, 6) : [];
+  const conversationMemory = buildThreadMemory({
+    currentQuestion: question,
+    threadSummary: thread?.summary ?? "",
+    recentMessages: recentThreadMessages,
+    maxRecentMessages: 6,
+  });
+  const retrievalQuery = buildAssistantMemoryRetrievalQuery({
+    question,
+    taskTitle: task.issueTitle,
+    taskIssueDetail: task.issueDetailNote,
+    threadSummary: thread?.summary ?? "",
+    recentMessages: recentThreadMessages,
+  });
   const [tasks, files, previousRecords, externalEvidence, approvedKnowledge] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     fileRepository.listFilesByTask(task.id),
     assistantRepository.listRecordsByTask(task.id),
     assistantRepository.listExternalEvidenceByTask(task.id),
-    assistantRepository.searchApprovedKnowledge({ projectId: project.id, query: question, limit: 4 }),
+    assistantRepository.searchApprovedKnowledge({ projectId: project.id, query: retrievalQuery, limit: 4 }),
   ]);
-  const queryEmbedding = await createFileAnalysisQueryEmbedding(question);
+  const queryEmbedding = await createFileAnalysisQueryEmbedding(retrievalQuery);
   const projectFileAnalysisMatches = await fileRepository.searchFileAnalyses({
     projectId: project.id,
-    query: question,
+    query: retrievalQuery,
     excludedFileIds: files.map((file) => file.id),
     limit: 4,
     queryEmbedding: queryEmbedding ?? undefined,
   });
-  const regulationResults = searchFoundationRegulations(question, 4);
-  const verifiedLegalEvidence = await fetchVerifiedLegalEvidenceBundle({
-    question,
-    sourceIds: selectVerifiedLegalEvidenceSourceIds(),
-  });
-  const evidence = [
-    ...buildEvidence({
+  const regulationResults = searchFoundationRegulations(retrievalQuery, 4);
+  const legalSearchContext = selectLegalSearchContext({ task, projectName: project.name });
+  const [verifiedLegalEvidence, verifiedLegalSearchEvidence] = await Promise.all([
+    fetchVerifiedLegalEvidenceBundle({
+      question: retrievalQuery,
+      sourceIds: selectVerifiedLegalEvidenceSourceIds(),
+    }),
+    fetchVerifiedLegalSearchEvidence({ question: retrievalQuery, ...legalSearchContext }),
+  ]);
+  const mergedEvidence = mergeRetrievedAssistantEvidence({
+    baseEvidence: buildEvidence({
       task,
       projectName: project.name,
-      question,
+      question: retrievalQuery,
       tasks,
       files,
       projectFileAnalysisMatches,
@@ -136,8 +161,10 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
       approvedKnowledge,
       regulationResults,
     }),
-    ...verifiedLegalEvidence.evidence,
-  ].sort((left, right) => left.priority - right.priority);
+    verifiedLegalEvidence,
+    verifiedLegalSearchEvidence,
+  });
+  const evidence = mergedEvidence.evidence;
   const hasFileAnalysisEvidence = evidence.some(
     (item) =>
       item.kind === "project_document" &&
@@ -164,8 +191,117 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     taskContext: toTaskContext(task, project.name),
     evidence,
     unavailableEvidenceKinds,
-    evidenceReadinessWarnings: verifiedLegalEvidence.warnings,
+    evidenceReadinessWarnings: mergedEvidence.evidenceReadinessWarnings,
+    conversationMemory,
   };
+}
+
+export function buildAssistantMemoryRetrievalQuery(input: {
+  question: string;
+  taskTitle: string;
+  taskIssueDetail: string;
+  threadSummary: string;
+  recentMessages: Array<Pick<AssistantThreadMessage, "role" | "content"> | AssistantThreadMemoryMessage>;
+}): string {
+  const conversationMemory = buildThreadMemory({
+    currentQuestion: input.question,
+    threadSummary: input.threadSummary,
+    recentMessages: input.recentMessages,
+    maxRecentMessages: 6,
+  });
+  return [
+    conversationMemory,
+    input.taskTitle ? `Task title: ${input.taskTitle}` : "",
+    input.taskIssueDetail ? `Task issue detail: ${input.taskIssueDetail}` : "",
+  ]
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, ASSISTANT_MEMORY_RETRIEVAL_QUERY_LIMIT)
+    .trim();
+}
+
+export function mergeRetrievedAssistantEvidence(input: {
+  baseEvidence: AssistantEvidence[];
+  verifiedLegalEvidence: VerifiedLegalEvidenceBundleResult;
+  verifiedLegalSearchEvidence: VerifiedLegalEvidenceBundleResult;
+}) {
+  const evidence = [
+    ...input.baseEvidence,
+    ...input.verifiedLegalEvidence.evidence,
+    ...input.verifiedLegalSearchEvidence.evidence,
+  ].sort((left, right) => left.priority - right.priority);
+
+  return {
+    evidence,
+    evidenceReadinessWarnings: normalizeEvidenceReadinessWarnings([
+      ...input.verifiedLegalEvidence.warnings,
+      ...input.verifiedLegalSearchEvidence.warnings,
+      ...readLegalEvidenceReadinessWarnings(evidence),
+    ]),
+  };
+}
+
+function readLegalEvidenceReadinessWarnings(evidence: AssistantEvidence[]): EvidenceReadinessWarning[] {
+  const warnings: EvidenceReadinessWarning[] = [];
+  const seen = new Set<string>();
+  for (const item of evidence) {
+    if (!item.legal) {
+      continue;
+    }
+    if (item.legal.stale) {
+      const key = `stale:${item.legal.sourceId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        warnings.push({
+          code: "VERIFIED_LEGAL_EVIDENCE_STALE",
+          message: `Legal evidence "${item.title}" is stale and must not be treated as current legal basis.`,
+        });
+      }
+    }
+    if (item.legal.legalChangeWarnings.length > 0) {
+      const key = `change:${item.legal.sourceId}:${item.legal.legalChangeWarnings.join(",")}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        warnings.push({
+          code: "VERIFIED_LEGAL_CHANGE_WARNING",
+          message: `Legal evidence "${item.title}" has legal-change warnings: ${item.legal.legalChangeWarnings.join(", ")}.`,
+        });
+      }
+    }
+  }
+  return warnings;
+}
+
+function normalizeEvidenceReadinessWarnings(warnings: EvidenceReadinessWarning[]): EvidenceReadinessWarning[] {
+  const seen = new Set<string>();
+  return warnings
+    .map((warning): EvidenceReadinessWarning | null => {
+      const code = redactEvidenceReadinessWarningText(normalizeText(warning.code)) || "EVIDENCE_READINESS_WARNING";
+      const message = redactEvidenceReadinessWarningText(normalizeText(warning.message));
+      return message ? { code, message } : null;
+    })
+    .filter((warning): warning is EvidenceReadinessWarning => {
+      if (!warning) {
+        return false;
+      }
+      const key = `${warning.code}:${warning.message}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .filter((warning): warning is EvidenceReadinessWarning => Boolean(warning));
+}
+
+function redactEvidenceReadinessWarningText(value: string): string {
+  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
+  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
+  if (officialLawCredential) {
+    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
+  }
+  return redacted;
 }
 
 async function fetchVerifiedLegalEvidenceBundle(input: {
@@ -358,10 +494,14 @@ function normalizeOptionalHttpUrl(value: unknown) {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return undefined;
     }
-    url.searchParams.delete("OC");
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.toLowerCase() === "oc") {
+        url.searchParams.delete(key);
+      }
+    }
     const sanitized = url.toString();
     const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-    if (sanitized.includes(`OC${"="}`) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
+    if (/[?&]oc=/i.test(sanitized) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
       return undefined;
     }
 
@@ -374,6 +514,15 @@ function normalizeOptionalHttpUrl(value: unknown) {
 function containsOfficialLawCredential(values: string[]) {
   const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
   return values.some((value) => value.includes(`OC${"="}`) || Boolean(officialLawCredential && value.includes(officialLawCredential)));
+}
+
+function redactOfficialLawCredential(value: string) {
+  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
+  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
+  if (officialLawCredential) {
+    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
+  }
+  return redacted;
 }
 
 function normalizeConfidenceWeight(value: unknown, kind: AssistantEvidence["kind"]) {
@@ -424,8 +573,8 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const question = normalizeRequiredText(input.question, "question");
   const answer = normalizeRequiredText(input.answer, "answer");
-  const evidence = normalizeEvidence(input.evidence);
-  const confidence = normalizeConfidence(input.confidenceScore, evidence);
+  const evidence = normalizeAssistantEvidenceForStorage(input.evidence);
+  const confidence = normalizeLegalChangeConfidence(normalizeConfidence(input.confidenceScore, evidence), evidence);
 
   return assistantRepository.createRecord({
     projectId: task.projectId,
@@ -435,7 +584,9 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
     answer,
     evidence,
     confidenceScore: confidence,
-    confidenceReason: normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence),
+    confidenceReason: hasLegalChangeEvidenceImpact(evidence)
+      ? buildConfidenceReason(confidence, evidence)
+      : normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence),
     executionMode: normalizeExecutionMode(input.executionMode),
     runtimeMode: normalizeText(input.runtimeMode) || "mock",
     draftSummary: normalizeDraftSummary(input.draftSummary),
@@ -810,7 +961,7 @@ function compactExcerpt(parts: Array<string | null | undefined>) {
   return excerpt.length > 600 ? `${excerpt.slice(0, 597)}...` : excerpt;
 }
 
-function normalizeEvidence(value: unknown): AssistantEvidence[] {
+export function normalizeAssistantEvidenceForStorage(value: unknown): AssistantEvidence[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -829,9 +980,10 @@ function normalizeEvidence(value: unknown): AssistantEvidence[] {
         priority: Number.isFinite(record.priority) ? Number(record.priority) : index + 1,
         title: normalizeText(record.title) || "Evidence",
         excerpt: normalizeText(record.excerpt),
-        sourceUrl: normalizeOptionalText(record.sourceUrl),
+        sourceUrl: normalizeOptionalHttpUrl(record.sourceUrl),
         recordId: normalizeOptionalText(record.recordId),
         confidenceWeight: Number.isFinite(record.confidenceWeight) ? Number(record.confidenceWeight) : undefined,
+        legal: normalizeLegalEvidenceMetadata(record.legal),
       } satisfies AssistantEvidence;
       if (normalized.excerpt) {
         evidence.push(normalized);
@@ -839,6 +991,102 @@ function normalizeEvidence(value: unknown): AssistantEvidence[] {
     });
 
   return evidence;
+}
+
+function normalizeLegalEvidenceMetadata(value: unknown): AssistantLegalEvidenceMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sourceId = normalizeRedactedText(value.sourceId);
+  const sourceKind = normalizeText(value.sourceKind);
+  const authorityRank = normalizeText(value.authorityRank);
+  if (!sourceId || !isLegalSourceAuthorityPair(sourceKind, authorityRank)) {
+    return undefined;
+  }
+  const effective = normalizeLegalEffectiveRange(value.effective);
+  const locator = normalizeLegalLocator(value.locator);
+  return {
+    sourceId,
+    chunkId: normalizeOptionalRedactedText(value.chunkId),
+    sourceKind,
+    authorityRank,
+    ...(effective ? { effective } : {}),
+    ...(locator ? { locator } : {}),
+    stale: value.stale === true,
+    legalChangeWarnings: Array.isArray(value.legalChangeWarnings)
+      ? value.legalChangeWarnings
+        .map((warning) => normalizeRedactedText(warning))
+        .filter(Boolean)
+      : [],
+    confidenceReason: normalizeOptionalRedactedText(value.confidenceReason),
+  };
+}
+
+function isLegalSourceAuthorityPair(sourceKind: string, authorityRank: string): boolean {
+  return legalEvidenceAuthorityRankBySourceKind[sourceKind] === authorityRank;
+}
+
+function normalizeLegalEffectiveRange(value: unknown): AssistantLegalEvidenceMetadata["effective"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const effectiveFrom = normalizeOptionalText(value.effectiveFrom);
+  const effectiveTo = normalizeOptionalText(value.effectiveTo);
+  const promulgatedAt = normalizeOptionalText(value.promulgatedAt);
+  if (!effectiveFrom && !effectiveTo && !promulgatedAt) {
+    return undefined;
+  }
+  return {
+    ...(effectiveFrom ? { effectiveFrom } : {}),
+    ...(effectiveTo ? { effectiveTo } : {}),
+    ...(promulgatedAt ? { promulgatedAt } : {}),
+  };
+}
+
+function normalizeLegalLocator(value: unknown): Record<string, unknown> | undefined {
+  const normalized = sanitizeLegalLocatorValue(value);
+  return isRecord(normalized) && Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function sanitizeLegalLocatorValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    return normalizeOptionalHttpUrl(trimmed) ?? redactOfficialLawCredential(trimmed);
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "boolean" || value === null) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map(sanitizeLegalLocatorValue)
+      .filter((item) => item !== undefined);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = rawKey.trim();
+    if (!key || key.toLowerCase() === "oc") {
+      continue;
+    }
+    if (/oc\s*=/i.test(key) || redactOfficialLawCredential(key) !== key) {
+      continue;
+    }
+    const sanitized = sanitizeLegalLocatorValue(rawValue);
+    if (sanitized !== undefined) {
+      normalized[key] = sanitized;
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeEvidenceKind(value: unknown): AssistantEvidence["kind"] {
@@ -927,11 +1175,23 @@ function normalizeConfidence(value: unknown, evidence: AssistantEvidence[]) {
 }
 
 function buildConfidenceReason(score: number, evidence: AssistantEvidence[]) {
+  if (hasLegalChangeEvidenceImpact(evidence)) {
+    return `Legal change detected; confidence is capped at ${score}% and requires legal-change review before use as current legal basis.`;
+  }
+
   if (evidence.length === 0) {
     return "저장된 근거가 없어 신뢰도를 낮게 산정했습니다.";
   }
 
   return `SaaS task/project 근거 ${evidence.length}건을 기준으로 산정했습니다. 이 점수는 법적 확정이나 인허가 가능성 보장이 아닙니다. (${score}%)`;
+}
+
+function normalizeLegalChangeConfidence(score: number, evidence: AssistantEvidence[]) {
+  return hasLegalChangeEvidenceImpact(evidence) ? Math.min(score, 45) : score;
+}
+
+function hasLegalChangeEvidenceImpact(evidence: AssistantEvidence[]) {
+  return evidence.some((item) => item.legal?.stale || (item.legal?.legalChangeWarnings.length ?? 0) > 0);
 }
 
 function normalizeExecutionMode(value: unknown): AssistantExecutionMode {
@@ -970,6 +1230,14 @@ function normalizeOptionalText(value: unknown) {
   return normalizeText(value) || undefined;
 }
 
+function normalizeOptionalRedactedText(value: unknown) {
+  return normalizeRedactedText(value) || undefined;
+}
+
+function normalizeRedactedText(value: unknown) {
+  return redactOfficialLawCredential(normalizeText(value)).trim();
+}
+
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -977,3 +1245,18 @@ function normalizeText(value: unknown) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
+
+const legalEvidenceAuthorityRankBySourceKind: Record<string, string> = {
+  administrativeAppeal: "administrative_appeal",
+  administrativeRule: "administrative_rule_or_notice",
+  committeeDecision: "committee_decision",
+  constitutionalDecision: "constitutional_decision",
+  courtPrecedent: "court_precedent",
+  enforcementDecree: "enforcement_decree",
+  enforcementRule: "enforcement_rule",
+  localOrdinance: "local_ordinance",
+  molitInterpretation: "ministry_interpretation",
+  statute: "statute",
+  statutoryInterpretation: "statutory_interpretation",
+  supremeCourtPrecedent: "supreme_court_precedent",
+};

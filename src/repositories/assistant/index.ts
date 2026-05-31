@@ -32,6 +32,21 @@ export const assistantRepository: AssistantRepository = {
   findWorkSummaryDraftByRecordId(recordId) {
     return getAssistantRepository().findWorkSummaryDraftByRecordId(recordId);
   },
+  createThread(input) {
+    return getAssistantRepository().createThread(input);
+  },
+  appendThreadMessage(input) {
+    return getAssistantRepository().appendThreadMessage(input);
+  },
+  listRecentThreadMessages(threadId, limit) {
+    return getAssistantRepository().listRecentThreadMessages(threadId, limit);
+  },
+  updateThreadSummary(threadId, summary, provenance) {
+    return getAssistantRepository().updateThreadSummary(threadId, summary, provenance);
+  },
+  findThreadByTask(taskId) {
+    return getAssistantRepository().findThreadByTask(taskId);
+  },
   createRecord(input) {
     return getAssistantRepository().createRecord(input);
   },

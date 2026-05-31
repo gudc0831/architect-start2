@@ -7,6 +7,53 @@ export type AssistantEvidenceKind =
   | "project_document"
   | "web_or_skill";
 
+export type AssistantLegalEvidenceMetadata = {
+  sourceId: string;
+  chunkId?: string;
+  sourceKind: string;
+  authorityRank: string;
+  effective?: {
+    effectiveFrom?: string;
+    effectiveTo?: string;
+    promulgatedAt?: string;
+  };
+  locator?: Record<string, unknown>;
+  stale: boolean;
+  legalChangeWarnings: string[];
+  confidenceReason?: string;
+};
+
+export type AssistantThreadMessageRole = "user" | "assistant" | "system";
+
+export type AssistantThreadSummaryProvenance = {
+  sourceMessageIds?: string[];
+  generatedAt?: string;
+  provider?: string;
+  model?: string;
+};
+
+export type AssistantThread = {
+  id: string;
+  projectId: string;
+  taskId: string | null;
+  profileId: string;
+  title: string;
+  summary: string;
+  summaryProvenance: AssistantThreadSummaryProvenance;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssistantThreadMessage = {
+  id: string;
+  threadId: string;
+  assistantRecordId: string | null;
+  role: AssistantThreadMessageRole;
+  content: string;
+  evidenceSnapshot: AssistantEvidence[];
+  createdAt: string;
+};
+
 export type AssistantExecutionMode = "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
 
 export type AssistantEvidence = {
@@ -18,6 +65,7 @@ export type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  legal?: AssistantLegalEvidenceMetadata;
 };
 
 export type AssistantTaskContext = {

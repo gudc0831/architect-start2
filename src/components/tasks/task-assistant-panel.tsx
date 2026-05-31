@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
@@ -16,6 +16,20 @@ type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  legal?: {
+    sourceId?: string;
+    sourceKind?: string;
+    authorityRank?: string;
+    effective?: {
+      effectiveFrom?: string;
+      effectiveTo?: string;
+      promulgatedAt?: string;
+    };
+    locator?: Record<string, unknown>;
+    stale?: boolean;
+    legalChangeWarnings?: string[];
+    confidenceReason?: string;
+  };
 };
 
 type AssistantFileAnalysis = {
@@ -73,7 +87,13 @@ type DraftSummary = {
 type AssistantOutput = {
   answer: string;
   draftSummary: DraftSummary;
+  retrieval?: RetrieveResponse;
 };
+
+type EvidenceReadinessWarning = { code: string; message: string };
+type AssistantRecordConfidenceOverride = { confidenceScore?: number; confidenceReason?: string };
+const LEGAL_CHANGE_IMPACT_WARNING =
+  "인용된 근거 중 변경 감지된 법령이 있습니다. 적용일자와 최신 조문을 확인하세요.";
 
 type AssistantExecutionMode = "mock" | "saas-api" | "local-codex";
 const DEFAULT_ASSISTANT_EXECUTION_MODE: AssistantExecutionMode = "local-codex";
@@ -83,7 +103,8 @@ type RetrieveResponse = {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
   unavailableEvidenceKinds: string[];
-  evidenceReadinessWarnings?: Array<{ code: string; message: string }>;
+  evidenceReadinessWarnings?: EvidenceReadinessWarning[];
+  conversationMemory?: string;
 };
 
 type SavedAssistantRecord = {
@@ -164,6 +185,7 @@ type AssistantGenerateResponse = {
     callMode: "mock" | "live";
     requestId: string | null;
   };
+  retrieval?: unknown;
 };
 
 type LocalCodexStatus = {
@@ -334,6 +356,7 @@ export function TaskAssistantPanel({
   const [healthLoading, setHealthLoading] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
+  const reviewRequestSeqRef = useRef(0);
 
   const selectedTaskLabel = useMemo(() => (selectedTask ? formatTaskDisplayId(selectedTask) : ""), [selectedTask]);
   const closureGate = useMemo(
@@ -403,6 +426,7 @@ export function TaskAssistantPanel({
   }, [output, question, retrieveResult, selectedTask, summarySaveState]);
 
   useEffect(() => {
+    reviewRequestSeqRef.current += 1;
     setRetrieveResult(null);
     setOutput(null);
     setRecord(null);
@@ -440,6 +464,7 @@ export function TaskAssistantPanel({
     setLocalCodexHealth(null);
     setHealthLoading(false);
     setRecordHistoryLoading(false);
+    setBusy(false);
 
     if (!selectedTask) {
       setQuestion("");
@@ -537,6 +562,12 @@ export function TaskAssistantPanel({
       return;
     }
 
+    const reviewRequestId = reviewRequestSeqRef.current + 1;
+    reviewRequestSeqRef.current = reviewRequestId;
+    const requestedTaskId = selectedTask.id;
+    const requestedQuestion = question;
+    const requestedInstruction = instruction;
+    const requestedExecutionMode = executionMode;
     setBusy(true);
     setOutput(null);
     setRecord(null);
@@ -546,61 +577,91 @@ export function TaskAssistantPanel({
     setFollowUpTaskCreated(false);
     try {
       const retrieved = await postJson<RetrieveResponse>("/api/assistant/retrieve", {
-        taskId: selectedTask.id,
-        question,
+        taskId: requestedTaskId,
+        question: requestedQuestion,
       });
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+      if (retrieved.taskContext.taskId !== requestedTaskId) {
+        throw new Error("Assistant retrieval task mismatch. Please rerun the review for the selected task.");
+      }
       setRetrieveResult(retrieved);
 
       const generated =
-        executionMode === "saas-api"
+        requestedExecutionMode === "saas-api"
           ? await generateSaasApiReview({
-              instruction,
-              question,
+              fallbackRetrieval: retrieved,
+              instruction: requestedInstruction,
+              question: requestedQuestion,
               taskId: retrieved.taskContext.taskId,
             })
-          : executionMode === "local-codex"
+          : requestedExecutionMode === "local-codex"
             ? await generateLocalCodexReview({
                 evidence: retrieved.evidence,
-                instruction,
-                question,
+                evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+                instruction: requestedInstruction,
+                question: requestedQuestion,
                 taskContext: retrieved.taskContext,
               })
             : generateArchitectReview({
                 evidence: retrieved.evidence,
-                instruction,
-                question,
+                evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+                instruction: requestedInstruction,
+                question: requestedQuestion,
                 taskContext: retrieved.taskContext,
               });
+      const retrieveForRecord = generated.retrieval ?? retrieved;
+      if (retrieveForRecord.taskContext.taskId !== requestedTaskId) {
+        throw new Error("Assistant generated retrieval task mismatch. Please rerun the review for the selected task.");
+      }
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+      setRetrieveResult(retrieveForRecord);
       setOutput(generated);
       setSummaryDraft(generated.draftSummary);
       setSummaryTagsInput(generated.draftSummary.tags.join(", "));
       setClosureAcknowledged(false);
 
+      const confidenceOverride = buildAssistantRecordConfidenceOverride(retrieveForRecord);
       const savedRecord = await postJson<SavedAssistantRecord>("/api/assistant/records", {
-        taskId: retrieved.taskContext.taskId,
-        question,
+        taskId: retrieveForRecord.taskContext.taskId,
+        question: requestedQuestion,
         answer: generated.answer,
-        evidence: retrieved.evidence,
-        executionMode: toRecordExecutionMode(executionMode),
+        evidence: retrieveForRecord.evidence,
+        confidenceScore: confidenceOverride.confidenceScore,
+        confidenceReason: confidenceOverride.confidenceReason,
+        executionMode: toRecordExecutionMode(requestedExecutionMode),
         runtimeMode:
-          executionMode === "saas-api"
+          requestedExecutionMode === "saas-api"
             ? "saas-api-daily-task-panel"
-            : executionMode === "local-codex"
+            : requestedExecutionMode === "local-codex"
               ? "extension-native-bridge-in-page"
               : "saas-daily-task-panel",
         draftSummary: generated.draftSummary,
       });
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
       setRecord(savedRecord);
-      await refreshAssistantRecords(retrieved.taskContext.taskId);
+      await refreshAssistantRecords(retrieveForRecord.taskContext.taskId, reviewRequestId);
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
       setStatus(
-        executionMode === "saas-api"
+        requestedExecutionMode === "saas-api"
           ? `SaaS API 모드 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
           : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
       );
     } catch (error) {
-      setStatus(errorMessage(error));
+      if (reviewRequestSeqRef.current === reviewRequestId) {
+        setStatus(errorMessage(error));
+      }
     } finally {
-      setBusy(false);
+      if (reviewRequestSeqRef.current === reviewRequestId) {
+        setBusy(false);
+      }
     }
   }
 
@@ -622,15 +683,25 @@ export function TaskAssistantPanel({
     }
   }
 
-  async function refreshAssistantRecords(taskId: string) {
+  async function refreshAssistantRecords(taskId: string, reviewRequestId?: number) {
+    if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
+      return;
+    }
     setRecordHistoryLoading(true);
     try {
       const items = await getJson<AssistantRecordHistoryItem[]>(`/api/assistant/records?taskId=${encodeURIComponent(taskId)}`);
+      if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
       setRecordHistory(items);
     } catch (error) {
-      setStatus(errorMessage(error));
+      if (reviewRequestId === undefined || reviewRequestSeqRef.current === reviewRequestId) {
+        setStatus(errorMessage(error));
+      }
     } finally {
-      setRecordHistoryLoading(false);
+      if (reviewRequestId === undefined || reviewRequestSeqRef.current === reviewRequestId) {
+        setRecordHistoryLoading(false);
+      }
     }
   }
 
@@ -1510,6 +1581,12 @@ export function TaskAssistantPanel({
                     <p>{retrieveResult.evidenceReadinessWarnings.map((warning) => warning.message).join(" ")}</p>
                   </div>
                 ) : null}
+                {hasLegalChangeImpactWarning(retrieveResult) ? (
+                  <div className="task-assistant__missing-evidence" role="status">
+                    <strong>Legal change detected - requires review</strong>
+                    <p>{LEGAL_CHANGE_IMPACT_WARNING}</p>
+                  </div>
+                ) : null}
                 <div className="task-assistant__evidence-list">
                   {retrieveResult.evidence.slice(0, 10).map((item) => (
                       <article className="task-assistant__evidence" key={item.id}>
@@ -2011,26 +2088,34 @@ function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
-async function generateSaasApiReview(input: { taskId: string; question: string; instruction: string }): Promise<AssistantOutput> {
+async function generateSaasApiReview(input: {
+  taskId: string;
+  question: string;
+  instruction: string;
+  fallbackRetrieval: RetrieveResponse;
+}): Promise<AssistantOutput> {
   const generated = await postJson<AssistantGenerateResponse>("/api/assistant/generate", {
     taskId: input.taskId,
     question: input.question,
     instruction: input.instruction,
   });
+  const generatedRetrieval = normalizeGeneratedRetrieval(generated.retrieval) ?? input.fallbackRetrieval;
 
   return {
     answer: [
-      generated.answer,
+      appendLegalChangeReviewNotice(generated.answer, generatedRetrieval),
       `Provider: ${generated.provider.provider} / ${generated.provider.model} / ${generated.provider.callMode}`,
       `사용량: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
     ].join("\n\n"),
     draftSummary: generated.suggestedDraftSummary,
+    retrieval: generatedRetrieval,
   };
 }
 
 async function generateLocalCodexReview(input: {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
+  evidenceReadinessWarnings?: EvidenceReadinessWarning[];
   instruction: string;
   question: string;
 }): Promise<AssistantOutput> {
@@ -2046,11 +2131,21 @@ async function generateLocalCodexReview(input: {
       question: input.question,
       taskContext: input.taskContext,
       evidence: input.evidence,
+      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     },
     120000,
   );
 
-  return normalizeLocalCodexOutput(generated, input.taskContext);
+  const output = normalizeLocalCodexOutput(generated, input.taskContext);
+  return {
+    ...output,
+    answer: appendLegalChangeReviewNotice(output.answer, {
+      taskContext: input.taskContext,
+      evidence: input.evidence,
+      unavailableEvidenceKinds: [],
+      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+    }),
+  };
 }
 
 function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext: AssistantTaskContext): AssistantOutput {
@@ -2078,6 +2173,121 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
           : "Task 기록을 업데이트하기 전에 인용 근거를 확인하세요.",
     },
   };
+}
+
+function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const taskContext = normalizeGeneratedTaskContext(value.taskContext);
+  if (!taskContext || !Array.isArray(value.evidence) || !Array.isArray(value.unavailableEvidenceKinds)) {
+    return undefined;
+  }
+
+  return {
+    taskContext,
+    evidence: value.evidence
+      .map(normalizeGeneratedEvidence)
+      .filter((item): item is AssistantEvidence => Boolean(item)),
+    unavailableEvidenceKinds: value.unavailableEvidenceKinds.filter((item): item is string => typeof item === "string"),
+    evidenceReadinessWarnings: Array.isArray(value.evidenceReadinessWarnings)
+      ? value.evidenceReadinessWarnings
+        .map(normalizeGeneratedEvidenceReadinessWarning)
+        .filter((item): item is EvidenceReadinessWarning => Boolean(item))
+      : [],
+    conversationMemory: typeof value.conversationMemory === "string" ? value.conversationMemory : "",
+  };
+}
+
+function normalizeGeneratedTaskContext(value: unknown): AssistantTaskContext | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const taskContext = {
+    taskId: normalizeGeneratedString(value.taskId),
+    projectId: normalizeGeneratedString(value.projectId),
+    title: normalizeGeneratedString(value.title),
+    description: normalizeGeneratedString(value.description),
+    status: normalizeGeneratedString(value.status),
+    issueId: normalizeGeneratedString(value.issueId),
+    projectName: normalizeGeneratedString(value.projectName),
+  };
+  return taskContext.taskId && taskContext.projectId ? taskContext : undefined;
+}
+
+function normalizeGeneratedEvidence(value: unknown): AssistantEvidence | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = normalizeGeneratedString(value.id);
+  const kind = normalizeGeneratedString(value.kind);
+  const title = normalizeGeneratedString(value.title);
+  const excerpt = normalizeGeneratedString(value.excerpt);
+  if (!id || !isAssistantEvidenceKind(kind) || !title || !excerpt) {
+    return undefined;
+  }
+  return {
+    id,
+    kind,
+    priority: typeof value.priority === "number" && Number.isFinite(value.priority) ? value.priority : 99,
+    title,
+    excerpt,
+    sourceUrl: normalizeGeneratedOptionalString(value.sourceUrl),
+    recordId: normalizeGeneratedOptionalString(value.recordId),
+    confidenceWeight: typeof value.confidenceWeight === "number" && Number.isFinite(value.confidenceWeight)
+      ? value.confidenceWeight
+      : undefined,
+    legal: normalizeGeneratedLegalMetadata(value.legal),
+  };
+}
+
+function normalizeGeneratedLegalMetadata(value: unknown): AssistantEvidence["legal"] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sourceId = normalizeGeneratedOptionalString(value.sourceId);
+  const sourceKind = normalizeGeneratedOptionalString(value.sourceKind);
+  const authorityRank = normalizeGeneratedOptionalString(value.authorityRank);
+  if (!sourceId || !sourceKind || !authorityRank) {
+    return undefined;
+  }
+  return {
+    sourceId,
+    sourceKind,
+    authorityRank,
+    effective: isRecord(value.effective) ? {
+      effectiveFrom: normalizeGeneratedOptionalString(value.effective.effectiveFrom),
+      effectiveTo: normalizeGeneratedOptionalString(value.effective.effectiveTo),
+      promulgatedAt: normalizeGeneratedOptionalString(value.effective.promulgatedAt),
+    } : undefined,
+    locator: isRecord(value.locator) ? value.locator : undefined,
+    stale: value.stale === true,
+    legalChangeWarnings: Array.isArray(value.legalChangeWarnings)
+      ? value.legalChangeWarnings.filter((item): item is string => typeof item === "string")
+      : [],
+    confidenceReason: normalizeGeneratedOptionalString(value.confidenceReason),
+  };
+}
+
+function normalizeGeneratedEvidenceReadinessWarning(value: unknown): EvidenceReadinessWarning | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const code = normalizeGeneratedString(value.code);
+  const message = normalizeGeneratedString(value.message);
+  return code && message ? { code, message } : undefined;
+}
+
+function normalizeGeneratedOptionalString(value: unknown): string | undefined {
+  return normalizeGeneratedString(value) || undefined;
+}
+
+function normalizeGeneratedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealthReport {
@@ -2326,6 +2536,7 @@ function localCodexDiagnostic(report: LocalCodexHealthReport) {
 function generateArchitectReview(input: {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
+  evidenceReadinessWarnings?: EvidenceReadinessWarning[];
   question: string;
   instruction: string;
 }): AssistantOutput {
@@ -2345,12 +2556,15 @@ function generateArchitectReview(input: {
         }`
       : null;
 
+  const evidenceReadinessSummary = formatEvidenceReadinessWarningsForAssistant(input.evidenceReadinessWarnings);
+
   return {
     answer: [
       `${taskLabel} task를 건축 실무 검토 관점으로 확인했습니다.`,
       `사용자 지침: ${input.instruction}`,
       `주요 근거: ${evidenceSummary}`,
       externalEvidenceSummary,
+      evidenceReadinessSummary,
       "의견: 현재 기록만으로 확정 판단하지 말고, 관련 도면/기준 문서/협의 이력을 함께 확인한 뒤 task 기록에 반영하는 방식이 안전합니다.",
       "후속 조치: 부족한 근거를 보강하고, 담당자 확인이 필요한 항목은 별도 follow-up task로 분리하세요.",
     ].filter(Boolean).join("\n\n"),
@@ -2361,6 +2575,61 @@ function generateArchitectReview(input: {
       followUpAction: "도면, 첨부 파일, 공식 기준 문서를 확인한 뒤 검토 결론을 task 기록에 반영하세요.",
     },
   };
+}
+
+function formatEvidenceReadinessWarningsForAssistant(warnings: EvidenceReadinessWarning[] | undefined): string | null {
+  if (!warnings?.length) {
+    return null;
+  }
+
+  const legalChangeNotice = warnings.some(isLegalChangeImpactWarning)
+    ? [`Legal change impact: ${LEGAL_CHANGE_IMPACT_WARNING}`, "Confidence is lowered and the answer requires review."]
+    : [];
+
+  return [
+    "Evidence readiness warnings:",
+    ...legalChangeNotice,
+    ...warnings.slice(0, 8).map((warning, index) => `${index + 1}. [${warning.code}] ${warning.message}`),
+  ].join("\n");
+}
+
+function appendLegalChangeReviewNotice(answer: string, retrieval: RetrieveResponse | null | undefined): string {
+  if (!hasLegalChangeImpactWarning(retrieval) || answer.includes(LEGAL_CHANGE_IMPACT_WARNING)) {
+    return answer;
+  }
+
+  return [
+    answer,
+    [
+      "Legal change detected - requires review",
+      LEGAL_CHANGE_IMPACT_WARNING,
+      "Confidence is lowered and the answer requires review.",
+    ].join("\n"),
+  ].join("\n\n");
+}
+
+function buildAssistantRecordConfidenceOverride(result: RetrieveResponse): AssistantRecordConfidenceOverride {
+  if (!hasLegalChangeImpactWarning(result)) {
+    return {};
+  }
+
+  return {
+    confidenceScore: 45,
+    confidenceReason:
+      "Legal change detected; confidence is capped at 45% and requires legal-change review before use as current legal basis.",
+  };
+}
+
+function hasLegalChangeImpactWarning(result: RetrieveResponse | null | undefined): boolean {
+  if (!result) {
+    return false;
+  }
+  return Boolean(result.evidenceReadinessWarnings?.some(isLegalChangeImpactWarning)) ||
+    result.evidence.some((item) => item.legal?.stale || (item.legal?.legalChangeWarnings?.length ?? 0) > 0);
+}
+
+function isLegalChangeImpactWarning(warning: EvidenceReadinessWarning): boolean {
+  return /LEGAL_CHANGE|STALE/i.test(`${warning.code} ${warning.message}`);
 }
 
 async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
