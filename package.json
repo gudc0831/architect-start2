@@ -29,6 +29,7 @@
     "legal-change-monitor:validate": "tsx scripts/legal-change-monitor-validate.ts",
     "legal-batch-audit:validate": "tsx scripts/legal-batch-audit-adapter-validate.ts",
     "legal-search:validate": "tsx scripts/legal-search-adapter-validate.ts",
+    "verified-legal-candidate-import:validate": "tsx scripts/verified-legal-candidate-import-validate.ts",
     "legal-manual-smoke:validate": "tsx scripts/legal-manual-smoke-report-validate.ts",
     "legal-manual-smoke:capture": "tsx scripts/legal-manual-smoke-capture.ts",
     "legal-manual-smoke:generate-capture": "tsx scripts/legal-manual-smoke-generate-capture.ts",

@@ -15,6 +15,8 @@ const generateRoutePath = join(root, "src", "app", "api", "assistant", "generate
 const legalChangesRoutePath = join(root, "src", "app", "api", "legal-changes", "route.ts");
 const legalChangeServicePath = join(root, "src", "use-cases", "legal-change-service.ts");
 const legalChangeTypesPath = join(root, "src", "domains", "legal", "change-events.ts");
+const verifiedLegalCandidateImportServicePath = join(root, "src", "use-cases", "admin", "verified-legal-candidate-import-service.ts");
+const verifiedLegalCandidateImportRoutePath = join(root, "src", "app", "api", "admin", "knowledge", "verified-legal-candidates", "import", "route.ts");
 const envExamplePath = join(root, ".env.example");
 
 const assistantService = readFileSync(assistantServicePath, "utf8");
@@ -25,6 +27,8 @@ const generateRoute = readFileSync(generateRoutePath, "utf8");
 const legalChangesRoute = readFileSync(legalChangesRoutePath, "utf8");
 const legalChangeService = readFileSync(legalChangeServicePath, "utf8");
 const legalChangeTypes = readFileSync(legalChangeTypesPath, "utf8");
+const verifiedLegalCandidateImportService = readFileSync(verifiedLegalCandidateImportServicePath, "utf8");
+const verifiedLegalCandidateImportRoute = readFileSync(verifiedLegalCandidateImportRoutePath, "utf8");
 const envExample = readFileSync(envExamplePath, "utf8");
 
 const checks: CheckResult[] = [
@@ -139,6 +143,20 @@ const checks: CheckResult[] = [
       assistantService.includes("normalizeLegalChangeConfidence") &&
       assistantService.includes("hasLegalChangeEvidenceImpact(evidence)") &&
       /confidenceReason:\s*hasLegalChangeEvidenceImpact\(evidence\)\s*\?\s*buildConfidenceReason/.test(assistantService),
+  },
+  {
+    name: "verified legal candidate import stays pending review",
+    passed:
+      verifiedLegalCandidateImportService.includes('candidateState: "pending_review"') &&
+      verifiedLegalCandidateImportService.includes("assistantRepository.createRecord") &&
+      !/reviewKnowledgeCandidate|\/approve|candidateState:\s*"approved"|central_knowledge/.test(verifiedLegalCandidateImportService),
+  },
+  {
+    name: "verified legal candidate import route is admin gated without approval bypass",
+    passed:
+      verifiedLegalCandidateImportRoute.includes("requireKnowledgeAdmin()") &&
+      verifiedLegalCandidateImportRoute.includes("requireCurrentProjectAccess(user)") &&
+      !/reviewKnowledgeCandidate|\/approve|candidateState:\s*"approved"|central_knowledge/.test(verifiedLegalCandidateImportRoute),
   },
 ];
 
