@@ -17,6 +17,7 @@ type FetchVerifiedLegalSearchEvidenceInput = {
   jurisdiction?: string;
   effectiveDate?: string;
   serviceUrl?: string;
+  apiSecret?: string;
   fetchImpl?: FetchImpl;
   timeoutMs?: number;
 };
@@ -98,6 +99,16 @@ export async function fetchVerifiedLegalSearchEvidence(
   if (!serviceUrl) {
     return { evidence: [], warnings: [] };
   }
+  const apiSecret = resolveLegalEvidenceApiSecret(input.apiSecret);
+  if (!apiSecret) {
+    return {
+      evidence: [],
+      warnings: [{
+        code: "VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING",
+        message: "Verified Legal Evidence API is configured, but the SaaS server has no server-to-server API secret.",
+      }],
+    };
+  }
 
   let endpoint: URL;
   try {
@@ -115,7 +126,10 @@ export async function fetchVerifiedLegalSearchEvidence(
   try {
     response = await (input.fetchImpl ?? fetch)(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-verified-legal-evidence-api-secret": apiSecret,
+      },
       body: JSON.stringify({
         query: input.question,
         jurisdiction: normalizeOptionalText(input.jurisdiction),
@@ -178,6 +192,10 @@ function invalidLegalSearchResponse(): VerifiedLegalSearchResult {
     evidence: [],
     warnings: [{ code: "VERIFIED_LEGAL_SEARCH_INVALID", message: "Verified legal search response is invalid." }],
   };
+}
+
+function resolveLegalEvidenceApiSecret(inputApiSecret: string | undefined): string {
+  return inputApiSecret?.trim() || process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET?.trim() || "";
 }
 
 function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEvidence | null {

@@ -312,6 +312,18 @@ async function fetchVerifiedLegalEvidenceBundle(input: {
   if (!serviceUrl) {
     return { evidence: [], warnings: [] };
   }
+  const apiSecret = process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET?.trim();
+  if (!apiSecret) {
+    return {
+      evidence: [],
+      warnings: [
+        {
+          code: "VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING",
+          message: "Verified Legal Evidence API is configured, but the SaaS server has no server-to-server API secret.",
+        },
+      ],
+    };
+  }
   if (input.sourceIds.length === 0) {
     return {
       evidence: [],
@@ -344,7 +356,10 @@ async function fetchVerifiedLegalEvidenceBundle(input: {
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-verified-legal-evidence-api-secret": apiSecret,
+      },
       body: JSON.stringify({
         question: input.question,
         sourceIds: input.sourceIds,

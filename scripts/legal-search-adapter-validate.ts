@@ -180,10 +180,12 @@ async function main() {
   const previousLegalEvidenceApiUrl = process.env.VERIFIED_LEGAL_EVIDENCE_API_URL;
   const previousLegalSearchApiUrl = process.env.VERIFIED_LEGAL_SEARCH_API_URL;
   const previousLegalSearchEnabled = process.env.VERIFIED_LEGAL_SEARCH_ENABLED;
+  const previousVerifiedLegalEvidenceApiSecret = process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET;
   try {
     process.env.VERIFIED_LEGAL_EVIDENCE_API_URL = "http://legacy-evidence.local";
     delete process.env.VERIFIED_LEGAL_SEARCH_API_URL;
     delete process.env.VERIFIED_LEGAL_SEARCH_ENABLED;
+    process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET = "fixture-legal-api-secret";
     let legacyOnlyFetchCalled = false;
     const legacyOnly = await fetchVerifiedLegalSearchEvidence({
       question: "legacy bundle only",
@@ -223,6 +225,7 @@ async function main() {
     restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", previousLegalEvidenceApiUrl);
     restoreEnv("VERIFIED_LEGAL_SEARCH_API_URL", previousLegalSearchApiUrl);
     restoreEnv("VERIFIED_LEGAL_SEARCH_ENABLED", previousLegalSearchEnabled);
+    restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", previousVerifiedLegalEvidenceApiSecret);
   }
 
   const previousLawOpenDataOc = process.env.LAW_OPEN_DATA_OC;
@@ -505,16 +508,18 @@ async function main() {
   }]);
   assert.equal(malformedStoredLegalEvidence[0]?.legal, undefined);
 
-  const captured: Array<{ url: string; body: unknown; signal?: AbortSignal }> = [];
+  const captured: Array<{ url: string; body: unknown; headers?: Record<string, string>; signal?: AbortSignal }> = [];
   const fetched = await fetchVerifiedLegalSearchEvidence({
     question: "건축법 제11조",
     jurisdiction: "서울",
     effectiveDate: "2026-05-30",
     serviceUrl: "http://legal.local",
+    apiSecret: "fixture-legal-api-secret",
     fetchImpl: async (input, init) => {
       captured.push({
         url: String(input),
         body: JSON.parse(String(init?.body)),
+        headers: init?.headers as Record<string, string> | undefined,
         signal: init?.signal ?? undefined,
       });
       return Response.json({
@@ -547,10 +552,12 @@ async function main() {
   assert.equal(JSON.stringify(captured[0]?.body).includes("diagnosticMode"), false);
   assert.equal(JSON.stringify(captured[0]?.body).includes("sourceIds"), false);
   assert.equal(JSON.stringify(captured[0]?.body).includes("authority"), false);
+  assert.equal(captured[0]?.headers?.["x-verified-legal-evidence-api-secret"], "fixture-legal-api-secret");
 
   const invalidJsonOkResponse = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",
     serviceUrl: "http://legal.local",
+    apiSecret: "fixture-legal-api-secret",
     fetchImpl: async () => new Response("not-json", { status: 200 }),
   });
   assert.deepEqual(invalidJsonOkResponse.evidence, []);
@@ -816,6 +823,7 @@ async function main() {
   const httpError = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",
     serviceUrl: "http://legal.local",
+    apiSecret: "fixture-legal-api-secret",
     fetchImpl: async () => new Response("nope", { status: 503 }),
   });
   assert.deepEqual(httpError.evidence, []);
@@ -824,6 +832,7 @@ async function main() {
   const unreachable = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",
     serviceUrl: "http://legal.local",
+    apiSecret: "fixture-legal-api-secret",
     fetchImpl: async () => {
       throw new Error("network down");
     },
@@ -834,6 +843,7 @@ async function main() {
   const invalidUrl = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",
     serviceUrl: "not a url",
+    apiSecret: "fixture-legal-api-secret",
     fetchImpl: async () => {
       throw new Error("fetch should not be called");
     },

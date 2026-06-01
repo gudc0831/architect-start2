@@ -40,6 +40,7 @@ const checks: CheckResult[] = [
     name: "verified evidence URL is documented as server-only env",
     passed:
       envExample.includes("VERIFIED_LEGAL_EVIDENCE_API_URL=http://localhost:4100") &&
+      envExample.includes("VERIFIED_LEGAL_EVIDENCE_API_SECRET=") &&
       envExample.includes("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS=") &&
       envExample.includes("Browser clients must never call this URL directly."),
   },
@@ -48,6 +49,15 @@ const checks: CheckResult[] = [
     passed:
       assistantService.includes("process.env.VERIFIED_LEGAL_EVIDENCE_API_URL") &&
       !retrieveRoute.includes("VERIFIED_LEGAL_EVIDENCE_API_URL"),
+  },
+  {
+    name: "verified evidence server-to-server secret is required and forwarded",
+    passed:
+      assistantService.includes("process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET") &&
+      assistantService.includes("VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING") &&
+      assistantService.includes('"x-verified-legal-evidence-api-secret": apiSecret') &&
+      verifiedLegalSearchService.includes("process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET") &&
+      verifiedLegalSearchService.includes('"x-verified-legal-evidence-api-secret": apiSecret'),
   },
   {
     name: "task-review path continues when VERIFIED_LEGAL_EVIDENCE_API_URL is unset",
