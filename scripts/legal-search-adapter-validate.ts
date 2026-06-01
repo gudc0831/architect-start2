@@ -508,6 +508,17 @@ async function main() {
   }]);
   assert.equal(malformedStoredLegalEvidence[0]?.legal, undefined);
 
+  const missingApiSecret = await fetchVerifiedLegalSearchEvidence({
+    question: "건축법",
+    serviceUrl: "http://legal.local",
+    apiSecret: "",
+    fetchImpl: async () => {
+      throw new Error("fetch must not run without VERIFIED_LEGAL_EVIDENCE_API_SECRET");
+    },
+  });
+  assert.deepEqual(missingApiSecret.evidence, []);
+  assert.equal(missingApiSecret.warnings[0]?.code, "VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING");
+
   const captured: Array<{ url: string; body: unknown; headers?: Record<string, string>; signal?: AbortSignal }> = [];
   const fetched = await fetchVerifiedLegalSearchEvidence({
     question: "건축법 제11조",

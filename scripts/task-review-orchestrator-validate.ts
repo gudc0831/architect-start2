@@ -60,6 +60,10 @@ const checks: CheckResult[] = [
       verifiedLegalSearchService.includes('"x-verified-legal-evidence-api-secret": apiSecret'),
   },
   {
+    name: "verified legal search blocks configured URL without server secret",
+    passed: verifiedLegalSearchService.includes("VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING"),
+  },
+  {
     name: "task-review path continues when VERIFIED_LEGAL_EVIDENCE_API_URL is unset",
     passed:
       /const serviceUrl = process\.env\.VERIFIED_LEGAL_EVIDENCE_API_URL\?\.trim\(\);[\s\S]*?if \(!serviceUrl\) \{[\s\S]*?return \{ evidence: \[\], warnings: \[\] \};[\s\S]*?\}/.test(assistantService) &&
