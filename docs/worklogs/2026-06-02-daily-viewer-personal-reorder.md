@@ -1,0 +1,4 @@
+Req: Allow `/daily` viewers to customize their own task order when no personal ordering history exists by falling back to the default shared order; keep task creation placement as the existing shared behavior.
+Diff: Split `/api/tasks/reorder` authorization so profile-scoped daily reorder uses project read access while global reorder still requires editor access; added `canReorderDailyTasks` in the daily workspace; passed a separate row-reorder capability through the daily table so viewers can drag/reorder without enabling edit/create/delete controls; updated the responsiveness verification script for the new access split.
+Why: Daily ordering is a personal preference, but task creation and canonical/global order remain shared workspace state and should stay editor-owned.
+Verify/Time: `npx tsx scripts/daily-editing-responsiveness-verify.ts`; `npx tsc --noEmit --incremental false`; `npm run lint`; `npm run build` passed locally on 2026-06-02 KST. Deployment pending.

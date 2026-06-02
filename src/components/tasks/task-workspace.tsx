@@ -92,7 +92,7 @@ import { useTheme } from "@/providers/theme-provider";
 import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { AssistantActionAuditRecord } from "@/domains/assistant/saas-api-mode";
 import { getFilePreviewKind, isFilePreviewable } from "@/domains/file/metadata";
-import { canEditProjectWorkspace } from "@/lib/auth/project-capabilities";
+import { canEditProjectWorkspace, canReadProject } from "@/lib/auth/project-capabilities";
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -509,6 +509,7 @@ type DailyTaskTableRowProps = {
   interactionStore: TaskListRowInteractionStore;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
+  canReorderRows: boolean;
   isPreviewReadOnly: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
@@ -540,6 +541,7 @@ type DailyTaskTableBodyProps = {
   hideIssueIdOverdueBadge: boolean;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
+  canReorderRows: boolean;
   isPreviewReadOnly: boolean;
   activeTaskListInlineEditRowId: string | null;
   draft: TaskRecord | null;
@@ -1049,6 +1051,15 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     !isPreview &&
     Boolean(authUser) &&
     canEditProjectWorkspace({
+      globalRole: authUser?.role ?? "member",
+      projectRole: currentProjectRole,
+    });
+  const canReorderDailyTasks =
+    mode === "daily" &&
+    !isPreview &&
+    Boolean(authUser) &&
+    Boolean(currentProjectId) &&
+    canReadProject({
       globalRole: authUser?.role ?? "member",
       projectRole: currentProjectRole,
     });
@@ -2628,11 +2639,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       total: dailyTreeRows.length,
     });
   }, [activeDailyTaskPage, dailyTreeRows.length, isPagedDailyListView]);
-  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || isWorkspaceReadOnly;
+  const isDailyManualReorderDisabled = hasActiveDailyFilters || isPagedDailyListView || !canReorderDailyTasks;
   const shouldVirtualizeDailyTaskTable =
     mode === "daily" && !isMobileViewport && !isPagedDailyListView && !isWorkspaceReadOnly;
   const shouldUseDailyGridBodyV2 = USE_DAILY_GRID_BODY_V2 && shouldVirtualizeDailyTaskTable;
-  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled || isWorkspaceReadOnly;
+  const isDailyHtmlDragReorderDisabled = isDailyManualReorderDisabled;
 
   useEffect(() => {
     dailyTreeRowsRef.current = dailyTreeRows;
@@ -3745,7 +3756,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const flushDailyMutationJournal = useCallback(
     async (options: { manual?: boolean } = {}) => {
       const scope = dailyMutationScopeRef.current;
-      if (!scope || dailyMutationFlushRunningRef.current || isWorkspaceReadOnly) {
+      if (!scope || dailyMutationFlushRunningRef.current || (!canEditWorkspace && !canReorderDailyTasks)) {
         return;
       }
 
@@ -3771,6 +3782,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           }
 
           if (!options.manual && operation.nextRetryAt && Date.parse(operation.nextRetryAt) > now) {
+            continue;
+          }
+
+          if (operation.payload.kind === "reorder") {
+            if (!canReorderDailyTasks) {
+              continue;
+            }
+          } else if (!canEditWorkspace) {
             continue;
           }
 
@@ -3813,7 +3832,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
         await refreshDailyMutationJournal();
       }
     },
-    [isWorkspaceReadOnly, refreshDailyMutationJournal],
+    [canEditWorkspace, canReorderDailyTasks, refreshDailyMutationJournal],
   );
 
   useEffect(() => {
@@ -4605,7 +4624,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    if (mode !== "daily" || isWorkspaceReadOnly || !taskReorderStorageKey || !dashboardStateByScope.active.loaded) {
+    if (mode !== "daily" || !canReorderDailyTasks || !taskReorderStorageKey || !dashboardStateByScope.active.loaded) {
       return;
     }
 
@@ -4663,7 +4682,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     dailyMutationScope,
     flushDailyMutationJournal,
     flushTaskReorderQueue,
-    isWorkspaceReadOnly,
+    canReorderDailyTasks,
     mode,
     setActiveTasksForContinuousReorder,
     taskReorderStorageKey,
@@ -4676,12 +4695,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       command: TaskReorderClientCommand,
       nextMode: DailyTaskSortMode,
     ) => {
-      if (isWorkspaceReadOnly) {
+      if (!canReorderDailyTasks) {
         setErrorMessage(t("errors.workspaceReadOnly"));
         return false;
       }
 
-      stageSelectedTaskDraftForContinuousAction();
+      if (canEditWorkspace) {
+        stageSelectedTaskDraftForContinuousAction();
+      }
 
       setErrorMessage(null);
 
@@ -4743,8 +4764,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [
       flushDailyMutationJournal,
       flushTaskReorderQueue,
+      canEditWorkspace,
+      canReorderDailyTasks,
       dailyMutationScope,
-      isWorkspaceReadOnly,
       putDailyJournalOperation,
       setActiveTasksForContinuousReorder,
       setErrorMessage,
@@ -4878,7 +4900,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   function renderTaskListHeaderControl(column: TaskListColumnConfig) {
     if (column.headerControl?.kind === "sortMenu") {
-      if (isPreviewDaily) {
+      if (!canReorderDailyTasks) {
         return null;
       }
 
@@ -6796,7 +6818,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             <span className="daily-task-card__files-label">{labelForField("linkedDocuments")}</span>
                             <strong>{linkedDocumentsDisplay.primary}</strong>
                             {linkedDocumentsDisplay.secondary ? <small>{linkedDocumentsDisplay.secondary}</small> : null}
-                            {!isWorkspaceReadOnly ? <div className="daily-task-card__reorder-actions">
+                            {canReorderDailyTasks ? <div className="daily-task-card__reorder-actions">
                               <button
                                 aria-label="위로 이동"
                                 className="secondary-button"
@@ -6918,6 +6940,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                             interactionStore={taskListRowInteractionStore}
                             isHtmlDragReorderDisabled={isDailyHtmlDragReorderDisabled}
                             isManualReorderDisabled={isDailyManualReorderDisabled}
+                            canReorderRows={canReorderDailyTasks}
                             isPreviewReadOnly={isWorkspaceReadOnly}
                             layoutStore={taskListLayoutStore}
                             moveTaskByOffset={moveTaskByOffset}
@@ -7663,6 +7686,7 @@ function DailyTaskTableBody({
   hideIssueIdOverdueBadge,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
+  canReorderRows,
   isPreviewReadOnly,
   activeTaskListInlineEditRowId,
   draft,
@@ -7720,6 +7744,7 @@ function DailyTaskTableBody({
               handleTaskRowDrop={handleTaskRowDrop}
               isHtmlDragReorderDisabled={isHtmlDragReorderDisabled}
               isManualReorderDisabled={isManualReorderDisabled}
+              canReorderRows={canReorderRows}
               hideIssueIdOverdueBadge={hideIssueIdOverdueBadge}
               inlineSavingFields={inlineSavingFields}
               isPreviewReadOnly={isPreviewReadOnly}
@@ -7772,7 +7797,7 @@ function DailyTaskTableBody({
                       <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
                     </span>
                   ) : null}
-                  {!isPreviewReadOnly ? (
+                  {canReorderRows ? (
                   <button
                     aria-label="재정렬"
                     className="task-tree__drag-handle"
@@ -7802,7 +7827,7 @@ function DailyTaskTableBody({
                       {deadlineBadge.label}
                     </span>
                   ) : null}
-                  {interactionSnapshot.isSelectedRow && !isPreviewReadOnly ? (
+                  {interactionSnapshot.isSelectedRow && canReorderRows ? (
                     <span className="task-tree__actions">
                       <button
                         aria-label="위로 이동"
@@ -7949,8 +7974,8 @@ function DailyTaskTableBody({
             data-task-row-id={task.id}
             key={task.id}
             onClick={() => selectTask(task.id)}
-            onDragOver={!isPreviewReadOnly ? (event) => handleTaskRowDragOver(task, event) : undefined}
-            onDrop={!isPreviewReadOnly ? (event) => void handleTaskRowDrop(task, event) : undefined}
+            onDragOver={canReorderRows ? (event) => handleTaskRowDragOver(task, event) : undefined}
+            onDrop={canReorderRows ? (event) => void handleTaskRowDrop(task, event) : undefined}
           >
             {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
           </tr>
@@ -7969,6 +7994,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
   interactionStore,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
+  canReorderRows,
   isPreviewReadOnly,
   rowDraft,
   inlineSavingFields,
@@ -8017,7 +8043,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 <span className={clsx("task-tree__branch", presentation.isLastChild ? "task-tree__branch--last" : "task-tree__branch--middle")} />
               </span>
             ) : null}
-            {!isPreviewReadOnly ? (
+            {canReorderRows ? (
             <button
               aria-label="재정렬"
               className="task-tree__drag-handle"
@@ -8047,7 +8073,7 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
                 {deadlineBadge.label}
               </span>
             ) : null}
-            {isSelectedRow && !isPreviewReadOnly ? (
+            {isSelectedRow && canReorderRows ? (
               <span className="task-tree__actions">
                 <button
                   aria-label="위로 이동"
@@ -8197,8 +8223,8 @@ const DailyTaskTableRow = memo(function DailyTaskTableRow({
       )}
       data-task-row-id={task.id}
       onClick={() => selectTask(task.id)}
-      onDragOver={!isPreviewReadOnly ? (event) => handleTaskRowDragOver(task, event) : undefined}
-      onDrop={!isPreviewReadOnly ? (event) => void handleTaskRowDrop(task, event) : undefined}
+      onDragOver={canReorderRows ? (event) => handleTaskRowDragOver(task, event) : undefined}
+      onDrop={canReorderRows ? (event) => void handleTaskRowDrop(task, event) : undefined}
     >
       {dailyTaskListColumns.map((column) => renderTaskListCell(column))}
     </tr>
@@ -8214,6 +8240,7 @@ function areDailyTaskTableRowPropsEqual(previous: DailyTaskTableRowProps, next: 
   if (previous.interactionStore !== next.interactionStore) return false;
   if (previous.isManualReorderDisabled !== next.isManualReorderDisabled) return false;
   if (previous.isHtmlDragReorderDisabled !== next.isHtmlDragReorderDisabled) return false;
+  if (previous.canReorderRows !== next.canReorderRows) return false;
   if (previous.isPreviewReadOnly !== next.isPreviewReadOnly) return false;
   if (previous.rowDraft !== next.rowDraft) return false;
   if (previous.workTypeDefinitions !== next.workTypeDefinitions) return false;

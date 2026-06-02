@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import type { TaskOrderingStrategy, TaskReorderCommand } from "@/domains/task/ordering";
@@ -13,11 +13,12 @@ export async function POST(request: Request) {
   try {
     assertRequestIntegrity(request);
     const user = await requireUser();
-    const context = await requireCurrentProjectEditor(user);
     const body = await request.json();
     const command = buildReorderCommand(body);
+    const orderProfileId = readOrderProfileId(body, user.id);
+    const context = orderProfileId ? await requireCurrentProjectAccess(user) : await requireCurrentProjectEditor(user);
     const data = await reorderTasks(command, user.id, context.project, {
-      orderProfileId: readOrderProfileId(body, user.id),
+      orderProfileId,
     });
 
     return NextResponse.json({ data });

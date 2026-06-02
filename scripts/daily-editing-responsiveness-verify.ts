@@ -506,9 +506,17 @@ assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000
 assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
 assert.match(taskRouteSource, /export const maxDuration = 30/);
 assert.match(taskReorderRouteSource, /export const maxDuration = 30/);
+assert.match(taskReorderRouteSource, /requireCurrentProjectAccess/);
+assert.match(taskReorderRouteSource, /const orderProfileId = readOrderProfileId\(body, user\.id\)/);
+assert.match(taskReorderRouteSource, /orderProfileId \? await requireCurrentProjectAccess\(user\) : await requireCurrentProjectEditor\(user\)/);
 assert.match(taskReorderRouteSource, /reorderTasks\(command, user\.id, context\.project, \{/);
-assert.match(taskReorderRouteSource, /orderProfileId: readOrderProfileId\(body, user\.id\)/);
+assert.match(taskReorderRouteSource, /orderProfileId,/);
 assert.match(taskReorderRouteSource, /readOptionalSiblingOrderStart\(body\.siblingOrderStart\)/);
+assert.match(taskWorkspaceSource, /const canReorderDailyTasks =/);
+assert.match(taskWorkspaceSource, /canReadProject\(\{/);
+assert.match(taskWorkspaceSource, /const isDailyManualReorderDisabled = hasActiveDailyFilters \|\| isPagedDailyListView \|\| !canReorderDailyTasks/);
+assert.match(taskWorkspaceSource, /if \(!canReorderDailyTasks\) \{\s*setErrorMessage\(t\("errors\.workspaceReadOnly"\)\);/);
+assert.match(taskWorkspaceSource, /canReorderRows=\{canReorderDailyTasks\}/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
