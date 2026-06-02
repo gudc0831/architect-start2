@@ -366,6 +366,7 @@ function normalizeRetrievalSnapshot(value: unknown): AssistantRetrievedEvidenceS
   if (!projectId || !taskId || !Array.isArray(value.evidence)) {
     return undefined;
   }
+  const evidence = value.evidence.map(normalizeAssistantEvidence).filter((item): item is AssistantEvidence => Boolean(item));
   return {
     taskContext: {
       projectId,
@@ -376,7 +377,36 @@ function normalizeRetrievalSnapshot(value: unknown): AssistantRetrievedEvidenceS
       issueId: normalizeText(taskContext?.issueId),
       projectName: normalizeText(taskContext?.projectName),
     },
-    evidence: value.evidence.map(normalizeAssistantEvidence).filter((item): item is AssistantEvidence => Boolean(item)),
+    evidence,
+    legalEvidence: Array.isArray(value.legalEvidence)
+      ? value.legalEvidence.map(normalizeAssistantEvidence).filter((item): item is AssistantEvidence => Boolean(item))
+      : evidence.filter((item) => Boolean(item.legal)),
+    projectContextChunks: Array.isArray(value.projectContextChunks) ? value.projectContextChunks as AssistantRetrievedEvidenceSnapshot["projectContextChunks"] : [],
+    projectContextTrace: isRecord(value.projectContextTrace) ? {
+      corpusType: "project_context",
+      status: normalizeProjectContextTraceStatus(value.projectContextTrace.status),
+      traceId: normalizeOptionalText(value.projectContextTrace.traceId) ?? null,
+      fallbackMode: normalizeText(value.projectContextTrace.fallbackMode) === "legal_only_after_project_context_error"
+        ? "legal_only_after_project_context_error"
+        : "none",
+      activeVersionIds: normalizeStringArray(value.projectContextTrace.activeVersionIds),
+      candidateChunkIds: normalizeStringArray(value.projectContextTrace.candidateChunkIds),
+      matchedChunkIds: normalizeStringArray(value.projectContextTrace.matchedChunkIds),
+      includedChunkIds: normalizeStringArray(value.projectContextTrace.includedChunkIds),
+      noRelevantChunkReason: normalizeOptionalText(value.projectContextTrace.noRelevantChunkReason) ?? null,
+      searchErrorCode: normalizeOptionalText(value.projectContextTrace.searchErrorCode) ?? null,
+    } : {
+      corpusType: "project_context",
+      status: "active_corpus_missing",
+      traceId: null,
+      fallbackMode: "none",
+      activeVersionIds: [],
+      candidateChunkIds: [],
+      matchedChunkIds: [],
+      includedChunkIds: [],
+      noRelevantChunkReason: null,
+      searchErrorCode: null,
+    },
     unavailableEvidenceKinds: Array.isArray(value.unavailableEvidenceKinds)
       ? value.unavailableEvidenceKinds.filter((item): item is string => typeof item === "string")
       : [],
@@ -570,6 +600,23 @@ function normalizeOptionalText(value: unknown): string | undefined {
 
 function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(normalizeText).filter(Boolean) : [];
+}
+
+function normalizeProjectContextTraceStatus(value: unknown): AssistantRetrievedEvidenceSnapshot["projectContextTrace"]["status"] {
+  const normalized = normalizeText(value);
+  if (
+    normalized === "chunks_found" ||
+    normalized === "active_corpus_missing" ||
+    normalized === "no_relevant_chunks" ||
+    normalized === "search_failed"
+  ) {
+    return normalized;
+  }
+  return "active_corpus_missing";
 }
 
 function compactText(value: string, limit: number): string {

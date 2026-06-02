@@ -13,6 +13,19 @@ export type UICatalog = {
     primaryNavAriaLabel: string;
   };
   nav: Record<DashboardMode, string>;
+  materials: {
+    title: string;
+    primaryUpload: string;
+    scopeText: string;
+    rawRetentionText: string;
+    fileLabel: string;
+    noProject: string;
+    previewDisabled: string;
+    ready: string;
+    uploading: string;
+    uploaded: string;
+    failed: string;
+  };
   sidebar: {
     projectNameAriaLabel: string;
     projectNamePlaceholder: string;
@@ -321,6 +334,20 @@ export const uiCopyCatalog = {
       daily: "일일 목록",
       calendar: "캘린더",
       trash: "휴지통",
+      materials: "프로젝트 자료",
+    },
+    materials: {
+      title: "프로젝트 자료",
+      primaryUpload: "프로젝트 전역 자료 업로드",
+      scopeText: "이 자료는 PM 승인 후 프로젝트 전체 task review에 적용됩니다.",
+      rawRetentionText: "원본 파일은 기본 7일간 임시 보관 후 삭제됩니다.",
+      fileLabel: "업로드 파일",
+      noProject: "현재 선택된 프로젝트가 없습니다.",
+      previewDisabled: "미리보기에서는 업로드가 비활성화됩니다.",
+      ready: "업로드할 파일을 선택하세요.",
+      uploading: "업로드 중...",
+      uploaded: "업로드가 접수되었습니다.",
+      failed: "업로드를 접수하지 못했습니다.",
     },
     sidebar: {
       projectNameAriaLabel: "프로젝트명",
@@ -676,6 +703,20 @@ export const uiCopyCatalog = {
       daily: "Daily List",
       calendar: "Calendar",
       trash: "Trash",
+      materials: "Project Materials",
+    },
+    materials: {
+      title: "Project Materials",
+      primaryUpload: "Upload Project-Wide Material",
+      scopeText: "This material applies to project-wide task review after PM approval.",
+      rawRetentionText: "Original files are temporarily retained for 7 days by default and then deleted.",
+      fileLabel: "Upload file",
+      noProject: "No project is currently selected.",
+      previewDisabled: "Uploads are disabled in preview.",
+      ready: "Select a file to upload.",
+      uploading: "Uploading...",
+      uploaded: "Upload has been queued.",
+      failed: "Upload could not be queued.",
     },
     sidebar: {
       projectNameAriaLabel: "Project name",

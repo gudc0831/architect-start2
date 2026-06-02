@@ -23,7 +23,12 @@ function WorkspaceAccessGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isPreview = pathname.startsWith("/preview");
   const isPublicShellPath = pathname === "/login" || pathname.startsWith("/auth/");
-  const isWorkspacePath = pathname === "/board" || pathname === "/daily" || pathname === "/calendar" || pathname === "/trash";
+  const isWorkspacePath =
+    pathname === "/board" ||
+    pathname === "/daily" ||
+    pathname === "/calendar" ||
+    pathname === "/materials" ||
+    pathname === "/trash";
   const { user, loading } = useAuthState();
   const { availableProjects, projectLoaded } = useProjectMeta();
 

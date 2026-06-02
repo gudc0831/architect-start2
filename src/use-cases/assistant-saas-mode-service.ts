@@ -1271,7 +1271,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const taskId = normalizeRequiredText(input.taskId, "taskId");
   const question = normalizeRequiredText(input.question, "question");
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
-  const retrieved = await retrieveAssistantEvidence({ taskId, question });
+  const retrieved = await retrieveAssistantEvidence({ taskId, question, user });
   const policy = await getStoredOrDefaultPolicy(retrieved.taskContext.projectId);
   const promptEvidence = retrieved.evidence.slice(0, 10);
   const promptText = buildAssistantPromptText({
@@ -1280,6 +1280,9 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     instruction,
     conversationMemory: retrieved.conversationMemory,
     evidence: promptEvidence,
+    legalEvidence: retrieved.legalEvidence,
+    projectContextChunks: retrieved.projectContextChunks,
+    projectContextTrace: retrieved.projectContextTrace,
     evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
   });
   const inputTokens = estimateTokens(promptText);
@@ -1357,6 +1360,9 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const retrievalSnapshot = toAssistantGenerateRetrievalSnapshot({
     taskContext: retrieved.taskContext,
     evidence: promptEvidence,
+    legalEvidence: retrieved.legalEvidence,
+    projectContextChunks: retrieved.projectContextChunks,
+    projectContextTrace: retrieved.projectContextTrace,
     unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
     evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
     conversationMemory: retrieved.conversationMemory,
@@ -1396,6 +1402,9 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
 export function toAssistantGenerateRetrievalSnapshot(input: {
   taskContext: AssistantRetrievedEvidenceSnapshot["taskContext"];
   evidence: AssistantRetrievedEvidenceSnapshot["evidence"];
+  legalEvidence?: AssistantRetrievedEvidenceSnapshot["legalEvidence"];
+  projectContextChunks?: AssistantRetrievedEvidenceSnapshot["projectContextChunks"];
+  projectContextTrace?: AssistantRetrievedEvidenceSnapshot["projectContextTrace"];
   unavailableEvidenceKinds: AssistantRetrievedEvidenceSnapshot["unavailableEvidenceKinds"];
   evidenceReadinessWarnings?: AssistantRetrievedEvidenceSnapshot["evidenceReadinessWarnings"];
   conversationMemory?: AssistantRetrievedEvidenceSnapshot["conversationMemory"];
@@ -1403,6 +1412,20 @@ export function toAssistantGenerateRetrievalSnapshot(input: {
   return {
     taskContext: input.taskContext,
     evidence: input.evidence,
+    legalEvidence: input.legalEvidence ?? input.evidence.filter((item) => Boolean(item.legal)),
+    projectContextChunks: input.projectContextChunks ?? [],
+    projectContextTrace: input.projectContextTrace ?? {
+      corpusType: "project_context",
+      status: "active_corpus_missing",
+      traceId: null,
+      fallbackMode: "none",
+      activeVersionIds: [],
+      candidateChunkIds: [],
+      matchedChunkIds: [],
+      includedChunkIds: [],
+      noRelevantChunkReason: null,
+      searchErrorCode: null,
+    },
     unavailableEvidenceKinds: input.unavailableEvidenceKinds,
     evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     conversationMemory: input.conversationMemory ?? "",

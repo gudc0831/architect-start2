@@ -102,9 +102,31 @@ type FileAnalysisSourceMode = "manual_text" | "ocr_text" | "image_region";
 type RetrieveResponse = {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
+  legalEvidence?: AssistantEvidence[];
+  projectContextChunks?: ProjectContextChunkForReview[];
+  projectContextTrace?: ProjectContextTraceForReview;
   unavailableEvidenceKinds: string[];
   evidenceReadinessWarnings?: EvidenceReadinessWarning[];
   conversationMemory?: string;
+};
+
+type ProjectContextChunkForReview = {
+  chunkId: string;
+  sourceDocumentTitle: string;
+  normalizedText: string;
+  sourceQuote: string;
+  location: unknown;
+  contextType: string;
+  chunkQualityScore: number;
+  injectionRisk: string;
+  score: number;
+};
+
+type ProjectContextTraceForReview = {
+  status: "chunks_found" | "active_corpus_missing" | "no_relevant_chunks" | "search_failed";
+  fallbackMode: "none" | "legal_only_after_project_context_error";
+  noRelevantChunkReason?: string | null;
+  searchErrorCode?: string | null;
 };
 
 type SavedAssistantRecord = {
@@ -1569,6 +1591,18 @@ export function TaskAssistantPanel({
                   <h4>근거</h4>
                   <span>{retrieveResult.evidence.length}</span>
                 </div>
+                <div className="task-assistant__missing-evidence" role="status">
+                  <strong>법적 근거</strong>
+                  <p>{(retrieveResult.legalEvidence ?? retrieveResult.evidence.filter((item) => item.legal)).length}개</p>
+                </div>
+                <div className="task-assistant__missing-evidence" role="status">
+                  <strong>프로젝트 업로드 자료 반영</strong>
+                  <p>{retrieveResult.projectContextChunks?.length ? retrieveResult.projectContextChunks.map((chunk) => chunk.sourceDocumentTitle).join(", ") : "반영된 chunk 없음"}</p>
+                </div>
+                <div className="task-assistant__missing-evidence" role="status">
+                  <strong>프로젝트 업로드 자료 검토 상태</strong>
+                  <p>{formatProjectContextTraceStatus(retrieveResult.projectContextTrace)}</p>
+                </div>
                 {retrieveResult.unavailableEvidenceKinds.length ? (
                   <div className="task-assistant__missing-evidence" role="status">
                     <strong>사용할 수 없는 근거</strong>
@@ -2189,6 +2223,13 @@ function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefin
     evidence: value.evidence
       .map(normalizeGeneratedEvidence)
       .filter((item): item is AssistantEvidence => Boolean(item)),
+    legalEvidence: Array.isArray(value.legalEvidence)
+      ? value.legalEvidence.map(normalizeGeneratedEvidence).filter((item): item is AssistantEvidence => Boolean(item))
+      : [],
+    projectContextChunks: Array.isArray(value.projectContextChunks)
+      ? value.projectContextChunks.map(normalizeProjectContextChunk).filter((item): item is ProjectContextChunkForReview => Boolean(item))
+      : [],
+    projectContextTrace: normalizeProjectContextTrace(value.projectContextTrace),
     unavailableEvidenceKinds: value.unavailableEvidenceKinds.filter((item): item is string => typeof item === "string"),
     evidenceReadinessWarnings: Array.isArray(value.evidenceReadinessWarnings)
       ? value.evidenceReadinessWarnings
@@ -2213,6 +2254,59 @@ function normalizeGeneratedTaskContext(value: unknown): AssistantTaskContext | u
     projectName: normalizeGeneratedString(value.projectName),
   };
   return taskContext.taskId && taskContext.projectId ? taskContext : undefined;
+}
+
+function normalizeProjectContextChunk(value: unknown): ProjectContextChunkForReview | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const chunkId = normalizeGeneratedString(value.chunkId);
+  const sourceDocumentTitle = normalizeGeneratedString(value.sourceDocumentTitle);
+  const sourceQuote = normalizeGeneratedString(value.sourceQuote);
+  if (!chunkId || !sourceDocumentTitle || !sourceQuote) {
+    return undefined;
+  }
+  return {
+    chunkId,
+    sourceDocumentTitle,
+    normalizedText: normalizeGeneratedString(value.normalizedText),
+    sourceQuote,
+    location: value.location ?? null,
+    contextType: normalizeGeneratedString(value.contextType),
+    chunkQualityScore: normalizeGeneratedNumber(value.chunkQualityScore),
+    injectionRisk: normalizeGeneratedString(value.injectionRisk),
+    score: normalizeGeneratedNumber(value.score),
+  };
+}
+
+function normalizeProjectContextTrace(value: unknown): ProjectContextTraceForReview {
+  if (!isRecord(value)) {
+    return { status: "active_corpus_missing", fallbackMode: "none" };
+  }
+  const status = normalizeGeneratedString(value.status);
+  return {
+    status: isProjectContextTraceStatus(status) ? status : "active_corpus_missing",
+    fallbackMode: normalizeGeneratedString(value.fallbackMode) === "legal_only_after_project_context_error"
+      ? "legal_only_after_project_context_error"
+      : "none",
+    noRelevantChunkReason: normalizeGeneratedString(value.noRelevantChunkReason) || null,
+    searchErrorCode: normalizeGeneratedString(value.searchErrorCode) || null,
+  };
+}
+
+function isProjectContextTraceStatus(value: string): value is ProjectContextTraceForReview["status"] {
+  return value === "chunks_found" || value === "active_corpus_missing" || value === "no_relevant_chunks" || value === "search_failed";
+}
+
+function formatProjectContextTraceStatus(trace: ProjectContextTraceForReview | undefined) {
+  if (!trace) {
+    return "active_corpus_missing";
+  }
+  return [
+    trace.status,
+    trace.noRelevantChunkReason ? `사유: ${trace.noRelevantChunkReason}` : "",
+    trace.searchErrorCode ? `오류: ${trace.searchErrorCode}` : "",
+  ].filter(Boolean).join(" / ");
 }
 
 function normalizeGeneratedEvidence(value: unknown): AssistantEvidence | undefined {
@@ -2284,6 +2378,11 @@ function normalizeGeneratedOptionalString(value: unknown): string | undefined {
 
 function normalizeGeneratedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeGeneratedNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

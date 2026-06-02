@@ -67,4 +67,4 @@ export type FileRecord = {
   metadata: FileMetadata;
 };
 
-export type DashboardMode = "board" | "daily" | "calendar" | "trash";
+export type DashboardMode = "board" | "daily" | "calendar" | "trash" | "materials";

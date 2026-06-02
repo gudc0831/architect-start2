@@ -25,6 +25,8 @@
     "regulation:governance:validate": "tsx scripts/regulation-governance-validate.ts",
     "retrieval:hybrid:validate": "tsx scripts/retrieval-hybrid-validate.ts",
     "task-review:validate": "tsx scripts/task-review-orchestrator-validate.ts",
+    "project-context:validate": "tsx scripts/project-context-schema-validate.ts && tsx scripts/project-context-policy-validate.ts && tsx scripts/project-context-upload-validate.ts && tsx scripts/project-context-processing-validate.ts && tsx scripts/project-context-approval-validate.ts && tsx scripts/project-context-retrieval-validate.ts && tsx scripts/project-context-review-contract-validate.ts && tsx scripts/project-context-retention-validate.ts && tsx scripts/project-context-security-validate.ts",
+    "project-context:processing-worker": "tsx scripts/project-context-processing-worker.ts",
     "legal-change:validate": "tsx scripts/legal-change-service-validate.ts",
     "legal-change-monitor:validate": "tsx scripts/legal-change-monitor-validate.ts",
     "legal-batch-audit:validate": "tsx scripts/legal-batch-audit-adapter-validate.ts",

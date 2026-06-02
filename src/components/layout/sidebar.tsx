@@ -18,6 +18,7 @@ const items = [
   { href: "/board", mode: "board" },
   { href: "/daily", mode: "daily" },
   { href: "/calendar", mode: "calendar" },
+  { href: "/materials", mode: "materials" },
   { href: "/trash", mode: "trash" },
 ] as const;
 
@@ -62,7 +63,11 @@ function cancelSidebarIdleWork(handle: SidebarIdleHandle | null) {
   window.clearTimeout(handle.id);
 }
 
-function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope {
+function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope | null {
+  if (mode === "materials") {
+    return null;
+  }
+
   return mode === "trash" ? "trash" : "active";
 }
 
@@ -102,7 +107,12 @@ export function Sidebar() {
         return;
       }
 
-      void ensureDashboardScopeLoaded(scopeForMode(mode))
+      const scope = scopeForMode(mode);
+      if (!scope) {
+        return;
+      }
+
+      void ensureDashboardScopeLoaded(scope)
         .then(() => {
           if (mode === "daily") {
             return fetchWorkspaceDailyTaskUserOrders();

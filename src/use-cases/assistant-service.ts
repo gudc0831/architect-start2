@@ -8,6 +8,7 @@ import type {
   AssistantTaskContext,
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
+import type { ProjectContextTraceSnapshot } from "@/domains/assistant/saas-api-mode";
 import { buildThreadMemory, type AssistantThreadMemoryMessage } from "@/domains/assistant/thread-memory";
 import type {
   AssistantActionAuditAction,
@@ -36,12 +37,15 @@ import { fileRepository, taskRepository } from "@/repositories";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { fetchVerifiedLegalSearchEvidence, selectLegalSearchContext } from "@/use-cases/verified-legal-search-service";
+import { retrieveProjectContextForTaskReview } from "@/use-cases/project-context-retrieval-service";
+import { randomUUID } from "node:crypto";
 
 const ASSISTANT_MEMORY_RETRIEVAL_QUERY_LIMIT = 6000;
 
 type RetrieveAssistantEvidenceInput = {
   taskId: string;
   question: string;
+  user?: AuthUser;
 };
 
 type EvidenceReadinessWarning = {
@@ -141,12 +145,21 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   });
   const regulationResults = searchFoundationRegulations(retrievalQuery, 4);
   const legalSearchContext = selectLegalSearchContext({ task, projectName: project.name });
-  const [verifiedLegalEvidence, verifiedLegalSearchEvidence] = await Promise.all([
+  const [verifiedLegalEvidence, verifiedLegalSearchEvidence, projectContextRetrieval] = await Promise.all([
     fetchVerifiedLegalEvidenceBundle({
       question: retrievalQuery,
       sourceIds: selectVerifiedLegalEvidenceSourceIds(),
     }),
     fetchVerifiedLegalSearchEvidence({ question: retrievalQuery, ...legalSearchContext }),
+    input.user
+      ? retrieveProjectContextForTaskReview({
+          projectId: project.id,
+          taskId: task.id,
+          reviewId: randomUUID(),
+          query: retrievalQuery,
+          user: input.user,
+        })
+      : Promise.resolve(defaultProjectContextTraceResult()),
   ]);
   const mergedEvidence = mergeRetrievedAssistantEvidence({
     baseEvidence: buildEvidence({
@@ -190,9 +203,49 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   return {
     taskContext: toTaskContext(task, project.name),
     evidence,
+    legalEvidence: evidence.filter((item) => Boolean(item.legal)),
+    projectContextChunks: projectContextRetrieval.chunks,
+    projectContextTrace: {
+      corpusType: "project_context" as const,
+      status: projectContextRetrieval.status,
+      traceId: projectContextRetrieval.traceId,
+      fallbackMode: projectContextRetrieval.fallbackMode,
+      activeVersionIds: projectContextRetrieval.activeVersionIds,
+      candidateChunkIds: projectContextRetrieval.candidateChunkIds,
+      matchedChunkIds: projectContextRetrieval.matchedChunkIds,
+      includedChunkIds: projectContextRetrieval.includedChunkIds,
+      noRelevantChunkReason: projectContextRetrieval.noRelevantChunkReason,
+      searchErrorCode: projectContextRetrieval.searchErrorCode,
+    },
     unavailableEvidenceKinds,
     evidenceReadinessWarnings: mergedEvidence.evidenceReadinessWarnings,
     conversationMemory,
+  };
+}
+
+function defaultProjectContextTraceResult(): {
+  status: ProjectContextTraceSnapshot["status"];
+  chunks: [];
+  activeVersionIds: string[];
+  candidateChunkIds: string[];
+  matchedChunkIds: string[];
+  includedChunkIds: string[];
+  traceId: string | null;
+  fallbackMode: ProjectContextTraceSnapshot["fallbackMode"];
+  noRelevantChunkReason: string | null;
+  searchErrorCode: string | null;
+} {
+  return {
+    status: "active_corpus_missing",
+    chunks: [],
+    activeVersionIds: [],
+    candidateChunkIds: [],
+    matchedChunkIds: [],
+    includedChunkIds: [],
+    traceId: null,
+    fallbackMode: "none",
+    noRelevantChunkReason: null,
+    searchErrorCode: null,
   };
 }
 

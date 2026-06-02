@@ -14,6 +14,13 @@ for (const page of workspacePages) {
   assert.match(pageSource, new RegExp(`TaskWorkspace mode="${page}"`));
 }
 
+const materialsPageSource = source("src/app/materials/page.tsx");
+assert.doesNotMatch(materialsPageSource, /TaskWorkspace mode="materials"/);
+assert.match(materialsPageSource, /ProjectMaterialsPage/);
+
+const previewMaterialsPageSource = source("src/app/preview/materials/page.tsx");
+assert.match(previewMaterialsPageSource, /ProjectMaterialsPage/);
+
 const adminPageSource = source("src/app/admin/page.tsx");
 assert.doesNotMatch(adminPageSource, /requirePageUser|listProjectsForSession|redirect/);
 assert.match(adminPageSource, /<AdminFoundationShell \/>/);
@@ -45,6 +52,7 @@ assert.match(themeRouteSource, /themePreferenceResponse/);
 assert.match(themeRouteSource, /response\.cookies\.set\(themePreferenceCookieName, preference\.themeId/);
 
 const sidebarSource = source("src/components/layout/sidebar.tsx");
+assert.match(sidebarSource, /href: "\/materials", mode: "materials"/);
 assert.match(sidebarSource, /function scheduleSidebarIdleWork\(callback: \(\) => void, timeout = 500\)/);
 assert.match(sidebarSource, /const warmAdminNavigation = useCallback/);
 assert.match(sidebarSource, /router\.prefetch\(adminHref\)/);

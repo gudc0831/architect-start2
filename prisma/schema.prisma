@@ -70,6 +70,9 @@ model Profile {
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
   assistantThreads AssistantThread[]
+  createdProjectUploadSources ProjectUploadSource[] @relation("ProjectUploadSourceCreatedBy")
+  activatedProjectUploadVersions ProjectUploadVersion[] @relation("ProjectUploadVersionActivatedBy")
+  uploadedProjectReferences UploadReference[] @relation("UploadReferenceUploadedBy")
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -95,6 +98,11 @@ model Project {
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
   assistantThreads AssistantThread[]
   workTypeDefinitions WorkTypeDefinition[]
+  projectUploadSources ProjectUploadSource[]
+  projectUploadVersions ProjectUploadVersion[]
+  uploadReferences UploadReference[]
+  projectUploadChunks ProjectUploadChunk[]
+  reviewCorpusTraces ReviewCorpusTrace[]
 
   @@map("projects")
 }
@@ -147,8 +155,11 @@ model Task {
   assistantTaskRecords AssistantTaskRecord[]
   assistantWorkSummaryDrafts AssistantWorkSummaryDraft[]
   assistantThreads AssistantThread[]
+  uploadReferences UploadReference[] @relation("UploadReferenceUploadedTask")
+  reviewCorpusTraces ReviewCorpusTrace[]
 
   @@unique([projectId, taskNumber])
+  @@unique([projectId, id])
   @@index([projectId, deletedAt, purgedAt])
   @@index([projectId, assigneeProfileId])
   @@index([parentTaskId])
@@ -500,4 +511,161 @@ model AssistantAuditEvent {
   @@index([profileId, createdAt])
   @@index([eventType, createdAt])
   @@map("assistant_audit_events")
+}
+
+model ProjectUploadSource {
+  sourceId              String                 @id @default(dbgenerated("gen_random_uuid()")) @map("source_id") @db.Uuid
+  projectId             String                 @map("project_id") @db.Uuid
+  canonicalTitle        String                 @map("canonical_title")
+  sourceType            String                 @map("source_type")
+  authorityType         String                 @default("project_context") @map("authority_type")
+  createdByUserId       String                 @map("created_by_user_id") @db.Uuid
+  latestActiveVersionId String?                @map("latest_active_version_id") @db.Uuid
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project               Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser         Profile                @relation("ProjectUploadSourceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  latestActiveVersion   ProjectUploadVersion?  @relation("ProjectUploadLatestActiveVersion", fields: [latestActiveVersionId], references: [versionId], onDelete: SetNull)
+  versions              ProjectUploadVersion[] @relation("ProjectUploadSourceVersions")
+  uploadReferences      UploadReference[]
+  chunks                ProjectUploadChunk[]
+
+  @@unique([projectId, sourceId])
+  @@index([projectId, latestActiveVersionId])
+  @@map("project_upload_source")
+}
+
+model ProjectUploadVersion {
+  versionId                String                @id @default(dbgenerated("gen_random_uuid()")) @map("version_id") @db.Uuid
+  sourceId                 String                @map("source_id") @db.Uuid
+  projectId                String                @map("project_id") @db.Uuid
+  contentHash              String                @map("content_hash")
+  versionNo                Int                   @map("version_no")
+  status                   String                @default("uploaded")
+  normalizationRuleVersion String                @default("v1") @map("normalization_rule_version")
+  parserVersion            String                @default("v1") @map("parser_version")
+  processedAt              DateTime?             @map("processed_at") @db.Timestamptz(6)
+  activatedAt              DateTime?             @map("activated_at") @db.Timestamptz(6)
+  activatedByUserId        String?               @map("activated_by_user_id") @db.Uuid
+  archivedAt               DateTime?             @map("archived_at") @db.Timestamptz(6)
+  rejectedAt               DateTime?             @map("rejected_at") @db.Timestamptz(6)
+  failureCode              String?               @map("failure_code")
+  failureMessage           String?               @map("failure_message")
+  createdAt                DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  source                   ProjectUploadSource   @relation("ProjectUploadSourceVersions", fields: [sourceId], references: [sourceId], onDelete: Cascade)
+  project                  Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activatedByUser          Profile?              @relation("ProjectUploadVersionActivatedBy", fields: [activatedByUserId], references: [id], onDelete: SetNull)
+  latestForSources         ProjectUploadSource[] @relation("ProjectUploadLatestActiveVersion")
+  uploadReferences         UploadReference[]
+  chunks                   ProjectUploadChunk[]
+
+  @@unique([sourceId, versionNo])
+  @@unique([projectId, sourceId, versionId])
+  @@index([projectId, status])
+  @@index([sourceId, status, activatedAt(sort: Desc)])
+  @@map("project_upload_version")
+}
+
+model UploadReference {
+  uploadId             String               @id @default(dbgenerated("gen_random_uuid()")) @map("upload_id") @db.Uuid
+  projectId            String               @map("project_id") @db.Uuid
+  sourceId             String               @map("source_id") @db.Uuid
+  versionId            String               @map("version_id") @db.Uuid
+  uploadedTaskId       String?              @map("uploaded_task_id") @db.Uuid
+  uploadedByUserId     String               @map("uploaded_by_user_id") @db.Uuid
+  rawStorageKey        String?              @map("raw_storage_key")
+  rawRetentionUntil    DateTime             @default(dbgenerated("(now() + '7 days'::interval)")) @map("raw_retention_until") @db.Timestamptz(6)
+  rawDeletedAt         DateTime?            @map("raw_deleted_at") @db.Timestamptz(6)
+  rawDeletionStatus    String               @default("pending") @map("raw_deletion_status")
+  originalFilename     String               @map("original_filename")
+  mimeType             String               @map("mime_type")
+  fileSizeBytes        BigInt               @map("file_size_bytes")
+  malwareScanStatus    String               @default("pending") @map("malware_scan_status")
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  project              Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source               ProjectUploadSource  @relation(fields: [sourceId], references: [sourceId], onDelete: Cascade)
+  version              ProjectUploadVersion @relation(fields: [versionId], references: [versionId], onDelete: Cascade)
+  uploadedTask         Task?                @relation("UploadReferenceUploadedTask", fields: [projectId, uploadedTaskId], references: [projectId, id], onDelete: NoAction)
+  uploadedByUser       Profile              @relation("UploadReferenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  chunks               ProjectUploadChunk[]
+
+  @@unique([projectId, sourceId, versionId, uploadId])
+  @@index([projectId, uploadedByUserId, createdAt(sort: Desc)])
+  @@index([rawRetentionUntil, rawDeletedAt])
+  @@map("upload_reference")
+}
+
+model ProjectUploadChunk {
+  chunkId             String               @id @default(dbgenerated("gen_random_uuid()")) @map("chunk_id") @db.Uuid
+  versionId           String               @map("version_id") @db.Uuid
+  sourceId            String               @map("source_id") @db.Uuid
+  projectId           String               @map("project_id") @db.Uuid
+  uploadId            String               @map("upload_id") @db.Uuid
+  sourceDocumentTitle String               @map("source_document_title")
+  normalizedText      String               @map("normalized_text")
+  sourceQuote         String               @map("source_quote")
+  contextType         String               @map("context_type")
+  authority           String               @default("project_context")
+  allowedUse          String               @default("task_review_context_only") @map("allowed_use")
+  chunkQualityScore   Float                @default(0) @map("chunk_quality_score")
+  injectionRisk       String               @default("none") @map("injection_risk")
+  embeddingModel      String?              @map("embedding_model")
+  embeddingJson       Json?                @map("embedding_json")
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source              ProjectUploadSource  @relation(fields: [sourceId], references: [sourceId], onDelete: Cascade)
+  version             ProjectUploadVersion @relation(fields: [versionId], references: [versionId], onDelete: Cascade)
+  upload              UploadReference      @relation(fields: [uploadId], references: [uploadId], onDelete: Cascade)
+  location            ChunkLocation?
+
+  @@index([projectId, versionId])
+  @@index([projectId, contextType])
+  @@map("project_upload_chunk")
+}
+
+model ChunkLocation {
+  chunkId           String             @id @map("chunk_id") @db.Uuid
+  locationType      String             @map("location_type")
+  lineStart         Int?               @map("line_start")
+  lineEnd           Int?               @map("line_end")
+  pageNumber        Int?               @map("page_number")
+  paragraphIndex    Int?               @map("paragraph_index")
+  sheetName         String?            @map("sheet_name")
+  rowStart          Int?               @map("row_start")
+  rowEnd            Int?               @map("row_end")
+  cellRange         String?            @map("cell_range")
+  messageIndexStart Int?               @map("message_index_start")
+  messageIndexEnd   Int?               @map("message_index_end")
+  sender            String?
+  timestampStart    DateTime?          @map("timestamp_start") @db.Timestamptz(6)
+  timestampEnd      DateTime?          @map("timestamp_end") @db.Timestamptz(6)
+  headingPath       Json?              @map("heading_path")
+  chunk             ProjectUploadChunk @relation(fields: [chunkId], references: [chunkId], onDelete: Cascade)
+
+  @@map("chunk_location")
+}
+
+model ReviewCorpusTrace {
+  traceId               String   @id @default(dbgenerated("gen_random_uuid()")) @map("trace_id") @db.Uuid
+  reviewId              String   @map("review_id") @db.Uuid
+  projectId             String   @map("project_id") @db.Uuid
+  taskId                String   @map("task_id") @db.Uuid
+  queryHash             String   @map("query_hash")
+  corpusType            String   @default("project_context") @map("corpus_type")
+  activeVersionIds      Json     @default("[]") @map("active_version_ids")
+  candidateChunkIds     Json     @default("[]") @map("candidate_chunk_ids")
+  matchedChunkIds       Json     @default("[]") @map("matched_chunk_ids")
+  includedChunkIds      Json     @default("[]") @map("included_chunk_ids")
+  corpusStatus          String   @map("corpus_status")
+  fallbackMode          String   @default("none") @map("fallback_mode")
+  noRelevantChunkReason String?  @map("no_relevant_chunk_reason")
+  searchErrorCode       String?  @map("search_error_code")
+  searchedAt            DateTime @default(now()) @map("searched_at") @db.Timestamptz(6)
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task                  Task     @relation(fields: [projectId, taskId], references: [projectId, id], onDelete: Cascade)
+
+  @@index([reviewId, corpusType])
+  @@index([projectId, taskId, searchedAt(sort: Desc)])
+  @@map("review_corpus_trace")
 }

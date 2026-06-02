@@ -155,6 +155,27 @@ function buildRetrievalSnapshot(input: {
   confidenceReason?: string;
   legalEvidence?: boolean;
 }): AssistantRetrievedEvidenceSnapshot {
+  const evidence: AssistantRetrievedEvidenceSnapshot["evidence"] = input.legalEvidence === false ? [] : [{
+    id: `verified-legal-search:${input.taskId}`,
+    kind: "regulation",
+    priority: 2,
+    title: input.sourceKind === "molitInterpretation" ? "MOLIT interpretation smoke source" : "Building Act smoke source",
+    excerpt: "Answer-ready smoke evidence excerpt",
+    sourceUrl: input.sourceUrl,
+    recordId: `source:${input.taskId}`,
+    legal: {
+      sourceId: `source:${input.taskId}`,
+      chunkId: `chunk:${input.taskId}`,
+      sourceKind: input.sourceKind ?? "statute",
+      authorityRank: input.authorityRank ?? "statute",
+      effective: { effectiveFrom: "2026-01-01", effectiveTo: "2026-12-31" },
+      locator: input.locator,
+      stale: false,
+      legalChangeWarnings: [],
+      confidenceReason: input.confidenceReason ?? "Answer-ready legal evidence selected by assistant retrieval.",
+    },
+  }];
+
   return {
     taskContext: {
       taskId: input.taskId,
@@ -165,26 +186,21 @@ function buildRetrievalSnapshot(input: {
       issueId: input.taskId,
       projectName: "Manual smoke project",
     },
-    evidence: input.legalEvidence === false ? [] : [{
-      id: `verified-legal-search:${input.taskId}`,
-      kind: "regulation",
-      priority: 2,
-      title: input.sourceKind === "molitInterpretation" ? "MOLIT interpretation smoke source" : "Building Act smoke source",
-      excerpt: "Answer-ready smoke evidence excerpt",
-      sourceUrl: input.sourceUrl,
-      recordId: `source:${input.taskId}`,
-      legal: {
-        sourceId: `source:${input.taskId}`,
-        chunkId: `chunk:${input.taskId}`,
-        sourceKind: input.sourceKind ?? "statute",
-        authorityRank: input.authorityRank ?? "statute",
-        effective: { effectiveFrom: "2026-01-01", effectiveTo: "2026-12-31" },
-        locator: input.locator,
-        stale: false,
-        legalChangeWarnings: [],
-        confidenceReason: input.confidenceReason ?? "Answer-ready legal evidence selected by assistant retrieval.",
-      },
-    }],
+    evidence,
+    legalEvidence: evidence.filter((item) => Boolean(item.legal)),
+    projectContextChunks: [],
+    projectContextTrace: {
+      corpusType: "project_context",
+      status: "active_corpus_missing",
+      traceId: null,
+      fallbackMode: "none",
+      activeVersionIds: [],
+      candidateChunkIds: [],
+      matchedChunkIds: [],
+      includedChunkIds: [],
+      noRelevantChunkReason: null,
+      searchErrorCode: null,
+    },
     unavailableEvidenceKinds: [],
     evidenceReadinessWarnings: [],
     conversationMemory: "",
