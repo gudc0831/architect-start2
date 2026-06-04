@@ -12,7 +12,9 @@ uploads
 *.tsbuildinfo
 *.log
 .playwright-cli/
+.codex-run/
 .dev-check.*
 output/playwright/
 output/data-guard/
 output/browser-check/
+.vercel

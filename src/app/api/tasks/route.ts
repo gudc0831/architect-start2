@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_TASK_STATUS } from "@/domains/task/status";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { createTask, listTasks } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function GET(request: Request) {
   try {
-    await requireUser();
+    const user = await requireUser();
+    const context = await requireCurrentProjectAccess(user);
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope") === "trash" ? "trash" : "active";
-    const data = await listTasks(scope);
+    const orderProfileId = scope === "active" && searchParams.get("orderScope") === "daily" ? user.id : null;
+    const data = await listTasks(scope, context.project, { orderProfileId });
 
     return NextResponse.json({ data });
   } catch (error) {
@@ -19,7 +25,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
+    const context = await requireCurrentProjectEditor(user);
     const body = await request.json();
     const task = await createTask(
       {
@@ -30,6 +38,7 @@ export async function POST(request: Request) {
         requestedBy: body.requestedBy ?? body.requested_by ?? "",
         relatedDisciplines: body.relatedDisciplines ?? body["Related Disciplines"] ?? "",
         assignee: body.assignee ?? "",
+        assigneeProfileId: body.assigneeProfileId ?? body.assignee_profile_id ?? null,
         issueTitle: body.issueTitle ?? body.issue_title ?? "",
         reviewedAt: body.reviewedAt ?? body.reviewed_at ?? "",
         isDaily: Boolean(body.isDaily ?? true),
@@ -39,14 +48,34 @@ export async function POST(request: Request) {
         status: body.status ?? DEFAULT_TASK_STATUS,
         decision: body.decision ?? "",
         createdAt: body.createdAt,
+        id: readOptionalClientMutationId(body),
         parentTaskId: body.parentTaskId ?? null,
         parentTaskNumber: body.parentTaskNumber ?? undefined,
+        siblingOrder: readOptionalSiblingOrder(body),
       },
       user.id,
+      context.project,
     );
 
     return NextResponse.json({ data: task }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function readOptionalSiblingOrder(body: Record<string, unknown>) {
+  const value = body.siblingOrder ?? body.sibling_order;
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function readOptionalClientMutationId(body: Record<string, unknown>) {
+  const value = String(body.clientMutationId ?? body.client_mutation_id ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined;
 }

@@ -9,6 +9,8 @@ import {
 } from "@/domains/task/status";
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
+import { normalizeFileMetadata } from "@/domains/file/analysis";
+import { rankFileAnalyses } from "@/domains/file/search";
 import type {
   CreateTaskInput,
   FileRepository,
@@ -19,6 +21,7 @@ import type {
 } from "@/repositories/contracts";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
+import { conflict } from "@/lib/api/errors";
 
 function getDb() {
   const app = getFirebaseClientApp();
@@ -99,6 +102,7 @@ const toTaskRecord = (id: string, data: Record<string, unknown>): TaskRecord => 
     requestedBy: String(data.requestedBy ?? data.requester ?? ""),
     relatedDisciplines: String(data.relatedDisciplines ?? ""),
     assignee: String(data.assignee ?? ""),
+    assigneeProfileId: typeof data.assigneeProfileId === "string" && data.assigneeProfileId ? String(data.assigneeProfileId) : null,
     issueTitle: String(data.issueTitle ?? data.title ?? ""),
     reviewedAt: String(data.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(toIsoString(data.createdAt as FirestoreValue)),
@@ -139,6 +143,7 @@ const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => 
     uploadedBy: typeof data.uploadedBy === "string" ? String(data.uploadedBy) : null,
     deletedAt: data.deletedAt ? toIsoString(data.deletedAt as FirestoreValue) : null,
     purgedAt: data.purgedAt ? toIsoString(data.purgedAt as FirestoreValue) : null,
+    metadata: normalizeFileMetadata(data.metadata),
   };
 };
 
@@ -169,6 +174,29 @@ async function nextTaskNumber(projectId: string) {
 
   await setDoc(doc(db, "meta", sequenceDocId(projectId)), { value: nextValue + 1 }, { merge: true });
   return nextValue;
+}
+
+async function nextSiblingOrder(projectId: string, parentTaskId: string | null) {
+  const db = getDb();
+  if (!db) {
+    throw new Error("Firestore is not configured");
+  }
+
+  const snapshot = await getDocs(collection(db, taskCollectionName));
+  const siblingOrders = snapshot.docs
+    .filter((entry) => {
+      const data = entry.data();
+      return (
+        String(data.projectId ?? "") === projectId &&
+        !data.deletedAt &&
+        !data.purgedAt &&
+        (typeof data.parentTaskId === "string" && data.parentTaskId ? data.parentTaskId : null) === parentTaskId
+      );
+    })
+    .map((entry) => parseNumeric(entry.data().siblingOrder))
+    .filter((value): value is number => value !== null);
+
+  return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
 }
 
 class FirestoreTaskRepository implements TaskRepository {
@@ -213,18 +241,24 @@ class FirestoreTaskRepository implements TaskRepository {
       throw new Error("Firestore is not configured");
     }
 
-    const ref = doc(collection(db, taskCollectionName));
+    const ref = input.id ? doc(db, taskCollectionName, input.id) : doc(collection(db, taskCollectionName));
+    const existing = await getDoc(ref);
+    if (existing.exists()) {
+      return toTaskRecord(ref.id, existing.data());
+    }
     const actionId = await nextTaskNumber(input.projectId);
+    const parentTaskId = input.parentTaskId ?? null;
+    const siblingOrder = input.siblingOrder ?? (await nextSiblingOrder(input.projectId, parentTaskId));
     const timestamp = new Date().toISOString();
     const record = {
       projectId: input.projectId,
       taskNumber: actionId,
       actionId,
       issueId: buildProjectIssueId(input.projectName, actionId),
-      parentTaskId: input.parentTaskId ?? null,
+      parentTaskId,
       rootTaskId: input.rootTaskId?.trim() || ref.id,
       depth: input.depth ?? 0,
-      siblingOrder: input.siblingOrder ?? 0,
+      siblingOrder,
       dueDate: input.dueDate,
       workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,
@@ -232,6 +266,7 @@ class FirestoreTaskRepository implements TaskRepository {
       requestedBy: input.requestedBy,
       relatedDisciplines: input.relatedDisciplines,
       assignee: input.assignee,
+      assigneeProfileId: input.assigneeProfileId ?? null,
       issueTitle: input.issueTitle,
       reviewedAt: input.reviewedAt ?? "",
       createdAt: normalizeStoredDate(input.createdAt),
@@ -336,6 +371,13 @@ class FirestoreTaskRepository implements TaskRepository {
     const updatedAt = new Date().toISOString();
 
     for (const { input, targetRef, currentSnapshot } of snapshots) {
+      if (Number.isInteger(input.expectedVersion) && Number(currentSnapshot.data().version ?? 1) !== input.expectedVersion) {
+        throw conflict(
+          "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+          "TASK_REORDER_CONFLICT",
+        );
+      }
+
       batch.update(targetRef, {
         siblingOrder: input.siblingOrder,
         updatedAt,
@@ -468,6 +510,28 @@ class FirestoreFileRepository implements FileRepository {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async listFilesByProject(projectId: string) {
+    const db = getDb();
+    if (!db) return [];
+
+    const snapshot = await getDocs(collection(db, fileCollectionName));
+    return latestFiles(
+      snapshot.docs
+        .map((entry) => toFileRecord(entry.id, entry.data()))
+        .filter((file) => file.projectId === projectId && !file.deletedAt && !file.purgedAt),
+    );
+  }
+
+  async searchFileAnalyses(input) {
+    return rankFileAnalyses({
+      files: await this.listFilesByProject(input.projectId),
+      query: input.query,
+      excludedFileIds: input.excludedFileIds,
+      limit: input.limit,
+      mode: "lexical",
+    });
+  }
+
   async attachFile(input: CreateFileInput) {
     const db = getDb();
     if (!db) {
@@ -475,16 +539,30 @@ class FirestoreFileRepository implements FileRepository {
     }
 
     const versionNumber = input.versionNumber ?? input.version ?? 1;
+    const version = input.version ?? versionNumber;
+    const fileGroupId = input.fileGroupId ?? randomUUID();
+    const existingSnapshot = await getDocs(collection(db, fileCollectionName));
+    const duplicate = existingSnapshot.docs.some((entry) => {
+      const data = entry.data();
+      return String(data.fileGroupId ?? "") === fileGroupId && Number(data.version ?? data.versionNumber ?? 1) === version;
+    });
+    if (duplicate) {
+      throw conflict(
+        "Another upload created this file version first. Reload the latest files and try again.",
+        "FILE_VERSION_CONFLICT",
+      );
+    }
+
     const record = {
       taskId: input.taskId,
       projectId: input.projectId,
-      fileGroupId: input.fileGroupId ?? randomUUID(),
+      fileGroupId,
       originalName: input.originalName,
       mimeType: input.mimeType ?? null,
       sizeBytes: input.sizeBytes,
       storageBucket: input.storageBucket,
       objectPath: input.objectPath,
-      version: input.version ?? versionNumber,
+      version,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: new Date().toISOString(),
@@ -492,6 +570,7 @@ class FirestoreFileRepository implements FileRepository {
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
       purgedAt: null,
+      metadata: {},
     };
 
     const ref = doc(collection(db, fileCollectionName));
@@ -560,6 +639,23 @@ class FirestoreFileRepository implements FileRepository {
     const targets = snapshot.docs.filter((entry) => entry.data().taskId === taskId && !entry.data().purgedAt);
     const updatedAt = new Date().toISOString();
     await Promise.all(targets.map((entry) => updateDoc(doc(db, fileCollectionName, entry.id), { deletedAt: null, updatedAt })));
+  }
+
+  async updateFileMetadata(fileId: string, metadata) {
+    const db = getDb();
+    if (!db) {
+      throw new Error("Firestore is not configured");
+    }
+
+    const targetRef = doc(db, fileCollectionName, fileId);
+    await updateDoc(targetRef, { metadata: normalizeFileMetadata(metadata), updatedAt: new Date().toISOString() });
+    const snapshot = await getDoc(targetRef);
+
+    if (!snapshot.exists()) {
+      throw new Error("File not found");
+    }
+
+    return toFileRecord(snapshot.id, snapshot.data());
   }
 }
 

@@ -1,0 +1,4 @@
+Req: Continue the collaboration expansion plan through Step 4 without touching unrelated untracked files or Production.
+Diff: added editor-capability guards for task/file/trash workspace mutations; kept read/download/export routes readable for project members; blocked non-admin manager role grant/revoke paths in project member replacement; added expanded RBAC RLS/Storage policy SQL for Preview rollout.
+Why: viewer must be read-only, editor/manager must be able to write workspace data, and project manager cannot grant or revoke manager authority.
+Verify/Time: `npm run typecheck`, `npm run lint`, `npm run build`, `npm run deps:audit`, `npx prisma validate`, `npm run data:backup`, `npm run db:apply-sql:safe -- docs/sql/2026-04-29-expanded-rbac-rls-storage-policies.sql`, `npm run data:doctor`, and `npm run worklog:check` passed on 2026-04-29.

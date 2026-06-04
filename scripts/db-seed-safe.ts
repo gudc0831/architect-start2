@@ -1,6 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { assertCloudMutationAllowed, createCloudBackup, finalizeCloudMutation, getCloudGuardSummary } from "./lib/cloud-guard";
-import { npxCommand, runCheckedCommand } from "./lib/run-command";
+import { runCheckedNpmExec } from "./lib/run-command";
 
 loadEnvConfig(process.cwd());
 
@@ -23,7 +23,7 @@ async function main() {
   }
 
   const backup = await createCloudBackup("db:seed:safe");
-  runCheckedCommand(npxCommand, ["tsx", "prisma/seed.ts", ...args]);
+  runCheckedNpmExec(["tsx", "prisma/seed.ts", ...args]);
   await finalizeCloudMutation(lock, backup?.backupId ?? null);
 }
 

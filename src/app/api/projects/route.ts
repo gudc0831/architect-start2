@@ -2,15 +2,13 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { applyProjectSessionProjectId } from "@/lib/project-session";
-import { listEffectiveTaskCategoriesForSession, listProjectsForSession } from "@/use-cases/admin/admin-service";
+import { listEffectiveTaskCategoriesForProject, listProjectsForSession } from "@/use-cases/admin/admin-service";
 
 export async function GET() {
   try {
-    await requireUser();
-    const [selection, effectiveCategories] = await Promise.all([
-      listProjectsForSession(),
-      listEffectiveTaskCategoriesForSession(),
-    ]);
+    const user = await requireUser();
+    const selection = await listProjectsForSession(user);
+    const effectiveCategories = await listEffectiveTaskCategoriesForProject(selection.currentProjectId ?? null);
     const categoryDefinitionsByField = Object.fromEntries(
       Object.entries(effectiveCategories.byField).map(([fieldKey, value]) => [fieldKey, value.displayDefinitions]),
     );

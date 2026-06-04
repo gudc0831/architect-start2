@@ -1,0 +1,4 @@
+Req: Verify that the `/daily` installed-extension Local Codex run saves an assistant record with the expected execution mode.
+Diff: Added `scripts/verify-assistant-record.mjs`, added `npm run assistant:verify-record`, and verified the latest local assistant record for task `001`.
+Why: Slice 11 must prove the default `/daily` popup path saves a real Local Codex record, not only that the browser UI shows generated text.
+Verify/Time: `/daily` real generation produced a saved review for task `001`; `npm run assistant:verify-record -- --backend-mode local --execution-mode local-chatgpt-codex --runtime-mode extension-native-bridge-in-page --question-contains 001 --since-minutes 30 --json --strict` passed with record `5a17423c-c291-4609-98b6-a39d6634d968`, task `arch-task-001`, confidence `47` | 2026-05-11 14:42 KST.

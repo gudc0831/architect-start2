@@ -55,7 +55,6 @@ type DailyGridRowV2Props = {
   hideIssueIdOverdueBadge: boolean;
   isManualReorderDisabled: boolean;
   isHtmlDragReorderDisabled: boolean;
-  isReorderingTasks: boolean;
   rowDraft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions: readonly WorkTypeDefinition[];
@@ -92,7 +91,6 @@ function renderTaskListCellContent(
   deadlineBadge: DeadlineBadge | null,
   hideIssueIdOverdueBadge: boolean,
   isHtmlDragReorderDisabled: boolean,
-  isReorderingTasks: boolean,
   isManualReorderDisabled: boolean,
   isSelectedRow: boolean,
   moveTaskByOffset: (taskId: string, offset: -1 | 1) => Promise<void> | void,
@@ -114,11 +112,12 @@ function renderTaskListCellContent(
           <button
             aria-label={presentation.actionId}
             className="task-tree__drag-handle"
-            disabled={isHtmlDragReorderDisabled || isReorderingTasks}
-            draggable={!isHtmlDragReorderDisabled && !isReorderingTasks}
+            disabled={isHtmlDragReorderDisabled}
+            draggable={!isHtmlDragReorderDisabled}
             onClick={(event) => event.stopPropagation()}
             onDragEnd={clearTaskDragInteraction}
             onDragStart={(event) => handleTaskRowDragStart(task, event)}
+            onPointerDown={(event) => event.stopPropagation()}
             type="button"
           >
             <span aria-hidden="true" className="task-tree__drag-grip" />
@@ -129,9 +128,10 @@ function renderTaskListCellContent(
               presentation.isParentTask && "task-tree__badge--parent",
               presentation.isChildTask && "task-tree__badge--child",
               presentation.isBranchTask && "task-tree__badge--branch",
+              isOptimisticTaskId(task.id) && "task-tree__badge--saving",
             )}
           >
-            {presentation.actionId}
+            {isOptimisticTaskId(task.id) ? "저장 중" : presentation.actionId}
           </span>
           {deadlineBadge && !hideIssueIdOverdueBadge ? (
             <span className={clsx("task-state__deadline-badge", `task-state__deadline-badge--${deadlineBadge.tone}`)}>
@@ -143,7 +143,7 @@ function renderTaskListCellContent(
               <button
                 aria-label="move up"
                 className="task-tree__move-button"
-                disabled={isManualReorderDisabled || isReorderingTasks}
+                disabled={isManualReorderDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
                   void moveTaskByOffset(task.id, -1);
@@ -155,7 +155,7 @@ function renderTaskListCellContent(
               <button
                 aria-label="move down"
                 className="task-tree__move-button"
-                disabled={isManualReorderDisabled || isReorderingTasks}
+                disabled={isManualReorderDisabled}
                 onClick={(event) => {
                   event.stopPropagation();
                   void moveTaskByOffset(task.id, 1);
@@ -224,7 +224,6 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
   hideIssueIdOverdueBadge,
   isManualReorderDisabled,
   isHtmlDragReorderDisabled,
-  isReorderingTasks,
   rowDraft,
   inlineSavingFields,
   workTypeDefinitions,
@@ -270,6 +269,7 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
         `task-state-row--${task.status}`,
         isOverdueRow && "task-state-row--overdue",
         isDimmedRow && "task-state-row--dimmed",
+        isOptimisticTaskId(task.id) && "task-state-row--provisional",
         taskDropPosition && `task-state-row--drop-${taskDropPosition}`,
       )}
       data-task-grid-interaction="true"
@@ -336,7 +336,6 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
                   deadlineBadge,
                   hideIssueIdOverdueBadge,
                   isHtmlDragReorderDisabled,
-                  isReorderingTasks,
                   isManualReorderDisabled,
                   isSelectedRow,
                   moveTaskByOffset,
@@ -363,3 +362,7 @@ export const DailyGridRowV2 = memo(function DailyGridRowV2({
     </div>
   );
 });
+
+function isOptimisticTaskId(taskId: string) {
+  return taskId.startsWith("optimistic-task:");
+}

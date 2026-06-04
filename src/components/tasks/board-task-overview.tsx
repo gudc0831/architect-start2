@@ -53,9 +53,10 @@ export type BoardTaskOverviewProps = {
   };
   groups: readonly BoardTaskGroup[];
   className?: string;
+  hideDescriptions?: boolean;
 };
 
-export function BoardTaskOverview({ summaryCards, focusStrip, groups, className }: BoardTaskOverviewProps) {
+export function BoardTaskOverview({ summaryCards, focusStrip, groups, className, hideDescriptions = false }: BoardTaskOverviewProps) {
   return (
     <div className={clsx("board-task-overview", className)}>
       <section aria-label="Board summary" className="board-summary board-task-overview__summary">
@@ -63,17 +64,17 @@ export function BoardTaskOverview({ summaryCards, focusStrip, groups, className 
           <article className={clsx("board-summary__card", card.className, card.tone && `board-summary__card--${card.tone}`)} key={card.key}>
             <span className="board-summary__label">{card.label}</span>
             <strong className="board-summary__value">{card.value}</strong>
-            {card.hint ? <span className="board-summary__hint">{card.hint}</span> : null}
+            {!hideDescriptions && card.hint ? <span className="board-summary__hint">{card.hint}</span> : null}
           </article>
         ))}
       </section>
 
       {focusStrip ? (
         <section aria-label={focusStrip.ariaLabel ?? "Task focus strip"} className={clsx("board-focus", focusStrip.className)}>
-          {focusStrip.title || focusStrip.description ? (
+          {focusStrip.title || (!hideDescriptions && focusStrip.description) ? (
             <div className="board-focus__header">
               {focusStrip.title ? <h3 className="board-focus__title">{focusStrip.title}</h3> : null}
-              {focusStrip.description ? <p className="board-focus__description">{focusStrip.description}</p> : null}
+              {!hideDescriptions && focusStrip.description ? <p className="board-focus__description">{focusStrip.description}</p> : null}
             </div>
           ) : null}
           <TaskFocusStrip
@@ -105,7 +106,7 @@ export function BoardTaskOverview({ summaryCards, focusStrip, groups, className 
                     <h3>{group.label}</h3>
                     <span className={clsx("status-pill", `status-pill--${group.status}`)}>{group.countLabel ?? group.items.length}</span>
                   </div>
-                  <p>{group.description}</p>
+                  {!hideDescriptions ? <p>{group.description}</p> : null}
                 </div>
                 {group.onToggleCollapse ? (
                   <button

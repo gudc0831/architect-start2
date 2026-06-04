@@ -1,0 +1,5 @@
+Req: continue the `codex/multi-user-transition` auth cleanup by removing the remaining hardcoded no-access auth-screen strings after the shell split and account-switch action work.
+Diff: add a dedicated `noAccess` copy section in `src/lib/ui-copy/catalog.ts`; update `src/app/auth/no-access/page.tsx` and `src/components/auth/no-access-actions.tsx` to render all user-facing text from ui-copy instead of hardcoded English strings.
+Why: the no-access screen is now a dedicated auth-state surface. Leaving its title, explanatory copy, and account-switch action hardcoded would keep it inconsistent with the rest of the auth/UI copy system and make later locale cleanup harder.
+Verify: `npm run typecheck` passed; direct `.\node_modules\.bin\eslint.cmd` on `src/lib/ui-copy/catalog.ts`, `src/components/auth/no-access-actions.tsx`, and `src/app/auth/no-access/page.tsx` passed.
+Risks: no browser verification was run here, so preview/cloud auth-state presentation still needs a real UI pass; transitional password-login retirement is still a separate follow-up decision.

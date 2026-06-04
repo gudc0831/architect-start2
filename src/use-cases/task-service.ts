@@ -12,6 +12,7 @@ import {
   normalizeTaskStatus,
 } from "@/domains/task/status";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { backendMode } from "@/lib/backend-mode";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import {
   buildSiblingOrderUpdates,
@@ -36,9 +37,19 @@ type EffectiveTaskCategories = {
   relatedDisciplines: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
   locationRef: Awaited<ReturnType<typeof adminRepository.listEffectiveTaskCategoryDefinitions>>;
 };
+type TaskProjectContext = {
+  id: string;
+  name: string;
+};
+type ListTaskOptions = {
+  orderProfileId?: string | null;
+};
+type ReorderTaskOptions = {
+  orderProfileId?: string | null;
+};
 
-export async function listTasks(scope: TaskScope) {
-  const project = await getSelectedTaskProject();
+export async function listTasks(scope: TaskScope, selectedProject?: TaskProjectContext, options?: ListTaskOptions) {
+  const project = selectedProject ?? (await getSelectedTaskProject());
   const [tasks, foundationSettings, fileSummaryByTaskId] = await Promise.all([
     scope === "trash"
       ? taskRepository.listTrashTasks(project.id)
@@ -46,51 +57,108 @@ export async function listTasks(scope: TaskScope) {
     loadAdminFoundationSettings(),
     loadTaskFileSummaryByScope(scope, project.id),
   ]);
-  const orderedTasks = scope === "trash" ? sortTrashTasks(tasks) : flattenTaskTree(tasks);
+  const taskOrderInput =
+    scope === "active" && options?.orderProfileId ? await applyUserTaskOrder(tasks, project.id, options.orderProfileId) : tasks;
+  const orderedTasks = scope === "trash" ? sortTrashTasks(taskOrderInput) : flattenTaskTree(taskOrderInput);
   return applyFoundationSettingsToTasks(orderedTasks, foundationSettings).map((task) => ({
     ...task,
     fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
   }));
 }
 
-export async function reorderTasks(command: TaskReorderCommand, userId?: string | null): Promise<TaskRecord[]> {
-  const project = await getSelectedTaskProject();
-  const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const foundationSettings = await loadAdminFoundationSettings();
+export async function reorderTasks(
+  command: TaskReorderCommand,
+  userId?: string | null,
+  selectedProject?: TaskProjectContext,
+  options?: ReorderTaskOptions,
+): Promise<TaskRecord[]> {
+  const project = selectedProject ?? (await getSelectedTaskProject());
+
+  if (options?.orderProfileId && taskRepository.setTaskUserSiblingOrder) {
+    const activeTasks = await taskRepository.listActiveTasks(project.id);
+    const orderedTasks = await applyUserTaskOrder(activeTasks, project.id, options.orderProfileId);
+    await persistUserTaskOrder(command, orderedTasks, project.id, options.orderProfileId);
+    return [];
+  }
+
+  if (command.action === "set_sibling_order" && taskRepository.setTaskSiblingOrder) {
+    const updatedTasks = await taskRepository.setTaskSiblingOrder({
+      projectId: project.id,
+      parentTaskId: command.parentTaskId,
+      orderedTaskIds: command.orderedTaskIds,
+      siblingOrderStart: command.siblingOrderStart,
+      updatedBy: userId ?? null,
+    });
+
+    return updatedTasks.map((task) => ({
+      ...task,
+      fileSummary: emptyTaskFileSummary,
+    }));
+  }
+
+  const [activeTasks, foundationSettings] = await Promise.all([
+    taskRepository.listActiveTasks(project.id),
+    loadAdminFoundationSettings(),
+  ]);
+  let updatedTasks: TaskRecord[];
 
   switch (command.action) {
     case "manual_move":
-      await reorderTaskWithinParent(activeTasks, command.movedTaskId, command.targetParentTaskId, command.targetIndex, userId ?? null);
+      updatedTasks = await reorderTaskWithinParent(
+        activeTasks,
+        command.movedTaskId,
+        command.targetParentTaskId,
+        command.targetIndex,
+        command.expectedVersions,
+        userId ?? null,
+      );
       break;
     case "auto_sort":
-      await reorderTaskTree(activeTasks, command.strategy, userId ?? null);
+      updatedTasks = await reorderTaskTree(activeTasks, command.strategy, command.expectedVersions, userId ?? null);
+      break;
+    case "set_sibling_order":
+      updatedTasks = await setTaskSiblingOrder(
+        activeTasks,
+        command.parentTaskId,
+        command.orderedTaskIds,
+        command.expectedVersions,
+        userId ?? null,
+      );
       break;
     default:
       throw badRequest("Unsupported reorder action", "TASK_REORDER_ACTION_INVALID");
   }
 
-  const nextTasks = await taskRepository.listActiveTasks(project.id);
-  const fileSummaryByTaskId = await loadTaskFileSummaryByScope("active", project.id);
-  return applyFoundationSettingsToTasks(flattenTaskTree(nextTasks), foundationSettings).map((task) => ({
+  return applyFoundationSettingsToTasks(updatedTasks, foundationSettings).map((task) => ({
     ...task,
-    fileSummary: fileSummaryByTaskId[task.id] ?? emptyTaskFileSummary,
+    fileSummary: emptyTaskFileSummary,
   }));
 }
 
-export async function createTask(input: Omit<CreateTaskInput, "projectId" | "projectName">, userId?: string | null) {
-  const project = await getSelectedTaskProject();
-  const activeTasks = await taskRepository.listActiveTasks(project.id);
-  const [effectiveCategories, foundationSettings] = await Promise.all([
+export async function createTask(
+  input: Omit<CreateTaskInput, "projectId" | "projectName">,
+  userId?: string | null,
+  selectedProject?: TaskProjectContext,
+) {
+  const project = selectedProject ?? (await getSelectedTaskProject());
+  const shouldResolveParent = hasParentTaskReference(input);
+  const activeTasksPromise = shouldResolveParent ? taskRepository.listActiveTasks(project.id) : Promise.resolve([]);
+  const [activeTasks, effectiveCategories, foundationSettings, assignee] = await Promise.all([
+    activeTasksPromise,
     loadEffectiveTaskCategories(project.id),
     loadAdminFoundationSettings(),
+    resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee),
   ]);
-  const parentTaskId = resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber);
+  const parentTaskId = shouldResolveParent ? resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber) : null;
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = normalizeStatus(input.status);
+  const requestedSiblingOrder =
+    typeof input.siblingOrder === "number" && Number.isFinite(input.siblingOrder) ? input.siblingOrder : undefined;
 
   const task = await taskRepository.createTask({
     projectId: project.id,
     projectName: project.name,
+    id: input.id,
     dueDate: normalizeDate(input.dueDate),
     workType: requireAllowedWorkType(input.workType, effectiveCategories.workType),
     coordinationScope: normalizeTaskCategoryFieldValue(
@@ -112,7 +180,8 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
       effectiveCategories.relatedDisciplines,
       { allowLegacyTextWhenDefinitionsMissing: true },
     ),
-    assignee: normalizeText(input.assignee),
+    assignee: assignee.assignee,
+    assigneeProfileId: assignee.assigneeProfileId ?? null,
     issueTitle: normalizeRequiredText(input.issueTitle, "issueTitle"),
     reviewedAt: normalizeDate(input.reviewedAt ?? ""),
     createdAt: normalizeStoredDate(input.createdAt),
@@ -132,7 +201,7 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
     parentTaskId,
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
-    siblingOrder: nextSiblingOrder(activeTasks, parentTaskId),
+    siblingOrder: requestedSiblingOrder ?? (shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined),
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   });
@@ -140,11 +209,92 @@ export async function createTask(input: Omit<CreateTaskInput, "projectId" | "pro
   return applyFoundationSettingsToTask(task, foundationSettings);
 }
 
+async function persistUserTaskOrder(
+  command: TaskReorderCommand,
+  activeTasks: TaskRecord[],
+  projectId: string,
+  profileId: string,
+) {
+  if (!taskRepository.setTaskUserSiblingOrder) {
+    return;
+  }
+
+  if (command.action === "set_sibling_order") {
+    await taskRepository.setTaskUserSiblingOrder({
+      projectId,
+      profileId,
+      parentTaskId: command.parentTaskId,
+      orderedTaskIds: command.orderedTaskIds,
+      siblingOrderStart: command.siblingOrderStart,
+    });
+    return;
+  }
+
+  if (command.action === "auto_sort") {
+    const taskById = new Map(activeTasks.map((task) => [task.id, task]));
+    const updatesByParent = new Map<string | null, Array<{ id: string; siblingOrder: number }>>();
+    for (const update of buildSiblingOrderUpdates(activeTasks, command.strategy)) {
+      const parentTaskId = taskById.get(update.id)?.parentTaskId ?? null;
+      const updates = updatesByParent.get(parentTaskId) ?? [];
+      updates.push(update);
+      updatesByParent.set(parentTaskId, updates);
+    }
+
+    for (const [parentTaskId, updates] of updatesByParent) {
+      await taskRepository.setTaskUserSiblingOrder({
+        projectId,
+        profileId,
+        parentTaskId,
+        orderedTaskIds: updates.sort((left, right) => left.siblingOrder - right.siblingOrder).map((update) => update.id),
+        siblingOrderStart: 0,
+      });
+    }
+    return;
+  }
+
+  const movedTask = activeTasks.find((task) => task.id === command.movedTaskId);
+  if (!movedTask) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const currentParentTaskId = movedTask.parentTaskId ?? null;
+  const normalizedTargetParentTaskId = command.targetParentTaskId ?? null;
+  if (currentParentTaskId !== normalizedTargetParentTaskId) {
+    throw badRequest("Cross-parent moves are not supported", "INVALID_PARENT_TASK");
+  }
+
+  if (!Number.isInteger(command.targetIndex) || command.targetIndex < 0) {
+    throw badRequest("targetIndex is invalid", "TASK_REORDER_TARGET_INDEX_INVALID");
+  }
+
+  const siblings = activeTasks
+    .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
+    .sort(compareTasksBySiblingOrder);
+  const currentIndex = siblings.findIndex((task) => task.id === command.movedTaskId);
+  if (currentIndex === -1) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+
+  const nextSiblings = siblings.filter((task) => task.id !== command.movedTaskId);
+  const normalizedInsertionIndex = command.targetIndex > currentIndex ? command.targetIndex - 1 : command.targetIndex;
+  const insertionIndex = Math.min(normalizedInsertionIndex, nextSiblings.length);
+  nextSiblings.splice(insertionIndex, 0, movedTask);
+
+  await taskRepository.setTaskUserSiblingOrder({
+    projectId,
+    profileId,
+    parentTaskId: currentParentTaskId,
+    orderedTaskIds: nextSiblings.map((task) => task.id),
+    siblingOrderStart: 0,
+  });
+}
+
 async function reorderTaskWithinParent(
   activeTasks: TaskRecord[],
   movedTaskId: string,
   targetParentTaskId: string | null,
   targetIndex: number,
+  expectedVersions: ReadonlyMap<string, number>,
   userId: string | null,
 ): Promise<TaskRecord[]> {
   const movedTask = activeTasks.find((task) => task.id === movedTaskId);
@@ -165,6 +315,7 @@ async function reorderTaskWithinParent(
   const siblings = activeTasks
     .filter((task) => (task.parentTaskId ?? null) === currentParentTaskId)
     .sort(compareTasksBySiblingOrder);
+  assertExpectedTaskVersions(siblings, expectedVersions);
   const currentIndex = siblings.findIndex((task) => task.id === movedTaskId);
 
   if (currentIndex === -1) {
@@ -180,18 +331,96 @@ async function reorderTaskWithinParent(
     nextSiblings.map((task, siblingOrder) => ({
       id: task.id,
       siblingOrder,
+      expectedVersion: task.version,
       updatedBy: userId,
     })),
   );
 }
 
-async function reorderTaskTree(activeTasks: TaskRecord[], strategy: TaskOrderingStrategy, userId: string | null): Promise<TaskRecord[]> {
+async function reorderTaskTree(
+  activeTasks: TaskRecord[],
+  strategy: TaskOrderingStrategy,
+  expectedVersions: ReadonlyMap<string, number>,
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  assertExpectedTaskVersions(activeTasks, expectedVersions);
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
   const updates = buildSiblingOrderUpdates(activeTasks, strategy).map((input) => ({
     ...input,
+    expectedVersion: taskById.get(input.id)?.version,
     updatedBy: userId,
   }));
 
   return taskRepository.updateTaskOrders(updates);
+}
+
+async function setTaskSiblingOrder(
+  activeTasks: TaskRecord[],
+  parentTaskId: string | null,
+  orderedTaskIds: readonly string[],
+  _expectedVersions: ReadonlyMap<string, number>,
+  userId: string | null,
+): Promise<TaskRecord[]> {
+  const normalizedParentTaskId = parentTaskId ?? null;
+  const taskById = new Map(activeTasks.map((task) => [task.id, task]));
+  const siblings = activeTasks
+    .filter((task) => (task.parentTaskId ?? null) === normalizedParentTaskId)
+    .sort(compareTasksBySiblingOrder);
+  const siblingIds = new Set(siblings.map((task) => task.id));
+  const seenIds = new Set<string>();
+  const orderedSiblings: TaskRecord[] = [];
+
+  for (const taskId of orderedTaskIds) {
+    if (seenIds.has(taskId)) {
+      continue;
+    }
+
+    const task = taskById.get(taskId);
+    if (!task) {
+      continue;
+    }
+
+    if (!siblingIds.has(task.id)) {
+      throw badRequest("orderedTaskIds contains a task outside the parent group", "TASK_REORDER_ORDERED_TASK_IDS_INVALID");
+    }
+
+    seenIds.add(task.id);
+    orderedSiblings.push(task);
+  }
+
+  for (const sibling of siblings) {
+    if (!seenIds.has(sibling.id)) {
+      orderedSiblings.push(sibling);
+    }
+  }
+
+  const updates = orderedSiblings
+    .map((task, siblingOrder) => ({
+      id: task.id,
+      siblingOrder,
+      expectedVersion: task.version,
+      updatedBy: userId,
+    }))
+    .filter((update) => taskById.get(update.id)?.siblingOrder !== update.siblingOrder);
+
+  if (updates.length === 0) {
+    return [];
+  }
+
+  // set_sibling_order is a desired-order snapshot already rebased on the latest activeTasks.
+  // The repository still writes each row with the current server version for intra-request safety.
+  return taskRepository.updateTaskOrders(updates);
+}
+
+function assertExpectedTaskVersions(tasks: readonly TaskRecord[], expectedVersions: ReadonlyMap<string, number>) {
+  for (const task of tasks) {
+    if (expectedVersions.get(task.id) !== task.version) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+  }
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskCommand, userId?: string | null) {
@@ -219,6 +448,7 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     shouldReparent ? taskRepository.listActiveTasks(project.id) : Promise.resolve(undefined),
   ]);
   const sanitized = sanitizeTaskUpdate(input, currentTask, effectiveCategories);
+  await applyAssigneeUpdate(currentTask.projectId, input, sanitized, currentTask);
   sanitized.ownerDiscipline = foundationSettings.ownerDiscipline;
   applyStatusSideEffects(currentTask, sanitized);
 
@@ -259,18 +489,30 @@ export async function moveTaskToTrash(taskId: string, userId?: string | null) {
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
+  if (subtree.every((task) => task.deletedAt && !task.purgedAt)) {
+    return {
+      task: applyFoundationSettingsToTask(subtree[0], foundationSettings),
+      affectedTasks: subtree.map((task) => applyFoundationSettingsToTask(task, foundationSettings)),
+    };
+  }
+
   let updatedRoot = subtree[0];
+  const updatedTasks: TaskRecord[] = [];
 
   for (const task of subtree) {
     const updatedTask = await taskRepository.moveTaskToTrash(task.id, userId ?? null);
     await fileRepository.moveFilesToTrashByTask(task.id);
+    updatedTasks.push(applyFoundationSettingsToTask(updatedTask, foundationSettings));
 
     if (task.id === taskId) {
       updatedRoot = updatedTask;
     }
   }
 
-  return applyFoundationSettingsToTask(updatedRoot, foundationSettings);
+  return {
+    task: applyFoundationSettingsToTask(updatedRoot, foundationSettings),
+    affectedTasks: updatedTasks,
+  };
 }
 
 export async function restoreTask(taskId: string, userId?: string | null) {
@@ -286,6 +528,7 @@ export async function restoreTask(taskId: string, userId?: string | null) {
   const subtreeIds = new Set(subtree.map((task) => task.id));
   const currentParent = target.parentTaskId ? allTasks.find((task) => task.id === target.parentTaskId) ?? null : null;
   const shouldDetach = Boolean(currentParent?.deletedAt && !subtreeIds.has(currentParent.id));
+  const restoredTasks: TaskRecord[] = [];
 
   let restoredRoot = await taskRepository.restoreTask(target.id, userId ?? null);
   await fileRepository.restoreFilesByTask(target.id);
@@ -298,6 +541,7 @@ export async function restoreTask(taskId: string, userId?: string | null) {
       updatedBy: userId ?? null,
     });
   }
+  restoredTasks.push(applyFoundationSettingsToTask(restoredRoot, foundationSettings));
 
   const byId = new Map(allTasks.map((task) => [task.id, task]));
   byId.set(restoredRoot.id, { ...target, ...restoredRoot, deletedAt: null });
@@ -315,13 +559,17 @@ export async function restoreTask(taskId: string, userId?: string | null) {
     });
 
     byId.set(task.id, { ...task, ...updated, deletedAt: null });
+    restoredTasks.push(applyFoundationSettingsToTask(updated, foundationSettings));
   }
 
-  return applyFoundationSettingsToTask(restoredRoot, foundationSettings);
+  return {
+    task: applyFoundationSettingsToTask(restoredRoot, foundationSettings),
+    affectedTasks: restoredTasks,
+  };
 }
 
 export async function permanentlyDeleteTask(taskId: string, userId?: string | null) {
-  await permanentlyDeleteTrashSelection({ taskIds: [taskId] }, userId);
+  return permanentlyDeleteTrashSelection({ taskIds: [taskId] }, userId);
 }
 
 async function reparentTask(
@@ -443,7 +691,7 @@ function sanitizeTaskUpdate(
     );
   }
   if (typeof input.assignee === "string") next.assignee = normalizeText(input.assignee);
-  if (typeof input.issueTitle === "string") next.issueTitle = normalizeRequiredText(input.issueTitle, "issueTitle");
+  if (typeof input.issueTitle === "string") next.issueTitle = normalizeText(input.issueTitle);
   if (typeof input.reviewedAt === "string") next.reviewedAt = normalizeDate(input.reviewedAt);
   if (typeof input.locationRef === "string") {
     next.locationRef = resolvePatchedTaskCategoryFieldValue(
@@ -465,6 +713,97 @@ function sanitizeTaskUpdate(
   }
 
   return next;
+}
+
+async function applyAssigneeUpdate(
+  projectId: string,
+  input: UpdateTaskInput,
+  next: UpdateTaskInput,
+  currentTask: TaskRecord,
+) {
+  const hasAssigneeText = Object.prototype.hasOwnProperty.call(input, "assignee");
+  const hasAssigneeProfile = Object.prototype.hasOwnProperty.call(input, "assigneeProfileId");
+
+  if (hasAssigneeProfile) {
+    const resolved = await resolveTaskAssignee(
+      projectId,
+      input.assigneeProfileId,
+      typeof next.assignee === "string" ? next.assignee : currentTask.assignee,
+    );
+    next.assignee = resolved.assignee;
+    next.assigneeProfileId = resolved.assigneeProfileId ?? null;
+    return;
+  }
+
+  if (hasAssigneeText) {
+    next.assigneeProfileId = null;
+  }
+}
+
+async function resolveTaskAssignee(projectId: string, rawProfileId: unknown, rawAssignee: string) {
+  const assigneeProfileId = normalizeAssigneeProfileId(rawProfileId);
+  const assignee = normalizeText(rawAssignee);
+
+  if (assigneeProfileId === undefined) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  if (assigneeProfileId === null) {
+    return {
+      assignee,
+      assigneeProfileId,
+    };
+  }
+
+  const membership = await adminRepository.getProjectMembership(projectId, assigneeProfileId);
+  if (!membership) {
+    throw badRequest("assigneeProfileId must be a project member", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return {
+    assignee: assignee || membership.displayName.trim() || membership.email.trim(),
+    assigneeProfileId,
+  };
+}
+
+function normalizeAssigneeProfileId(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  const normalized = value.trim();
+  if (normalized && backendMode === "cloud" && !isUuid(normalized)) {
+    throw badRequest("assigneeProfileId is invalid", "TASK_ASSIGNEE_INVALID");
+  }
+
+  return normalized || null;
+}
+
+function hasParentTaskReference(input: Pick<CreateTaskInput, "parentTaskId" | "parentTaskNumber">) {
+  if (typeof input.parentTaskNumber === "string" && normalizeText(input.parentTaskNumber)) {
+    return true;
+  }
+
+  if (typeof input.parentTaskId === "string" && normalizeText(input.parentTaskId)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function hasTaskCategoryPatch(input: UpdateTaskInput) {
@@ -647,7 +986,12 @@ const emptyTaskFileSummary: TaskFileSummaryState = {
 };
 
 async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
-  const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listActiveFiles();
+  const aggregateSummary = await fileRepository.listFileSummaryByProject?.(projectId, scope);
+  if (aggregateSummary) {
+    return aggregateSummary;
+  }
+
+  const files = scope === "trash" ? await fileRepository.listTrashFiles() : await fileRepository.listFilesByProject(projectId);
   const summaryByTaskId: Record<string, TaskFileSummaryState> = {};
 
   for (const file of files) {
@@ -673,6 +1017,26 @@ async function loadTaskFileSummaryByScope(scope: TaskScope, projectId: string) {
       },
     ]),
   );
+}
+
+async function applyUserTaskOrder(tasks: TaskRecord[], projectId: string, profileId: string) {
+  const userOrders = await taskRepository.listTaskUserOrders?.(projectId, profileId);
+  if (!userOrders?.length) {
+    return tasks;
+  }
+
+  const orderByTaskId = new Map(userOrders.map((order) => [order.taskId, order]));
+  return tasks.map((task) => {
+    const order = orderByTaskId.get(task.id);
+    if (!order || (order.parentTaskId ?? null) !== (task.parentTaskId ?? null)) {
+      return task;
+    }
+
+    return {
+      ...task,
+      siblingOrder: order.siblingOrder,
+    };
+  });
 }
 
 function flattenTaskTree(tasks: TaskRecord[]) {

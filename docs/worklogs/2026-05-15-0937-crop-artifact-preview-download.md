@@ -1,0 +1,4 @@
+Req: Complete the next MVP file/OCR usability gap by making persisted selected-region crop artifacts reviewable from `/daily`.
+Diff: Added a guarded file-analysis artifact stream route, file-service artifact readback, `/daily` task assistant saved-analysis cards with crop preview/download links, pending crop preview UI, CSS, and user-guide notes.
+Why: Slice 465 persisted crop artifacts, but users could not visually confirm or download the stored crop evidence before relying on assistant image-region evidence.
+Verify/Time: Passed `npm run typecheck`; `npm run lint` passed with 7 pre-existing React Hook warnings; `npm run build` passed with the existing Turbopack NFT warning; direct artifact route validation passed; HTTP artifact route returned inline/attachment PNG responses and rejected invalid disposition; Chrome `/daily` validation rendered the saved crop preview and completed `Download crop` as a 1057-byte PNG | 2026-05-15 10:32 KST.

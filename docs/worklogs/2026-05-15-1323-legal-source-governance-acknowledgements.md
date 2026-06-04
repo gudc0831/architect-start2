@@ -1,0 +1,4 @@
+Req: Check the next additional Architect slice and implement legal-source governance reviewer acknowledgement records.
+Diff: Added append-only regulation governance acknowledgement audit records, `/api/admin/knowledge/regulation-governance/acknowledgements`, package digesting, acknowledgement summary/list fields in the governance report, and `/admin/knowledge` acknowledgement form/list/report copy updates.
+Why: Knowledge admins needed persisted review evidence for the offline legal-source governance package instead of relying only on a read-only panel and copied Markdown.
+Verify/Time: 2026-05-15 13:30 KST; `npm run typecheck`, `npm run lint`, `npm run regulation:governance:validate`, direct `getRegulationGovernanceReport()` check, and `NEXT_DIST_DIR=.next-build npm run build` passed. Local `next start` HTTP check confirmed unauthenticated GET and POST to the acknowledgement API return 401.

@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "architect.regulation.seed.v1",
+  "packageId": "kr-architecture-foundation-2026-05-14",
+  "title": "Korean architecture regulation foundation seed",
+  "jurisdiction": "KR",
+  "language": "ko",
+  "generatedAt": "2026-05-14T08:41:00.000Z",
+  "importContract": {
+    "mode": "admin_seed_package",
+    "networkPolicy": "offline_only",
+    "requiredReview": "knowledge_admin",
+    "contentPolicy": [
+      "This package is a local dry-run seed contract and must not crawl or fetch official sites.",
+      "Each document stores official source locator metadata plus Markdown notes, not a legal final answer.",
+      "A Knowledge admin must verify official text, effective date, attached tables, and superseded status before production import."
+    ]
+  },
+  "sources": [
+    {
+      "id": "kr-building-act",
+      "kind": "law",
+      "name": "건축법",
+      "publisher": "국가법령정보센터",
+      "jurisdiction": "KR",
+      "officialUrl": "https://www.law.go.kr/법령/건축법",
+      "priority": 1
+    },
+    {
+      "id": "kr-building-decree",
+      "kind": "enforcement_decree",
+      "name": "건축법 시행령",
+      "publisher": "국가법령정보센터",
+      "jurisdiction": "KR",
+      "officialUrl": "https://www.law.go.kr/법령/건축법시행령",
+      "priority": 2
+    },
+    {
+      "id": "kr-parking-lot-act",
+      "kind": "law",
+      "name": "주차장법",
+      "publisher": "국가법령정보센터",
+      "jurisdiction": "KR",
+      "officialUrl": "https://www.law.go.kr/법령/주차장법",
+      "priority": 2
+    },
+    {
+      "id": "kr-national-land-planning-act",
+      "kind": "law",
+      "name": "국토의 계획 및 이용에 관한 법률",
+      "publisher": "국가법령정보센터",
+      "jurisdiction": "KR",
+      "officialUrl": "https://www.law.go.kr/법령/국토의계획및이용에관한법률",
+      "priority": 2
+    },
+    {
+      "id": "kr-local-ordinance-system",
+      "kind": "local_ordinance",
+      "name": "자치법규정보시스템",
+      "publisher": "행정안전부",
+      "jurisdiction": "KR-local",
+      "officialUrl": "https://www.elis.go.kr/",
+      "priority": 3
+    },
+    {
+      "id": "kr-molit-guidance",
+      "kind": "official_guidance",
+      "name": "국토교통부 고시/행정자료",
+      "publisher": "국토교통부",
+      "jurisdiction": "KR",
+      "officialUrl": "https://www.molit.go.kr/",
+      "priority": 3
+    }
+  ],
+  "documents": [
+    {
+      "id": "building-act-evacuation-fire-safety",
+      "sourceId": "kr-building-act",
+      "title": "건축법 피난ㆍ방화 기준 확인 seed",
+      "sourceLocator": "건축법 제49조 등 피난시설ㆍ용도제한 관련 조문",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 1,
+      "tags": ["건축법", "피난", "방화", "피난계단", "방화구획", "복도"],
+      "aliases": ["피난시설", "방화시설", "피난계단", "특별피난계단", "방화구획"],
+      "summary": "피난계단, 복도, 출구, 방화 관련 검토가 나오면 국가법령정보센터의 건축법 본문과 관련 시행령/규칙을 함께 확인해야 한다.",
+      "bodyMarkdown": "## Retrieval note\n- 이 seed는 피난ㆍ방화 질문을 공식 법령 출처로 라우팅하기 위한 foundation 항목이다.\n- 조문 전문, 적용 대상, 예외, 별표는 관리자 import 때 공식 원문에서 재확인한다.\n\n## Import checklist\n- 건축법 본문 locator 확인\n- 건축법 시행령/시행규칙 위임 조항 확인\n- 지자체 조례 또는 소방 관련 기준 충돌 여부 확인"
+    },
+    {
+      "id": "building-decree-use-area-detail",
+      "sourceId": "kr-building-decree",
+      "title": "건축법 시행령 용도ㆍ면적ㆍ층수 세부기준 seed",
+      "sourceLocator": "건축법 시행령 및 별표",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 2,
+      "tags": ["건축법 시행령", "용도", "면적", "층수", "별표", "건축물 용도"],
+      "aliases": ["용도별 기준", "면적 산정", "층수 산정", "시행령 별표"],
+      "summary": "건축물 용도, 면적 산정, 층수 등 세부 기준 질문은 건축법 시행령과 관련 별표를 우선 확인한다.",
+      "bodyMarkdown": "## Retrieval note\n- 세부 기준은 본법보다 시행령/별표에 위임되는 경우가 많으므로 본법 locator와 시행령 locator를 함께 저장한다.\n- 법규 전문 자동 판단이 아니라, 검토자가 확인해야 할 공식 출처 후보를 반환한다.\n\n## Import checklist\n- 별표 번호와 제목 확인\n- 면적/층수 산정 정의 확인\n- 프로젝트 용도와 지역 조건의 적용 범위 확인"
+    },
+    {
+      "id": "parking-lot-act-attached-parking",
+      "sourceId": "kr-parking-lot-act",
+      "title": "주차장법 부설주차장 설치기준 seed",
+      "sourceLocator": "주차장법 및 시행령/시행규칙의 부설주차장 관련 조문ㆍ별표",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 1,
+      "tags": ["주차장법", "부설주차장", "주차대수", "설치기준", "용도별"],
+      "aliases": ["부설 주차장", "주차 설치 기준", "주차대수 산정", "주차장 설치"],
+      "summary": "부설주차장 설치 여부, 주차대수, 용도별 기준 질문은 주차장법과 하위 규정 및 지자체 조례 확인이 필요하다.",
+      "bodyMarkdown": "## Retrieval note\n- 주차대수 산정은 법령, 시행령/규칙, 지자체 조례가 함께 영향을 줄 수 있다.\n- 이 seed는 주차 관련 질문을 공식 출처 확인 queue로 올리기 위한 최소 단위다.\n\n## Import checklist\n- 용도별 설치기준 별표 확인\n- 지자체 조례 가중/완화 기준 확인\n- 기계식/자주식 등 프로젝트 조건 확인"
+    },
+    {
+      "id": "national-land-planning-zoning-ratio",
+      "sourceId": "kr-national-land-planning-act",
+      "title": "국토계획법 용도지역ㆍ건폐율ㆍ용적률 확인 seed",
+      "sourceLocator": "국토의 계획 및 이용에 관한 법률 및 시행령의 용도지역ㆍ건폐율ㆍ용적률 관련 조문",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 1,
+      "tags": ["국토계획법", "용도지역", "건폐율", "용적률", "지구단위계획"],
+      "aliases": ["용도 지구", "건폐율 기준", "용적률 기준", "도시계획", "지구단위"],
+      "summary": "용도지역, 건폐율, 용적률, 지구단위계획 관련 질문은 국토계획법과 시행령, 도시계획 조례를 함께 확인해야 한다.",
+      "bodyMarkdown": "## Retrieval note\n- 건폐율/용적률은 전국 법령 기준과 지자체 도시계획 조례, 지구단위계획이 함께 작동할 수 있다.\n- seed evidence는 적용 가능성 판단이 아니라 확인해야 할 공식 근거 묶음이다.\n\n## Import checklist\n- 용도지역/용도지구 확인\n- 조례 위임 범위 확인\n- 지구단위계획 또는 개별 고시 존재 여부 확인"
+    },
+    {
+      "id": "building-act-site-road-access",
+      "sourceId": "kr-building-act",
+      "title": "건축법 대지와 도로 접도 요건 seed",
+      "sourceLocator": "건축법의 대지와 도로 관계 조문 및 관련 하위 규정",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 2,
+      "tags": ["건축법", "대지", "도로", "접도", "건축선", "허가"],
+      "aliases": ["대지와 도로", "접도 요건", "도로 폭", "건축선"],
+      "summary": "대지와 도로의 관계, 접도 요건, 건축선 검토 질문은 건축법 본문과 지자체 기준을 함께 확인해야 한다.",
+      "bodyMarkdown": "## Retrieval note\n- 접도 요건은 법령상 기본 요건과 현장 도로 지정/인정 여부가 결합된다.\n- 프로젝트 도면과 지자체 인허가 기준 확인 전에는 최종 판단으로 사용하지 않는다.\n\n## Import checklist\n- 대지와 도로 조문 locator 확인\n- 도로 지정/인정 자료 확인\n- 현황도/토지이용계획과 충돌 여부 확인"
+    },
+    {
+      "id": "local-ordinance-building-check",
+      "sourceId": "kr-local-ordinance-system",
+      "title": "지자체 건축 조례 확인 seed",
+      "sourceLocator": "자치법규정보시스템의 해당 지자체 건축 조례",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 3,
+      "tags": ["건축조례", "지자체", "서울특별시", "완화", "위임"],
+      "aliases": ["지방자치단체 조례", "서울 건축 조례", "도시계획 조례", "자치법규"],
+      "summary": "법령이 지자체 조례에 위임하거나 지역별 완화/강화 기준이 있는 경우 자치법규정보시스템에서 해당 조례를 확인해야 한다.",
+      "bodyMarkdown": "## Retrieval note\n- 이 seed는 특정 지자체 조례 전문을 포함하지 않고, 지자체 조례 확인 필요성을 검색 근거로 노출한다.\n- 프로젝트 소재지가 확정되면 해당 시/군/구 조례 문서로 별도 import해야 한다.\n\n## Import checklist\n- 프로젝트 소재지 확인\n- 건축 조례와 도시계획 조례 분리 확인\n- 법령 위임 조항과 조례 조항 매핑"
+    },
+    {
+      "id": "molit-notice-guidance-check",
+      "sourceId": "kr-molit-guidance",
+      "title": "국토교통부 고시ㆍ행정자료 확인 seed",
+      "sourceLocator": "국토교통부 고시, 훈령, 행정자료, 질의회신",
+      "versionLabel": "official-current-at-import",
+      "effectiveDate": "official-current-at-import",
+      "collectedAt": "2026-05-14",
+      "reviewStatus": "admin_review_required",
+      "freshnessStatus": "seed_unverified",
+      "retrievalPriority": 4,
+      "tags": ["국토교통부", "고시", "행정자료", "질의회신", "가이드라인"],
+      "aliases": ["MOLIT", "국토부 고시", "질의 회신", "행정 해석", "가이드"],
+      "summary": "법령 본문만으로 부족한 행정 해석, 고시, 질의회신, 가이드라인은 국토교통부 공식 자료를 확인 후보로 둔다.",
+      "bodyMarkdown": "## Retrieval note\n- 행정자료는 법령과 효력/적용 범위가 다를 수 있으므로 법령 evidence와 구분한다.\n- Knowledge admin은 자료 유형, 발행일, 개정 여부, 프로젝트 적용 가능성을 별도 검토한다.\n\n## Import checklist\n- 자료 유형과 발행 부서 확인\n- 발행일/개정일 확인\n- 법령 조문과 연결되는지 확인"
+    }
+  ]
+}

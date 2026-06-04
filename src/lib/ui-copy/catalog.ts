@@ -13,6 +13,19 @@ export type UICatalog = {
     primaryNavAriaLabel: string;
   };
   nav: Record<DashboardMode, string>;
+  materials: {
+    title: string;
+    primaryUpload: string;
+    scopeText: string;
+    rawRetentionText: string;
+    fileLabel: string;
+    noProject: string;
+    previewDisabled: string;
+    ready: string;
+    uploading: string;
+    uploaded: string;
+    failed: string;
+  };
   sidebar: {
     projectNameAriaLabel: string;
     projectNamePlaceholder: string;
@@ -35,9 +48,19 @@ export type UICatalog = {
   login: {
     title: string;
     subtitle: string;
+    googleSubtitle: string;
+    googleNote: string;
     stubNote: string;
     email: string;
     password: string;
+  };
+  noAccess: {
+    title: string;
+    signedInAs: string;
+    body: string;
+    help: string;
+    switchAccount: string;
+    signingOut: string;
   };
   workspace: {
     fallbackEyebrow: string;
@@ -64,6 +87,9 @@ export type UICatalog = {
     dueDateMeta: string;
     fileCount: string;
     deletedDateMeta: string;
+    createdDateMeta: string;
+    createdDateLabel: string;
+    deletedDateLabel: string;
     deletedTasksTitle: string;
     deletedFilesTitle: string;
     deleteFilePermanentlyConfirm: string;
@@ -72,6 +98,24 @@ export type UICatalog = {
     emptyTrashConfirm: string;
     trashItemTask: string;
     trashItemFile: string;
+    trashSortLabel: string;
+    trashSortModeAria: string;
+    trashSortDeletedDate: string;
+    trashSortCreatedDate: string;
+    trashListViewLabel: string;
+    trashListViewModeAria: string;
+    trashListViewFull: string;
+    trashListViewPaged: string;
+    trashListPaginationAria: string;
+    trashListGoToPage: string;
+    trashListPageRange: string;
+    trashExpandButton: string;
+    trashCollapseButton: string;
+    expandTrashItem: string;
+    collapseTrashItem: string;
+    trashFileMetaLabel: string;
+    trashFileTaskIdLabel: string;
+    trashFileVersionLabel: string;
     selectedCount: string;
     taskDetailsTitle: string;
     downloadAvailable: string;
@@ -190,6 +234,7 @@ export type UICatalog = {
   };
   actions: {
     login: string;
+    continueWithGoogle: string;
     authNotConnected: string;
     signingIn: string;
     logout: string;
@@ -224,6 +269,7 @@ export type UICatalog = {
   errors: {
     loginFailed: string;
     previewMutationNotAllowed: string;
+    workspaceReadOnly: string;
     loadTasksFailed: string;
     loadFilesFailed: string;
     loadDashboardFailed: string;
@@ -251,6 +297,8 @@ export type UICatalog = {
     taskNotInTrash: string;
     taskVersionRequired: string;
     taskVersionConflict: string;
+    taskReorderConflict: string;
+    fileVersionConflict: string;
     invalidParentTask: string;
     parentTaskNotFound: string;
     parentTaskNumberInvalid: string;
@@ -269,6 +317,7 @@ export type UICatalog = {
     cloudEnvMissing: string;
     backendModeInvalid: string;
     databaseUrlMissing: string;
+    databaseUnavailable: string;
     internalServerError: string;
   };
 };
@@ -285,6 +334,20 @@ export const uiCopyCatalog = {
       daily: "일일 목록",
       calendar: "캘린더",
       trash: "휴지통",
+      materials: "프로젝트 자료",
+    },
+    materials: {
+      title: "프로젝트 자료",
+      primaryUpload: "프로젝트 전역 자료 업로드",
+      scopeText: "이 자료는 PM 승인 후 프로젝트 전체 task review에 적용됩니다.",
+      rawRetentionText: "원본 파일은 기본 7일간 임시 보관 후 삭제됩니다.",
+      fileLabel: "업로드 파일",
+      noProject: "현재 선택된 프로젝트가 없습니다.",
+      previewDisabled: "미리보기에서는 업로드가 비활성화됩니다.",
+      ready: "업로드할 파일을 선택하세요.",
+      uploading: "업로드 중...",
+      uploaded: "업로드가 접수되었습니다.",
+      failed: "업로드를 접수하지 못했습니다.",
     },
     sidebar: {
       projectNameAriaLabel: "프로젝트명",
@@ -316,14 +379,32 @@ export const uiCopyCatalog = {
           label: "Productivity",
           description: "따뜻한 샌드 톤과 집중형 강조색을 쓰는 업무형 테마입니다.",
         },
+        posthog: {
+          label: "Warm Studio",
+          description: "따뜻한 파치먼트 캔버스와 진한 워크스페이스 크롬을 쓰는 분석형 테마입니다.",
+        },
+        "apple-workbench": {
+          label: "apple",
+          description: "흰색과 펄 톤, 정밀한 헤어라인, Apple Blue 강조색을 쓰는 절제된 업무형 테마입니다.",
+        },
       },
     },
     login: {
       title: "로그인",
       subtitle: "실제 인증 연결이 준비되면 이 화면을 사용합니다. 그전까지는 앱이 로컬 플레이스홀더 모드로 동작합니다.",
+      googleSubtitle: "클라우드 모드에서는 Google OAuth로 로그인합니다. 앱 접근 권한은 사전 프로비저닝된 계정과 프로젝트 멤버십 기준으로 확인됩니다.",
+      googleNote: "로그인 후 바로 작업 공간으로 보내지지 않을 수 있습니다. 프로젝트 접근 권한이 없으면 별도 안내 화면으로 이동합니다.",
       stubNote: "실제 로그인 연결이 아직 설정되지 않았습니다. 지금은 로컬 작업 공간을 그대로 사용할 수 있고, 이후에도 화면 흐름을 바꾸지 않고 Supabase 인증을 연결할 수 있습니다.",
       email: "이메일",
       password: "비밀번호",
+    },
+    noAccess: {
+      title: "접근 권한 대기 중",
+      signedInAs: "{{email}} 계정으로 로그인됨",
+      body: "로그인은 성공했지만, 이 계정에는 아직 프로젝트 접근 권한이 없습니다.",
+      help: "관리자에게 최소 한 개 프로젝트에 이 계정을 추가해 달라고 요청한 뒤 다시 로그인하세요.",
+      switchAccount: "로그아웃 후 다른 계정으로 로그인",
+      signingOut: "로그아웃 중...",
     },
     workspace: {
       fallbackEyebrow: "작업 공간",
@@ -350,6 +431,9 @@ export const uiCopyCatalog = {
       dueDateMeta: "마감 {{date}}",
       fileCount: "{{count}}개 파일",
       deletedDateMeta: "삭제일 {{date}}",
+      createdDateMeta: "생성일 {{date}}",
+      createdDateLabel: "생성일",
+      deletedDateLabel: "삭제일",
       deletedTasksTitle: "삭제된 작업",
       deletedFilesTitle: "삭제된 파일",
       deleteFilePermanentlyConfirm: "{{name}} {{version}} 파일을 완전 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
@@ -358,6 +442,24 @@ export const uiCopyCatalog = {
       emptyTrashConfirm: "휴지통의 모든 항목을 완전 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       trashItemTask: "작업",
       trashItemFile: "파일",
+      trashSortLabel: "정렬",
+      trashSortModeAria: "휴지통 정렬 기준",
+      trashSortDeletedDate: "삭제일",
+      trashSortCreatedDate: "생성일",
+      trashListViewLabel: "보기",
+      trashListViewModeAria: "휴지통 보기 전환",
+      trashListViewFull: "전체",
+      trashListViewPaged: "50개씩",
+      trashListPaginationAria: "휴지통 페이지 이동",
+      trashListGoToPage: "{{page}}페이지로 이동",
+      trashListPageRange: "{{from}}-{{to}} / {{total}}",
+      trashExpandButton: "펼치기",
+      trashCollapseButton: "접기",
+      expandTrashItem: "{{title}} 세부내용 펼치기",
+      collapseTrashItem: "{{title}} 세부내용 접기",
+      trashFileMetaLabel: "파일 정보",
+      trashFileTaskIdLabel: "연결 작업",
+      trashFileVersionLabel: "버전",
       selectedCount: "{{count}}개 선택",
       taskDetailsTitle: "작업 상세",
       downloadAvailable: "다운로드 가능",
@@ -370,7 +472,7 @@ export const uiCopyCatalog = {
       parentTaskNumberPlaceholder: "#12 또는 12",
       resizeFieldAria: "{{field}} 너비 조절",
       headerFilterAria: "{{field}} 필터: {{label}}",
-      hideIssueIdOverdueBadge: "이슈 ID 지연 표시 숨기기",
+      hideIssueIdOverdueBadge: "Task 번호 지연 표시 숨기기",
       dailyFocusSummary: "집중 영역 · 실행 순서를 바꾸기 전에 우선 처리군을 먼저 확인합니다.",
       autoAfterCreate: "생성 후 자동 지정",
       autoValue: "자동",
@@ -419,7 +521,7 @@ export const uiCopyCatalog = {
       previewLoading: "미리보기를 불러오는 중...",
     },
     fields: {
-      actionId: "이슈 ID",
+      actionId: "Task 번호",
       dueDate: "마감일",
       workType: "작업 유형",
       coordinationScope: "협업 범위",
@@ -438,7 +540,7 @@ export const uiCopyCatalog = {
       statusHistory: "상태 변경 이력",
       decision: "결정 사항",
       linkedDocuments: "첨부 문서",
-      parentActionId: "상위 이슈 ID",
+      parentActionId: "상위 Task 번호",
     },
     status: {
       labels: {
@@ -503,6 +605,7 @@ export const uiCopyCatalog = {
     },
     actions: {
       login: "로그인",
+      continueWithGoogle: "Google로 계속",
       authNotConnected: "인증 연결 안 됨",
       signingIn: "로그인 중...",
       logout: "로그아웃",
@@ -537,6 +640,7 @@ export const uiCopyCatalog = {
     errors: {
       loginFailed: "로그인에 실패했습니다.",
       previewMutationNotAllowed: "미리보기 모드에서는 수정할 수 없습니다.",
+      workspaceReadOnly: "현재 권한에서는 이 작업 공간을 수정할 수 없습니다.",
       loadTasksFailed: "작업을 불러오지 못했습니다.",
       loadFilesFailed: "파일을 불러오지 못했습니다.",
       loadDashboardFailed: "대시보드 데이터를 불러오지 못했습니다.",
@@ -564,9 +668,11 @@ export const uiCopyCatalog = {
       taskNotInTrash: "휴지통에 있는 작업만 완전 삭제할 수 있습니다.",
       taskVersionRequired: "버전 정보가 필요합니다.",
       taskVersionConflict: "다른 사용자가 먼저 수정했습니다. 최신 데이터를 불러온 뒤 다시 시도하세요.",
+      taskReorderConflict: "작업 순서가 먼저 변경되었습니다. 최신 데이터를 불러온 뒤 다시 시도하세요.",
+      fileVersionConflict: "다른 사용자가 먼저 같은 파일 버전을 만들었습니다. 파일 목록을 새로 불러온 뒤 다시 업로드하세요.",
       invalidParentTask: "올바르지 않은 상위 작업입니다.",
       parentTaskNotFound: "상위 작업을 찾을 수 없습니다.",
-      parentTaskNumberInvalid: "상위 이슈 ID 또는 번호 형식이 올바르지 않습니다.",
+      parentTaskNumberInvalid: "상위 Task 번호 또는 issueId 형식이 올바르지 않습니다.",
       taskStatusInvalid: "상태 값이 올바르지 않습니다.",
       taskCoordinationScopeInvalid: "협업범위 값이 올바르지 않습니다.",
       taskRequestedByInvalid: "요청자 값이 올바르지 않습니다.",
@@ -582,6 +688,7 @@ export const uiCopyCatalog = {
       cloudEnvMissing: "Cloud backend configuration is incomplete.",
       backendModeInvalid: "APP_BACKEND_MODE is invalid.",
       databaseUrlMissing: "데이터베이스 설정이 완전하지 않습니다.",
+      databaseUnavailable: "데이터베이스 연결이 일시적으로 불안정합니다. 잠시 후 다시 시도하세요.",
       internalServerError: "예기치 않은 서버 오류가 발생했습니다.",
     },
   },
@@ -596,6 +703,20 @@ export const uiCopyCatalog = {
       daily: "Daily List",
       calendar: "Calendar",
       trash: "Trash",
+      materials: "Project Materials",
+    },
+    materials: {
+      title: "Project Materials",
+      primaryUpload: "Upload Project-Wide Material",
+      scopeText: "This material applies to project-wide task review after PM approval.",
+      rawRetentionText: "Original files are temporarily retained for 7 days by default and then deleted.",
+      fileLabel: "Upload file",
+      noProject: "No project is currently selected.",
+      previewDisabled: "Uploads are disabled in preview.",
+      ready: "Select a file to upload.",
+      uploading: "Uploading...",
+      uploaded: "Upload has been queued.",
+      failed: "Upload could not be queued.",
     },
     sidebar: {
       projectNameAriaLabel: "Project name",
@@ -627,14 +748,32 @@ export const uiCopyCatalog = {
           label: "Productivity",
           description: "A warmer sand palette tuned for focused productivity work.",
         },
+        posthog: {
+          label: "Warm Studio",
+          description: "A warm parchment canvas with darker workspace chrome and diagnostic accents.",
+        },
+        "apple-workbench": {
+          label: "apple",
+          description: "A restrained white-and-pearl workspace theme with precise hairlines and Apple Blue accents.",
+        },
       },
     },
     login: {
       title: "Login",
       subtitle: "Use this page when real authentication is connected. Until then, the app runs in local placeholder mode.",
+      googleSubtitle: "Cloud mode signs users in with Google OAuth. App access is still gated by pre-provisioned accounts and project memberships.",
+      googleNote: "A successful Google sign-in does not always lead straight to the workspace. Users without project access are sent to a separate access-pending screen.",
       stubNote: "Real sign-in is not connected yet. You can keep using the workspace locally, and wire Supabase auth later without changing the screen flow.",
       email: "Email",
       password: "Password",
+    },
+    noAccess: {
+      title: "Access pending",
+      signedInAs: "Signed in as {{email}}",
+      body: "Your sign-in succeeded, but this account does not have project access yet.",
+      help: "Ask an administrator to add this account to at least one project, then sign in again.",
+      switchAccount: "Sign out and switch account",
+      signingOut: "Signing out...",
     },
     workspace: {
       fallbackEyebrow: "Workspace",
@@ -661,6 +800,9 @@ export const uiCopyCatalog = {
       dueDateMeta: "Due {{date}}",
       fileCount: "{{count}} files",
       deletedDateMeta: "Deleted {{date}}",
+      createdDateMeta: "Created {{date}}",
+      createdDateLabel: "Created",
+      deletedDateLabel: "Deleted",
       deletedTasksTitle: "Deleted tasks",
       deletedFilesTitle: "Deleted files",
       deleteFilePermanentlyConfirm: "Delete {{name}} {{version}} permanently? This action cannot be undone.",
@@ -669,6 +811,24 @@ export const uiCopyCatalog = {
       emptyTrashConfirm: "Delete every item in the trash permanently? This action cannot be undone.",
       trashItemTask: "Task",
       trashItemFile: "File",
+      trashSortLabel: "Sort",
+      trashSortModeAria: "Trash sort mode",
+      trashSortDeletedDate: "Deleted",
+      trashSortCreatedDate: "Created",
+      trashListViewLabel: "View",
+      trashListViewModeAria: "Switch trash view",
+      trashListViewFull: "All",
+      trashListViewPaged: "50 per page",
+      trashListPaginationAria: "Trash pagination",
+      trashListGoToPage: "Go to page {{page}}",
+      trashListPageRange: "{{from}}-{{to}} / {{total}}",
+      trashExpandButton: "Expand",
+      trashCollapseButton: "Collapse",
+      expandTrashItem: "Expand details for {{title}}",
+      collapseTrashItem: "Collapse details for {{title}}",
+      trashFileMetaLabel: "File info",
+      trashFileTaskIdLabel: "Linked task",
+      trashFileVersionLabel: "Version",
       selectedCount: "{{count}} selected",
       taskDetailsTitle: "Task details",
       downloadAvailable: "Download available",
@@ -730,7 +890,7 @@ export const uiCopyCatalog = {
       previewLoading: "Loading preview...",
     },
     fields: {
-      actionId: "Issue ID",
+      actionId: "Task No.",
       dueDate: "Due Date",
       workType: "Work Type",
       coordinationScope: "Coordination Scope",
@@ -749,7 +909,7 @@ export const uiCopyCatalog = {
       statusHistory: "Status History",
       decision: "Decision",
       linkedDocuments: "Linked Documents",
-      parentActionId: "Parent Issue ID",
+      parentActionId: "Parent Task No.",
     },
     status: {
       labels: {
@@ -814,6 +974,7 @@ export const uiCopyCatalog = {
     },
     actions: {
       login: "Sign in",
+      continueWithGoogle: "Continue with Google",
       authNotConnected: "Auth not connected",
       signingIn: "Signing in...",
       logout: "Log out",
@@ -848,6 +1009,7 @@ export const uiCopyCatalog = {
     errors: {
       loginFailed: "Login failed.",
       previewMutationNotAllowed: "Preview mode does not allow mutations.",
+      workspaceReadOnly: "Your current role can view this workspace but cannot change it.",
       loadTasksFailed: "Failed to load tasks.",
       loadFilesFailed: "Failed to load files.",
       loadDashboardFailed: "Failed to load dashboard data.",
@@ -875,9 +1037,11 @@ export const uiCopyCatalog = {
       taskNotInTrash: "Only trashed tasks can be deleted permanently.",
       taskVersionRequired: "Version is required.",
       taskVersionConflict: "Another user updated this task first. Reload the latest data and try again.",
+      taskReorderConflict: "Task order changed first. Reload the latest data and try again.",
+      fileVersionConflict: "Another user created the same file version first. Reload the latest files and upload again.",
       invalidParentTask: "Invalid parent task.",
       parentTaskNotFound: "Parent task not found.",
-      parentTaskNumberInvalid: "Parent issue ID or numeric reference format is invalid.",
+      parentTaskNumberInvalid: "Parent task number or issueId reference format is invalid.",
       taskStatusInvalid: "Status is invalid.",
       taskCoordinationScopeInvalid: "Coordination scope is invalid.",
       taskRequestedByInvalid: "Requested by is invalid.",
@@ -893,6 +1057,7 @@ export const uiCopyCatalog = {
       cloudEnvMissing: "Cloud backend configuration is incomplete.",
       backendModeInvalid: "APP_BACKEND_MODE is invalid.",
       databaseUrlMissing: "Database configuration is incomplete.",
+      databaseUnavailable: "Database connection is temporarily unavailable. Try again shortly.",
       internalServerError: "Unexpected server error.",
     },
   },

@@ -28,7 +28,6 @@ export type TaskGridOverlayAnchorRect = Readonly<{
 export type TaskInlineEditorOverlayRenderContext = Readonly<{
   activeCell: TaskGridCellKey;
   anchorRect: TaskGridOverlayAnchorRect;
-  focusEditor: () => void;
 }>;
 
 export type TaskInlineEditorOverlayProps = {
@@ -43,6 +42,11 @@ export type TaskInlineEditorOverlayProps = {
   focusSelector?: string;
   selectTextOnFocus?: boolean;
 };
+
+type TaskInlineEditorOverlayAnchorState = Readonly<{
+  cell: TaskGridCellKey;
+  rect: TaskGridOverlayAnchorRect;
+}> | null;
 
 function findFocusableOverlayElement(overlayNode: HTMLElement, focusSelector: string) {
   return overlayNode.querySelector<HTMLElement>(focusSelector);
@@ -123,34 +127,44 @@ export function TaskInlineEditorOverlay({
 }: TaskInlineEditorOverlayProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const focusHandledRef = useRef(false);
-  const [anchorRect, setAnchorRect] = useState<TaskGridOverlayAnchorRect | null>(null);
+  const [anchorState, setAnchorState] = useState<TaskInlineEditorOverlayAnchorState>(null);
+  const anchorRect = activeCell && anchorState && areTaskGridCellKeysEqual(activeCell, anchorState.cell) ? anchorState.rect : null;
 
   const syncAnchorRect = useCallback(() => {
     if (!activeCell) {
-      setAnchorRect(null);
       return false;
     }
 
     const cell = getCellNode(activeCell.taskId, activeCell.columnKey);
     if (!cell) {
-      setAnchorRect(null);
       return false;
     }
 
     const nextAnchorRect = readAnchorRect(cell);
     if (!nextAnchorRect) {
-      setAnchorRect(null);
       return false;
     }
 
-    setAnchorRect((previous) => (areAnchorRectsEqual(previous, nextAnchorRect) ? previous : nextAnchorRect));
+    setAnchorState((previous) => {
+      if (
+        previous &&
+        areTaskGridCellKeysEqual(previous.cell, activeCell) &&
+        areAnchorRectsEqual(previous.rect, nextAnchorRect)
+      ) {
+        return previous;
+      }
+
+      return {
+        cell: activeCell,
+        rect: nextAnchorRect,
+      };
+    });
     return true;
   }, [activeCell, getCellNode]);
 
   useLayoutEffect(() => {
     focusHandledRef.current = false;
     if (!activeCell) {
-      setAnchorRect(null);
       return;
     }
 
@@ -268,22 +282,6 @@ export function TaskInlineEditorOverlay({
       {renderEditor({
         activeCell,
         anchorRect,
-        focusEditor: () => {
-          const overlayNode = overlayRef.current;
-          if (!overlayNode) {
-            return;
-          }
-
-          const editor = findFocusableOverlayElement(overlayNode, focusSelector);
-          if (!editor) {
-            return;
-          }
-
-          editor.focus({ preventScroll: true });
-          if (selectTextOnFocus && isFocusableTextLikeElement(editor)) {
-            editor.select();
-          }
-        },
       })}
     </div>,
     portalRoot,

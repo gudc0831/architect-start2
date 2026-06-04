@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import type { AuthRole, AuthUser } from "@/domains/auth/types";
 import { forbidden, serviceUnavailable, unauthorized } from "@/lib/api/errors";
 import {
@@ -9,15 +8,8 @@ import {
   isAuthStubMode,
   isUnsafeNonCloudProductionMode,
 } from "@/lib/auth/auth-config";
-
-const require = createRequire(import.meta.url);
-
-function loadCloudAuthDeps() {
-  return {
-    prisma: require("../prisma").prisma as typeof import("../prisma").prisma,
-    createSupabaseServerClient: require("../supabase/server").createSupabaseServerClient as typeof import("../supabase/server").createSupabaseServerClient,
-  };
-}
+import { prisma } from "@/lib/prisma";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function getOptionalUser(): Promise<AuthUser | null> {
   if (isAuthStubMode()) {
@@ -35,7 +27,6 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
     );
   }
 
-  const { prisma, createSupabaseServerClient } = loadCloudAuthDeps();
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -50,16 +41,28 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
     where: { id: user.id },
   });
 
-  if (!profile) {
-    return null;
-  }
+  const resolvedProfile =
+    profile ??
+    (await prisma.profile.create({
+      data: {
+        id: user.id,
+        email: user.email?.trim().toLowerCase() ?? "",
+        displayName: displayNameFromSupabaseUser({
+          email: user.email,
+          userMetadata: user.user_metadata,
+        }),
+        role: "member",
+        accessStatus: "pending",
+      },
+    }));
 
   return {
-    id: profile.id,
-    email: profile.email,
-    displayName: profile.displayName,
-    name: profile.displayName,
-    role: profile.role as AuthRole,
+    id: resolvedProfile.id,
+    email: resolvedProfile.email,
+    displayName: resolvedProfile.displayName,
+    name: resolvedProfile.displayName,
+    role: resolvedProfile.role as AuthRole,
+    accessStatus: resolvedProfile.accessStatus,
   } satisfies AuthUser;
 }
 
@@ -77,9 +80,22 @@ export async function requireUser() {
 export async function requireRole(role: AuthRole) {
   const user = await requireUser();
 
+  if (user.accessStatus !== "active") {
+    throw forbidden("Active profile access is required", "PROFILE_ACCESS_NOT_ACTIVE");
+  }
+
   if (user.role !== role) {
     throw forbidden();
   }
 
   return user;
+}
+
+function displayNameFromSupabaseUser(input: { email?: string | null; userMetadata?: Record<string, unknown> | null }) {
+  const metadataName = input.userMetadata?.full_name ?? input.userMetadata?.name;
+  if (typeof metadataName === "string" && metadataName.trim()) {
+    return metadataName.trim();
+  }
+
+  return input.email?.trim().split("@")[0] || "User";
 }

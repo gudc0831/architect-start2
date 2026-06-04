@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "architect.regulation.governance.v1",
+  "packageId": "kr-architecture-foundation-2026-05-14",
+  "productionImport": {
+    "enabled": false,
+    "requiredReview": "knowledge_admin",
+    "blockedReason": "Initial foundation package is a dry-run seed until Knowledge admin verifies official text, effective dates, attached tables, and superseded status."
+  },
+  "refreshPolicy": {
+    "cadenceDays": 90,
+    "staleAfterDays": 180,
+    "ownerRole": "knowledge_admin"
+  },
+  "sources": [
+    {
+      "sourceId": "kr-building-act",
+      "officialUrl": "https://www.law.go.kr/법령/건축법",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify current official text", "Verify effective date", "Verify superseded status", "Record admin reviewer"]
+    },
+    {
+      "sourceId": "kr-building-decree",
+      "officialUrl": "https://www.law.go.kr/법령/건축법시행령",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify current official text", "Verify attached tables", "Verify effective date", "Record admin reviewer"]
+    },
+    {
+      "sourceId": "kr-parking-lot-act",
+      "officialUrl": "https://www.law.go.kr/법령/주차장법",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify current official text", "Verify attached parking clauses", "Verify local delegation", "Record admin reviewer"]
+    },
+    {
+      "sourceId": "kr-national-land-planning-act",
+      "officialUrl": "https://www.law.go.kr/법령/국토의계획및이용에관한법률",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify current official text", "Verify zoning terms", "Verify delegated decree references", "Record admin reviewer"]
+    },
+    {
+      "sourceId": "kr-local-ordinance-system",
+      "officialUrl": "https://www.elis.go.kr/",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify target local government", "Verify ordinance revision date", "Record jurisdiction scope", "Record admin reviewer"]
+    },
+    {
+      "sourceId": "kr-molit-guidance",
+      "officialUrl": "https://www.molit.go.kr/",
+      "refreshDueAt": "2026-08-14",
+      "verificationChecklist": ["Verify notice/guidance URL", "Verify publisher", "Verify publication date", "Record admin reviewer"]
+    }
+  ]
+}

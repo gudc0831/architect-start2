@@ -1,6 +1,6 @@
 # Deployment And Release Protection Contract
 
-- Updated: 2026-04-10
+- Updated: 2026-04-24
 - Parent index: [../PLAN.md](../PLAN.md)
 - Auth and RBAC contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Execution plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
@@ -19,6 +19,35 @@ Use this file for:
 - merge and release flow expectations
 
 ## Locked Direction
+
+## Status As Of 2026-04-24
+
+Configured:
+
+- GitHub `main` branch ruleset:
+  - pull request required
+  - force pushes blocked
+  - required checks configured for CI, CodeQL, Semgrep, and dependency audit
+- Vercel Preview Authentication restored
+- Preview Supabase/Postgres env bundle narrowed to Preview where present
+- `APP_BACKEND_MODE=cloud` confirmed for Vercel
+- latest checked PR head `dabb052` passed required checks and Vercel deployment status
+- final Preview `/login` runtime header smoke passed on deployment `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`
+- production promotion is deferred; user confirmed no production root URL yet
+- Vercel Production env is not ready for production deploy because only `APP_BACKEND_MODE=cloud` is present and the required Supabase/Postgres values are not configured
+- exact Vercel Production Branch setting is not dashboard-confirmed yet; the expected release flow is Preview from the PR branch, then Production from the protected production branch
+
+Still required before merge or production deployment:
+
+- production env vars must point to production Supabase only
+- Vercel Production Branch must match the protected production branch strategy
+- production OAuth callback and Google redirect URLs must be verified exactly
+- runtime headers and `/api/system/status` behavior must be rechecked on production
+- complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
+
+Current active work order:
+
+- [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 
 ### 1. Private Repo Baseline
 
@@ -111,7 +140,7 @@ Conditional tool:
 
 Current repo note:
 
-- the repo currently has no `.github` workflow inventory, so these checks must be introduced before relying on them as required protections
+- the repo now has GitHub workflow coverage for CI, CodeQL, Semgrep, dependency audit, and Dependabot; required checks should continue to use the real job names listed above
 
 ### 5. Require Deployments Before Merge
 

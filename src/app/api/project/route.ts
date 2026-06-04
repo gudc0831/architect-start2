@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess, requireProjectManager } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { applyProjectSessionProjectId } from "@/lib/project-session";
 import {
@@ -11,8 +13,9 @@ import {
 
 export async function GET() {
   try {
-    await requireUser();
-    const data = await getCurrentProjectForSession();
+    const user = await requireUser();
+    await requireCurrentProjectAccess(user);
+    const data = await getCurrentProjectForSession(user);
     const response = NextResponse.json({ data });
     return applyProjectSessionProjectId(response, data.currentProjectId);
   } catch (error) {
@@ -22,11 +25,16 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
     const body = (await request.json()) as { projectId?: string; name?: string };
-    const renamed = await renameCurrentProjectForSession(String(body.projectId ?? ""), String(body.name ?? ""), user.id);
+    const projectId = String(body.projectId ?? "").trim();
+    if (projectId) {
+      await requireProjectManager(projectId, user);
+    }
+    const renamed = await renameCurrentProjectForSession(String(body.projectId ?? ""), String(body.name ?? ""), user);
     const [selection, effectiveCategories] = await Promise.all([
-      listProjectsForSession(),
+      listProjectsForSession(user),
       listEffectiveTaskCategoriesForProject(renamed.currentProjectId ?? null),
     ]);
     const categoryDefinitionsByField = Object.fromEntries(

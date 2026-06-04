@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
+import {
+  appendFileAnalysisEntry,
+  getFileAnalysisEntries,
+  normalizeFileAnalysisConfidence,
+  normalizeFileAnalysisArtifact,
+  normalizeFileMetadata,
+  normalizeFileAnalysisRegion,
+  normalizeFileAnalysisSourceType,
+  normalizeFileAnalysisTags,
+  normalizeFileAnalysisVerificationState,
+} from "@/domains/file/analysis";
+import { extractTextFromStoredFile } from "@/domains/file/text-extraction";
 import { resolveFileContentType } from "@/domains/file/metadata";
+import type { FileAnalysisArtifact, FileAnalysisEntry } from "@/domains/file/analysis";
 import type { FileRecord } from "@/domains/task/types";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
 import { badRequest, conflict } from "@/lib/api/errors";
@@ -36,6 +49,20 @@ export type FileUploadIntent = {
 
 export type FileUploadCommitInput = Omit<FileUploadIntent, "uploadMode"> & {
   uploadedBy?: string | null;
+};
+
+export type FileAnalysisSaveInput = {
+  fileId: string;
+  sourceType?: string | null;
+  extractedText?: string | null;
+  summary?: string | null;
+  tags?: unknown;
+  confidenceWeight?: number | null;
+  verificationState?: string | null;
+  provider?: string | null;
+  providerStatus?: string | null;
+  region?: unknown;
+  artifact?: unknown;
 };
 
 export async function listFiles(scope: FileScope, taskId?: string) {
@@ -158,25 +185,37 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
 
   const nextVersion = normalizePositiveInteger(input.nextVersion, "nextVersion");
   const existing = (await fileRepository.listFilesByTask(task.id)).find(
-    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion && file.objectPath === objectPath,
+    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion,
   );
 
   if (existing) {
-    return existing;
+    if (existing.objectPath === objectPath) {
+      return existing;
+    }
+
+    throw fileVersionConflict();
   }
 
-  return fileRepository.attachFile({
-    taskId: task.id,
-    projectId: task.projectId,
-    fileGroupId,
-    version: nextVersion,
-    originalName,
-    mimeType: metadata.mimeType ?? normalizeMimeType(input.mimeType),
-    sizeBytes: metadata.sizeBytes,
-    storageBucket,
-    objectPath,
-    uploadedBy: input.uploadedBy ?? null,
-  });
+  try {
+    return await fileRepository.attachFile({
+      taskId: task.id,
+      projectId: task.projectId,
+      fileGroupId,
+      version: nextVersion,
+      originalName,
+      mimeType: metadata.mimeType ?? normalizeMimeType(input.mimeType),
+      sizeBytes: metadata.sizeBytes,
+      storageBucket,
+      objectPath,
+      uploadedBy: input.uploadedBy ?? null,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw fileVersionConflict();
+    }
+
+    throw error;
+  }
 }
 
 export async function createFileDownloadUrl(fileId: string) {
@@ -242,18 +281,26 @@ export async function attachNextFileVersion(input: { fileId: string; file: File;
     contentType: input.file.type || null,
   });
 
-  return fileRepository.attachFile({
-    taskId: source.taskId,
-    projectId: source.projectId,
-    fileGroupId: source.fileGroupId,
-    version: nextVersion,
-    originalName: input.file.name,
-    mimeType: input.file.type || null,
-    sizeBytes: input.file.size,
-    storageBucket: stored.storageBucket,
-    objectPath: stored.objectPath,
-    uploadedBy: input.userId ?? null,
-  });
+  try {
+    return await fileRepository.attachFile({
+      taskId: source.taskId,
+      projectId: source.projectId,
+      fileGroupId: source.fileGroupId,
+      version: nextVersion,
+      originalName: input.file.name,
+      mimeType: input.file.type || null,
+      sizeBytes: input.file.size,
+      storageBucket: stored.storageBucket,
+      objectPath: stored.objectPath,
+      uploadedBy: input.userId ?? null,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw fileVersionConflict();
+    }
+
+    throw error;
+  }
 }
 
 export async function moveFileToTrash(fileId: string) {
@@ -293,6 +340,150 @@ export async function readFileContent(fileId: string, options?: { allowDeleted?:
   };
 }
 
+export async function listFileAnalysis(fileId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  return getFileAnalysisEntries(file.metadata);
+}
+
+export async function readFileAnalysisArtifact(fileId: string, analysisId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active file analysis artifacts can be opened", "FILE_NOT_ACTIVE");
+  }
+
+  const analysis = getFileAnalysisEntries(file.metadata).find((entry) => entry.id === normalizeRequiredId(analysisId, "analysisId"));
+  if (!analysis?.artifact) {
+    throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
+  }
+
+  const content = await storageProvider.download({
+    storageBucket: normalizeStorageBucket(analysis.artifact.storageBucket),
+    objectPath: normalizeObjectPath(analysis.artifact.objectPath),
+  });
+
+  return {
+    file,
+    analysis,
+    artifact: analysis.artifact,
+    content,
+  };
+}
+
+export async function deleteFileAnalysisArtifact(fileId: string, analysisId: string) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active file analysis artifacts can be deleted", "FILE_NOT_ACTIVE");
+  }
+
+  const normalizedAnalysisId = normalizeRequiredId(analysisId, "analysisId");
+  const analysisEntries = getFileAnalysisEntries(file.metadata);
+  const targetAnalysis = analysisEntries.find((entry) => entry.id === normalizedAnalysisId);
+  if (!targetAnalysis?.artifact) {
+    throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
+  }
+
+  await storageProvider.delete({
+    storageBucket: normalizeStorageBucket(targetAnalysis.artifact.storageBucket),
+    objectPath: normalizeObjectPath(targetAnalysis.artifact.objectPath),
+  });
+
+  const timestamp = new Date().toISOString();
+  const nextAnalysis = analysisEntries.map((entry) => {
+    if (entry.id !== normalizedAnalysisId) {
+      return entry;
+    }
+
+    const nextEntry: FileAnalysisEntry = {
+      ...entry,
+      updatedAt: timestamp,
+    };
+    delete nextEntry.artifact;
+    return nextEntry;
+  });
+  const nextFile = await fileRepository.updateFileMetadata(file.id, {
+    ...normalizeFileMetadata(file.metadata),
+    analysis: nextAnalysis,
+  });
+
+  return {
+    file: nextFile,
+    analysisId: normalizedAnalysisId,
+    deletedArtifact: {
+      kind: targetAnalysis.artifact.kind,
+      mimeType: targetAnalysis.artifact.mimeType,
+      sizeBytes: targetAnalysis.artifact.sizeBytes,
+      capturedAt: targetAnalysis.artifact.capturedAt ?? null,
+    },
+  };
+}
+
+export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: string | null) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(input.fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
+  }
+
+  const sourceType = normalizeFileAnalysisSourceType(input.sourceType);
+  const verificationState = normalizeFileAnalysisVerificationState(input.verificationState);
+  const extractedText = normalizeAnalysisText(input.extractedText, 12000);
+  const summary = normalizeAnalysisText(input.summary, 1200) || summarizeAnalysisText(extractedText);
+  if (!extractedText && !summary) {
+    throw badRequest("analysis text or summary is required", "FILE_ANALYSIS_TEXT_REQUIRED");
+  }
+
+  const timestamp = new Date().toISOString();
+  const analysis: FileAnalysisEntry = {
+    id: randomUUID(),
+    sourceType,
+    extractedText,
+    summary,
+    tags: normalizeFileAnalysisTags(input.tags),
+    confidenceWeight: normalizeFileAnalysisConfidence(input.confidenceWeight, sourceType, verificationState),
+    verificationState,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.providerStatus === "client_supplied" || input.providerStatus === "provider_extracted"
+      ? { providerStatus: input.providerStatus }
+      : {}),
+    ...(normalizeFileAnalysisRegion(input.region) ? { region: normalizeFileAnalysisRegion(input.region) } : {}),
+    ...(normalizeFileAnalysisArtifact(input.artifact) ? { artifact: normalizeFileAnalysisArtifact(input.artifact) } : {}),
+    createdBy: userId ?? null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const nextFile = await fileRepository.updateFileMetadata(file.id, appendFileAnalysisEntry(file.metadata, analysis));
+
+  return {
+    file: nextFile,
+    analysis,
+  };
+}
+
+export async function autoExtractFileAnalysis(fileId: string, userId?: string | null) {
+  const file = await requireFileInSelectedProject(normalizeRequiredId(fileId, "fileId"));
+  if (file.deletedAt) {
+    throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
+  }
+
+  const content = await storageProvider.download({
+    storageBucket: normalizeStorageBucket(file.storageBucket),
+    objectPath: normalizeObjectPath(file.objectPath),
+  });
+  const extracted = await extractTextFromStoredFile(file, content);
+
+  return saveFileAnalysis(
+    {
+      fileId: file.id,
+      sourceType: "document_text",
+      extractedText: extracted.extractedText,
+      summary: extracted.summary,
+      tags: extracted.tags,
+      confidenceWeight: extracted.confidenceWeight,
+      verificationState: "unverified",
+    },
+    userId,
+  );
+}
+
 function validateUploadDescriptor(originalName: string, sizeBytes: number) {
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     throw badRequest("file is required", "FILE_REQUIRED");
@@ -326,7 +517,7 @@ function normalizeMimeType(value?: string | null) {
   return normalized ? normalized : null;
 }
 
-function normalizeStorageBucket(value: string) {
+export function normalizeStorageBucket(value: string) {
   const normalized = value.trim();
   if (!normalized) {
     throw badRequest("storageBucket is required", "FILE_STORAGE_BUCKET_REQUIRED");
@@ -335,7 +526,7 @@ function normalizeStorageBucket(value: string) {
   return normalized;
 }
 
-function normalizeObjectPath(value: string) {
+export function normalizeObjectPath(value: string) {
   const normalized = value.trim().replace(/\\/g, "/");
   if (!normalized || normalized.startsWith("/") || normalized.includes("..")) {
     throw badRequest("objectPath is invalid", "FILE_OBJECT_PATH_INVALID");
@@ -351,6 +542,28 @@ function normalizeOptionalId(value?: string | null) {
 
   const normalized = value.trim();
   return normalized ? normalized : null;
+}
+
+export function normalizeRequiredId(value: string, fieldName: string) {
+  const normalized = normalizeOptionalId(value);
+  if (!normalized) {
+    throw badRequest(`${fieldName} is required`, `${fieldName.toUpperCase()}_REQUIRED`);
+  }
+
+  return normalized;
+}
+
+export function normalizeAnalysisText(value: string | null | undefined, maxLength: number) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized.slice(0, maxLength) : "";
+}
+
+function summarizeAnalysisText(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  return value.length > 220 ? `${value.slice(0, 217)}...` : value;
 }
 
 function normalizePositiveInteger(value: number, fieldName: string) {
@@ -387,7 +600,74 @@ async function resolveNextFileVersion(sourceFile: FileRecord) {
   return sameGroup.reduce((max, file) => Math.max(max, file.version), sourceFile.version) + 1;
 }
 
+function fileVersionConflict() {
+  return conflict(
+    "Another upload created this file version first. Reload the latest files and try again.",
+    "FILE_VERSION_CONFLICT",
+  );
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "P2002");
+}
+
 function buildObjectPath(projectId: string, taskId: string, originalName: string) {
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "-");
   return `projects/${projectId}/tasks/${taskId}/${randomUUID()}-${safeName}`;
+}
+
+export function decodeImageDataUrl(value: string | null | undefined):
+  | {
+      bytes: Uint8Array;
+      mimeType: "image/png" | "image/jpeg";
+      extension: "png" | "jpg";
+    }
+  | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const match = value.match(/^data:(image\/png|image\/jpeg);base64,([a-zA-Z0-9+/=\r\n]+)$/);
+  if (!match) {
+    throw badRequest("sourceImageDataUrl must be a PNG or JPEG data URL.", "FILE_OCR_SOURCE_IMAGE_INVALID");
+  }
+
+  const mimeType = match[1] as "image/png" | "image/jpeg";
+  const bytes = new Uint8Array(Buffer.from(match[2].replace(/\s+/g, ""), "base64"));
+  if (bytes.byteLength <= 0) {
+    throw badRequest("sourceImageDataUrl is empty.", "FILE_OCR_SOURCE_IMAGE_EMPTY");
+  }
+  if (bytes.byteLength > 4 * 1024 * 1024) {
+    throw badRequest("sourceImageDataUrl exceeds the 4MB crop artifact limit.", "FILE_OCR_SOURCE_IMAGE_TOO_LARGE");
+  }
+
+  return {
+    bytes,
+    mimeType,
+    extension: mimeType === "image/png" ? "png" : "jpg",
+  };
+}
+
+export async function saveAnalysisImageCrop(
+  file: FileRecord,
+  image: { bytes: Uint8Array; mimeType: "image/png" | "image/jpeg"; extension: "png" | "jpg" },
+  metadata: { sourceUrl?: string | null; sourceTitle?: string | null; capturedAt?: string | null },
+): Promise<FileAnalysisArtifact> {
+  const objectPath = buildObjectPath(file.projectId, file.taskId, `analysis-crop-${file.id}.${image.extension}`);
+  const stored = await storageProvider.upload({
+    file: new File([Buffer.from(image.bytes)], `analysis-crop-${file.id}.${image.extension}`, { type: image.mimeType }),
+    objectPath,
+    contentType: image.mimeType,
+  });
+
+  return {
+    kind: "image_crop",
+    storageBucket: stored.storageBucket,
+    objectPath: stored.objectPath,
+    mimeType: image.mimeType,
+    sizeBytes: image.bytes.byteLength,
+    ...(normalizeAnalysisText(metadata.sourceUrl, 500) ? { sourceUrl: normalizeAnalysisText(metadata.sourceUrl, 500) } : {}),
+    ...(normalizeAnalysisText(metadata.sourceTitle, 200) ? { sourceTitle: normalizeAnalysisText(metadata.sourceTitle, 200) } : {}),
+    ...(normalizeAnalysisText(metadata.capturedAt, 80) ? { capturedAt: normalizeAnalysisText(metadata.capturedAt, 80) } : {}),
+  };
 }

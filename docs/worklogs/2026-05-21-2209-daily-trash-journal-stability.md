@@ -1,0 +1,4 @@
+Req: Diagnose and fix the `/daily` reload-time page failure after local-first mutation journal changes while preserving spreadsheet-like responsiveness.
+Diff: Made pending trash journal replay deterministic by deriving fallback `deletedAt` from the journal operation timestamp, and added a regression assertion that repeated trash replay produces identical state.
+Why: A pending trash operation with a null `deletedAt` generated a fresh timestamp during each replay, which could make the journal overlay effect treat every render as a new state and cause a client render failure on reload.
+Verify/Time: 2026-05-21 22:09 KST. Root cause reproduced with a focused `npx tsx -e` probe before the fix and returned stable output after the fix. `npm run typecheck`, `npm run lint`, `npx tsx scripts/daily-editing-responsiveness-verify.ts`, and `npm run build` passed.

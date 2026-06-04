@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 388 provider execution package review coverage empty-state guidance.
+Diff: Added active-filter guidance for empty provider execution package coverage queues and empty review groups; updated `사용자 가이드.md`.
+Why: Reviewers need to understand whether empty queues are caused by review-state, digest, reviewer, note-type, execution, or stale-days filters.
+Verify/Time: Passed 2026-05-14 10:18 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` empty-filter validation; `npm run build`; Browser UI validation confirmed default empty group guidance and `Focus reviewed` empty coverage guidance at 1440x900 and 390x844. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

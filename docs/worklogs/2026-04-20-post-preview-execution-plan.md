@@ -1,0 +1,4 @@
+Req: Write a full post-preview execution plan that distinguishes Codex-owned work from user-owned external gates and keeps the next order grounded in the existing multi-user plan.
+Diff: added `docs/2026-04-20-post-preview-execution-plan.md`; linked it from the plan index and the base multi-user transition plan; recorded the current verified preview baseline and sequenced the remaining work into Codex-first implementation steps with user gates only where dashboards, browser checks, or external data changes are required.
+Why: the auth preview slice is no longer the main uncertainty; the project now needs a clear owner-aware sequence so work can continue without repeatedly stopping for preventable user prompts.
+Verify: reviewed the new plan against `PLAN.md`, `docs/2026-04-07-multi-user-transition-plan.md`, `docs/2026-04-10-auth-rbac-contract.md`, `docs/2026-04-10-deployment-protection-contract.md`, and `docs/2026-04-10-security-deployment-review.md`.

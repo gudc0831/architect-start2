@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { usePathname } from "next/navigation";
 import type { AuthUser } from "@/domains/auth/types";
 import { previewAuthUser } from "@/lib/preview/demo-data";
+import { clearWorkspaceBootstrapCache } from "@/lib/workspace/bootstrap-client";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -41,6 +42,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const json = (await response.json()) as { data: AuthUser };
       setUser(json.data);
+    } catch {
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -55,7 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       loading,
       refreshUser,
-      clearUser: () => setUser(null),
+      clearUser: () => {
+        clearWorkspaceBootstrapCache();
+        setUser(null);
+      },
     }),
     [loading, refreshUser, user],
   );

@@ -15,16 +15,21 @@ import { usePathname } from "next/navigation";
 import { useProjectMeta } from "@/providers/project-provider";
 import { previewFiles, previewSystemMode, previewTasks } from "@/lib/preview/demo-data";
 import { localizeError, type ErrorCopyKey } from "@/lib/ui-copy";
+import {
+  readDashboardTaskSnapshot,
+  readLastDashboardSnapshotProjectId,
+  writeDashboardTaskSnapshot,
+} from "@/lib/workspace/dashboard-snapshot-cache";
+import {
+  fetchWorkspaceBootstrap,
+  fetchWorkspaceDailyTaskUserOrders,
+  isWorkspaceBootstrapPath,
+} from "@/lib/workspace/bootstrap-client";
+import type { DashboardSystemMode, WorkspaceTaskUserOrder } from "@/lib/workspace/bootstrap-types";
 import type { FileRecord, TaskRecord } from "@/domains/task/types";
 
 export type DashboardScope = "active" | "trash";
-export type DashboardSystemMode = {
-  backendMode: string;
-  dataMode: string;
-  uploadMode: string;
-  hasSupabase: boolean;
-  hasFirebaseProjectId: boolean;
-};
+export type { DashboardSystemMode } from "@/lib/workspace/bootstrap-types";
 
 type DashboardScopeState = {
   tasks: TaskRecord[];
@@ -37,6 +42,8 @@ type DashboardScopeState = {
   loading: boolean;
   loaded: boolean;
   errorMessage: string | null;
+  dailyTaskUserOrders: WorkspaceTaskUserOrder[];
+  dailyTaskUserOrdersLoaded: boolean;
 };
 
 type DashboardStateByScope = Record<DashboardScope, DashboardScopeState>;
@@ -46,10 +53,17 @@ type DashboardProviderState = {
 };
 type DashboardRefreshOptions = {
   force?: boolean;
+  silent?: boolean;
 };
 
 type DashboardTaskFilesRefreshOptions = {
   force?: boolean;
+  surfaceErrors?: boolean;
+};
+
+type ProjectChangesPayload = {
+  projectId: string;
+  version: string;
 };
 
 type DashboardDataContextValue = {
@@ -67,6 +81,7 @@ type DashboardDataContextValue = {
     options?: DashboardTaskFilesRefreshOptions,
   ) => Promise<void>;
   setDashboardTasks: (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => void;
+  setDashboardFiles: (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => void;
   setDashboardErrorMessage: (scope: DashboardScope, updater: SetStateAction<string | null>) => void;
 };
 
@@ -81,6 +96,8 @@ const emptyScopeState = (): DashboardScopeState => ({
   loading: false,
   loaded: false,
   errorMessage: null,
+  dailyTaskUserOrders: [],
+  dailyTaskUserOrdersLoaded: false,
 });
 
 function createEmptyStateByScope(): DashboardStateByScope {
@@ -90,7 +107,13 @@ function createEmptyStateByScope(): DashboardStateByScope {
   };
 }
 
-function buildDashboardOwnerKey(currentProjectId: string | null, selectionVersion: number, isPreview: boolean) {
+type ActiveTaskOrderScope = "daily" | null;
+
+function buildDashboardOwnerKey(
+  currentProjectId: string | null,
+  selectionVersion: number,
+  isPreview: boolean,
+) {
   return `${currentProjectId ?? "no-project"}:${selectionVersion}:${isPreview ? "preview" : "live"}`;
 }
 
@@ -109,7 +132,53 @@ function flattenFilesByTaskId(filesByTaskId: Record<string, FileRecord[]>) {
   return Object.values(filesByTaskId).flat();
 }
 
+function applyDailyTaskUserOrders(tasks: TaskRecord[], userOrders: readonly WorkspaceTaskUserOrder[]) {
+  if (userOrders.length === 0 || tasks.length === 0) {
+    return tasks;
+  }
+
+  const orderByTaskId = new Map(userOrders.map((order) => [order.taskId, order]));
+  let changed = false;
+  const nextTasks = tasks.map((task) => {
+    const order = orderByTaskId.get(task.id);
+    if (!order || (order.parentTaskId ?? null) !== (task.parentTaskId ?? null)) {
+      return task;
+    }
+
+    if (order.siblingOrder === task.siblingOrder) {
+      return task;
+    }
+
+    changed = true;
+    return { ...task, siblingOrder: order.siblingOrder };
+  });
+
+  return changed ? nextTasks : tasks;
+}
+
+function buildDailyTaskUserOrdersFromTasks(tasks: readonly TaskRecord[]): WorkspaceTaskUserOrder[] {
+  return tasks.map((task) => ({
+    taskId: task.id,
+    parentTaskId: task.parentTaskId ?? null,
+    siblingOrder: task.siblingOrder,
+  }));
+}
+
+function mergeDailyVisibleTasksIntoCanonicalTasks(canonicalTasks: readonly TaskRecord[], visibleTasks: readonly TaskRecord[]) {
+  const canonicalById = new Map(canonicalTasks.map((task) => [task.id, task]));
+
+  return visibleTasks.map((visibleTask) => {
+    const canonicalTask = canonicalById.get(visibleTask.id);
+    if (!canonicalTask || (canonicalTask.parentTaskId ?? null) !== (visibleTask.parentTaskId ?? null)) {
+      return visibleTask;
+    }
+
+    return { ...visibleTask, siblingOrder: canonicalTask.siblingOrder };
+  });
+}
+
 const DashboardDataContext = createContext<DashboardDataContextValue | null>(null);
+const PROJECT_CHANGES_POLL_INTERVAL_MS = 12_000;
 
 function buildPreviewScopeState(scope: DashboardScope): DashboardScopeState {
   const tasks =
@@ -132,6 +201,8 @@ function buildPreviewScopeState(scope: DashboardScope): DashboardScopeState {
     loading: false,
     loaded: true,
     errorMessage: null,
+    dailyTaskUserOrders: [],
+    dailyTaskUserOrdersLoaded: true,
   };
 }
 
@@ -144,9 +215,58 @@ async function readDashboardErrorMessage(response: Response, fallbackKey: ErrorC
   }
 }
 
+function shouldRetryDashboardRead(status: number) {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchDashboardRead(input: RequestInfo | URL, init?: RequestInit) {
+  const maxAttempts = 3;
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      lastResponse = response;
+      if (response.ok || !shouldRetryDashboardRead(response.status) || attempt === maxAttempts) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) {
+        throw error;
+      }
+    }
+
+    await wait(250 * attempt);
+  }
+
+  if (lastResponse) {
+    return lastResponse;
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Dashboard request failed");
+}
+
+async function fetchDashboardSystemMode() {
+  const statusResponse = await fetchDashboardRead("/api/system/status", { cache: "no-store" });
+  if (!statusResponse.ok) {
+    return null;
+  }
+
+  const statusJson = (await statusResponse.json()) as { data: DashboardSystemMode | null };
+  return statusJson.data ?? null;
+}
+
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const shouldUseWorkspaceBootstrap = isWorkspaceBootstrapPath(pathname);
+  const activeTaskOrderScope: ActiveTaskOrderScope = pathname === "/daily" ? "daily" : null;
   const { currentProjectId, projectLoaded, selectionVersion } = useProjectMeta();
   const ownerKey = buildDashboardOwnerKey(currentProjectId, selectionVersion, isPreview);
   const emptyStateByScope = useMemo(() => createEmptyStateByScope(), []);
@@ -173,6 +293,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   });
   const taskFilesInFlightRef = useRef<Record<string, { ownerKey: string; requestId: number; promise: Promise<void> }>>({});
   const taskFilesRequestIdRef = useRef<Record<string, number>>({});
+  const projectChangeVersionRef = useRef<{ ownerKey: string; version: string | null }>({ ownerKey, version: null });
+  const snapshotRestoreAttemptedRef = useRef<Set<string>>(new Set());
 
   stateRef.current = providerState;
 
@@ -188,13 +310,117 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
     taskFilesInFlightRef.current = {};
     taskFilesRequestIdRef.current = {};
+    projectChangeVersionRef.current = { ownerKey, version: null };
     setProviderState({
       ownerKey,
       stateByScope: createEmptyStateByScope(),
     });
   }, [ownerKey]);
 
-  const visibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
+  const rawVisibleStateByScope = providerState.ownerKey === ownerKey ? providerState.stateByScope : emptyStateByScope;
+  const visibleStateByScope = useMemo<DashboardStateByScope>(() => {
+    if (activeTaskOrderScope !== "daily") {
+      return rawVisibleStateByScope;
+    }
+
+    const activeState = rawVisibleStateByScope.active;
+    const dailyTasks = applyDailyTaskUserOrders(activeState.tasks, activeState.dailyTaskUserOrders);
+    if (dailyTasks === activeState.tasks) {
+      return rawVisibleStateByScope;
+    }
+
+    return {
+      ...rawVisibleStateByScope,
+      active: {
+        ...activeState,
+        tasks: dailyTasks,
+      },
+    };
+  }, [activeTaskOrderScope, rawVisibleStateByScope]);
+
+  useEffect(() => {
+    if (isPreview) {
+      return;
+    }
+
+    const snapshotProjectId = currentProjectId ?? readLastDashboardSnapshotProjectId();
+    if (!snapshotProjectId) {
+      return;
+    }
+
+    const restoreOwnerKey = ownerKey;
+    const restoreKey = `${restoreOwnerKey}:active:${snapshotProjectId}`;
+    if (snapshotRestoreAttemptedRef.current.has(restoreKey)) {
+      return;
+    }
+    snapshotRestoreAttemptedRef.current.add(restoreKey);
+
+    let cancelled = false;
+    void readDashboardTaskSnapshot(snapshotProjectId, "active")
+      .then((snapshot) => {
+        if (cancelled || !snapshot || stateRef.current.ownerKey !== restoreOwnerKey) {
+          return;
+        }
+
+        setProviderState((previous) => {
+          if (previous.ownerKey !== restoreOwnerKey) {
+            return previous;
+          }
+
+          const activeState = previous.stateByScope.active;
+          if (activeState.loaded || activeState.tasks.length > 0) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            stateByScope: {
+              ...previous.stateByScope,
+              active: {
+                ...activeState,
+                tasks: snapshot.tasks,
+                systemMode: activeState.systemMode ?? snapshot.systemMode,
+                errorMessage: null,
+                loaded: false,
+              },
+            },
+          };
+        });
+      })
+      .catch(() => {
+        // Snapshot restore is a best-effort paint acceleration. Server reads remain authoritative.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId, isPreview, ownerKey, projectLoaded]);
+
+  useEffect(() => {
+    if (isPreview || !currentProjectId || providerState.ownerKey !== ownerKey) {
+      return;
+    }
+
+    const activeState = providerState.stateByScope.active;
+    if (!activeState.loaded || activeState.tasks.length === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void writeDashboardTaskSnapshot({
+        projectId: currentProjectId,
+        scope: "active",
+        tasks: activeState.tasks,
+        systemMode: activeState.systemMode,
+      }).catch(() => {
+        // Snapshot writes must never interfere with spreadsheet interactions.
+      });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentProjectId, isPreview, ownerKey, providerState]);
 
   const fetchDashboardScope = useCallback(
     async (scope: DashboardScope, options?: DashboardRefreshOptions) => {
@@ -206,48 +432,80 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const currentState =
         stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
-      if (!force && currentState.loaded) {
+      const needsDailyTaskUserOrders =
+        scope === "active" && activeTaskOrderScope === "daily" && !currentState.dailyTaskUserOrdersLoaded;
+      const shouldShowLoading = !options?.silent || !currentState.loaded;
+      const shouldSurfaceError = shouldShowLoading;
+      if (!force && currentState.loaded && !needsDailyTaskUserOrders) {
         return;
       }
 
       const currentInFlight = inFlightRef.current[scope];
       if (!force && currentInFlight?.ownerKey === ownerKey) {
-        return currentInFlight.promise;
-      }
-
-      setProviderState((previous) => {
-        if (previous.ownerKey !== ownerKey) {
-          return previous;
+        if (!needsDailyTaskUserOrders) {
+          return currentInFlight.promise;
         }
 
-        return {
-          ...previous,
-          stateByScope: {
-            ...previous.stateByScope,
-            [scope]: {
-              ...previous.stateByScope[scope],
-              loading: true,
-              errorMessage: null,
+        await currentInFlight.promise.catch(() => undefined);
+        const latestState =
+          stateRef.current.ownerKey === ownerKey ? stateRef.current.stateByScope[scope] : emptyScopeState();
+        if (latestState.dailyTaskUserOrdersLoaded) {
+          return;
+        }
+      }
+
+      if (shouldShowLoading) {
+        setProviderState((previous) => {
+          if (previous.ownerKey !== ownerKey) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            stateByScope: {
+              ...previous.stateByScope,
+              [scope]: {
+                ...previous.stateByScope[scope],
+                loading: true,
+                errorMessage: null,
+              },
             },
-          },
-        };
-      });
+          };
+        });
+      }
       const requestId = requestIdRef.current[scope] + 1;
       requestIdRef.current[scope] = requestId;
 
       const request = (async () => {
         try {
-          const [taskResponse, statusResponse] = await Promise.all([
-            fetch(`/api/tasks${scope === "trash" ? "?scope=trash" : ""}`, { cache: "no-store" }),
-            fetch("/api/system/status", { cache: "no-store" }),
-          ]);
+          const taskJson: { data: TaskRecord[]; dailyTaskUserOrders?: WorkspaceTaskUserOrder[] | null } =
+            shouldUseWorkspaceBootstrap && scope === "active" && !force && needsDailyTaskUserOrders && currentState.loaded
+              ? { data: currentState.tasks, dailyTaskUserOrders: await fetchWorkspaceDailyTaskUserOrders() }
+              : shouldUseWorkspaceBootstrap && scope === "active" && !force
+              ? await (async () => {
+                  const bootstrap = await fetchWorkspaceBootstrap(activeTaskOrderScope);
+                  if (!bootstrap.activeTasks) {
+                    throw new Error(
+                      localizeError({ code: bootstrap.activeTasksError?.code ?? undefined, fallbackKey: "loadTasksFailed" }),
+                    );
+                  }
 
-          if (!taskResponse.ok) {
-            throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
-          }
+                  return { data: bootstrap.activeTasks, dailyTaskUserOrders: bootstrap.activeTaskUserOrders ?? null };
+                })()
+              : await (async () => {
+                  const taskParams = new URLSearchParams();
+                  if (scope === "trash") {
+                    taskParams.set("scope", "trash");
+                  }
+                  const taskUrl = `/api/tasks${taskParams.size > 0 ? `?${taskParams.toString()}` : ""}`;
+                  const taskResponse = await fetchDashboardRead(taskUrl, { cache: "no-store" });
 
-          const taskJson = (await taskResponse.json()) as { data: TaskRecord[] };
-          const statusJson = statusResponse.ok ? ((await statusResponse.json()) as { data: DashboardSystemMode }) : { data: null };
+                  if (!taskResponse.ok) {
+                    throw new Error(await readDashboardErrorMessage(taskResponse, "loadTasksFailed"));
+                  }
+
+                  return (await taskResponse.json()) as { data: TaskRecord[] };
+                })();
 
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
             return;
@@ -258,25 +516,60 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               return previous;
             }
 
+            const previousScope = previous.stateByScope[scope];
+            const shouldUpdateDailyTaskUserOrders =
+              scope === "active" && taskJson.dailyTaskUserOrders !== undefined;
+
             return {
               ...previous,
               stateByScope: {
                 ...previous.stateByScope,
                 [scope]: {
                   tasks: taskJson.data,
-                  files: previous.stateByScope[scope].files,
-                  filesByTaskId: previous.stateByScope[scope].filesByTaskId,
-                  loadedTaskFileIds: previous.stateByScope[scope].loadedTaskFileIds,
-                  requestedTaskFileIds: previous.stateByScope[scope].requestedTaskFileIds,
-                  loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds,
-                  systemMode: statusJson.data ?? null,
+                  files: previousScope.files,
+                  filesByTaskId: previousScope.filesByTaskId,
+                  loadedTaskFileIds: previousScope.loadedTaskFileIds,
+                  requestedTaskFileIds: previousScope.requestedTaskFileIds,
+                  loadingTaskFileIds: previousScope.loadingTaskFileIds,
+                  systemMode: previousScope.systemMode,
                   loading: false,
                   loaded: true,
                   errorMessage: null,
+                  dailyTaskUserOrders: shouldUpdateDailyTaskUserOrders
+                    ? taskJson.dailyTaskUserOrders ?? []
+                    : previousScope.dailyTaskUserOrders,
+                  dailyTaskUserOrdersLoaded: shouldUpdateDailyTaskUserOrders ? true : previousScope.dailyTaskUserOrdersLoaded,
                 },
               },
             };
           });
+
+          void fetchDashboardSystemMode()
+            .then((systemMode) => {
+              if (!systemMode || stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
+                return;
+              }
+
+              setProviderState((previous) => {
+                if (previous.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
+                  return previous;
+                }
+
+                return {
+                  ...previous,
+                  stateByScope: {
+                    ...previous.stateByScope,
+                    [scope]: {
+                      ...previous.stateByScope[scope],
+                      systemMode,
+                    },
+                  },
+                };
+              });
+            })
+            .catch(() => {
+              // System status is informational; task rendering should not wait for it.
+            });
         } catch (error) {
           if (stateRef.current.ownerKey !== ownerKey || requestIdRef.current[scope] !== requestId) {
             return;
@@ -295,7 +588,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                   ...previous.stateByScope[scope],
                   loading: false,
                   loaded: previous.stateByScope[scope].loaded,
-                  errorMessage: error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }),
+                  errorMessage: shouldSurfaceError
+                    ? error instanceof Error
+                      ? error.message
+                      : localizeError({ fallbackKey: "loadDashboardFailed" })
+                    : previous.stateByScope[scope].errorMessage,
                 },
               },
             };
@@ -315,7 +612,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       };
       return request;
     },
-    [isPreview, ownerKey, projectLoaded],
+    [activeTaskOrderScope, isPreview, ownerKey, projectLoaded, shouldUseWorkspaceBootstrap],
   );
 
   const ensureDashboardScopeLoaded = useCallback(
@@ -335,14 +632,72 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await fetchDashboardScope(scope, { force: options?.force ?? true });
+      await fetchDashboardScope(scope, { force: options?.force ?? true, silent: options?.silent });
     },
     [fetchDashboardScope, isPreview],
   );
 
+  useEffect(() => {
+    if (isPreview || !projectLoaded || !currentProjectId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollProjectChanges() {
+      try {
+        const response = await fetch("/api/project/changes", { cache: "no-store" });
+        if (!response.ok) {
+          return;
+        }
+
+        const json = (await response.json()) as { data?: ProjectChangesPayload };
+        const version = json.data?.version;
+        if (cancelled || !version || stateRef.current.ownerKey !== ownerKey) {
+          return;
+        }
+
+        const previous = projectChangeVersionRef.current;
+        if (previous.ownerKey !== ownerKey) {
+          projectChangeVersionRef.current = { ownerKey, version };
+          return;
+        }
+
+        if (!previous.version) {
+          projectChangeVersionRef.current = { ownerKey, version };
+          return;
+        }
+
+        if (previous.version === version) {
+          return;
+        }
+
+        projectChangeVersionRef.current = { ownerKey, version };
+        const currentState = stateRef.current.stateByScope;
+        await Promise.all([
+          currentState.active.loaded ? refreshDashboardScope("active", { force: true, silent: true }) : Promise.resolve(),
+          currentState.trash.loaded ? refreshDashboardScope("trash", { force: true, silent: true }) : Promise.resolve(),
+        ]);
+      } catch {
+        // Polling is a best-effort invalidation fallback; normal user actions still refresh explicitly.
+      }
+    }
+
+    void pollProjectChanges();
+    const intervalId = window.setInterval(() => {
+      void pollProjectChanges();
+    }, PROJECT_CHANGES_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [currentProjectId, isPreview, ownerKey, projectLoaded, refreshDashboardScope]);
+
   const fetchDashboardTaskFiles = useCallback(
     async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
       const force = options?.force ?? false;
+      const shouldSurfaceError = options?.surfaceErrors ?? force;
       const normalizedTaskId = taskId.trim();
 
       if (isPreview || !normalizedTaskId) {
@@ -391,7 +746,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       const request = (async () => {
         try {
-          const response = await fetch(
+          const response = await fetchDashboardRead(
             `/api/files?scope=${scope === "trash" ? "trash" : "active"}&taskId=${encodeURIComponent(normalizedTaskId)}`,
             { cache: "no-store" },
           );
@@ -454,7 +809,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                     ? previous.stateByScope[scope].requestedTaskFileIds
                     : [...previous.stateByScope[scope].requestedTaskFileIds, normalizedTaskId],
                   loadingTaskFileIds: previous.stateByScope[scope].loadingTaskFileIds.filter((id) => id !== normalizedTaskId),
-                  errorMessage: error instanceof Error ? error.message : localizeError({ fallbackKey: "loadDashboardFailed" }),
+                  errorMessage: shouldSurfaceError
+                    ? error instanceof Error
+                      ? error.message
+                      : localizeError({ fallbackKey: "loadDashboardFailed" })
+                    : previous.stateByScope[scope].errorMessage,
                 },
               },
             };
@@ -478,6 +837,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [isPreview, ownerKey],
   );
 
+  const invalidateDashboardScopeRead = useCallback((scope: DashboardScope) => {
+    requestIdRef.current[scope] += 1;
+    delete inFlightRef.current[scope];
+  }, []);
+
   const ensureDashboardTaskFilesLoaded = useCallback(
     async (scope: DashboardScope, taskId: string, options?: DashboardTaskFilesRefreshOptions) => {
       if (isPreview) {
@@ -495,32 +859,75 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await fetchDashboardTaskFiles(scope, taskId, { force: options?.force ?? true });
+      await fetchDashboardTaskFiles(scope, taskId, {
+        force: options?.force ?? true,
+        surfaceErrors: options?.surfaceErrors ?? true,
+      });
     },
     [fetchDashboardTaskFiles, isPreview],
   );
 
   const setDashboardTasks = useCallback(
     (scope: DashboardScope, updater: SetStateAction<TaskRecord[]>) => {
+      invalidateDashboardScopeRead(scope);
       setProviderState((previous) => {
         if (previous.ownerKey !== ownerKey) {
           return previous;
         }
+
+        const previousScope = previous.stateByScope[scope];
+        const isDailyActiveScope = scope === "active" && activeTaskOrderScope === "daily";
+        const previousTasks = isDailyActiveScope
+          ? applyDailyTaskUserOrders(previousScope.tasks, previousScope.dailyTaskUserOrders)
+          : previousScope.tasks;
+        const nextTasks = typeof updater === "function" ? updater(previousTasks) : updater;
 
         return {
           ...previous,
           stateByScope: {
             ...previous.stateByScope,
             [scope]: {
-              ...previous.stateByScope[scope],
-              tasks: typeof updater === "function" ? updater(previous.stateByScope[scope].tasks) : updater,
+              ...previousScope,
+              tasks: isDailyActiveScope ? mergeDailyVisibleTasksIntoCanonicalTasks(previousScope.tasks, nextTasks) : nextTasks,
               loaded: true,
+              dailyTaskUserOrders: isDailyActiveScope
+                ? buildDailyTaskUserOrdersFromTasks(nextTasks)
+                : previousScope.dailyTaskUserOrders,
+              dailyTaskUserOrdersLoaded: isDailyActiveScope ? true : previousScope.dailyTaskUserOrdersLoaded,
             },
           },
         };
       });
     },
-    [ownerKey],
+    [activeTaskOrderScope, invalidateDashboardScopeRead, ownerKey],
+  );
+
+  const setDashboardFiles = useCallback(
+    (scope: DashboardScope, updater: SetStateAction<FileRecord[]>) => {
+      invalidateDashboardScopeRead(scope);
+      setProviderState((previous) => {
+        if (previous.ownerKey !== ownerKey) {
+          return previous;
+        }
+
+        const previousScope = previous.stateByScope[scope];
+        const nextFiles = typeof updater === "function" ? updater(previousScope.files) : updater;
+        const nextFilesByTaskId = groupFilesByTaskId(nextFiles);
+
+        return {
+          ...previous,
+          stateByScope: {
+            ...previous.stateByScope,
+            [scope]: {
+              ...previousScope,
+              filesByTaskId: nextFilesByTaskId,
+              files: flattenFilesByTaskId(nextFilesByTaskId),
+            },
+          },
+        };
+      });
+    },
+    [invalidateDashboardScopeRead, ownerKey],
   );
 
   const setDashboardErrorMessage = useCallback(
@@ -554,6 +961,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       ensureDashboardTaskFilesLoaded,
       refreshDashboardTaskFiles,
       setDashboardTasks,
+      setDashboardFiles,
       setDashboardErrorMessage,
     }),
     [
@@ -562,6 +970,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       refreshDashboardScope,
       refreshDashboardTaskFiles,
       setDashboardErrorMessage,
+      setDashboardFiles,
       setDashboardTasks,
       visibleStateByScope,
     ],
@@ -592,11 +1001,13 @@ export function useDashboardScope(scope: DashboardScope) {
     ensureDashboardTaskFilesLoaded,
     refreshDashboardTaskFiles,
     setDashboardTasks,
+    setDashboardFiles,
     setDashboardErrorMessage,
   } = context;
   const previewState = useMemo(() => buildPreviewScopeState(scope), [scope]);
   const scopeState = stateByScope[scope];
-  const computedLoading = scopeState.loading || (!scopeState.loaded && !scopeState.errorMessage);
+  const needsDailyTaskUserOrders = pathname === "/daily" && scope === "active" && !scopeState.dailyTaskUserOrdersLoaded;
+  const computedLoading = scopeState.loading || (!scopeState.loaded && !scopeState.errorMessage) || needsDailyTaskUserOrders;
   const files = useMemo(() => flattenFilesByTaskId(scopeState.filesByTaskId), [scopeState.filesByTaskId]);
   const filesByTaskId = useMemo(() => scopeState.filesByTaskId, [scopeState.filesByTaskId]);
 
@@ -628,6 +1039,17 @@ export function useDashboardScope(scope: DashboardScope) {
       setDashboardTasks(scope, updater);
     },
     [isPreview, scope, setDashboardTasks],
+  );
+
+  const setFiles = useCallback(
+    (updater: SetStateAction<FileRecord[]>) => {
+      if (isPreview) {
+        return;
+      }
+
+      setDashboardFiles(scope, updater);
+    },
+    [isPreview, scope, setDashboardFiles],
   );
 
   const ensureTaskFilesLoaded = useCallback(
@@ -680,6 +1102,7 @@ export function useDashboardScope(scope: DashboardScope) {
             ensureTaskFilesLoaded,
             refreshTaskFiles,
             setTasks,
+            setFiles,
             setErrorMessage,
           }
         : {
@@ -692,6 +1115,7 @@ export function useDashboardScope(scope: DashboardScope) {
             ensureTaskFilesLoaded,
             refreshTaskFiles,
             setTasks,
+            setFiles,
             setErrorMessage,
           },
     [
@@ -705,6 +1129,7 @@ export function useDashboardScope(scope: DashboardScope) {
       refreshTaskFiles,
       scopeState,
       setErrorMessage,
+      setFiles,
       setTasks,
       files,
       filesByTaskId,

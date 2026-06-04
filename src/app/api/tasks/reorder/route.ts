@@ -1,21 +1,34 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import type { TaskOrderingStrategy, TaskReorderCommand } from "@/domains/task/ordering";
 import { reorderTasks } from "@/use-cases/task-service";
 
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   try {
+    assertRequestIntegrity(request);
     const user = await requireUser();
     const body = await request.json();
     const command = buildReorderCommand(body);
-    const data = await reorderTasks(command, user.id);
+    const orderProfileId = readOrderProfileId(body, user.id);
+    const context = orderProfileId ? await requireCurrentProjectAccess(user) : await requireCurrentProjectEditor(user);
+    const data = await reorderTasks(command, user.id, context.project, {
+      orderProfileId,
+    });
 
     return NextResponse.json({ data });
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function readOrderProfileId(body: unknown, userId: string) {
+  return isRecord(body) && body.orderScope === "daily" ? userId : null;
 }
 
 function buildReorderCommand(body: unknown): TaskReorderCommand {
@@ -44,6 +57,25 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
       movedTaskId,
       targetParentTaskId: normalizeNullableId(body.targetParentTaskId),
       targetIndex,
+      expectedVersions: readExpectedVersions(body.expectedVersions),
+    };
+  }
+
+  if (body.action === "set_sibling_order") {
+    const orderedTaskIds = Array.isArray(body.orderedTaskIds)
+      ? body.orderedTaskIds.map((taskId) => String(taskId ?? "").trim()).filter(Boolean)
+      : [];
+
+    if (orderedTaskIds.length === 0) {
+      throw badRequest("orderedTaskIds is required", "TASK_REORDER_ORDERED_TASK_IDS_REQUIRED");
+    }
+
+    return {
+      action: "set_sibling_order",
+      parentTaskId: normalizeNullableId(body.parentTaskId),
+      orderedTaskIds,
+      siblingOrderStart: readOptionalSiblingOrderStart(body.siblingOrderStart),
+      expectedVersions: readExpectedVersions(body.expectedVersions),
     };
   }
 
@@ -54,7 +86,26 @@ function buildReorderCommand(body: unknown): TaskReorderCommand {
   return {
     action: "auto_sort",
     strategy: normalizeStrategy(body.strategy),
+    expectedVersions: readExpectedVersions(body.expectedVersions),
   };
+}
+
+function readExpectedVersions(value: unknown) {
+  if (!isRecord(value)) {
+    throw badRequest("expectedVersions is required", "TASK_REORDER_VERSION_REQUIRED");
+  }
+
+  const expectedVersions = new Map<string, number>();
+  for (const [taskId, version] of Object.entries(value)) {
+    const normalizedTaskId = taskId.trim();
+    const normalizedVersion = Number(version);
+    if (!normalizedTaskId || !Number.isInteger(normalizedVersion) || normalizedVersion < 1) {
+      throw badRequest("expectedVersions is invalid", "TASK_REORDER_VERSION_INVALID");
+    }
+    expectedVersions.set(normalizedTaskId, normalizedVersion);
+  }
+
+  return expectedVersions;
 }
 
 function normalizeStrategy(value: unknown): TaskOrderingStrategy {
@@ -76,6 +127,19 @@ function normalizeNullableId(value: unknown) {
 
   const normalized = String(value).trim();
   return normalized ? normalized : null;
+}
+
+function readOptionalSiblingOrderStart(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const siblingOrderStart = Number(value);
+  if (!Number.isInteger(siblingOrderStart) || siblingOrderStart < 0) {
+    throw badRequest("siblingOrderStart is invalid", "TASK_REORDER_SIBLING_ORDER_START_INVALID");
+  }
+
+  return siblingOrderStart;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,0 +1,4 @@
+Req: Implement Slice 383 provider execution package review coverage queue group totals.
+Diff: Added filtered provider execution package review coverage group totals to the Admin Knowledge report API and UI. Updated `사용자 가이드.md`.
+Why: Reviewers need read-only reviewed, unreviewed, stale, and visible package totals for the active provider execution package review scope before scanning coverage rows or copying handoffs.
+Verify/Time: Passed 2026-05-14 09:10 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` service validation; `npm run build`; Browser UI validation at 1440x900 and 390x844 for the coverage queue group totals. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma EACCES polling errors unrelated to this read-only report.

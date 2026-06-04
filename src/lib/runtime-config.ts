@@ -28,6 +28,7 @@ export const localProjectMetaPath = normalizeFsPath(
 export const localProjectMetaDir = dirname(localProjectMetaPath);
 export const localTaskStorePath = join(localDataRoot, "data", "tasks.json");
 export const localFileStorePath = join(localDataRoot, "data", "files.json");
+export const localAssistantStorePath = join(localDataRoot, "data", "assistant-records.json");
 export const localSequenceStorePath = join(localDataRoot, "data", "task-sequence.json");
 export const localPreferenceStorePath = join(localDataRoot, "settings", "profile-preferences.json");
 export const localAdminStorePath = join(localDataRoot, "settings", "admin-foundation.json");

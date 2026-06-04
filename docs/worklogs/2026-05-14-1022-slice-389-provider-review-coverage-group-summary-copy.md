@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 389 provider execution package review coverage group summary copy.
+Diff: Added `Copy group summary` for active provider execution package coverage filters, totals, note count, and grouped queue counts; updated `사용자 가이드.md`.
+Why: Reviewers need a compact read-only grouped coverage summary for external review handoff without copying the full coverage row list.
+Verify/Time: Passed 2026-05-14 10:30 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` summary-field validation; `npm run build`; Browser UI validation with clipboard stub confirmed `Copy group summary` payload and mobile copy availability. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

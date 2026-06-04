@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 414 provider execution package review coverage group summary next download filename chip.
+Diff: Added a read-only next download filename chip for provider execution package coverage group summary downloads, reused a shared filename helper for the chip and download action, and updated `사용자 가이드.md`.
+Why: Reviewers need to know the exact local Markdown filename before clicking `Download group summary`, and the displayed filename must stay aligned with the actual browser download.
+Verify/Time: Passed 2026-05-14 11:46 KST: `npm run typecheck`, `npm run lint` with 7 pre-existing task hook warnings, direct `getKnowledgeProviderExecutionPackageReviewNoteReport` filename validation, `npm run build`, Chrome headless desktop/mobile DOM validation, and CDP download validation showing the chip filename matched the downloaded Markdown filename.

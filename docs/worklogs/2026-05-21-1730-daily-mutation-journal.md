@@ -1,0 +1,4 @@
+Req: Complete `/daily` durable local-first mutation journal/outbox v1 while preserving the existing optimistic create, edit, trash/delete, and reorder responsiveness.
+Diff: Added an IndexedDB-backed `/daily` mutation journal, wired create/update/trash/delete/reorder into journaled optimistic mutations, added idempotent create handling through `clientMutationId`, added a compact sync status/retry UI, expanded the responsiveness verification script, and documented the durable outbox completion criteria in `AGENTS.md`.
+Why: `/daily` already reacted quickly before server acknowledgement, but pending local changes still needed durable reload and network-failure persistence instead of relying on transient React state or raw network errors.
+Verify/Time: 2026-05-21 17:30 KST. `npm run typecheck`, `npm run lint`, `npx tsx scripts/daily-editing-responsiveness-verify.ts`, and `npm run build` passed before commit.

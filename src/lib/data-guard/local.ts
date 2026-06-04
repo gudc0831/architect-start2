@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { backendMode } from "@/lib/backend-mode";
 import {
   defaultProjectName,
   localAdminStorePath,
+  localAssistantStorePath,
   localDataRoot,
   localFileStorePath,
   localPreferenceStorePath,
@@ -31,7 +32,7 @@ import {
   writeJsonFile,
 } from "@/lib/data-guard/shared";
 
-export type LocalStoreName = "project" | "tasks" | "files" | "sequence" | "preferences" | "admin";
+export type LocalStoreName = "project" | "tasks" | "files" | "assistant" | "sequence" | "preferences" | "admin";
 
 type LocalGuardStoreState = {
   exists: boolean;
@@ -48,6 +49,7 @@ type LocalFingerprint = {
   projectMetaPath: string;
   taskStorePath: string;
   fileStorePath: string;
+  assistantStorePath: string;
   preferenceStorePath: string;
   sequenceStorePath: string;
   adminStorePath: string;
@@ -139,6 +141,35 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
       return Array.isArray(value) ? value.length : 0;
     },
   },
+  assistant: {
+    path: localAssistantStorePath,
+    snapshotName: "assistant-records.json",
+    fallback: { records: [], summaries: [], threads: [], threadMessages: [], runPolicies: [], usageEvents: [], auditEvents: [] },
+    countRecords(value) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return 0;
+      }
+
+      const store = value as {
+        records?: unknown;
+        summaries?: unknown;
+        threads?: unknown;
+        threadMessages?: unknown;
+        runPolicies?: unknown;
+        usageEvents?: unknown;
+        auditEvents?: unknown;
+      };
+      return (
+        (Array.isArray(store.records) ? store.records.length : 0) +
+        (Array.isArray(store.summaries) ? store.summaries.length : 0) +
+        (Array.isArray(store.threads) ? store.threads.length : 0) +
+        (Array.isArray(store.threadMessages) ? store.threadMessages.length : 0) +
+        (Array.isArray(store.runPolicies) ? store.runPolicies.length : 0) +
+        (Array.isArray(store.usageEvents) ? store.usageEvents.length : 0) +
+        (Array.isArray(store.auditEvents) ? store.auditEvents.length : 0)
+      );
+    },
+  },
   sequence: {
     path: localSequenceStorePath,
     snapshotName: "task-sequence.json",
@@ -173,6 +204,7 @@ function defaultState(): LocalGuardState {
       project: { exists: false, path: localProjectMetaPath, recordCount: 0, updatedAt: null },
       tasks: { exists: false, path: localTaskStorePath, recordCount: 0, updatedAt: null },
       files: { exists: false, path: localFileStorePath, recordCount: 0, updatedAt: null },
+      assistant: { exists: false, path: localAssistantStorePath, recordCount: 0, updatedAt: null },
       sequence: { exists: false, path: localSequenceStorePath, recordCount: 0, updatedAt: null },
       preferences: { exists: false, path: localPreferenceStorePath, recordCount: 0, updatedAt: null },
       admin: { exists: false, path: localAdminStorePath, recordCount: 0, updatedAt: null },
@@ -199,6 +231,7 @@ function normalizeFingerprint(input: LocalFingerprint | null | undefined) {
     projectMetaPath: input.projectMetaPath,
     taskStorePath: input.taskStorePath,
     fileStorePath: input.fileStorePath,
+    assistantStorePath: input.assistantStorePath,
     preferenceStorePath: input.preferenceStorePath,
     sequenceStorePath: input.sequenceStorePath,
     adminStorePath: input.adminStorePath,
@@ -269,6 +302,7 @@ async function computeFingerprint(): Promise<LocalFingerprint> {
     projectMetaPath: localProjectMetaPath,
     taskStorePath: localTaskStorePath,
     fileStorePath: localFileStorePath,
+    assistantStorePath: localAssistantStorePath,
     preferenceStorePath: localPreferenceStorePath,
     sequenceStorePath: localSequenceStorePath,
     adminStorePath: localAdminStorePath,
@@ -554,8 +588,7 @@ export async function writeLocalStore<T>(store: LocalStoreName, nextValue: T, op
     currentRecordCount: currentState.recordCount,
   });
 
-  await ensureParent(definition.path);
-  await writeFile(definition.path, `${JSON.stringify(nextValue, null, 2)}\n`, "utf8");
+  await writeLocalStoreFile(definition.path, nextValue);
 
   const nextState = await loadState();
   const confirmationToken = readConfirmationToken();
@@ -582,6 +615,28 @@ export async function writeLocalStore<T>(store: LocalStoreName, nextValue: T, op
   return {
     snapshotId: snapshot.id,
   };
+}
+
+async function writeLocalStoreFile(path: string, value: unknown) {
+  const targetPath = resolveLocalDataPath(path);
+  await ensureParent(targetPath);
+
+  // Local backend writes only predefined store files under localDataRoot after snapshot and lock checks.
+  // codeql[js/http-to-file-access]
+  await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+
+function resolveLocalDataPath(path: string) {
+  const root = resolve(localDataRoot);
+  const target = resolve(path);
+  const relativePath = relative(root, target);
+  if (relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error("Local store write path must stay under the local data root.");
+  }
+  return target;
 }
 
 export async function inspectLocalWriteProtection() {

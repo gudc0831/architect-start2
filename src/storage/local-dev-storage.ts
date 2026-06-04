@@ -10,7 +10,7 @@ export class LocalDevStorageProvider implements StorageProvider {
   async upload(input: { file: File; objectPath: string }): Promise<StoredObject> {
     const targetPath = resolveLocalUploadPath(input.objectPath);
     await mkdir(dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, Buffer.from(await input.file.arrayBuffer()));
+    await writeFile(targetPath, Buffer.from(await input.file.arrayBuffer()), { mode: 0o600 });
 
     return {
       storageProvider: this.name,

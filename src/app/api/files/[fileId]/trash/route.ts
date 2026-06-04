@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { moveFileToTrash } from "@/use-cases/file-service";
 
@@ -8,7 +10,9 @@ export async function POST(
   context: { params: Promise<{ fileId: string }> },
 ) {
   try {
-    await requireUser();
+    assertRequestIntegrity(_request);
+    const user = await requireUser();
+    await requireCurrentProjectEditor(user);
     const { fileId } = await context.params;
     const file = await moveFileToTrash(fileId);
 

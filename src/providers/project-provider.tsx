@@ -2,9 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildSystemWorkTypeDefinitions, type WorkTypeDefinition } from "@/domains/task/work-types";
 import { previewProjectName } from "@/lib/preview/demo-data";
+import { clearWorkspaceBootstrapCache } from "@/lib/workspace/bootstrap-client";
+import type { ProjectSelectionPayload } from "@/lib/workspace/bootstrap-types";
 
 type ProjectOption = {
   id: string;
@@ -12,16 +15,9 @@ type ProjectOption = {
   source: string;
 };
 
-type ProjectSelectionPayload = {
-  currentProjectId: string | null;
-  availableProjects: Array<{ id: string; name: string; source?: string }>;
-  source?: string | null;
-  workTypeDefinitions: WorkTypeDefinition[];
-  categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
-};
-
 type ProjectContextValue = {
   currentProjectId: string | null;
+  currentProjectRole: ProjectMembershipRole | null;
   availableProjects: ProjectOption[];
   workTypeDefinitions: WorkTypeDefinition[];
   categoryDefinitionsByField: Partial<Record<TaskCategoryFieldKey, TaskCategoryDefinition[]>>;
@@ -44,6 +40,7 @@ const previewProjectId = "preview-project";
 
 const ProjectContext = createContext<ProjectContextValue>({
   currentProjectId: null,
+  currentProjectRole: null,
   availableProjects: [],
   workTypeDefinitions: [],
   categoryDefinitionsByField: {},
@@ -72,7 +69,7 @@ async function readApiData<T>(input: RequestInfo, init?: RequestInit): Promise<T
   const json = (await response.json().catch(() => ({}))) as { data?: T; error?: { message?: string } };
 
   if (!response.ok || !json.data) {
-    throw new Error(json.error?.message || `Request failed (${response.status})`);
+    throw new Error("프로젝트 정보를 불러오지 못했습니다.");
   }
 
   return json.data;
@@ -82,6 +79,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentProjectRole, setCurrentProjectRole] = useState<ProjectMembershipRole | null>(null);
   const [availableProjects, setAvailableProjects] = useState<ProjectOption[]>([]);
   const [workTypeDefinitions, setWorkTypeDefinitions] = useState<WorkTypeDefinition[]>([]);
   const [categoryDefinitionsByField, setCategoryDefinitionsByField] = useState<
@@ -129,6 +127,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     setAvailableProjects(projects);
     setCurrentProjectId(selectedProject.id);
+    setCurrentProjectRole(payload.currentProjectRole ?? null);
     setProjectNameState(selectedProject.name);
     setProjectSource(selectedProject.source);
     if (
@@ -161,11 +160,13 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshProjects = useCallback(async () => {
+    clearWorkspaceBootstrapCache();
     const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
     applyProjectSelection(data);
   }, [applyProjectSelection]);
 
   const refreshWorkTypes = useCallback(async () => {
+    clearWorkspaceBootstrapCache();
     const data = await readApiData<ProjectSelectionPayload>("/api/projects", { cache: "no-store" });
     applyProjectSelection(data, { loaded: false });
   }, [applyProjectSelection]);
@@ -193,6 +194,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
         setAvailableProjects([]);
         setCurrentProjectId(null);
+        setCurrentProjectRole(null);
         setProjectNameState(defaultProjectName);
         setProjectSource(null);
         setProjectLoaded(true);
@@ -231,6 +233,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setIsSyncing(true);
 
     try {
+      clearWorkspaceBootstrapCache();
       const data = await readApiData<ProjectSelectionPayload>("/api/projects/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,6 +255,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const value = isPreview
     ? {
         currentProjectId: previewProjectId,
+        currentProjectRole: null,
         availableProjects: [{ id: previewProjectId, name: previewName, source: "preview" }],
         workTypeDefinitions,
         categoryDefinitionsByField,
@@ -268,6 +272,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       }
     : {
         currentProjectId,
+        currentProjectRole,
         availableProjects,
         workTypeDefinitions,
         categoryDefinitionsByField,

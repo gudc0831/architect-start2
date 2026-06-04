@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -17,6 +17,8 @@ type TaskQuickCreateProps = {
   isOpen: boolean;
   canCollapse: boolean;
   composerMode: "strip" | "wrapped" | "stacked";
+  hideEyebrow?: boolean;
+  hideBody?: boolean;
   onToggleOpen: () => void;
   onClose: () => void;
   onSubmit: (values: TaskQuickCreateFormValues) => Promise<boolean> | boolean;
@@ -40,6 +42,8 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   isOpen,
   canCollapse,
   composerMode,
+  hideEyebrow = false,
+  hideBody = false,
   onToggleOpen,
   onClose,
   onSubmit,
@@ -47,6 +51,8 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   copy,
 }: TaskQuickCreateProps) {
   const [state, dispatch] = useTaskQuickCreateFormState(initialValues);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const updateField = useCallback(
     <K extends TaskQuickCreateFormFieldKey>(key: K, value: TaskQuickCreateFormValues[K]) => {
@@ -56,21 +62,32 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
   );
 
   const handleSubmit = useCallback(async () => {
-    const didCreate = await onSubmit(state.values);
-    if (!didCreate) {
+    if (isSubmittingRef.current) {
       return;
     }
 
-    dispatch(resetTaskQuickCreateFormAction());
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const didCreate = await onSubmit(state.values);
+      if (!didCreate) {
+        return;
+      }
+
+      dispatch(resetTaskQuickCreateFormAction());
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   }, [dispatch, onSubmit, state.values]);
 
   return (
     <section className="composer-card">
       <div className="composer-card__header">
         <div>
-          <p className="workspace__eyebrow">{copy.eyebrow}</p>
+          {hideEyebrow ? null : <p className="workspace__eyebrow">{copy.eyebrow}</p>}
           <h3>{copy.title}</h3>
-          <p className="workspace__meta">{copy.body}</p>
+          {hideBody ? null : <p className="workspace__meta">{copy.body}</p>}
         </div>
         {canCollapse ? (
           <button className="secondary-button composer-card__toggle" onClick={onToggleOpen} type="button">
@@ -84,7 +101,7 @@ export const TaskQuickCreate = memo(function TaskQuickCreate({
             {renderFields(state.values, updateField)}
           </div>
           <div className="detail-actions detail-actions--inline">
-            <button className="primary-button" onClick={() => void handleSubmit()} type="button">
+            <button className="primary-button" disabled={isSubmitting} onClick={() => void handleSubmit()} type="button">
               {copy.createLabel}
             </button>
             {canCollapse ? (

@@ -1,0 +1,4 @@
+Req: Prepare the remaining preview verification matrix and the smallest safe preview test-data shape before the next external user gate.
+Diff: added `docs/2026-04-20-preview-verification-expansion-matrix.md` with the remaining preview checks, exact accounts, minimum new project and membership shape, exact route targets, expected status and error codes, and curl probe templates for origin-integrity verification.
+Why: the next blocking work is no longer auth implementation but finishing the preview proof matrix with the least possible dashboard mutation surface.
+Verify: reviewed the live guard and route implementation in `src/lib/auth/project-guards.ts`, `src/lib/auth/request-integrity.ts`, `src/app/api/project/route.ts`, `src/app/api/projects/select/route.ts`, `src/app/api/admin/projects/[projectId]/members/route.ts`, `src/app/api/tasks/reorder/route.ts`, and `src/app/api/files/upload-intents/route.ts`.

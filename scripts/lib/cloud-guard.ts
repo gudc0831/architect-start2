@@ -14,7 +14,7 @@ import {
   safeSnapshotId,
   writeJsonFile,
 } from "../../src/lib/data-guard/shared";
-import { captureCommand, npxCommand } from "./run-command";
+import { captureNpmExec } from "./run-command";
 
 loadEnvConfig(process.cwd());
 
@@ -25,6 +25,49 @@ type CloudCounts = {
   files: number;
   preferences: number;
 };
+
+type CloudBackupTables = Record<string, unknown[]>;
+
+type CloudBackupTableSpec = {
+  schemaName: "public" | "storage";
+  tableName: string;
+  backupKey: string;
+  orderBy: string;
+};
+
+export const CLOUD_BACKUP_TABLE_SPECS = [
+  { schemaName: "public", tableName: "profiles", backupKey: "profiles", orderBy: "row_data.created_at asc" },
+  { schemaName: "public", tableName: "projects", backupKey: "projects", orderBy: "row_data.created_at asc" },
+  { schemaName: "public", tableName: "tasks", backupKey: "tasks", orderBy: "row_data.created_at asc, row_data.task_number asc" },
+  { schemaName: "public", tableName: "files", backupKey: "files", orderBy: "row_data.created_at asc, row_data.version asc" },
+  { schemaName: "public", tableName: "profile_preferences", backupKey: "preferences", orderBy: "row_data.profile_id asc" },
+  { schemaName: "public", tableName: "foundation_settings", backupKey: "foundationSettings", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "project_memberships", backupKey: "projectMemberships", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "project_invitations", backupKey: "projectInvitations", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "access_requests", backupKey: "accessRequests", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "edit_leases", backupKey: "editLeases", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "work_type_definitions", backupKey: "workTypeDefinitions", orderBy: "row_data.created_at asc, row_data.sort_order asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_task_records", backupKey: "assistantTaskRecords", orderBy: "row_data.created_at asc, row_data.id asc" },
+  {
+    schemaName: "public",
+    tableName: "assistant_work_summary_drafts",
+    backupKey: "assistantWorkSummaryDrafts",
+    orderBy: "row_data.created_at asc, row_data.id asc",
+  },
+  { schemaName: "public", tableName: "assistant_run_policies", backupKey: "assistantRunPolicies", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_usage_events", backupKey: "assistantUsageEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_audit_events", backupKey: "assistantAuditEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "file_analysis_chunks", backupKey: "fileAnalysisChunks", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "storage", tableName: "buckets", backupKey: "storageBuckets", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "storage", tableName: "objects", backupKey: "storageObjects", orderBy: "row_data.created_at asc, row_data.name asc" },
+] satisfies CloudBackupTableSpec[];
+
+export const CLOUD_RESTORE_LIMITATION =
+  "Cloud backups are JSON coverage snapshots for inspection and emergency manual recovery planning. Automated cloud restore is not implemented; npm run data:restore restores local snapshots only.";
+
+function tableIdentifier(spec: CloudBackupTableSpec) {
+  return `${spec.schemaName}.${spec.tableName}`;
+}
 
 type CloudGuardLock = {
   operation: string;
@@ -117,17 +160,115 @@ async function getPrisma() {
   return prismaModule.prisma;
 }
 
+function normalizeJsonRows(value: unknown) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  return [];
+}
+
+async function readBackupTableRows(schemaName: string, tableName: string, orderBy: string) {
+  const { Pool } = await import("pg");
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for cloud backup");
+  }
+
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+  });
+
+  try {
+    const result = await pool.query(
+      `select coalesce(jsonb_agg(to_jsonb(row_data) order by ${orderBy}), '[]'::jsonb) as rows from (select * from "${schemaName}"."${tableName}") row_data`,
+    );
+    return normalizeJsonRows(result.rows[0]?.rows);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function readCloudBackupTables() {
+  const tables: CloudBackupTables = Object.fromEntries(CLOUD_BACKUP_TABLE_SPECS.map((spec) => [spec.backupKey, []]));
+  const tableCounts: Record<string, number> = {};
+  const tableErrors: Record<string, string> = {};
+
+  for (const spec of CLOUD_BACKUP_TABLE_SPECS) {
+    const identifier = tableIdentifier(spec);
+    try {
+      const rows = await readBackupTableRows(spec.schemaName, spec.tableName, spec.orderBy);
+      tables[spec.backupKey] = rows;
+      tableCounts[identifier] = rows.length;
+    } catch (error) {
+      tableErrors[identifier] = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  return {
+    tables,
+    tableCounts,
+    tableErrors,
+  };
+}
+
 async function getRowCounts(): Promise<CloudCounts> {
   const prisma = await getPrisma();
-  const [profiles, projects, tasks, files, preferences] = await Promise.all([
-    prisma.profile.count(),
-    prisma.project.count(),
-    prisma.task.count(),
-    prisma.file.count(),
-    prisma.profilePreference.count(),
-  ]);
+  const profiles = await prisma.profile.count();
+  const projects = await prisma.project.count();
+  const tasks = await prisma.task.count();
+  const files = await prisma.file.count();
+  const preferences = await prisma.profilePreference.count();
 
   return { profiles, projects, tasks, files, preferences };
+}
+
+async function disconnectPrisma() {
+  try {
+    const prisma = await getPrisma();
+    await prisma.$disconnect();
+  } catch {
+    // Best effort: fallback row counts should still run if Prisma cleanup fails.
+  }
+}
+
+async function getRowCountsViaPg(): Promise<CloudCounts> {
+  const { Pool } = await import("pg");
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for cloud row count fallback");
+  }
+
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+  });
+  const tableSpecs = [
+    ["profiles", "profiles"],
+    ["projects", "projects"],
+    ["tasks", "tasks"],
+    ["files", "files"],
+    ["preferences", "profile_preferences"],
+  ] as const;
+
+  try {
+    const entries: Array<readonly [keyof CloudCounts, number]> = [];
+    for (const [key, tableName] of tableSpecs) {
+      const result = await pool.query<{ count: number }>(`select count(*)::int as count from "public"."${tableName}"`);
+      entries.push([key, Number(result.rows[0]?.count ?? 0)] as const);
+    }
+    return Object.fromEntries(entries) as CloudCounts;
+  } finally {
+    await pool.end();
+  }
 }
 
 export async function getCloudGuardSummary(options?: { includeMigrationStatus?: boolean }): Promise<CloudGuardSummary> {
@@ -158,13 +299,21 @@ export async function getCloudGuardSummary(options?: { includeMigrationStatus?: 
   try {
     rowCounts = await getRowCounts();
   } catch (error) {
-    rowCountError = error instanceof Error ? error.message : String(error);
+    const prismaError = error instanceof Error ? error.message : String(error);
+    await disconnectPrisma();
+    try {
+      rowCounts = await getRowCountsViaPg();
+      rowCountError = `Prisma row count failed; pg fallback counts used. Prisma error: ${prismaError}`;
+    } catch (fallbackError) {
+      const pgError = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      rowCountError = `Prisma row count failed: ${prismaError}; pg fallback failed: ${pgError}`;
+    }
   }
 
-  const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : false;
+  const isNonEmpty = rowCounts ? Object.values(rowCounts).some((count) => count > 0) : Boolean(rowCountError);
   const migrationStatus = options?.includeMigrationStatus
     ? (() => {
-        const result = captureCommand(npxCommand, ["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
+        const result = captureNpmExec(["prisma", "migrate", "status", "--schema", "prisma/schema.prisma"]);
         return {
           ok: result.status === 0,
           status: result.status,
@@ -288,21 +437,26 @@ export async function createCloudBackup(reason: string) {
   const backupDir = join(cloudBackupsRoot, backupId);
   await ensureDir(backupDir);
 
-  let tables: Record<string, unknown> | null = null;
+  let tables: CloudBackupTables | null = null;
   let backupError: string | null = null;
+  let tableCounts: Record<string, number> = {};
+  let tableErrors: Record<string, string> = {};
 
   try {
-    const prisma = await getPrisma();
-    tables = {
-      profiles: await prisma.profile.findMany({ orderBy: { createdAt: "asc" } }),
-      projects: await prisma.project.findMany({ orderBy: { createdAt: "asc" } }),
-      tasks: await prisma.task.findMany({ orderBy: [{ createdAt: "asc" }, { taskNumber: "asc" }] }),
-      files: await prisma.file.findMany({ orderBy: [{ createdAt: "asc" }, { version: "asc" }] }),
-      preferences: await prisma.profilePreference.findMany({ orderBy: { profileId: "asc" } }),
-    };
+    const backup = await readCloudBackupTables();
+    tables = backup.tables;
+    tableCounts = backup.tableCounts;
+    tableErrors = backup.tableErrors;
+    if (Object.keys(tableErrors).length > 0) {
+      backupError = JSON.stringify(tableErrors);
+    }
   } catch (error) {
     backupError = error instanceof Error ? error.message : String(error);
   }
+
+  const expectedTables = CLOUD_BACKUP_TABLE_SPECS.map(tableIdentifier);
+  const failedTables = Object.keys(tableErrors);
+  const succeededTables = expectedTables.filter((tableName) => !failedTables.includes(tableName));
 
   const payload = {
     id: backupId,
@@ -313,6 +467,14 @@ export async function createCloudBackup(reason: string) {
     rowCounts: summary.rowCounts,
     rowCountError: summary.rowCountError,
     backupError,
+    tableCounts,
+    tableErrors,
+    backupCoverage: {
+      expectedTables,
+      succeededTables,
+      failedTables,
+    },
+    cloudRestoreLimitation: CLOUD_RESTORE_LIMITATION,
     tables,
   };
 
@@ -355,6 +517,9 @@ export async function listCloudBackups(limit = 10) {
           createdAt: parsed.createdAt,
           reason: parsed.reason,
           databaseTarget: parsed.databaseTarget,
+          tableCounts: parsed.tableCounts ?? null,
+          tableErrors: parsed.tableErrors ?? null,
+          backupCoverage: parsed.backupCoverage ?? null,
         };
       } catch {
         return null;

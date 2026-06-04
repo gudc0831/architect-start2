@@ -13,6 +13,7 @@ import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import {
   buildTaskHierarchyPathMap,
   formatTaskBacklogId,
+  formatTaskDisplayId,
   joinLatestFileNames,
   summarizeLinkedDocumentsForExport,
 } from "@/domains/task/daily-list";
@@ -149,8 +150,10 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     "exportRowIndex",
     "taskId",
     "actionId",
+    "issueId",
     "parentTaskId",
     "parentActionId",
+    "parentIssueId",
     "rootTaskId",
     "depth",
     "siblingOrder",
@@ -168,7 +171,7 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     const exportRowIndex = rowIndex + 2;
     const parentTask = task.parentTaskId ? taskById.get(task.parentTaskId) ?? null : null;
     const nextRow = worksheet.addRow([
-      formatTaskBacklogId(task),
+      formatTaskDisplayId(task),
       toExcelDateCell(task.dueDate),
       labelForTaskCategoricalFilterValue("workType", task.workType, categoricalFieldContext),
       labelForTaskCategoricalFilterValue("coordinationScope", task.coordinationScope, categoricalFieldContext),
@@ -228,8 +231,10 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     metaWorksheet.addRow([
       exportRowIndex,
       task.id,
+      formatTaskDisplayId(task),
       formatTaskBacklogId(task),
       task.parentTaskId ?? "",
+      parentTask ? formatTaskDisplayId(parentTask) : "",
       parentTask ? formatTaskBacklogId(parentTask) : "",
       task.rootTaskId,
       row.depth,
@@ -246,8 +251,10 @@ export async function buildTaskExportWorkbook(input: TaskExportWorkbookInput) {
     { width: 16 },
     { width: 40 },
     { width: 12 },
+    { width: 18 },
     { width: 40 },
     { width: 16 },
+    { width: 18 },
     { width: 40 },
     { width: 10 },
     { width: 14 },

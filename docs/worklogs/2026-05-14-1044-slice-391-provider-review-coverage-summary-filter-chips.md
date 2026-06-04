@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 391 provider execution package review coverage group summary filter chips.
+Diff: Added read-only active filter chips above the provider execution package coverage group summary preview; updated `사용자 가이드.md`.
+Why: Reviewers need the current review-state, digest, reviewer, note-type, execution, and stale-days scope visible without parsing the Markdown preview.
+Verify/Time: Passed 2026-05-14 10:52 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` filter/totals validation; `npm run build`; Browser UI validation confirmed summary filter chips match the preview filter line, update after `Focus reviewed`, and render at 1440x900 and 390x844. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

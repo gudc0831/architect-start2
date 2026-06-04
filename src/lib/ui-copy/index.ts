@@ -1,5 +1,5 @@
 ﻿import type { AuthRole } from "@/domains/auth/types";
-import { normalizeTaskStatus, TASK_STATUS_HISTORY_ENTRY_PATTERN } from "@/domains/task/status";
+import { normalizeTaskStatus, parseTaskStatusHistoryEntry } from "@/domains/task/status";
 import type { ThemeId } from "@/domains/preferences/types";
 import type { DashboardMode, TaskStatus } from "@/domains/task/types";
 import { uiCopyCatalog, type ProjectSourceLabelKey, type UICatalog, type UiLocale, type UploadModeLabelKey } from "@/lib/ui-copy/catalog";
@@ -35,12 +35,16 @@ const errorCodeMap = {
   AUTH_NOT_CONFIGURED: "authNotConfigured",
   UNAUTHORIZED: "unauthorized",
   FORBIDDEN: "forbidden",
+  PROJECT_ACCESS_REQUIRED: "forbidden",
+  PROJECT_MANAGER_REQUIRED: "forbidden",
   TASK_NOT_FOUND: "taskNotFound",
   FILE_NOT_FOUND: "fileNotFound",
   FILE_NOT_IN_TRASH: "fileNotInTrash",
   TASK_NOT_IN_TRASH: "taskNotInTrash",
   TASK_VERSION_REQUIRED: "taskVersionRequired",
   TASK_VERSION_CONFLICT: "taskVersionConflict",
+  TASK_REORDER_CONFLICT: "taskReorderConflict",
+  FILE_VERSION_CONFLICT: "fileVersionConflict",
   INVALID_PARENT_TASK: "invalidParentTask",
   PARENT_TASK_NOT_FOUND: "parentTaskNotFound",
   PARENT_TASK_NUMBER_INVALID: "parentTaskNumberInvalid",
@@ -59,6 +63,7 @@ const errorCodeMap = {
   CLOUD_ENV_MISSING: "cloudEnvMissing",
   BACKEND_MODE_INVALID: "backendModeInvalid",
   DATABASE_URL_MISSING: "databaseUrlMissing",
+  DATABASE_UNAVAILABLE: "databaseUnavailable",
   INTERNAL_SERVER_ERROR: "internalServerError",
 } satisfies Record<string, ErrorCopyKey>;
 
@@ -140,11 +145,10 @@ export function formatStatusHistoryForDisplay(raw: string) {
 
   return raw
     .split(/\r?\n/)
-    .map((line) =>
-      line.replace(TASK_STATUS_HISTORY_ENTRY_PATTERN, (_match, prefix: string, status: string) => {
-        return prefix + labelForStatus(normalizeTaskStatus(status));
-      }),
-    )
+    .map((line) => {
+      const parsed = parseTaskStatusHistoryEntry(line);
+      return parsed ? parsed.prefix + labelForStatus(normalizeTaskStatus(parsed.status)) : line;
+    })
     .join("\n");
 }
 

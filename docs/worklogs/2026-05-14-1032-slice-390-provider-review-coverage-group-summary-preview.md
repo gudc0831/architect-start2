@@ -1,0 +1,4 @@
+Req: Implement and verify Slice 390 provider execution package review coverage group summary preview.
+Diff: Added a read-only Markdown preview for the active provider execution package coverage group summary and made `Copy group summary` reuse the same generated text; updated `사용자 가이드.md`.
+Why: Reviewers need to inspect the compact grouped coverage summary before copying it for handoff.
+Verify/Time: Passed 2026-05-14 10:42 KST: `npm run typecheck`; `npm run lint` (pre-existing task hook dependency warnings only); direct `getKnowledgeProviderExecutionPackageReviewNoteReport` summary-field validation; `npm run build`; Browser UI validation confirmed the summary preview at 1440x900 and 390x844, and clipboard stub validation confirmed `Copy group summary` copies the exact preview text. Production auth-stub verification still logs pre-existing `/api/project/changes` Prisma noise unrelated to this read-only report.

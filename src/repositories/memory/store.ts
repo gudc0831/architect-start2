@@ -17,7 +17,10 @@ import type {
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
-import { serviceUnavailable } from "@/lib/api/errors";
+import { normalizeFileMetadata } from "@/domains/file/analysis";
+import type { FileMetadata } from "@/domains/file/analysis";
+import { rankFileAnalyses } from "@/domains/file/search";
+import { conflict, serviceUnavailable } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
@@ -75,6 +78,7 @@ function normalizeTaskRecords(tasks: Array<Record<string, unknown>>) {
       requestedBy: String(raw.requestedBy ?? raw.requester ?? ""),
       relatedDisciplines: String(raw.relatedDisciplines ?? ""),
       assignee: String(raw.assignee ?? ""),
+      assigneeProfileId: typeof raw.assigneeProfileId === "string" && raw.assigneeProfileId ? raw.assigneeProfileId : null,
       issueTitle: String(raw.issueTitle ?? raw.title ?? ""),
       reviewedAt: String(raw.reviewedAt ?? ""),
       createdAt: String(raw.createdAt ?? todayKey()).slice(0, 10),
@@ -103,8 +107,8 @@ async function readTasks() {
   return normalizeTaskRecords(tasks);
 }
 
-async function nextTaskNumber(projectId: string) {
-  const tasks = await readTasks();
+async function nextTaskNumber(projectId: string, existingTasks?: TaskRecord[]) {
+  const tasks = existingTasks ?? (await readTasks());
   const maxExisting = tasks
     .filter((task) => task.projectId === projectId)
     .reduce((max, task) => Math.max(max, task.taskNumber), 0);
@@ -124,6 +128,20 @@ async function nextTaskNumber(projectId: string) {
     { reason: "sequence.advance" },
   );
   return nextValue;
+}
+
+function nextSiblingOrder(tasks: TaskRecord[], projectId: string, parentTaskId: string | null) {
+  const siblingOrders = tasks
+    .filter(
+      (task) =>
+        task.projectId === projectId &&
+        !task.deletedAt &&
+        !task.purgedAt &&
+        (task.parentTaskId ?? null) === parentTaskId,
+    )
+    .map((task) => task.siblingOrder);
+
+  return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
 }
 
 function latestFiles(items: FileRecord[]) {
@@ -163,8 +181,13 @@ class MemoryTaskRepository implements TaskRepository {
 
   async createTask(input: CreateTaskInput) {
     const tasks = await readTasks();
-    const id = nextId("task");
-    const taskNumber = await nextTaskNumber(input.projectId);
+    const id = input.id ?? nextId("task");
+    const existing = tasks.find((task) => task.id === id && !task.purgedAt);
+    if (existing) {
+      return existing;
+    }
+    const taskNumber = await nextTaskNumber(input.projectId, tasks);
+    const parentTaskId = input.parentTaskId ?? null;
     const timestamp = now();
     const record: TaskRecord = {
       id,
@@ -172,10 +195,10 @@ class MemoryTaskRepository implements TaskRepository {
       taskNumber,
       actionId: taskNumber,
       issueId: buildProjectIssueId(input.projectName, taskNumber),
-      parentTaskId: input.parentTaskId ?? null,
+      parentTaskId,
       rootTaskId: input.rootTaskId?.trim() || id,
       depth: input.depth ?? 0,
-      siblingOrder: input.siblingOrder ?? 0,
+      siblingOrder: input.siblingOrder ?? nextSiblingOrder(tasks, input.projectId, parentTaskId),
       dueDate: input.dueDate,
       workType: requireStoredTaskWorkTypeValue(input.workType),
       coordinationScope: input.coordinationScope,
@@ -183,6 +206,7 @@ class MemoryTaskRepository implements TaskRepository {
       requestedBy: input.requestedBy,
       relatedDisciplines: input.relatedDisciplines,
       assignee: input.assignee,
+      assigneeProfileId: input.assigneeProfileId ?? null,
       issueTitle: input.issueTitle,
       reviewedAt: input.reviewedAt ?? "",
       createdAt: (input.createdAt ?? todayKey()).slice(0, 10),
@@ -270,6 +294,13 @@ class MemoryTaskRepository implements TaskRepository {
       }
 
       const current = tasks[index];
+      if (Number.isInteger(input.expectedVersion) && current.version !== input.expectedVersion) {
+        throw conflict(
+          "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+          "TASK_REORDER_CONFLICT",
+        );
+      }
+
       const next = {
         ...current,
         siblingOrder: input.siblingOrder,
@@ -401,6 +432,7 @@ function normalizeFileRecords(files: Array<Record<string, unknown>>) {
       uploadedBy: typeof raw.uploadedBy === "string" ? raw.uploadedBy : null,
       deletedAt: typeof raw.deletedAt === "string" ? raw.deletedAt : raw.deletedAt === null ? null : null,
       purgedAt: typeof raw.purgedAt === "string" ? raw.purgedAt : raw.purgedAt === null ? null : null,
+      metadata: normalizeFileMetadata(raw.metadata),
     } satisfies FileRecord;
   });
 }
@@ -435,20 +467,45 @@ class MemoryFileRepository implements FileRepository {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async listFilesByProject(projectId: string) {
+    const files = await readFiles();
+    return latestFiles(files.filter((file) => file.projectId === projectId && !file.deletedAt && !file.purgedAt));
+  }
+
+  async searchFileAnalyses(input) {
+    return rankFileAnalyses({
+      files: await this.listFilesByProject(input.projectId),
+      query: input.query,
+      excludedFileIds: input.excludedFileIds,
+      limit: input.limit,
+      mode: "lexical",
+    });
+  }
+
   async attachFile(input: CreateFileInput) {
     const files = await readFiles();
     const versionNumber = input.versionNumber ?? input.version ?? 1;
+    const version = input.version ?? versionNumber;
+    const fileGroupId = input.fileGroupId ?? nextId("file_group");
+    const duplicate = files.find((file) => file.fileGroupId === fileGroupId && file.version === version);
+    if (duplicate) {
+      throw conflict(
+        "Another upload created this file version first. Reload the latest files and try again.",
+        "FILE_VERSION_CONFLICT",
+      );
+    }
+
     const record: FileRecord = {
       id: nextId("file"),
       taskId: input.taskId,
       projectId: input.projectId,
-      fileGroupId: input.fileGroupId ?? nextId("file_group"),
+      fileGroupId,
       originalName: input.originalName,
       mimeType: input.mimeType ?? null,
       sizeBytes: input.sizeBytes,
       storageBucket: input.storageBucket,
       objectPath: input.objectPath,
-      version: input.version ?? versionNumber,
+      version,
       versionNumber,
       versionLabel: `v${versionNumber}`,
       createdAt: now(),
@@ -456,6 +513,7 @@ class MemoryFileRepository implements FileRepository {
       uploadedBy: input.uploadedBy ?? null,
       deletedAt: null,
       purgedAt: null,
+      metadata: {},
     };
 
     files.unshift(record);
@@ -529,6 +587,20 @@ class MemoryFileRepository implements FileRepository {
       file.taskId === taskId && !file.purgedAt ? { ...file, deletedAt: null, updatedAt: restoredAt } : file,
     );
     await writeLocalStore("files", next, { reason: "files.bulk-restore" });
+  }
+
+  async updateFileMetadata(fileId: string, metadata: FileMetadata) {
+    const files = await readFiles();
+    const index = files.findIndex((file) => file.id === fileId);
+
+    if (index === -1 || files[index].purgedAt) {
+      throw new Error("File not found");
+    }
+
+    const next = { ...files[index], metadata: normalizeFileMetadata(metadata), updatedAt: now() };
+    files[index] = next;
+    await writeLocalStore("files", files, { reason: "files.metadata" });
+    return next;
   }
 }
 

@@ -24,7 +24,7 @@ const compatibleTaskStatusSet = new Set<string>([
 ]);
 
 export const TASK_STATUS_HISTORY_ENTRY_PATTERN =
-  /(.* - )(waiting|todo|in_progress|new|in_review|in_discussion|blocked|done)$/u;
+  /^(.+? - )(waiting|todo|in_progress|new|in_review|in_discussion|blocked|done)$/u;
 
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return canonicalTaskStatusSet.has(String(value ?? "").trim());
@@ -47,6 +47,24 @@ export function createTaskStatusHistoryEntry(timestamp: string, status: TaskStat
   return `${timestamp} - ${status}`;
 }
 
+export function parseTaskStatusHistoryEntry(line: string): { prefix: string; status: CompatibleTaskStatus } | null {
+  const separator = " - ";
+  const separatorIndex = line.lastIndexOf(separator);
+  if (separatorIndex < 0) {
+    return null;
+  }
+
+  const status = line.slice(separatorIndex + separator.length).trim();
+  if (!isCompatibleTaskStatus(status)) {
+    return null;
+  }
+
+  return {
+    prefix: line.slice(0, separatorIndex + separator.length),
+    status,
+  };
+}
+
 export function canonicalizeTaskStatusHistory(
   raw: unknown,
   fallbackStatus: TaskStatus = DEFAULT_TASK_STATUS,
@@ -56,11 +74,10 @@ export function canonicalizeTaskStatusHistory(
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) =>
-      line.replace(TASK_STATUS_HISTORY_ENTRY_PATTERN, (_match, prefix: string, status: CompatibleTaskStatus) => {
-        return prefix + normalizeTaskStatus(status, fallbackStatus);
-      }),
-    );
+    .map((line) => {
+      const parsed = parseTaskStatusHistoryEntry(line);
+      return parsed ? parsed.prefix + normalizeTaskStatus(parsed.status, fallbackStatus) : line;
+    });
 
   if (normalized.length > 0) {
     return normalized.join("\n");

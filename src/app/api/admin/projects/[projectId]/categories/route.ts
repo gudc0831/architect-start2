@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
-import { requireRole } from "@/lib/auth/require-user";
+import { requireProjectManager } from "@/lib/auth/project-guards";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { requireUser } from "@/lib/auth/require-user";
 import { isTaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { badRequest } from "@/lib/api/errors";
 import { createProjectTaskCategory, listProjectTaskCategories } from "@/use-cases/admin/admin-service";
@@ -10,8 +12,9 @@ export async function GET(
   context: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    await requireRole("admin");
+    const user = await requireUser();
     const { projectId } = await context.params;
+    await requireProjectManager(projectId, user);
     const { searchParams } = new URL(request.url);
     const fieldKey = String(searchParams.get("fieldKey") ?? "");
     if (!isTaskCategoryFieldKey(fieldKey)) {
@@ -30,8 +33,10 @@ export async function POST(
   context: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    const user = await requireRole("admin");
+    assertRequestIntegrity(request);
+    const user = await requireUser();
     const { projectId } = await context.params;
+    await requireProjectManager(projectId, user);
     const body = (await request.json()) as {
       fieldKey?: string;
       code?: string;

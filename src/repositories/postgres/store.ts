@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { conflict } from "@/lib/api/errors";
 import { buildProjectIssueId, buildProjectIssuePrefix } from "@/domains/task/identifiers";
 import {
   canonicalizeTaskStatusHistory,
@@ -22,15 +23,30 @@ import type {
   FileRepository,
   PreferenceRepository,
   ProjectRepository,
+  SearchFileAnalysesInput,
+  SetTaskSiblingOrderInput,
+  SetTaskUserSiblingOrderInput,
+  TaskFileSummaryMap,
   TaskOrderUpdateInput,
   TaskRepository,
+  TaskUserOrderRecord,
   UpdateProjectInput,
   UpdateTaskInput,
   VersionedTaskUpdateInput,
 } from "@/repositories/contracts";
-import type { FileRecord, TaskFileSummary, TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import { storageProvider } from "@/storage";
+import { getFileAnalysisEntries, normalizeFileMetadata } from "@/domains/file/analysis";
+import type { FileMetadata } from "@/domains/file/analysis";
+import {
+  buildFileAnalysisChunks,
+  compareFileAnalysisSearchResults,
+  rankFileAnalyses,
+  scoreFileAnalysisMatch,
+  tokenizeSearchText,
+  type FileAnalysisSearchResult,
+} from "@/domains/file/search";
 
 function toProjectRecord(project: {
   id: string;
@@ -64,6 +80,7 @@ function toTaskRecord(task: {
   requester: string;
   relatedDisciplines: string;
   assignee: string;
+  assigneeProfileId: string | null;
   title: string;
   reviewedAt: string;
   createdAt: Date;
@@ -100,6 +117,7 @@ function toTaskRecord(task: {
     requestedBy: task.requester,
     relatedDisciplines: task.relatedDisciplines,
     assignee: task.assignee,
+    assigneeProfileId: task.assigneeProfileId,
     issueTitle: task.title,
     reviewedAt: task.reviewedAt,
     createdAt: task.createdAt.toISOString().slice(0, 10),
@@ -120,6 +138,24 @@ function toTaskRecord(task: {
   };
 }
 
+function toTaskUserOrderRecord(order: {
+  projectId: string;
+  profileId: string;
+  taskId: string;
+  parentTaskId: string | null;
+  siblingOrder: number;
+  updatedAt: Date;
+}): TaskUserOrderRecord {
+  return {
+    projectId: order.projectId,
+    profileId: order.profileId,
+    taskId: order.taskId,
+    parentTaskId: order.parentTaskId,
+    siblingOrder: order.siblingOrder,
+    updatedAt: order.updatedAt.toISOString(),
+  };
+}
+
 function toFileRecord(file: {
   id: string;
   taskId: string;
@@ -136,6 +172,7 @@ function toFileRecord(file: {
   uploadedBy: string | null;
   deletedAt: Date | null;
   purgedAt: Date | null;
+  metadata: Prisma.JsonValue;
 }): FileRecord {
   return {
     id: file.id,
@@ -155,47 +192,113 @@ function toFileRecord(file: {
     uploadedBy: file.uploadedBy,
     deletedAt: file.deletedAt ? file.deletedAt.toISOString() : null,
     purgedAt: file.purgedAt ? file.purgedAt.toISOString() : null,
+    metadata: normalizeFileMetadata(file.metadata),
   };
 }
 
-function applyTaskFileSummary(task: TaskRecord, fileSummaryByTaskId: Map<string, TaskFileSummary>): TaskRecord {
-  return {
-    ...task,
-    fileSummary: fileSummaryByTaskId.get(task.id) ?? { count: 0, latestFileName: null },
-  };
-}
+type PostgresFileAnalysisSearchRow = {
+  id: string;
+  taskId: string;
+  projectId: string;
+  fileGroupId: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: bigint;
+  storageBucket: string;
+  objectPath: string;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  uploadedBy: string | null;
+  deletedAt: Date | null;
+  purgedAt: Date | null;
+  metadata: Prisma.JsonValue;
+  analysis: Prisma.JsonValue;
+  ftsRank: number | null;
+  analysisId?: string | null;
+  chunkText?: string | null;
+  vectorDistance?: number | null;
+};
+type PostgresTaskFileSummaryRow = {
+  taskId: string;
+  count: number | bigint;
+  latestFileName: string | null;
+};
 
-function buildTaskFileSummaryMap(files: FileRecord[]) {
-  const summaryByTaskId = new Map<string, TaskFileSummary & { latestCreatedAt: string | null }>();
-
-  for (const file of files) {
-    const current = summaryByTaskId.get(file.taskId);
-    if (!current) {
-      summaryByTaskId.set(file.taskId, {
-        count: 1,
-        latestFileName: file.originalName,
-        latestCreatedAt: file.createdAt,
-      });
-      continue;
-    }
-
-    summaryByTaskId.set(file.taskId, {
-      count: current.count + 1,
-      latestFileName:
-        !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.originalName : current.latestFileName,
-      latestCreatedAt: !current.latestCreatedAt || file.createdAt >= current.latestCreatedAt ? file.createdAt : current.latestCreatedAt,
-    });
+function normalizeQueryEmbeddingLiteral(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 1536) {
+    return null;
   }
 
-  return new Map(
-    [...summaryByTaskId.entries()].map(([taskId, summary]) => [
-      taskId,
-      {
-        count: summary.count,
-        latestFileName: summary.latestFileName,
-      },
-    ]),
-  );
+  const normalized = value.map((item) => (typeof item === "number" && Number.isFinite(item) ? Math.max(-1, Math.min(1, item)) : 0));
+  return `[${normalized.join(",")}]`;
+}
+
+function scoreChunkText(value: string, query: string) {
+  const terms = tokenizeSearchText(query);
+  if (terms.length === 0 || !value) {
+    return 0;
+  }
+
+  const haystack = value.toLowerCase();
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1.2 : 0), 0);
+}
+
+async function syncFileAnalysisChunks(file: FileRecord) {
+  const chunks = getFileAnalysisEntries(file.metadata).flatMap((analysis) => buildFileAnalysisChunks(file, analysis));
+
+  try {
+    if (chunks.length === 0) {
+      await prisma.$executeRaw(Prisma.sql`delete from file_analysis_chunks where file_id = ${file.id}::uuid`);
+      return;
+    }
+
+    await prisma.$executeRaw(Prisma.sql`
+      delete from file_analysis_chunks existing
+      where existing.file_id = ${file.id}::uuid
+        and not exists (
+          select 1
+          from (values ${Prisma.join(chunks.map((chunk) => Prisma.sql`(${chunk.analysisId}, ${chunk.chunkIndex}, ${chunk.tokenHash})`))})
+            as incoming(analysis_id, chunk_index, token_hash)
+          where incoming.analysis_id = existing.analysis_id
+            and incoming.chunk_index = existing.chunk_index
+            and incoming.token_hash = existing.token_hash
+        )
+    `);
+
+    await prisma.$executeRaw(Prisma.sql`
+      insert into file_analysis_chunks (
+        file_id,
+        project_id,
+        task_id,
+        analysis_id,
+        chunk_index,
+        text,
+        token_hash,
+        metadata
+      )
+      values ${Prisma.join(
+        chunks.map((chunk) => Prisma.sql`(
+          ${chunk.fileId}::uuid,
+          ${chunk.projectId}::uuid,
+          ${chunk.taskId}::uuid,
+          ${chunk.analysisId},
+          ${chunk.chunkIndex},
+          ${chunk.text},
+          ${chunk.tokenHash},
+          ${JSON.stringify(chunk.metadata)}::jsonb
+        )`),
+      )}
+      on conflict (file_id, analysis_id, chunk_index)
+      do update set
+        text = excluded.text,
+        token_hash = excluded.token_hash,
+        metadata = excluded.metadata,
+        updated_at = now()
+    `);
+  } catch {
+    // The chunk table is created by the cloud migration. Local/dev stores keep the metadata-only fallback.
+  }
 }
 
 function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
@@ -208,7 +311,10 @@ function taskWriteData(input: UpdateTaskInput | CreateTaskInput) {
     requester: input.requestedBy ?? undefined,
     relatedDisciplines: input.relatedDisciplines ?? undefined,
     assignee: input.assignee ?? undefined,
-    title: input.issueTitle ?? "",
+    assigneeProfileId: Object.prototype.hasOwnProperty.call(input, "assigneeProfileId")
+      ? input.assigneeProfileId ?? null
+      : undefined,
+    title: input.issueTitle === undefined ? undefined : input.issueTitle,
     reviewedAt: input.reviewedAt ?? undefined,
     locationRef: input.locationRef ?? undefined,
     calendarLinked: input.calendarLinked ?? undefined,
@@ -262,59 +368,30 @@ class PostgresProjectRepository implements ProjectRepository {
 class PostgresTaskRepository implements TaskRepository {
   async listActiveTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const [tasks, files] = await Promise.all([
-      prisma.task.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: null,
-          purgedAt: null,
-        },
-        orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
-      }),
-      prisma.file.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: null,
-          purgedAt: null,
-        },
-        orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
-      }),
-    ]);
+    const tasks = await prisma.task.findMany({
+      where: {
+        projectId: project.id,
+        deletedAt: null,
+        purgedAt: null,
+      },
+      orderBy: [{ siblingOrder: "asc" }, { actionId: "asc" }, { createdAt: "asc" }],
+    });
 
-    const latestByGroup = new Map<string, (typeof files)[number]>();
-    for (const file of files) {
-      if (!latestByGroup.has(file.fileGroupId)) {
-        latestByGroup.set(file.fileGroupId, file);
-      }
-    }
-
-    const fileSummaryByTaskId = buildTaskFileSummaryMap([...latestByGroup.values()].map(toFileRecord));
-    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
+    return tasks.map(toTaskRecord);
   }
 
   async listTrashTasks(projectId?: string) {
     const project = projectId ? { id: projectId } : await getOrCreateProject();
-    const [tasks, files] = await Promise.all([
-      prisma.task.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: { not: null },
-          purgedAt: null,
-        },
-        orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
-      }),
-      prisma.file.findMany({
-        where: {
-          projectId: project.id,
-          deletedAt: { not: null },
-          purgedAt: null,
-        },
-        orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
-      }),
-    ]);
+    const tasks = await prisma.task.findMany({
+      where: {
+        projectId: project.id,
+        deletedAt: { not: null },
+        purgedAt: null,
+      },
+      orderBy: [{ deletedAt: "desc" }, { actionId: "asc" }],
+    });
 
-    const fileSummaryByTaskId = buildTaskFileSummaryMap(files.map(toFileRecord));
-    return tasks.map((task) => applyTaskFileSummary(toTaskRecord(task), fileSummaryByTaskId));
+    return tasks.map(toTaskRecord);
   }
 
   async findTaskById(taskId: string) {
@@ -333,27 +410,54 @@ class PostgresTaskRepository implements TaskRepository {
   }
 
   async createTask(input: CreateTaskInput) {
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
-    const taskNumber = await this.getNextTaskNumber(input.projectId);
-    const record = await prisma.task.create({
-      data: {
-        id,
-        projectId: input.projectId,
-        taskNumber,
-        actionId: taskNumber,
-        parentTaskId: input.parentTaskId ?? null,
-        rootTaskId: input.rootTaskId?.trim() || id,
-        depth: input.depth ?? 0,
-        siblingOrder: input.siblingOrder ?? 0,
-        ...taskWriteData(input),
-        issueId: buildProjectIssueId(input.projectName, taskNumber),
-        createdAt,
-        isDaily: input.isDaily,
-        createdBy: input.createdBy ?? null,
-        updatedBy: input.updatedBy ?? input.createdBy ?? null,
-        purgedAt: null,
-      },
+    const record = await prisma.$transaction(async (tx) => {
+      const existing = await tx.task.findUnique({ where: { id } });
+      if (existing && !existing.purgedAt) {
+        return existing;
+      }
+
+      await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
+      const last = await tx.task.findFirst({
+        where: { projectId: input.projectId },
+        orderBy: { taskNumber: "desc" },
+        select: { taskNumber: true },
+      });
+      const taskNumber = (last?.taskNumber ?? 0) + 1;
+      const parentTaskId = input.parentTaskId ?? null;
+      const siblingOrder =
+        input.siblingOrder ??
+        ((await tx.task.aggregate({
+          where: {
+            projectId: input.projectId,
+            parentTaskId,
+            deletedAt: null,
+            purgedAt: null,
+          },
+          _max: { siblingOrder: true },
+        }))._max.siblingOrder ?? -1) + 1;
+
+      return tx.task.create({
+        data: {
+          id,
+          projectId: input.projectId,
+          taskNumber,
+          actionId: taskNumber,
+          parentTaskId,
+          rootTaskId: input.rootTaskId?.trim() || id,
+          depth: input.depth ?? 0,
+          siblingOrder,
+          ...taskWriteData(input),
+          title: input.issueTitle,
+          issueId: buildProjectIssueId(input.projectName, taskNumber),
+          createdAt,
+          isDaily: input.isDaily,
+          createdBy: input.createdBy ?? null,
+          updatedBy: input.updatedBy ?? input.createdBy ?? null,
+          purgedAt: null,
+        },
+      });
     });
 
     return toTaskRecord(record);
@@ -413,28 +517,213 @@ class PostgresTaskRepository implements TaskRepository {
     return toTaskRecord(record);
   }
 
+  async setTaskSiblingOrder(input: SetTaskSiblingOrderInput) {
+    const orderedTaskIds = [...new Set(input.orderedTaskIds.filter(Boolean))];
+    if (orderedTaskIds.length === 0) {
+      return [];
+    }
+
+    const siblingOrderStart =
+      Number.isInteger(input.siblingOrderStart) && (input.siblingOrderStart ?? 0) >= 0 ? input.siblingOrderStart ?? 0 : 0;
+    const inputRows = Prisma.join(
+      orderedTaskIds.map(
+        (taskId, index) => Prisma.sql`(${taskId}::uuid, ${siblingOrderStart + index}::integer)`,
+      ),
+    );
+    const parentPredicate = input.parentTaskId
+      ? Prisma.sql`t.parent_task_id = ${input.parentTaskId}::uuid`
+      : Prisma.sql`t.parent_task_id is null`;
+    const result = await prisma.$queryRaw<Array<{ eligible_count: number; input_count: number; updated_count: number }>>`
+      with settings as materialized (
+        select
+          set_config('lock_timeout', '15000ms', true) as lock_timeout,
+          set_config('statement_timeout', '24000ms', true) as statement_timeout
+      ),
+      input(id, sibling_order) as (
+        values ${inputRows}
+      ),
+      eligible as (
+        select t.id
+        from tasks as t
+        join input on input.id = t.id
+        cross join settings
+        where t.project_id = ${input.projectId}::uuid
+          and ${parentPredicate}
+          and t.deleted_at is null
+          and t.purged_at is null
+      ),
+      updated as (
+        update tasks as t
+        set
+          sibling_order = input.sibling_order,
+          updated_by = coalesce(${input.updatedBy ?? null}::uuid, t.updated_by),
+          version = t.version + 1,
+          updated_at = now()
+        from input, settings
+        where t.id = input.id
+          and (select count(*) from eligible) = (select count(*) from input)
+          and t.sibling_order is distinct from input.sibling_order
+        returning t.id
+      )
+      select
+        (select count(*)::integer from eligible) as eligible_count,
+        (select count(*)::integer from input) as input_count,
+        (select count(*)::integer from updated) as updated_count
+    `;
+
+    const summary = result[0];
+    if (!summary || summary.eligible_count !== summary.input_count) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+
+    return [];
+  }
+
+  async listTaskUserOrders(projectId: string, profileId: string) {
+    const rows = await prisma.taskUserOrder.findMany({
+      where: {
+        projectId,
+        profileId,
+      },
+    });
+
+    return rows.map(toTaskUserOrderRecord);
+  }
+
+  async setTaskUserSiblingOrder(input: SetTaskUserSiblingOrderInput) {
+    const orderedTaskIds = [...new Set(input.orderedTaskIds.filter(Boolean))];
+    if (orderedTaskIds.length === 0) {
+      return [];
+    }
+
+    const siblingOrderStart =
+      Number.isInteger(input.siblingOrderStart) && (input.siblingOrderStart ?? 0) >= 0 ? input.siblingOrderStart ?? 0 : 0;
+    const inputRows = Prisma.join(
+      orderedTaskIds.map((taskId, index) => Prisma.sql`(${taskId}::uuid, ${siblingOrderStart + index}::integer)`),
+    );
+    const parentPredicate = input.parentTaskId
+      ? Prisma.sql`t.parent_task_id = ${input.parentTaskId}::uuid`
+      : Prisma.sql`t.parent_task_id is null`;
+    const parentTaskIdValue = input.parentTaskId ? Prisma.sql`${input.parentTaskId}::uuid` : Prisma.sql`null::uuid`;
+    const result = await prisma.$queryRaw<Array<{ eligible_count: number; input_count: number; upserted_count: number }>>`
+      with input(id, sibling_order) as (
+        values ${inputRows}
+      ),
+      eligible as (
+        select t.id, input.sibling_order
+        from tasks as t
+        join input on input.id = t.id
+        where t.project_id = ${input.projectId}::uuid
+          and ${parentPredicate}
+          and t.deleted_at is null
+          and t.purged_at is null
+      ),
+      upserted as (
+        insert into task_user_orders (
+          project_id,
+          profile_id,
+          task_id,
+          parent_task_id,
+          sibling_order,
+          created_at,
+          updated_at
+        )
+        select
+          ${input.projectId}::uuid,
+          ${input.profileId}::uuid,
+          eligible.id,
+          ${parentTaskIdValue},
+          eligible.sibling_order,
+          now(),
+          now()
+        from eligible
+        where (select count(*) from eligible) = (select count(*) from input)
+        on conflict (project_id, profile_id, task_id)
+        do update set
+          parent_task_id = excluded.parent_task_id,
+          sibling_order = excluded.sibling_order,
+          updated_at = now()
+        returning task_id
+      )
+      select
+        (select count(*)::integer from eligible) as eligible_count,
+        (select count(*)::integer from input) as input_count,
+        (select count(*)::integer from upserted) as upserted_count
+    `;
+
+    const summary = result[0];
+    if (!summary || summary.eligible_count !== summary.input_count || summary.upserted_count !== summary.input_count) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
+
+    return this.listTaskUserOrders(input.projectId, input.profileId);
+  }
+
   async updateTaskOrders(inputs: ReadonlyArray<TaskOrderUpdateInput>) {
     if (inputs.length === 0) {
       return [];
     }
 
-    const records = await prisma.$transaction(async (tx) => {
-      const updated: Array<Parameters<typeof toTaskRecord>[0]> = [];
+    const inputRows = Prisma.join(
+      inputs.map((input) => {
+        const hasExpectedVersion = Number.isInteger(input.expectedVersion);
+        return Prisma.sql`(${input.id}::uuid, ${input.siblingOrder}::integer, ${input.updatedBy ?? null}::uuid, ${
+          hasExpectedVersion ? input.expectedVersion : null
+        }::integer, ${hasExpectedVersion}::boolean)`;
+      }),
+    );
+    const updatedIds = await prisma.$queryRaw<Array<{ id: string }>>`
+      with input(id, sibling_order, updated_by, expected_version, has_expected_version) as (
+        values ${inputRows}
+      ),
+      eligible as (
+        select t.id
+        from tasks as t
+        join input on input.id = t.id
+        where not input.has_expected_version or t.version = input.expected_version
+      ),
+      updated as (
+        update tasks as t
+        set
+          sibling_order = input.sibling_order,
+          updated_by = coalesce(input.updated_by, t.updated_by),
+          version = t.version + 1,
+          updated_at = now()
+        from input
+        where t.id = input.id
+          and (select count(*) from eligible) = (select count(*) from input)
+          and (not input.has_expected_version or t.version = input.expected_version)
+        returning t.id
+      )
+      select id from updated
+    `;
 
-      for (const input of inputs) {
-        const record = await tx.task.update({
-          where: { id: input.id },
-          data: {
-            siblingOrder: input.siblingOrder,
-            updatedBy: input.updatedBy ?? undefined,
-            version: { increment: 1 },
-          },
-        });
+    if (updatedIds.length !== inputs.length) {
+      throw conflict(
+        "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+        "TASK_REORDER_CONFLICT",
+      );
+    }
 
-        updated.push(record);
+    const updated = await prisma.task.findMany({
+      where: { id: { in: inputs.map((input) => input.id) } },
+    });
+    const updatedById = new Map(updated.map((record) => [record.id, record]));
+    const records = inputs.map((input) => {
+      const record = updatedById.get(input.id);
+      if (!record) {
+        throw conflict(
+          "Task order changed before this reorder could be saved. Reload the latest data and try again.",
+          "TASK_REORDER_CONFLICT",
+        );
       }
-
-      return updated;
+      return record;
     });
 
     return records.map(toTaskRecord);
@@ -543,6 +832,331 @@ class PostgresFileRepository implements FileRepository {
     return files.map((file) => toFileRecord(file));
   }
 
+  async listFilesByProject(projectId: string) {
+    const files = await prisma.file.findMany({
+      where: { projectId, deletedAt: null, purgedAt: null },
+      orderBy: [{ fileGroupId: "asc" }, { version: "desc" }, { createdAt: "desc" }],
+    });
+
+    const latestByGroup = new Map<string, (typeof files)[number]>();
+    for (const file of files) {
+      if (!latestByGroup.has(file.fileGroupId)) {
+        latestByGroup.set(file.fileGroupId, file);
+      }
+    }
+
+    return [...latestByGroup.values()].map((file) => toFileRecord(file));
+  }
+
+  async listFileSummaryByProject(projectId: string, scope: "active" | "trash" = "active"): Promise<TaskFileSummaryMap> {
+    const rows =
+      scope === "trash"
+        ? await prisma.$queryRaw<PostgresTaskFileSummaryRow[]>(Prisma.sql`
+            select
+              f.task_id as "taskId",
+              count(*)::int as "count",
+              (array_agg(f.original_name order by f.created_at desc))[1] as "latestFileName"
+            from files f
+            where f.project_id = ${projectId}::uuid
+              and f.deleted_at is not null
+              and f.purged_at is null
+            group by f.task_id
+          `)
+        : await prisma.$queryRaw<PostgresTaskFileSummaryRow[]>(Prisma.sql`
+            with latest_files as (
+              select distinct on (f.file_group_id)
+                f.task_id,
+                f.original_name,
+                f.created_at
+              from files f
+              where f.project_id = ${projectId}::uuid
+                and f.deleted_at is null
+                and f.purged_at is null
+              order by f.file_group_id, f.version desc, f.created_at desc
+            )
+            select
+              task_id as "taskId",
+              count(*)::int as "count",
+              (array_agg(original_name order by created_at desc))[1] as "latestFileName"
+            from latest_files
+            group by task_id
+          `);
+
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.taskId,
+        {
+          count: Number(row.count),
+          latestFileName: row.latestFileName,
+        },
+      ]),
+    );
+  }
+
+  async searchFileAnalyses(input: SearchFileAnalysesInput) {
+    const limit = Math.max(0, input.limit ?? 4);
+    if (limit === 0 || tokenizeSearchText(input.query).length === 0) {
+      return [];
+    }
+
+    const chunkResults = await this.searchFileAnalysisChunks(input, limit);
+    if (chunkResults.length > 0) {
+      return chunkResults;
+    }
+
+    try {
+      const rows = await prisma.$queryRaw<PostgresFileAnalysisSearchRow[]>(Prisma.sql`
+        with latest_files as (
+          select distinct on (f.file_group_id)
+            f.id,
+            f.task_id as "taskId",
+            f.project_id as "projectId",
+            f.file_group_id as "fileGroupId",
+            f.original_name as "originalName",
+            f.mime_type as "mimeType",
+            f.size_bytes as "sizeBytes",
+            f.storage_bucket as "storageBucket",
+            f.object_path as "objectPath",
+            f.version,
+            f.created_at as "createdAt",
+            f.updated_at as "updatedAt",
+            f.uploaded_by as "uploadedBy",
+            f.deleted_at as "deletedAt",
+            f.purged_at as "purgedAt",
+            f.metadata
+          from files f
+          where f.project_id = ${input.projectId}::uuid
+            and f.deleted_at is null
+            and f.purged_at is null
+          order by f.file_group_id, f.version desc, f.created_at desc
+        ),
+        analysis_entries as (
+          select
+            latest_files.*,
+            analysis.value as analysis,
+            concat_ws(
+              ' ',
+              latest_files."originalName",
+              analysis.value->>'summary',
+              analysis.value->>'extractedText',
+              (analysis.value->'tags')::text
+            ) as search_text
+          from latest_files
+          cross join lateral jsonb_array_elements(coalesce(latest_files.metadata->'analysis', '[]'::jsonb)) as analysis(value)
+          where coalesce(analysis.value->>'verificationState', 'unverified') <> 'rejected'
+            and (
+              coalesce(analysis.value->>'summary', '') <> ''
+              or coalesce(analysis.value->>'extractedText', '') <> ''
+            )
+        )
+        select
+          id,
+          "taskId",
+          "projectId",
+          "fileGroupId",
+          "originalName",
+          "mimeType",
+          "sizeBytes",
+          "storageBucket",
+          "objectPath",
+          version,
+          "createdAt",
+          "updatedAt",
+          "uploadedBy",
+          "deletedAt",
+          "purgedAt",
+          metadata,
+          analysis,
+          ts_rank_cd(to_tsvector('simple', search_text), plainto_tsquery('simple', ${input.query}))::float as "ftsRank"
+        from analysis_entries
+        order by "ftsRank" desc, "updatedAt" desc
+        limit ${Math.min(200, Math.max(50, limit * 12))}
+      `);
+      const excludedFileIds = new Set(input.excludedFileIds ?? []);
+      const results = rows
+        .filter((row) => !excludedFileIds.has(row.id))
+        .map((row): FileAnalysisSearchResult | null => {
+          const file = toFileRecord(row);
+          const analysis = getFileAnalysisEntries({ analysis: [row.analysis] })[0];
+          if (!analysis) {
+            return null;
+          }
+
+          const lexicalScore = scoreFileAnalysisMatch(file, analysis, input.query);
+          const ftsRank = Math.max(0, Number(row.ftsRank ?? 0));
+          const score = lexicalScore.score + ftsRank * 12;
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file,
+            analysis,
+            score,
+            matchedTerms: lexicalScore.matchedTerms,
+            mode: ftsRank > 0 ? "text_hybrid" : "lexical",
+          };
+        })
+        .filter((result): result is FileAnalysisSearchResult => Boolean(result))
+        .sort(compareFileAnalysisSearchResults)
+        .slice(0, limit);
+
+      return results;
+    } catch {
+      return rankFileAnalyses({
+        files: await this.listFilesByProject(input.projectId),
+        query: input.query,
+        excludedFileIds: input.excludedFileIds,
+        limit,
+        mode: "lexical",
+      });
+    }
+  }
+
+  private async searchFileAnalysisChunks(input: SearchFileAnalysesInput, limit: number) {
+    const queryVector = normalizeQueryEmbeddingLiteral(input.queryEmbedding);
+    const vectorDistanceSelect = queryVector
+      ? Prisma.sql`, min(c.embedding <=> ${queryVector}::vector)::float as "vectorDistance"`
+      : Prisma.sql`, null::float as "vectorDistance"`;
+    const vectorCandidatePredicate = queryVector ? Prisma.sql`or c.embedding is not null` : Prisma.sql``;
+
+    try {
+      const rows = await prisma.$queryRaw<PostgresFileAnalysisSearchRow[]>(Prisma.sql`
+        with latest_files as (
+          select distinct on (f.file_group_id)
+            f.id,
+            f.task_id as "taskId",
+            f.project_id as "projectId",
+            f.file_group_id as "fileGroupId",
+            f.original_name as "originalName",
+            f.mime_type as "mimeType",
+            f.size_bytes as "sizeBytes",
+            f.storage_bucket as "storageBucket",
+            f.object_path as "objectPath",
+            f.version,
+            f.created_at as "createdAt",
+            f.updated_at as "updatedAt",
+            f.uploaded_by as "uploadedBy",
+            f.deleted_at as "deletedAt",
+            f.purged_at as "purgedAt",
+            f.metadata
+          from files f
+          where f.project_id = ${input.projectId}::uuid
+            and f.deleted_at is null
+            and f.purged_at is null
+          order by f.file_group_id, f.version desc, f.created_at desc
+        ),
+        chunk_matches as (
+          select
+            latest_files.id,
+            latest_files."taskId",
+            latest_files."projectId",
+            latest_files."fileGroupId",
+            latest_files."originalName",
+            latest_files."mimeType",
+            latest_files."sizeBytes",
+            latest_files."storageBucket",
+            latest_files."objectPath",
+            latest_files.version,
+            latest_files."createdAt",
+            latest_files."updatedAt",
+            latest_files."uploadedBy",
+            latest_files."deletedAt",
+            latest_files."purgedAt",
+            latest_files.metadata,
+            c.analysis_id as "analysisId",
+            string_agg(c.text, ' ' order by c.chunk_index) as "chunkText",
+            max(ts_rank_cd(to_tsvector('simple', c.text), plainto_tsquery('simple', ${input.query})))::float as "ftsRank"
+            ${vectorDistanceSelect}
+          from latest_files
+          join file_analysis_chunks c on c.file_id = latest_files.id
+          where c.project_id = ${input.projectId}::uuid
+            and (
+              to_tsvector('simple', c.text) @@ plainto_tsquery('simple', ${input.query})
+              ${vectorCandidatePredicate}
+            )
+          group by
+            latest_files.id,
+            latest_files."taskId",
+            latest_files."projectId",
+            latest_files."fileGroupId",
+            latest_files."originalName",
+            latest_files."mimeType",
+            latest_files."sizeBytes",
+            latest_files."storageBucket",
+            latest_files."objectPath",
+            latest_files.version,
+            latest_files."createdAt",
+            latest_files."updatedAt",
+            latest_files."uploadedBy",
+            latest_files."deletedAt",
+            latest_files."purgedAt",
+            latest_files.metadata,
+            c.analysis_id
+        )
+        select
+          id,
+          "taskId",
+          "projectId",
+          "fileGroupId",
+          "originalName",
+          "mimeType",
+          "sizeBytes",
+          "storageBucket",
+          "objectPath",
+          version,
+          "createdAt",
+          "updatedAt",
+          "uploadedBy",
+          "deletedAt",
+          "purgedAt",
+          metadata,
+          null::jsonb as analysis,
+          "analysisId",
+          "chunkText",
+          "ftsRank",
+          "vectorDistance"
+        from chunk_matches
+        order by coalesce("vectorDistance", 99) asc, "ftsRank" desc, "updatedAt" desc
+        limit ${Math.min(200, Math.max(50, limit * 12))}
+      `);
+
+      const excludedFileIds = new Set(input.excludedFileIds ?? []);
+      return rows
+        .filter((row) => !excludedFileIds.has(row.id))
+        .map((row): FileAnalysisSearchResult | null => {
+          const file = toFileRecord(row);
+          const analysis = getFileAnalysisEntries(file.metadata).find((entry) => entry.id === row.analysisId);
+          if (!analysis) {
+            return null;
+          }
+
+          const lexicalScore = scoreFileAnalysisMatch(file, analysis, input.query);
+          const chunkScore = scoreChunkText(row.chunkText ?? "", input.query);
+          const ftsRank = Math.max(0, Number(row.ftsRank ?? 0));
+          const vectorDistance = typeof row.vectorDistance === "number" && Number.isFinite(row.vectorDistance) ? row.vectorDistance : null;
+          const vectorScore = vectorDistance === null ? 0 : Math.max(0, 1 - vectorDistance) * 8;
+          const score = lexicalScore.score + chunkScore + ftsRank * 16 + vectorScore;
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file,
+            analysis,
+            score,
+            matchedTerms: lexicalScore.matchedTerms,
+            mode: vectorDistance === null ? "text_hybrid" : "vector_hybrid",
+          };
+        })
+        .filter((result): result is FileAnalysisSearchResult => Boolean(result))
+        .sort(compareFileAnalysisSearchResults)
+        .slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
   async attachFile(input: CreateFileInput) {
     const file = await prisma.file.create({
       data: {
@@ -558,6 +1172,7 @@ class PostgresFileRepository implements FileRepository {
         version: input.version ?? 1,
         uploadedBy: input.uploadedBy ?? null,
         purgedAt: null,
+        metadata: {},
       },
     });
 
@@ -603,6 +1218,19 @@ class PostgresFileRepository implements FileRepository {
       where: { taskId, purgedAt: null },
       data: { deletedAt: null },
     });
+  }
+
+  async updateFileMetadata(fileId: string, metadata: FileMetadata) {
+    const file = await prisma.file.update({
+      where: { id: fileId },
+      data: {
+        metadata: normalizeFileMetadata(metadata) as Prisma.InputJsonValue,
+      },
+    });
+
+    const record = toFileRecord(file);
+    await syncFileAnalysisChunks(record);
+    return record;
   }
 }
 

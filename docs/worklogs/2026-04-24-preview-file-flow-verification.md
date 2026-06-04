@@ -1,0 +1,4 @@
+Req: Verify the remaining Project B Preview file-flow boundary without changing the established auth/RBAC or preview data baseline.
+Diff: exercised a temporary Project B task through local app APIs backed by Preview DB/Storage, including upload intent, member direct Storage upload, commit, signed download, failed commit cleanup, and final fixture cleanup; updated deployment/RLS docs with the verified boundary and Vercel Preview Authentication caveat.
+Why: RLS and Storage policies needed an end-to-end browser-compatible direct file path check after DB-level policy probes passed.
+Verify/Time: local app `http://localhost:3000` against Preview DB/Storage passed for `gudc08311@gmail.com` on Project B on 2026-04-24; cleanup verification returned `tasks=0`, `files=0`, `storage_objects=0`; `npm run data:doctor` passed with cloud migrations up to date.

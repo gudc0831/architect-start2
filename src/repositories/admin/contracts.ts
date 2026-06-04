@@ -60,7 +60,9 @@ export interface AdminRepository {
   getProjectSelection(): Promise<ProjectSelectionRecord>;
   setCurrentProject(projectId: string): Promise<ProjectSelectionRecord>;
   listProjects(): Promise<ProjectSummary[]>;
+  listProjectsForProfile(profileId: string): Promise<ProjectSummary[]>;
   getProjectById(projectId: string): Promise<ProjectSummary | null>;
+  getProjectMembership(projectId: string, profileId: string): Promise<ProjectMembershipRecord | null>;
   createProject(input: CreateAdminProjectInput): Promise<ProjectSummary>;
   updateProject(projectId: string, input: UpdateAdminProjectInput): Promise<ProjectSummary>;
   listProfiles(): Promise<AdminProfileSummary[]>;
