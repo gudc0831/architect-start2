@@ -62,6 +62,9 @@ export const adminRepository: AdminRepository = {
   listEffectiveTaskCategoryDefinitions(projectId, fieldKey) {
     return getAdminRepository().listEffectiveTaskCategoryDefinitions(projectId, fieldKey);
   },
+  getTaskCategoryDefinition(id) {
+    return getAdminRepository().getTaskCategoryDefinition(id);
+  },
   createTaskCategoryDefinition(input) {
     return getAdminRepository().createTaskCategoryDefinition(input);
   },

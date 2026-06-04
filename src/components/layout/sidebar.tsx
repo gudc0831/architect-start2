@@ -11,6 +11,7 @@ import { useAuthState, useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, type DashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
+import { canManageProjectMembers } from "@/lib/auth/project-capabilities";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
 import { fetchWorkspaceDailyTaskUserOrders } from "@/lib/workspace/bootstrap-client";
 import { markWorkspaceRouteTransition } from "@/lib/workspace/route-timing";
@@ -103,7 +104,7 @@ export function Sidebar({
   const isAppleWorkbench = themeId === "apple-workbench";
   const { clearUser } = useAuthState();
   const { ensureDashboardScopeLoaded } = useDashboardData();
-  const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
+  const { currentProjectId, currentProjectRole, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = useMemo(
     () =>
       items.map((item) => ({
@@ -114,7 +115,14 @@ export function Sidebar({
     [isPreview],
   );
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
-  const canShowProjectAdminLink = !isPreview && authUser?.role === "admin";
+  const canShowProjectAdminLink =
+    !isPreview &&
+    Boolean(authUser) &&
+    authUser?.accessStatus === "active" &&
+    canManageProjectMembers({
+      globalRole: authUser?.role ?? "member",
+      projectRole: currentProjectRole,
+    });
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
   const navSectionLabel = isPreview ? "미리보기 경로" : "작업공간 경로";
@@ -304,7 +312,7 @@ export function Sidebar({
                   <span className="sidebar__link-label">{item.label}</span>
                 </Link>
               ))}
-              {!isPreview && authUser?.role === "admin" ? (
+              {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
                 <Link
                   className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
                   href={adminHref}
@@ -334,7 +342,7 @@ export function Sidebar({
                 {item.label}
               </Link>
             ))}
-            {!isPreview && authUser?.role === "admin" ? (
+            {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
               <Link
                 className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
                 href={adminHref}

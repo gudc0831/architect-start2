@@ -16,6 +16,12 @@ async function resolveUser(user?: AuthUser) {
   return user ?? (await requireUser());
 }
 
+function assertActiveProjectUser(user: AuthUser) {
+  if (user.accessStatus !== "active") {
+    throw forbidden("Active profile access is required", "PROFILE_ACCESS_NOT_ACTIVE");
+  }
+}
+
 function uniqueById<T extends { id: string }>(items: T[]) {
   const seen = new Set<string>();
 
@@ -39,6 +45,7 @@ async function listAvailableProjectsForUser(user: AuthUser) {
 
 export async function requireProjectAccess(projectId: string, user?: AuthUser): Promise<ProjectGuardContext> {
   const resolvedUser = await resolveUser(user);
+  assertActiveProjectUser(resolvedUser);
   const project = await adminRepository.getProjectById(projectId);
 
   if (!project) {
@@ -72,6 +79,7 @@ export async function requireProjectAccess(projectId: string, user?: AuthUser): 
 
 export async function requireCurrentProjectAccess(user?: AuthUser): Promise<ProjectGuardContext> {
   const resolvedUser = await resolveUser(user);
+  assertActiveProjectUser(resolvedUser);
   const listedAvailableProjectsPromise =
     resolvedUser.role === "admin" ? Promise.resolve([]) : listAvailableProjectsForUser(resolvedUser);
   const [selection, sessionProjectId, listedAvailableProjects] = await Promise.all([

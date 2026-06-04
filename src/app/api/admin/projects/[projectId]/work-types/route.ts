@@ -34,6 +34,7 @@ export async function POST(
       labelKo?: string;
       labelEn?: string;
       sortOrder?: number;
+      isActive?: boolean;
     };
     const data = await createProjectWorkType(
       projectId,
@@ -41,7 +42,8 @@ export async function POST(
         code: String(body.code ?? ""),
         labelKo: String(body.labelKo ?? ""),
         labelEn: String(body.labelEn ?? ""),
-        sortOrder: Number(body.sortOrder ?? 0),
+        sortOrder: body.sortOrder === undefined ? undefined : Number(body.sortOrder),
+        isActive: body.isActive,
       },
       user.id,
     );

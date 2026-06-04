@@ -73,6 +73,7 @@ export interface AdminRepository {
   listGlobalTaskCategoryDefinitions(fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
   listProjectTaskCategoryDefinitions(projectId: string, fieldKey?: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
   listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey): Promise<TaskCategoryDefinition[]>;
+  getTaskCategoryDefinition(id: string): Promise<TaskCategoryDefinition | null>;
   createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput): Promise<TaskCategoryDefinition>;
   updateTaskCategoryDefinition(id: string, input: UpdateTaskCategoryDefinitionInput): Promise<TaskCategoryDefinition>;
   listGlobalWorkTypeDefinitions(): Promise<WorkTypeDefinition[]>;

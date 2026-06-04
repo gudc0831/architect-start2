@@ -438,6 +438,14 @@ export class PostgresAdminRepository implements AdminRepository {
     return resolved.selectableDefinitions;
   }
 
+  async getTaskCategoryDefinition(id: string) {
+    const definition = await adminPrisma.workTypeDefinition.findUnique({
+      where: { id },
+    });
+
+    return definition ? toTaskCategoryDefinition(definition) : null;
+  }
+
   async createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput) {
     await ensureGlobalBaseWorkTypes();
     const existingDefinitions = await adminPrisma.workTypeDefinition.findMany({

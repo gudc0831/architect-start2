@@ -458,6 +458,10 @@ export class LocalAdminRepository implements AdminRepository {
     return resolved.selectableDefinitions.sort(compareBySortOrder);
   }
 
+  async getTaskCategoryDefinition(id: string) {
+    return (await readStore()).categoryDefinitions.find((definition) => definition.id === id) ?? null;
+  }
+
   async createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput) {
     const store = await readStore();
     const code = assertCreatableTaskCategoryCode(store.categoryDefinitions, input.fieldKey, input.projectId, input.code);

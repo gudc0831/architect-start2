@@ -377,6 +377,15 @@
   flex-wrap: wrap;
 }
 
+.definitionHelp {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .codeChip,
 .metaBadge,
 .stateBadge {
