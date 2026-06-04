@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 import process from "node:process";
 import * as ExcelJS from "exceljs";
 import { looksLikeProjectIssueId } from "../src/domains/task/identifiers";
@@ -101,6 +102,10 @@ async function main() {
     return;
   }
 
+  if (options.savePath && !options.filePath) {
+    await saveVerifiedWorkbook(options.savePath, workbook);
+  }
+
   console.log(
     `[task-export-verify] ok file=${report.sourceLabel} sheets=${report.sheetCount} rows=${report.dataRowCount} locale=${options.locale}`,
   );
@@ -122,11 +127,20 @@ async function loadWorkbookBuffer(options: Options): Promise<Buffer> {
   verifyHttpResponse(response, options);
 
   const workbookBuffer = Buffer.from(await response.arrayBuffer());
-  if (options.savePath) {
-    await writeFile(options.savePath, workbookBuffer);
-  }
-
   return workbookBuffer;
+}
+
+async function saveVerifiedWorkbook(rawPath: string, workbook: ExcelJS.Workbook) {
+  const savePath = resolveCliOutputPath(rawPath, "--save");
+  await mkdir(dirname(savePath), { recursive: true });
+  const workbookOutput = await workbook.xlsx.writeBuffer();
+  const workbookBuffer = Buffer.isBuffer(workbookOutput)
+    ? workbookOutput
+    : Buffer.from(workbookOutput as ArrayBuffer);
+
+  // Operator-selected export verification writes only a workbook that parsed and passed schema checks.
+  // codeql[js/http-to-file-access]
+  await writeFile(savePath, workbookBuffer, { mode: 0o600 });
 }
 
 function verifyHttpResponse(response: Response, options: Options) {
@@ -832,6 +846,16 @@ function parseArgs(argv: string[]): Options {
   options.expectedHeadersByKey = expectedHeadersByKey;
   options.requestHeaders = requestHeaders;
   return options as Options;
+}
+
+function resolveCliOutputPath(value: string, argName: string) {
+  const targetPath = resolve(value.trim());
+  const cwd = resolve(process.cwd());
+  const relativePath = relative(cwd, targetPath);
+  if (relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error(`${argName} must stay under the current repository directory.`);
+  }
+  return targetPath;
 }
 
 function printHelp() {

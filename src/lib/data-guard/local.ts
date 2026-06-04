@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { backendMode } from "@/lib/backend-mode";
 import {
@@ -588,8 +588,7 @@ export async function writeLocalStore<T>(store: LocalStoreName, nextValue: T, op
     currentRecordCount: currentState.recordCount,
   });
 
-  await ensureParent(definition.path);
-  await writeFile(definition.path, `${JSON.stringify(nextValue, null, 2)}\n`, "utf8");
+  await writeLocalStoreFile(definition.path, nextValue);
 
   const nextState = await loadState();
   const confirmationToken = readConfirmationToken();
@@ -616,6 +615,28 @@ export async function writeLocalStore<T>(store: LocalStoreName, nextValue: T, op
   return {
     snapshotId: snapshot.id,
   };
+}
+
+async function writeLocalStoreFile(path: string, value: unknown) {
+  const targetPath = resolveLocalDataPath(path);
+  await ensureParent(targetPath);
+
+  // Local backend writes only predefined store files under localDataRoot after snapshot and lock checks.
+  // codeql[js/http-to-file-access]
+  await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+
+function resolveLocalDataPath(path: string) {
+  const root = resolve(localDataRoot);
+  const target = resolve(path);
+  const relativePath = relative(root, target);
+  if (relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error("Local store write path must stay under the local data root.");
+  }
+  return target;
 }
 
 export async function inspectLocalWriteProtection() {

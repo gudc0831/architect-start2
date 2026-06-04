@@ -209,15 +209,52 @@ function findEndOfCentralDirectory(archive: Buffer) {
 }
 
 function wordXmlToText(xml: string) {
-  return decodeXmlEntities(
-    xml
-      .replace(/<w:tab\s*\/>/g, "\t")
-      .replace(/<w:br\s*\/>/g, "\n")
-      .replace(/<\/w:p>/g, "\n")
-      .replace(/<\/w:tr>/g, "\n")
-      .replace(/<\/w:tc>/g, "\t")
-      .replace(/<[^>]+>/g, ""),
-  );
+  return decodeXmlEntities(stripWordXmlMarkup(xml));
+}
+
+function stripWordXmlMarkup(xml: string) {
+  let output = "";
+  let offset = 0;
+
+  while (offset < xml.length) {
+    if (xml[offset] !== "<") {
+      output += xml[offset];
+      offset += 1;
+      continue;
+    }
+
+    const close = xml.indexOf(">", offset + 1);
+    if (close < 0) {
+      break;
+    }
+
+    output += wordTagTextSeparator(xml.slice(offset + 1, close));
+    offset = close + 1;
+  }
+
+  return output;
+}
+
+function wordTagTextSeparator(rawTag: string) {
+  const tag = rawTag.trim().toLowerCase();
+  const closing = tag.startsWith("/");
+  const normalized = closing ? tag.slice(1).trimStart() : tag;
+  const tagName = normalized.split(/\s+/, 1)[0]?.replace(/\/$/, "") ?? "";
+
+  if (tagName === "w:tab") {
+    return "\t";
+  }
+  if (tagName === "w:br") {
+    return "\n";
+  }
+  if (closing && (tagName === "w:p" || tagName === "w:tr")) {
+    return "\n";
+  }
+  if (closing && tagName === "w:tc") {
+    return "\t";
+  }
+
+  return "";
 }
 
 function extractPdfText(content: Uint8Array) {
@@ -397,12 +434,22 @@ function normalizeCellText(value: string) {
 }
 
 function decodeXmlEntities(value: string) {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&apos;/g, "'");
+  return value.replace(/&(lt|gt|amp|quot|apos);/g, (_match, entity: string) => {
+    switch (entity) {
+      case "lt":
+        return "‹";
+      case "gt":
+        return "›";
+      case "amp":
+        return "&";
+      case "quot":
+        return "\"";
+      case "apos":
+        return "'";
+      default:
+        return "";
+    }
+  });
 }
 
 function normalizeExtractedText(value: string) {

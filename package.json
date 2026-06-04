@@ -36,6 +36,7 @@
     "legal-manual-smoke:capture": "tsx scripts/legal-manual-smoke-capture.ts",
     "legal-manual-smoke:generate-capture": "tsx scripts/legal-manual-smoke-generate-capture.ts",
     "assistant-thread-memory:validate": "tsx scripts/assistant-thread-memory-validate.ts",
+    "task-review:smoke": "powershell -ExecutionPolicy Bypass -File scripts/task-review-service-smoke.ps1",
     "file-analysis:embedding:plan": "tsx scripts/file-analysis-embedding-backfill-plan.ts",
     "file-analysis:embedding:worker": "tsx scripts/file-analysis-embedding-worker.ts",
     "file-analysis:chunks:debug": "tsx scripts/file-analysis-chunk-debug-report.ts",
@@ -78,7 +79,10 @@
     "fast-uri": "3.1.2",
     "hono": "4.12.18",
     "postcss": "8.5.14",
-    "protobufjs": "7.5.9"
+    "protobufjs": "7.5.9",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

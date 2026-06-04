@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { localDataRoot } from "@/lib/runtime-config";
 
 export type DataGuardMode = "strict" | "warn";
@@ -47,20 +47,36 @@ export function readConfirmationToken() {
 }
 
 export async function writeJsonFile(path: string, value: unknown) {
-  await ensureParent(path);
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const targetPath = resolveDataGuardPath(path);
+  await ensureParent(targetPath);
+  await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export async function appendAuditEvent(event: Record<string, unknown>) {
-  await ensureParent(dataGuardAuditLogPath);
+  const auditPath = resolveDataGuardPath(dataGuardAuditLogPath);
+  await ensureParent(auditPath);
   const record = {
     timestamp: new Date().toISOString(),
     ...event,
   };
-  await writeFile(dataGuardAuditLogPath, `${JSON.stringify(record)}\n`, {
+  await writeFile(auditPath, `${JSON.stringify(record)}\n`, {
     encoding: "utf8",
     flag: "a",
+    mode: 0o600,
   });
+}
+
+function resolveDataGuardPath(path: string) {
+  const root = resolve(dataGuardRoot);
+  const target = resolve(path);
+  const relativePath = relative(root, target);
+  if (relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error("Data guard write path must stay under the data guard root.");
+  }
+  return target;
 }
 
 export async function listDirectories(path: string) {

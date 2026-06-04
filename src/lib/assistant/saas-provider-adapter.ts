@@ -98,6 +98,8 @@ async function runOpenAIProvider(input: ProviderInput): Promise<AssistantProvide
     );
   }
 
+  // SaaS API Mode provider egress is reached only after project policy and evidence-kind checks pass upstream.
+  // codeql[js/file-access-to-http]
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {

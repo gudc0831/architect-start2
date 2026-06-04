@@ -15,7 +15,7 @@ import {
   type AssistantRunPolicy,
   type AssistantUsageEvent,
 } from "@/domains/assistant/saas-api-mode";
-import { badRequest, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
+import { badRequest, conflict, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
 import {
   AssistantProviderError,
   estimateCostCents,
@@ -27,6 +27,7 @@ import { assistantRepository } from "@/repositories/assistant";
 import { taskRepository } from "@/repositories";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
+import { requiresOfficialLawVerification } from "@/domains/legal/official-law-api";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
 
 type UpdateAssistantRunPolicyInput = {
@@ -46,6 +47,22 @@ type GenerateAssistantInput = {
   taskId?: unknown;
   question?: unknown;
   instruction?: unknown;
+};
+
+type GenerateAssistantWithEvidenceInput = {
+  taskContext: AssistantRetrievedEvidenceSnapshot["taskContext"];
+  question: string;
+  instruction?: string;
+  evidence: AssistantEvidence[];
+  evidenceDigest: string;
+  officialLawDigest: string;
+  officialLawStatus: "not_required" | "verified" | "failed";
+  legalEvidence?: AssistantEvidence[];
+  projectContextChunks?: AssistantRetrievedEvidenceSnapshot["projectContextChunks"];
+  projectContextTrace?: AssistantRetrievedEvidenceSnapshot["projectContextTrace"];
+  unavailableEvidenceKinds?: string[];
+  evidenceReadinessWarnings?: AssistantRetrievedEvidenceSnapshot["evidenceReadinessWarnings"];
+  conversationMemory?: string;
 };
 
 type GetAssistantActionAuditReviewInput = {
@@ -1272,41 +1289,113 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const question = normalizeRequiredText(input.question, "question");
   const instruction = normalizeOptionalText(input.instruction) || "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
   const retrieved = await retrieveAssistantEvidence({ taskId, question, user });
-  const policy = await getStoredOrDefaultPolicy(retrieved.taskContext.projectId);
+  if (
+    retrieved.evidence.some((item) => item.kind === "regulation") ||
+    requiresOfficialLawVerification(question, retrieved.evidence)
+  ) {
+    throw conflict(
+      "Legal/regulation SaaS generation must use /api/assistant/task-review so official-law verification runs server-side.",
+      "ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW",
+    );
+  }
   const promptEvidence = retrieved.evidence.slice(0, 10);
+
+  return generateAssistantWithVerifiedEvidence(
+    {
+      taskContext: retrieved.taskContext,
+      question,
+      instruction,
+      evidence: promptEvidence,
+      evidenceDigest: createRequestHash({
+        taskId: retrieved.taskContext.taskId,
+        question,
+        instruction,
+        evidenceIds: promptEvidence.map((item) => item.id),
+      }),
+      officialLawDigest: "legacy-unverified",
+      officialLawStatus: "not_required",
+      legalEvidence: retrieved.legalEvidence,
+      projectContextChunks: retrieved.projectContextChunks,
+      projectContextTrace: retrieved.projectContextTrace,
+      unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
+      evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+      conversationMemory: retrieved.conversationMemory,
+    },
+    user,
+  );
+}
+
+export async function generateAssistantWithVerifiedEvidence(
+  input: GenerateAssistantWithEvidenceInput,
+  user: AuthUser,
+): Promise<AssistantGenerateResult> {
+  const projectId = await resolveProjectId(normalizeRequiredText(input.taskContext.projectId, "projectId"), user);
+  const taskId = normalizeRequiredText(input.taskContext.taskId, "taskId");
+  const task = await taskRepository.findTaskById(taskId);
+  if (!task || task.projectId !== projectId || task.purgedAt) {
+    throw notFound("Task not found", "TASK_NOT_FOUND");
+  }
+  const taskContext = {
+    ...input.taskContext,
+    taskId: task.id,
+    projectId,
+    title: task.issueTitle,
+    issueId: task.issueId,
+  };
+  const question = normalizeRequiredText(input.question, "question");
+  const instruction =
+    normalizeOptionalText(input.instruction) ||
+    "건축 실무 PM 관점에서 근거, 리스크, 후속 조치를 분리해 답변하세요.";
+  const policy = await getStoredOrDefaultPolicy(taskContext.projectId);
+  const promptEvidence = input.evidence.slice(0, 10);
+  const legalEvidence =
+    input.legalEvidence ?? input.evidence.filter((item) => item.kind === "regulation" || Boolean(item.legal));
+  const retrievalSnapshot = toAssistantGenerateRetrievalSnapshot({
+    taskContext,
+    evidence: promptEvidence,
+    legalEvidence,
+    projectContextChunks: input.projectContextChunks,
+    projectContextTrace: input.projectContextTrace,
+    unavailableEvidenceKinds: input.unavailableEvidenceKinds ?? [],
+    evidenceReadinessWarnings: input.evidenceReadinessWarnings,
+    conversationMemory: input.conversationMemory,
+  });
   const promptText = buildAssistantPromptText({
-    taskTitle: retrieved.taskContext.title,
+    taskTitle: taskContext.title,
     question,
     instruction,
-    conversationMemory: retrieved.conversationMemory,
+    conversationMemory: retrievalSnapshot.conversationMemory,
     evidence: promptEvidence,
-    legalEvidence: retrieved.legalEvidence,
-    projectContextChunks: retrieved.projectContextChunks,
-    projectContextTrace: retrieved.projectContextTrace,
-    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+    legalEvidence,
+    projectContextChunks: retrievalSnapshot.projectContextChunks,
+    projectContextTrace: retrievalSnapshot.projectContextTrace,
+    evidenceReadinessWarnings: retrievalSnapshot.evidenceReadinessWarnings,
   });
   const inputTokens = estimateTokens(promptText);
   const requestHash = createRequestHash({
-    taskId: retrieved.taskContext.taskId,
+    taskId: taskContext.taskId,
     question,
     instruction,
     evidenceIds: promptEvidence.map((item) => item.id),
     promptText: promptText,
+    evidenceDigest: input.evidenceDigest,
+    officialLawDigest: input.officialLawDigest,
+    officialLawStatus: input.officialLawStatus,
   });
 
   await enforcePolicy({
     policy,
-    taskId: retrieved.taskContext.taskId,
+    taskId: taskContext.taskId,
     profileId: user.id,
     evidence: promptEvidence,
     inputTokens,
     requestHash,
   });
 
-  const taskLabel = retrieved.taskContext.issueId || retrieved.taskContext.taskId;
+  const taskLabel = taskContext.issueId || taskContext.taskId;
   const providerResult = await runProviderOrRecordFailure({
     policy,
-    taskId: retrieved.taskContext.taskId,
+    taskId: taskContext.taskId,
     taskLabel,
     profileId: user.id,
     question,
@@ -1319,7 +1408,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
 
   await assistantRepository.createUsageEvent({
     projectId: policy.projectId,
-    taskId: retrieved.taskContext.taskId,
+    taskId: taskContext.taskId,
     profileId: user.id,
     executionMode: "saas-api",
     runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
@@ -1334,6 +1423,9 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     metadata: {
       evidenceCount: promptEvidence.length,
       evidenceKinds: [...new Set(promptEvidence.map((item) => item.kind))],
+      evidenceDigest: input.evidenceDigest,
+      officialLawDigest: input.officialLawDigest,
+      officialLawStatus: input.officialLawStatus,
       providerCallMode: providerResult.callMode,
       providerRequestId: providerResult.providerRequestId,
       ...providerResult.metadata,
@@ -1344,28 +1436,20 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
     profileId: user.id,
     eventType: "assistant.generate.success",
     targetType: "task",
-    targetId: retrieved.taskContext.taskId,
+    targetId: taskContext.taskId,
     metadata: {
       executionMode: "saas-api",
       requestHash,
       evidenceCount: promptEvidence.length,
+      evidenceDigest: input.evidenceDigest,
+      officialLawDigest: input.officialLawDigest,
+      officialLawStatus: input.officialLawStatus,
       provider: policy.provider,
       model: policy.model,
       providerCallMode: providerResult.callMode,
       providerRequestId: providerResult.providerRequestId,
       estimatedCostCents: providerResult.estimatedCostCents,
     },
-  });
-
-  const retrievalSnapshot = toAssistantGenerateRetrievalSnapshot({
-    taskContext: retrieved.taskContext,
-    evidence: promptEvidence,
-    legalEvidence: retrieved.legalEvidence,
-    projectContextChunks: retrieved.projectContextChunks,
-    projectContextTrace: retrieved.projectContextTrace,
-    unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
-    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
-    conversationMemory: retrieved.conversationMemory,
   });
 
   return {
@@ -1650,7 +1734,10 @@ function createRequestHash(input: {
   question: string;
   instruction: string;
   evidenceIds: string[];
-  promptText: string;
+  promptText?: string;
+  evidenceDigest?: string;
+  officialLawDigest?: string;
+  officialLawStatus?: "not_required" | "verified" | "failed";
 }) {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }

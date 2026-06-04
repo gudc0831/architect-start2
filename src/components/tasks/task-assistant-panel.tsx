@@ -131,8 +131,15 @@ type ProjectContextTraceForReview = {
 
 type SavedAssistantRecord = {
   id: string;
+  taskId?: string;
   confidenceScore: number;
   confidenceReason?: string;
+  executionMode?: "local-chatgpt-codex" | "mock" | "unavailable" | "saas-api";
+  runtimeMode?: string;
+  candidateState?: "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected";
+  draftSummary?: DraftSummary | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type AssistantRecordHistoryItem = {
@@ -208,6 +215,37 @@ type AssistantGenerateResponse = {
     requestId: string | null;
   };
   retrieval?: unknown;
+};
+
+type TaskReviewResponse = {
+  status: "blocked" | "ready_for_generation" | "generated";
+  reason: string;
+  taskContext: AssistantTaskContext;
+  retrievedEvidence: {
+    count: number;
+    regulationCount: number;
+    unavailableEvidenceKinds: string[];
+  };
+  officialLawVerification: {
+    status: "not_required" | "verified" | "failed";
+    checkedAt: string;
+    failures: string[];
+    retry: string[];
+  };
+  evidence: AssistantEvidence[];
+  evidenceReadiness: Array<{
+    kind: "central_knowledge" | "project_document" | "web_or_skill";
+    status: "available" | "missing";
+    action: string;
+  }>;
+  generated?: AssistantGenerateResponse;
+  savedRecord: SavedAssistantRecord | null;
+  wiki: {
+    candidateCreated: false;
+    approvalAttempted: false;
+    approvedKnowledgeItemId: null;
+    reason?: string;
+  };
 };
 
 type LocalCodexStatus = {
@@ -598,6 +636,62 @@ export function TaskAssistantPanel({
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
     try {
+      if (requestedExecutionMode === "saas-api") {
+        const review = await postTaskReviewJson({
+          taskId: requestedTaskId,
+          question: requestedQuestion,
+          instruction: requestedInstruction,
+          mode: "generate",
+        });
+        if (reviewRequestSeqRef.current !== reviewRequestId) {
+          return;
+        }
+        if (review.taskContext.taskId !== requestedTaskId) {
+          throw new Error("Assistant task-review task mismatch. Please rerun the review for the selected task.");
+        }
+
+        const reviewRetrieval =
+          normalizeGeneratedRetrieval(review.generated?.retrieval) ?? {
+            taskContext: review.taskContext,
+            evidence: review.evidence,
+            unavailableEvidenceKinds: review.retrievedEvidence.unavailableEvidenceKinds,
+            evidenceReadinessWarnings: [],
+          };
+        setRetrieveResult(reviewRetrieval);
+
+        if (review.status !== "generated" || !review.generated || !review.savedRecord) {
+          const failures = review.officialLawVerification.failures.join(" / ");
+          const readiness = review.evidenceReadiness
+            .filter((item) => item.status === "missing")
+            .map((item) => `${item.kind}: ${item.action}`)
+            .join(" / ");
+          throw new Error([failures || review.reason, readiness].filter(Boolean).join(" / "));
+        }
+
+        const generatedOutput: AssistantOutput = {
+          answer: [
+            appendLegalChangeReviewNotice(review.generated.answer, reviewRetrieval),
+            "",
+            `SaaS API mode: ${review.generated.provider.callMode} ${review.generated.provider.provider}/${review.generated.provider.model}`,
+            `Usage: input ${review.generated.usage.inputTokens}, output ${review.generated.usage.outputTokens}, estimated ${review.generated.usage.estimatedCostCents} cents.`,
+          ].join("\n"),
+          draftSummary: review.generated.suggestedDraftSummary,
+          retrieval: reviewRetrieval,
+        };
+
+        setOutput(generatedOutput);
+        setSummaryDraft(generatedOutput.draftSummary);
+        setSummaryTagsInput(generatedOutput.draftSummary.tags.join(", "));
+        setClosureAcknowledged(false);
+        setRecord(review.savedRecord);
+        await refreshAssistantRecords(review.taskContext.taskId, reviewRequestId);
+        if (reviewRequestSeqRef.current !== reviewRequestId) {
+          return;
+        }
+        setStatus(`공식 법규 검증 경유 SaaS API 검토 의견을 저장했습니다. 신뢰도 ${review.savedRecord.confidenceScore}%.`);
+        return;
+      }
+
       const retrieved = await postJson<RetrieveResponse>("/api/assistant/retrieve", {
         taskId: requestedTaskId,
         question: requestedQuestion,
@@ -611,28 +705,21 @@ export function TaskAssistantPanel({
       setRetrieveResult(retrieved);
 
       const generated =
-        requestedExecutionMode === "saas-api"
-          ? await generateSaasApiReview({
-              fallbackRetrieval: retrieved,
+        requestedExecutionMode === "local-codex"
+          ? await generateLocalCodexReview({
+              evidence: retrieved.evidence,
+              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskId: retrieved.taskContext.taskId,
+              taskContext: retrieved.taskContext,
             })
-          : requestedExecutionMode === "local-codex"
-            ? await generateLocalCodexReview({
-                evidence: retrieved.evidence,
-                evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
-                instruction: requestedInstruction,
-                question: requestedQuestion,
-                taskContext: retrieved.taskContext,
-              })
-            : generateArchitectReview({
-                evidence: retrieved.evidence,
-                evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
-                instruction: requestedInstruction,
-                question: requestedQuestion,
-                taskContext: retrieved.taskContext,
-              });
+          : generateArchitectReview({
+              evidence: retrieved.evidence,
+              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+              instruction: requestedInstruction,
+              question: requestedQuestion,
+              taskContext: retrieved.taskContext,
+            });
       const retrieveForRecord = generated.retrieval ?? retrieved;
       if (retrieveForRecord.taskContext.taskId !== requestedTaskId) {
         throw new Error("Assistant generated retrieval task mismatch. Please rerun the review for the selected task.");
@@ -656,11 +743,7 @@ export function TaskAssistantPanel({
         confidenceReason: confidenceOverride.confidenceReason,
         executionMode: toRecordExecutionMode(requestedExecutionMode),
         runtimeMode:
-          requestedExecutionMode === "saas-api"
-            ? "saas-api-daily-task-panel"
-            : requestedExecutionMode === "local-codex"
-              ? "extension-native-bridge-in-page"
-              : "saas-daily-task-panel",
+          requestedExecutionMode === "local-codex" ? "extension-native-bridge-in-page" : "saas-daily-task-panel",
         draftSummary: generated.draftSummary,
       });
       if (reviewRequestSeqRef.current !== reviewRequestId) {
@@ -671,11 +754,7 @@ export function TaskAssistantPanel({
       if (reviewRequestSeqRef.current !== reviewRequestId) {
         return;
       }
-      setStatus(
-        requestedExecutionMode === "saas-api"
-          ? `SaaS API 모드 검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`
-          : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
-      );
+      setStatus(`검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`);
     } catch (error) {
       if (reviewRequestSeqRef.current === reviewRequestId) {
         setStatus(errorMessage(error));
@@ -2122,30 +2201,6 @@ function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
-async function generateSaasApiReview(input: {
-  taskId: string;
-  question: string;
-  instruction: string;
-  fallbackRetrieval: RetrieveResponse;
-}): Promise<AssistantOutput> {
-  const generated = await postJson<AssistantGenerateResponse>("/api/assistant/generate", {
-    taskId: input.taskId,
-    question: input.question,
-    instruction: input.instruction,
-  });
-  const generatedRetrieval = normalizeGeneratedRetrieval(generated.retrieval) ?? input.fallbackRetrieval;
-
-  return {
-    answer: [
-      appendLegalChangeReviewNotice(generated.answer, generatedRetrieval),
-      `Provider: ${generated.provider.provider} / ${generated.provider.model} / ${generated.provider.callMode}`,
-      `사용량: input ${generated.usage.inputTokens}, output ${generated.usage.outputTokens}, estimated ${generated.usage.estimatedCostCents} cents.`,
-    ].join("\n\n"),
-    draftSummary: generated.suggestedDraftSummary,
-    retrieval: generatedRetrieval,
-  };
-}
-
 async function generateLocalCodexReview(input: {
   taskContext: AssistantTaskContext;
   evidence: AssistantEvidence[];
@@ -2743,6 +2798,28 @@ async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   }
 
   return parsed.data as T;
+}
+
+async function postTaskReviewJson(body: {
+  taskId: string;
+  question: string;
+  instruction: string;
+  mode: "generate";
+}): Promise<TaskReviewResponse> {
+  const response = await fetch("/api/assistant/task-review", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = (await response.json()) as { data?: TaskReviewResponse; error?: { message?: string } };
+  if (!response.ok && response.status !== 409) {
+    throw new Error(parsed.error?.message ?? "요청에 실패했습니다.");
+  }
+  if (!parsed.data) {
+    throw new Error(parsed.error?.message ?? "task-review 응답이 비어 있습니다.");
+  }
+
+  return parsed.data;
 }
 
 async function patchJson<T = unknown>(path: string, body: unknown): Promise<T> {

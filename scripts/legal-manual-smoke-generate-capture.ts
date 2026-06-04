@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 
 type SmokeCapture = {
   id: string;
@@ -9,14 +10,18 @@ type SmokeCapture = {
 
 async function main() {
   const appUrl = readArgValue("--app-url");
-  const outputPath = readArgValue("--output");
-  const capturesOutputPath = readArgValue("--captures-output");
-  if (!appUrl?.trim() || !outputPath) {
+  const rawOutputPath = readArgValue("--output");
+  const rawCapturesOutputPath = readArgValue("--captures-output");
+  if (!appUrl?.trim() || !rawOutputPath) {
     throw new Error("Usage: npm run legal-manual-smoke:generate-capture -- --app-url <architect-saas-url> --output <report.json>");
   }
 
+  const outputPath = resolveCliOutputPath(rawOutputPath, "--output");
+  const capturesOutputPath = rawCapturesOutputPath
+    ? resolveCliOutputPath(rawCapturesOutputPath, "--captures-output")
+    : undefined;
   const report = await generateReport({ appUrl: appUrl.trim(), capturesOutputPath });
-  await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  await writeJsonOutput(outputPath, report);
 }
 
 async function generateReport(input: { appUrl: string; capturesOutputPath?: string }) {
@@ -70,14 +75,17 @@ async function generateReport(input: { appUrl: string; capturesOutputPath?: stri
     });
   }
 
-  if (input.capturesOutputPath) {
-    await writeFile(input.capturesOutputPath, `${JSON.stringify(captures, null, 2)}\n`);
-  }
   const report = buildAssistantLegalManualSmokeReportFromCaptures(captures);
   const validation = validateAssistantLegalManualSmokeReport(report);
   process.stderr.write(`${JSON.stringify(validation, null, 2)}\n`);
   if (validation.status !== "passed") {
     throw new Error(`Generated assistant manual-smoke report failed validation: ${validation.failures.join("; ")}`);
+  }
+  if (input.capturesOutputPath) {
+    await writeJsonOutput(input.capturesOutputPath, {
+      generatedAt: report.generatedAt,
+      captures: report.smokeCases,
+    });
   }
   return report;
 }
@@ -128,6 +136,24 @@ function readArgValue(name: string): string | undefined {
   }
   const value = process.argv[index + 1]?.trim();
   return value || undefined;
+}
+
+function resolveCliOutputPath(value: string, argName: string) {
+  const targetPath = resolve(value.trim());
+  const cwd = resolve(process.cwd());
+  const relativePath = relative(cwd, targetPath);
+  if (relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error(`${argName} must stay under the current repository directory.`);
+  }
+  return targetPath;
+}
+
+async function writeJsonOutput(path: string, value: unknown) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 main().catch((error) => {

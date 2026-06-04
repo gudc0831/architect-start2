@@ -944,9 +944,12 @@ async function main() {
   assert.match(taskAssistantPanelSource, /const reviewRequestSeqRef = useRef\(0\)/);
   assert.match(taskAssistantPanelSource, /const requestedTaskId = selectedTask\.id/);
   assert.match(taskAssistantPanelSource, /reviewRequestSeqRef\.current !== reviewRequestId/);
-  assert.match(taskAssistantPanelSource, /fallbackRetrieval:\s*retrieved/);
+  assert.match(taskAssistantPanelSource, /requestedExecutionMode === "saas-api"/);
+  assert.match(taskAssistantPanelSource, /postTaskReviewJson\(\{[\s\S]*?mode:\s*"generate"/);
+  assert.match(taskAssistantPanelSource, /normalizeGeneratedRetrieval\(review\.generated\?\.retrieval\)\s*\?\?/);
+  assert.match(taskAssistantPanelSource, /setRecord\(review\.savedRecord\)/);
   assert.match(taskAssistantPanelSource, /const retrieveForRecord = generated\.retrieval \?\? retrieved/);
-  assert.match(taskAssistantPanelSource, /normalizeGeneratedRetrieval\(generated\.retrieval\)\s*\?\?\s*input\.fallbackRetrieval/);
+  assert.doesNotMatch(taskAssistantPanelSource, /postJson<AssistantGenerateResponse>\("\/api\/assistant\/generate"/);
   assert.doesNotMatch(taskAssistantPanelSource, /appendLegalChangeReviewNotice\(generated\.answer,\s*generated\.retrieval\)/);
   assert.match(taskAssistantPanelSource, /retrieveForRecord\.taskContext\.taskId !== requestedTaskId/);
   assert.match(taskAssistantPanelSource, /refreshAssistantRecords\(retrieveForRecord\.taskContext\.taskId,\s*reviewRequestId\)/);

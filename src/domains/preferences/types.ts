@@ -124,6 +124,8 @@ export const TASK_LIST_COLUMN_MIN_WIDTH = 16;
 export const TASK_LIST_COLUMN_MAX_WIDTH = 2400;
 export const TASK_LIST_ROW_MIN_HEIGHT = 52;
 export const TASK_LIST_ROW_MAX_HEIGHT = 2400;
+const TASK_LIST_ROW_HEIGHT_KEY_PATTERN = /^[a-zA-Z0-9:_-]{1,160}$/;
+const blockedTaskListRowHeightKeys = new Set(["__proto__", "constructor", "prototype"]);
 export const DETAIL_PANEL_DEFAULT_WIDTH = 340;
 export const DETAIL_PANEL_MIN_WIDTH = 280;
 export const DETAIL_PANEL_MAX_WIDTH = 560;
@@ -273,16 +275,24 @@ export function sanitizeTaskListRowHeights(input: unknown): TaskListRowHeightMap
     return {};
   }
 
-  const next: TaskListRowHeightMap = {};
+  const next: TaskListRowHeightMap = Object.create(null) as TaskListRowHeightMap;
 
   for (const [key, value] of Object.entries(input)) {
-    if (!key.trim()) continue;
+    const safeKey = normalizeTaskListRowHeightKey(key);
+    if (!safeKey) continue;
     const height = coerceTaskListRowHeightValue(value);
     if (height === null) continue;
-    next[key] = height;
+    next[safeKey] = height;
   }
 
   return next;
+}
+
+function normalizeTaskListRowHeightKey(key: string) {
+  const normalized = key.trim();
+  return TASK_LIST_ROW_HEIGHT_KEY_PATTERN.test(normalized) && !blockedTaskListRowHeightKeys.has(normalized)
+    ? normalized
+    : "";
 }
 
 export function sanitizeTaskListLayoutPreference(input: unknown): TaskListLayoutPreference {

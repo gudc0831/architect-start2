@@ -12,11 +12,12 @@ try {
   if (options.backendMode) {
     env.APP_BACKEND_MODE = options.backendMode;
   }
-  const records = await readRecords(env);
+  const backendMode = normalizeBackendMode(env.APP_BACKEND_MODE);
+  const records = await readRecords(env, backendMode);
   const matches = filterRecords(records);
   const report = {
     ok: matches.length > 0,
-    backendMode: env.APP_BACKEND_MODE || "local",
+    backendMode,
     criteria: {
       executionMode: options.executionMode,
       runtimeMode: options.runtimeMode,
@@ -60,7 +61,11 @@ function formatError(error) {
 
 async function readEnv(envFile) {
   const envPath = path.resolve(envFile);
-  const env = { ...process.env };
+  const env = {
+    APP_BACKEND_MODE: process.env.APP_BACKEND_MODE || "",
+    DATABASE_URL: process.env.DATABASE_URL || "",
+    LOCAL_DATA_ROOT: process.env.LOCAL_DATA_ROOT || "",
+  };
   if (!existsSync(envPath)) {
     return env;
   }
@@ -78,6 +83,9 @@ async function readEnv(envFile) {
     }
 
     const key = trimmed.slice(0, separatorIndex).trim();
+    if (!["APP_BACKEND_MODE", "DATABASE_URL", "LOCAL_DATA_ROOT"].includes(key)) {
+      continue;
+    }
     const value = trimmed.slice(separatorIndex + 1).trim().replace(/^["']|["']$/g, "");
     if (!env[key]) {
       env[key] = value;
@@ -87,8 +95,12 @@ async function readEnv(envFile) {
   return env;
 }
 
-async function readRecords(env) {
-  if ((env.APP_BACKEND_MODE || "local") === "cloud") {
+function normalizeBackendMode(value) {
+  return String(value || "").trim() === "cloud" ? "cloud" : "local";
+}
+
+async function readRecords(env, backendMode) {
+  if (backendMode === "cloud") {
     return readPostgresRecords(env);
   }
 
@@ -103,7 +115,7 @@ async function readPostgresRecords(env) {
     throw new Error("DATABASE_URL is required when APP_BACKEND_MODE=cloud.");
   }
 
-  const client = new Client({ connectionString: env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: env.DATABASE_URL, ssl: { rejectUnauthorized: true } });
   await client.connect();
   try {
     const result = await client.query(

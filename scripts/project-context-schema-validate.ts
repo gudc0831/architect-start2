@@ -231,24 +231,40 @@ assert.match(
 console.log(JSON.stringify({ status: "passed", migration }));
 
 function extractModel(source: string, modelName: string): string {
-  const match = new RegExp(`model ${modelName} \\{[\\s\\S]*?\\n\\}`, "m").exec(source);
-  assert.ok(match, `${modelName} model block is missing`);
-  return match[0];
+  const startToken = `model ${modelName} {`;
+  const start = source.indexOf(startToken);
+  assert.ok(start >= 0, `${modelName} model block is missing`);
+  const end = source.indexOf("\n}", start + startToken.length);
+  assert.ok(end >= 0, `${modelName} model block is incomplete`);
+  return source.slice(start, end + "\n}".length);
 }
 
 function extractCreateTable(source: string, tableName: string): string {
-  const match = new RegExp(`create table if not exists "${tableName}" \\([\\s\\S]*?\\n\\);`, "i").exec(source);
-  assert.ok(match, `${tableName} create table block is missing`);
-  return match[0];
+  const lowerSource = source.toLowerCase();
+  const startToken = `create table if not exists "${tableName.toLowerCase()}" (`;
+  const start = lowerSource.indexOf(startToken);
+  assert.ok(start >= 0, `${tableName} create table block is missing`);
+  const end = lowerSource.indexOf("\n);", start + startToken.length);
+  assert.ok(end >= 0, `${tableName} create table block is incomplete`);
+  return source.slice(start, end + "\n);".length);
 }
 
 function assertProjectPolicy(tableName: string, operation: "select" | "insert" | "update", helperName: string): void {
-  assert.match(
-    migrationSql,
-    new RegExp(
-      `create policy "${tableName}_[^"]*${operation}[^"]*"\\s+on public\\.${tableName}[\\s\\S]*?app_private\\.${helperName}\\(`,
-      "i",
-    ),
-    `${tableName} ${operation} policy missing ${helperName}`,
-  );
+  const lowerSql = migrationSql.toLowerCase();
+  const policyPrefix = `create policy "${tableName.toLowerCase()}_`;
+  const tableReference = `on public.${tableName.toLowerCase()}`;
+  const helperCall = `app_private.${helperName.toLowerCase()}(`;
+  let offset = 0;
+  while (offset < lowerSql.length) {
+    const start = lowerSql.indexOf(policyPrefix, offset);
+    if (start < 0) break;
+    const end = lowerSql.indexOf(";", start);
+    const block = lowerSql.slice(start, end >= 0 ? end : lowerSql.length);
+    if (block.includes(operation) && block.includes(tableReference) && block.includes(helperCall)) {
+      return;
+    }
+    offset = start + policyPrefix.length;
+  }
+
+  assert.fail(`${tableName} ${operation} policy missing ${helperName}`);
 }
