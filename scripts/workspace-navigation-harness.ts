@@ -32,6 +32,17 @@ assert.match(appShellSource, /router\.replace\("\/auth\/pending-access"(?: as Ro
 assert.match(appShellSource, /router\.replace\("\/auth\/no-access"(?: as Route)?\)/);
 assert.match(appShellSource, /router\.replace\(\(user\.role === "admin" \? "\/admin" : "\/auth\/no-access"\) as Route\)/);
 
+const projectShellSource = source("src/components/layout/project-shell.tsx");
+assert.match(projectShellSource, /const \[isSidebarOpen, setIsSidebarOpen\] = useState\(false\)/);
+assert.match(projectShellSource, /const \[isSidebarHoverOpen, setIsSidebarHoverOpen\] = useState\(false\)/);
+assert.match(projectShellSource, /const \[isSidebarPinned, setIsSidebarPinned\] = useState\(false\)/);
+assert.match(projectShellSource, /window\.matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)/);
+assert.match(projectShellSource, /setIsSidebarHoverOpen\(true\)/);
+assert.match(projectShellSource, /className="shell__sidebar-backdrop"/);
+assert.match(projectShellSource, /onPointerDown=\{collapseSidebar\}/);
+assert.match(projectShellSource, /"shell--sidebar-expanded"/);
+assert.match(projectShellSource, /"shell--sidebar-pinned"/);
+
 const rootLayoutSource = source("src/app/layout.tsx");
 assert.match(rootLayoutSource, /const themeBootstrapScript =/);
 assert.match(rootLayoutSource, /architect-start\.theme-id/);
@@ -57,8 +68,24 @@ assert.match(sidebarSource, /function scheduleSidebarIdleWork\(callback: \(\) =>
 assert.match(sidebarSource, /const warmAdminNavigation = useCallback/);
 assert.match(sidebarSource, /router\.prefetch\(adminHref\)/);
 assert.match(sidebarSource, /data-workspace-navigation="true"/);
+assert.match(sidebarSource, /className="sidebar__handle"/);
+assert.match(sidebarSource, /!isExpanded \? \(/);
+assert.match(sidebarSource, /className=\{clsx\("sidebar__pin-button"/);
+assert.match(sidebarSource, /aria-pressed=\{isPinned\}/);
 assert.match(sidebarSource, /onPointerDownCapture=\{\(\) => warmWorkspaceNavigation\(item\.href, item\.mode\)\}/);
 assert.match(sidebarSource, /onClickCapture=\{\(\) => markWorkspaceRouteTransition\("admin", adminHref\)\}/);
+
+const globalCssSource = source("src/app/globals.css");
+assert.match(globalCssSource, /--shell-sidebar-rail-width: 46px/);
+assert.match(globalCssSource, /left: calc\(-1 \* \(var\(--shell-sidebar-width\) - var\(--shell-sidebar-rail-width\)\)\)/);
+assert.match(globalCssSource, /\.shell--sidebar-pinned\s*\{\s*grid-template-columns: var\(--shell-sidebar-width\) minmax\(0, 1fr\);/);
+assert.match(globalCssSource, /\.shell\.shell--sidebar-expanded > \.sidebar/);
+assert.match(globalCssSource, /\.sidebar\.sidebar--expanded/);
+assert.match(globalCssSource, /\.shell:not\(\.shell--sidebar-expanded\):not\(\.shell--sidebar-pinned\) \.sidebar__surface/);
+assert.match(globalCssSource, /\.shell--sidebar-expanded \.sidebar__handle/);
+assert.match(globalCssSource, /\.sidebar__handle/);
+assert.match(globalCssSource, /\.shell__sidebar-backdrop/);
+assert.match(globalCssSource, /\.sidebar__dock-actions\s*\{\s*position: absolute;[\s\S]*?right: 0\.45rem;/);
 
 const routeTimingSource = source("src/lib/workspace/route-timing.ts");
 assert.match(routeTimingSource, /export type WorkspaceRouteMode = DashboardMode \| "admin"/);
