@@ -3,9 +3,13 @@ import type { AssistantEvidence } from "@/domains/assistant/types";
 export const OFFICIAL_LAW_PROVIDER_NAME = "국가법령정보센터";
 export const OFFICIAL_LAW_API_DOCS_URL = "https://open.law.go.kr/LSO/openApi/guideList.do";
 
-const DEFAULT_LAW_API_BASE_URL = "http://www.law.go.kr/DRF";
+const DEFAULT_LAW_API_BASE_URL = "https://www.law.go.kr/DRF";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_LOCATORS = 5;
+const OFFICIAL_LAW_FETCH_HEADERS = {
+  Accept: "application/json",
+  "User-Agent": "ArchitectStart official-law-verifier",
+} as const;
 
 const KNOWN_ARCHITECTURE_LAWS = [
   "건축법 시행규칙",
@@ -455,11 +459,35 @@ function buildLawArticleUrl(selected: LawSearchResult, locator: LawArticleLocato
 }
 
 async function fetchJson(url: string, config: OfficialLawApiConfig): Promise<unknown> {
+  const urls = buildOfficialLawFetchUrls(url);
+  let lastNetworkError: unknown;
+
+  for (const candidateUrl of urls) {
+    try {
+      return await fetchJsonOnce(candidateUrl, config);
+    } catch (error) {
+      if (isRetryableNetworkError(error) && candidateUrl !== urls.at(-1)) {
+        lastNetworkError = error;
+        continue;
+      }
+
+      throw describeOfficialLawFetchError(error, candidateUrl);
+    }
+  }
+
+  throw describeOfficialLawFetchError(lastNetworkError, urls[urls.length - 1] ?? url);
+}
+
+async function fetchJsonOnce(url: string, config: OfficialLawApiConfig): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await config.fetchImpl(url, { signal: controller.signal });
+    const response = await config.fetchImpl(url, {
+      cache: "no-store",
+      headers: OFFICIAL_LAW_FETCH_HEADERS,
+      signal: controller.signal,
+    });
     const text = await response.text();
 
     if (!response.ok) {
@@ -483,6 +511,56 @@ async function fetchJson(url: string, config: OfficialLawApiConfig): Promise<unk
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function buildOfficialLawFetchUrls(url: string) {
+  const urls = [url];
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "www.law.go.kr") {
+      parsed.protocol = parsed.protocol === "https:" ? "http:" : "https:";
+      urls.push(parsed.toString());
+    }
+  } catch {
+    // Keep the original URL; downstream fetch will report the concrete failure.
+  }
+
+  return Array.from(new Set(urls));
+}
+
+function isRetryableNetworkError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return false;
+  }
+
+  const details = [error instanceof Error ? error.message : "", getErrorCauseMessage(error)].join(" ");
+  return /fetch failed|network|socket|ECONN|ENOTFOUND|ETIMEDOUT|UND_ERR|other side closed/i.test(details);
+}
+
+function describeOfficialLawFetchError(error: unknown, url: string) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new Error(`공식 법령 API 조회가 ${DEFAULT_TIMEOUT_MS}ms 후 시간 초과되었습니다.`);
+  }
+
+  if (!(error instanceof Error)) {
+    return new Error("공식 법령 API 조회 중 알 수 없는 오류가 발생했습니다.");
+  }
+
+  const causeMessage = getErrorCauseMessage(error);
+  const suffix = causeMessage && causeMessage !== error.message ? ` (${causeMessage})` : "";
+  const apiUrl = sanitizeOfficialApiUrl(new URL(url));
+  return new Error(`${error.message}${suffix} [${apiUrl}]`);
+}
+
+function getErrorCauseMessage(error: unknown) {
+  const cause = error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined;
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  if (typeof cause === "string") {
+    return cause;
+  }
+  return "";
 }
 
 function parseLawSearchResults(value: unknown): LawSearchResult[] {
