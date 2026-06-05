@@ -65,6 +65,14 @@ export type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  officialSourceName?: string;
+  lawName?: string;
+  articleLabel?: string;
+  articleNumber?: string;
+  effectiveDate?: string;
+  checkedAt?: string;
+  apiSourceUrl?: string;
+  verificationStatus?: "verified" | "needs_review" | "failed";
   legal?: AssistantLegalEvidenceMetadata;
 };
 

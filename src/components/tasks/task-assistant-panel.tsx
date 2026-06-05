@@ -16,6 +16,14 @@ type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  officialSourceName?: string;
+  lawName?: string;
+  articleLabel?: string;
+  articleNumber?: string;
+  effectiveDate?: string;
+  checkedAt?: string;
+  apiSourceUrl?: string;
+  verificationStatus?: "verified" | "needs_review" | "failed";
   legal?: {
     sourceId?: string;
     sourceKind?: string;
@@ -709,23 +717,39 @@ export function TaskAssistantPanel({
       }
       setRetrieveResult(retrieved);
 
+      const verifiedRetrieval =
+        requestedExecutionMode === "local-codex"
+          ? await getServerVerifiedLocalCodexRetrieval({
+              retrieved,
+              taskId: requestedTaskId,
+              question: requestedQuestion,
+              instruction: requestedInstruction,
+            })
+          : retrieved;
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+      if (requestedExecutionMode === "local-codex") {
+        setRetrieveResult(verifiedRetrieval);
+      }
+
       const generated =
         requestedExecutionMode === "local-codex"
           ? await generateLocalCodexReview({
-              evidence: retrieved.evidence,
-              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+              evidence: verifiedRetrieval.evidence,
+              evidenceReadinessWarnings: verifiedRetrieval.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskContext: retrieved.taskContext,
+              taskContext: verifiedRetrieval.taskContext,
             })
           : generateArchitectReview({
-              evidence: retrieved.evidence,
-              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+              evidence: verifiedRetrieval.evidence,
+              evidenceReadinessWarnings: verifiedRetrieval.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskContext: retrieved.taskContext,
+              taskContext: verifiedRetrieval.taskContext,
             });
-      const retrieveForRecord = generated.retrieval ?? retrieved;
+      const retrieveForRecord = generated.retrieval ?? verifiedRetrieval;
       if (retrieveForRecord.taskContext.taskId !== requestedTaskId) {
         throw new Error("Assistant generated retrieval task mismatch. Please rerun the review for the selected task.");
       }
@@ -2237,6 +2261,46 @@ function compactText(value: string) {
 
 function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+async function getServerVerifiedLocalCodexRetrieval(input: {
+  retrieved: RetrieveResponse;
+  taskId: string;
+  question: string;
+  instruction: string;
+}): Promise<RetrieveResponse> {
+  const review = await postTaskReviewJson({
+    taskId: input.taskId,
+    question: input.question,
+    instruction: input.instruction,
+    mode: "preview",
+  });
+
+  if (review.taskContext.taskId !== input.taskId) {
+    throw new Error("Assistant task-review task mismatch. Please rerun the review for the selected task.");
+  }
+
+  if (review.status === "blocked" || review.officialLawVerification.status === "failed") {
+    throw new Error(formatTaskReviewBlockedReason(review));
+  }
+
+  return {
+    ...input.retrieved,
+    taskContext: review.taskContext,
+    evidence: review.evidence,
+    unavailableEvidenceKinds: review.retrievedEvidence.unavailableEvidenceKinds,
+  };
+}
+
+function formatTaskReviewBlockedReason(review: TaskReviewResponse) {
+  const failures = review.officialLawVerification.failures.join(" / ");
+  const retry = review.officialLawVerification.retry.join(" / ");
+  const readiness = review.evidenceReadiness
+    .filter((item) => item.status === "missing")
+    .map((item) => `${item.kind}: ${item.action}`)
+    .join(" / ");
+
+  return [failures || review.reason, retry, readiness].filter(Boolean).join(" / ");
 }
 
 async function generateLocalCodexReview(input: {

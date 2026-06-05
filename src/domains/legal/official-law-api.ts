@@ -263,6 +263,14 @@ export function officialLawSourceToEvidence(source: OfficialLawApiSource): Assis
     sourceUrl: sanitizeOfficialSourceUrl(source.sourceUrl || source.apiUrl) || source.apiUrl,
     recordId: source.evidenceId,
     confidenceWeight: 0.95,
+    officialSourceName: OFFICIAL_LAW_PROVIDER_NAME,
+    lawName: source.lawName,
+    articleLabel: source.articleLabel,
+    articleNumber: source.articleNumber,
+    effectiveDate: source.effectiveDate,
+    checkedAt: source.checkedAt,
+    apiSourceUrl: source.apiUrl,
+    verificationStatus: "verified",
   };
 }
 
