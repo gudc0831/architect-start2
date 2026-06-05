@@ -262,6 +262,16 @@ type LocalCodexStatus = {
   reason?: string;
 };
 
+type LocalOfficialLawVerificationData = {
+  report: {
+    status: "not_required" | "verified" | "failed";
+    checkedAt: string;
+    failures: string[];
+    retry: string[];
+  };
+  evidence: AssistantEvidence[];
+};
+
 type BrowserRegionCapture = {
   dataUrl: string;
   cropDataUrl?: string;
@@ -719,7 +729,7 @@ export function TaskAssistantPanel({
 
       const verifiedRetrieval =
         requestedExecutionMode === "local-codex"
-          ? await getServerVerifiedLocalCodexRetrieval({
+          ? await getVerifiedLocalCodexRetrieval({
               retrieved,
               taskId: requestedTaskId,
               question: requestedQuestion,
@@ -839,10 +849,11 @@ export function TaskAssistantPanel({
             : "이 질문과 근거는 공식 법규 검증이 필요하지 않습니다."),
       };
     } catch (error) {
-      return {
-        status: "failed",
-        detail: errorMessage(error),
-      };
+      return checkOfficialLawPreflightWithExtension({
+        serverFailure: errorMessage(error),
+        taskId: selectedTask.id,
+        question,
+      });
     }
   }
 
@@ -2292,6 +2303,39 @@ async function getServerVerifiedLocalCodexRetrieval(input: {
   };
 }
 
+async function getVerifiedLocalCodexRetrieval(input: {
+  retrieved: RetrieveResponse;
+  taskId: string;
+  question: string;
+  instruction: string;
+}): Promise<RetrieveResponse> {
+  try {
+    return await getServerVerifiedLocalCodexRetrieval(input);
+  } catch {
+    return getExtensionVerifiedLocalCodexRetrieval(input);
+  }
+}
+
+async function getExtensionVerifiedLocalCodexRetrieval(input: {
+  retrieved: RetrieveResponse;
+  question: string;
+}): Promise<RetrieveResponse> {
+  const verification = await requestLocalOfficialLawVerification({
+    taskContext: input.retrieved.taskContext,
+    evidence: input.retrieved.evidence,
+    question: input.question,
+  });
+
+  if (verification.report.status === "failed") {
+    throw new Error(formatLocalOfficialLawVerificationFailure(verification));
+  }
+
+  return {
+    ...input.retrieved,
+    evidence: verification.evidence,
+  };
+}
+
 function formatTaskReviewBlockedReason(review: TaskReviewResponse) {
   const failures = review.officialLawVerification.failures.join(" / ");
   const retry = review.officialLawVerification.retry.join(" / ");
@@ -2301,6 +2345,40 @@ function formatTaskReviewBlockedReason(review: TaskReviewResponse) {
     .join(" / ");
 
   return [failures || review.reason, retry, readiness].filter(Boolean).join(" / ");
+}
+
+async function checkOfficialLawPreflightWithExtension(input: {
+  serverFailure: string;
+  taskId: string;
+  question: string;
+}): Promise<LocalCodexLawPreflight | null> {
+  if (!input.question.trim()) {
+    return null;
+  }
+
+  try {
+    const retrieved = await postJson<RetrieveResponse>("/api/assistant/retrieve", {
+      taskId: input.taskId,
+      question: input.question,
+    });
+    const verification = await requestLocalOfficialLawVerification({
+      taskContext: retrieved.taskContext,
+      evidence: retrieved.evidence,
+      question: input.question,
+    });
+    const failed = verification.report.status === "failed";
+    return {
+      status: failed ? "failed" : verification.report.status,
+      detail: failed
+        ? formatLocalOfficialLawVerificationFailure(verification)
+        : `서버 preflight는 실패했지만 로컬 extension 공식 법규 검증이 통과했습니다. checkedAt=${verification.report.checkedAt}`,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      detail: [input.serverFailure, errorMessage(error)].filter(Boolean).join(" / "),
+    };
+  }
 }
 
 async function generateLocalCodexReview(input: {
@@ -2337,6 +2415,29 @@ async function generateLocalCodexReview(input: {
       evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     }),
   };
+}
+
+async function requestLocalOfficialLawVerification(input: {
+  taskContext: AssistantTaskContext;
+  evidence: AssistantEvidence[];
+  question: string;
+}) {
+  return requestLocalCodexBridge<LocalOfficialLawVerificationData>(
+    "verify-official-law",
+    {
+      taskContext: input.taskContext,
+      evidence: input.evidence,
+      question: input.question,
+    },
+    30000,
+  );
+}
+
+function formatLocalOfficialLawVerificationFailure(verification: LocalOfficialLawVerificationData) {
+  return [
+    ...verification.report.failures,
+    ...verification.report.retry.map((item) => `Retry: ${item}`),
+  ].filter(Boolean).join(" / ");
 }
 
 function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext: AssistantTaskContext): AssistantOutput {
@@ -2649,7 +2750,7 @@ function formatHealthCheckTime() {
 }
 
 function requestLocalCodexBridge<T>(
-  command: "status" | "generate" | "select-region",
+  command: "status" | "generate" | "select-region" | "verify-official-law",
   input?: unknown,
   timeoutMs = 30000,
 ): Promise<T> {
