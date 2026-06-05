@@ -248,7 +248,9 @@ async function main() {
   });
   assert.match(promptText, /Conversation memory:/);
   assert.match(promptText, /Thread summary and last user follow-up/);
-  assert.match(promptText, /Evidence:/);
+  assert.match(promptText, /Legal evidence:/);
+  assert.match(promptText, /Project upload context:/);
+  assert.match(promptText, /Other evidence:/);
   assert.match(promptText, /Evidence readiness warnings:/);
 
   const assistantServiceSource = await readFile(join(process.cwd(), "src", "use-cases", "assistant-service.ts"), "utf8");

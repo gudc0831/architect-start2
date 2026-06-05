@@ -57,6 +57,8 @@ export const CLOUD_BACKUP_TABLE_SPECS = [
   { schemaName: "public", tableName: "assistant_run_policies", backupKey: "assistantRunPolicies", orderBy: "row_data.created_at asc, row_data.id asc" },
   { schemaName: "public", tableName: "assistant_usage_events", backupKey: "assistantUsageEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
   { schemaName: "public", tableName: "assistant_audit_events", backupKey: "assistantAuditEvents", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_threads", backupKey: "assistantThreads", orderBy: "row_data.created_at asc, row_data.id asc" },
+  { schemaName: "public", tableName: "assistant_thread_messages", backupKey: "assistantThreadMessages", orderBy: "row_data.created_at asc, row_data.id asc" },
   { schemaName: "public", tableName: "file_analysis_chunks", backupKey: "fileAnalysisChunks", orderBy: "row_data.created_at asc, row_data.id asc" },
   { schemaName: "storage", tableName: "buckets", backupKey: "storageBuckets", orderBy: "row_data.created_at asc, row_data.id asc" },
   { schemaName: "storage", tableName: "objects", backupKey: "storageObjects", orderBy: "row_data.created_at asc, row_data.name asc" },

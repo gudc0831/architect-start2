@@ -302,6 +302,11 @@ type LocalCodexHealthStep = {
   detail: string;
 };
 
+type LocalCodexLawPreflight = {
+  status: "not_required" | "verified" | "failed";
+  detail: string;
+};
+
 type LocalCodexHealthReport = {
   checkedAt: string;
   summary: string;
@@ -772,7 +777,8 @@ export function TaskAssistantPanel({
 
     try {
       const bridgeStatus = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
-      const report = buildLocalCodexHealthReport(bridgeStatus);
+      const lawPreflight = bridgeStatus.available ? await checkOfficialLawPreflight() : null;
+      const report = buildLocalCodexHealthReport(bridgeStatus, lawPreflight);
       setLocalCodexHealth(report);
       setStatus(report.summary);
     } catch (error) {
@@ -781,6 +787,38 @@ export function TaskAssistantPanel({
       setStatus(report.summary);
     } finally {
       setHealthLoading(false);
+    }
+  }
+
+  async function checkOfficialLawPreflight(): Promise<LocalCodexLawPreflight | null> {
+    if (!selectedTask || !question.trim()) {
+      return null;
+    }
+
+    try {
+      const review = await postTaskReviewJson({
+        taskId: selectedTask.id,
+        question,
+        instruction,
+        mode: "preview",
+      });
+      const verification = review.officialLawVerification;
+      const failed = verification.status === "failed" || review.status === "blocked";
+      const failureText = [...verification.failures, ...verification.retry].filter(Boolean).join(" / ");
+
+      return {
+        status: failed ? "failed" : verification.status,
+        detail:
+          failureText ||
+          (verification.status === "verified"
+            ? "서버 공식 법규 검증이 통과했습니다."
+            : "이 질문과 근거는 공식 법규 검증이 필요하지 않습니다."),
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        detail: errorMessage(error),
+      };
     }
   }
 
@@ -2444,14 +2482,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealthReport {
+function buildLocalCodexHealthReport(status: LocalCodexStatus, lawPreflight: LocalCodexLawPreflight | null): LocalCodexHealthReport {
   const ready = status.available;
+  const lawBlocked = lawPreflight?.status === "failed";
 
   return {
     checkedAt: formatHealthCheckTime(),
-    summary: ready
-      ? "이 페이지에서 로컬 Codex 로그인을 사용할 수 있습니다."
-      : "확장은 응답했지만 로컬 Codex 로그인 실행 환경은 아직 준비되지 않았습니다.",
+    summary: lawBlocked
+      ? "로컬 Codex 연결은 준비됐지만 공식 법규 검증이 차단됐습니다."
+      : ready
+        ? "이 페이지에서 로컬 Codex 로그인을 사용할 수 있습니다."
+        : "확장은 응답했지만 로컬 Codex 로그인 실행 환경은 아직 준비되지 않았습니다.",
     steps: [
       {
         id: "content-script",
@@ -2471,13 +2512,25 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
         status: "pass",
         detail: "Codex/OpenAI 인증 정보는 SaaS 또는 브라우저 확장 저장소에 저장되지 않습니다.",
       },
+      ...(lawPreflight
+        ? [
+            {
+              id: "official-law",
+              label: "공식 법규 검증",
+              status: lawBlocked ? ("fail" as const) : ("pass" as const),
+              detail: lawPreflight.detail,
+            },
+          ]
+        : []),
       {
         id: "generation",
         label: "답변 생성",
-        status: ready ? "pass" : "warn",
-        detail: ready
-          ? "선택한 task에 대해 로컬 Codex 로그인 기반 답변 생성을 실행할 수 있습니다."
-          : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
+        status: lawBlocked ? "fail" : ready ? "pass" : "warn",
+        detail: lawBlocked
+          ? "공식 법규 검증이 해결될 때까지 법규 근거가 포함된 답변 생성을 실행할 수 없습니다."
+          : ready
+            ? "선택한 task에 대해 로컬 Codex 로그인 기반 답변 생성을 실행할 수 있습니다."
+            : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
       },
     ],
   };
@@ -2804,7 +2857,7 @@ async function postTaskReviewJson(body: {
   taskId: string;
   question: string;
   instruction: string;
-  mode: "generate";
+  mode: "preview" | "generate";
 }): Promise<TaskReviewResponse> {
   const response = await fetch("/api/assistant/task-review", {
     method: "POST",
