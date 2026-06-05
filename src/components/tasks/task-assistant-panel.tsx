@@ -840,8 +840,16 @@ export function TaskAssistantPanel({
       const failed = verification.status === "failed" || review.status === "blocked";
       const failureText = [...verification.failures, ...verification.retry].filter(Boolean).join(" / ");
 
+      if (failed) {
+        return checkOfficialLawPreflightWithExtension({
+          serverFailure: failureText || review.reason,
+          taskId: selectedTask.id,
+          question,
+        });
+      }
+
       return {
-        status: failed ? "failed" : verification.status,
+        status: verification.status,
         detail:
           failureText ||
           (verification.status === "verified"
