@@ -3,7 +3,7 @@ import type { AssistantEvidence } from "@/domains/assistant/types";
 export const OFFICIAL_LAW_PROVIDER_NAME = "국가법령정보센터";
 export const OFFICIAL_LAW_API_DOCS_URL = "https://open.law.go.kr/LSO/openApi/guideList.do";
 
-const DEFAULT_LAW_API_BASE_URL = "https://www.law.go.kr/DRF";
+const DEFAULT_LAW_API_BASE_URL = "http://www.law.go.kr/DRF";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_LOCATORS = 5;
 
@@ -222,10 +222,16 @@ export async function verifyOfficialLawEvidence(
     locators.map((locator) => fetchOfficialLawArticle(locator, config, checkedAt)),
   );
 
-  const failures = sources.filter((source) => source.status !== "verified").map((source) => source.reason);
+  const verifiedSources = sources.filter((source) => source.status === "verified");
+  const blockingSources = sources.filter((source) => source.status !== "verified" && source.status !== "missing_query");
+  const missingQuerySources = sources.filter((source) => source.status === "missing_query");
+  const failures = [
+    ...blockingSources.map((source) => source.reason),
+    ...(verifiedSources.length === 0 ? missingQuerySources.map((source) => source.reason) : []),
+  ];
 
   return {
-    status: failures.length === 0 ? "verified" : "failed",
+    status: failures.length === 0 && verifiedSources.length > 0 ? "verified" : "failed",
     checkedAt,
     provider,
     locators,
