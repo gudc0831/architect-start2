@@ -35,6 +35,7 @@ import type {
   CreateAssistantUsageEventInput,
   ListAssistantAuditEventsInput,
   ListAssistantUsageEventsInput,
+  ListAssistantUsageEventsForProfileInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
   UpsertAssistantRunPolicyInput,
@@ -726,6 +727,22 @@ class PostgresAssistantRepository implements AssistantRepository {
       },
       orderBy: { createdAt: "desc" },
       take: 500,
+    });
+
+    return events.map(toUsageEvent);
+  }
+
+  async listUsageEventsForProfile(input: ListAssistantUsageEventsForProfileInput) {
+    const events = await assistantPrisma.assistantUsageEvent.findMany({
+      where: {
+        profileId: input.profileId,
+        createdAt: {
+          gte: new Date(input.from),
+          lt: new Date(input.to),
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      take: input.limit ?? 1000,
     });
 
     return events.map(toUsageEvent);

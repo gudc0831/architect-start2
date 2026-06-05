@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
 import type { AssistantActionAuditRecord, AssistantActionAuditSummary } from "@/domains/assistant/saas-api-mode";
+import type { AiSettingsPreference } from "@/domains/preferences/types";
+import { DEFAULT_AI_SETTINGS_PREFERENCE, sanitizeAiSettingsPreference } from "@/domains/preferences/types";
 
 type AssistantEvidence = {
   id: string;
@@ -96,6 +98,17 @@ type AssistantOutput = {
   answer: string;
   draftSummary: DraftSummary;
   retrieval?: RetrieveResponse;
+  localCodexUsage?: LocalCodexUsageMetadata;
+  localCodexBridgeSchemaVersion?: number;
+};
+
+type LocalCodexUsageMetadata = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  usageAvailable: boolean;
+  model?: string;
+  bridgeSchemaVersion?: number;
 };
 
 type EvidenceReadinessWarning = { code: string; message: string };
@@ -260,6 +273,8 @@ type LocalCodexStatus = {
   available: boolean;
   mode: "local-chatgpt-codex" | "mock";
   reason?: string;
+  bridgeSchemaVersion?: number;
+  codexCliVersion?: string;
 };
 
 type LocalOfficialLawVerificationData = {
@@ -312,6 +327,15 @@ type LocalCodexBridgeResponse<T> =
       ok: false;
       error: string;
     };
+
+type LocalCodexBridgeRequestOptions = {
+  codexOptions?: {
+    model?: string;
+    reasoningEffort?: string;
+    serviceTier?: string;
+    timeoutMs?: number;
+  };
+};
 
 type LocalCodexHealthStep = {
   id: string;
@@ -789,6 +813,13 @@ export function TaskAssistantPanel({
         return;
       }
       setRecord(savedRecord);
+      if (requestedExecutionMode === "local-codex") {
+        void recordLocalCodexUsage({
+          generated,
+          savedRecord,
+          taskId: retrieveForRecord.taskContext.taskId,
+        });
+      }
       await refreshAssistantRecords(retrieveForRecord.taskContext.taskId, reviewRequestId);
       if (reviewRequestSeqRef.current !== reviewRequestId) {
         return;
@@ -2396,11 +2427,20 @@ async function generateLocalCodexReview(input: {
   instruction: string;
   question: string;
 }): Promise<AssistantOutput> {
-  const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
+  const [status, preference] = await Promise.all([
+    requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000),
+    fetchAiSettingsPreference(),
+  ]);
   if (!status.available) {
     throw new Error(status.reason ?? "로컬 Codex 로그인을 사용할 수 없습니다.");
   }
 
+  const codexOptions = {
+    model: preference.aiDefaultModel,
+    reasoningEffort: preference.aiReasoningEffort,
+    serviceTier: preference.aiServiceTier,
+    timeoutMs: preference.aiRequestTimeoutMs,
+  };
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
     "generate",
     {
@@ -2410,7 +2450,8 @@ async function generateLocalCodexReview(input: {
       evidence: input.evidence,
       evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     },
-    120000,
+    preference.aiRequestTimeoutMs,
+    { codexOptions },
   );
 
   const output = normalizeLocalCodexOutput(generated, input.taskContext);
@@ -2422,7 +2463,22 @@ async function generateLocalCodexReview(input: {
       unavailableEvidenceKinds: [],
       evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     }),
+    localCodexUsage: normalizeLocalCodexUsageMetadata(generated, preference, status),
+    localCodexBridgeSchemaVersion: status.bridgeSchemaVersion,
   };
+}
+
+async function fetchAiSettingsPreference(): Promise<AiSettingsPreference> {
+  try {
+    const response = await fetch("/api/preferences/ai-settings", { cache: "no-store" });
+    const payload = (await response.json()) as { data?: unknown };
+    if (!response.ok) {
+      return DEFAULT_AI_SETTINGS_PREFERENCE;
+    }
+    return sanitizeAiSettingsPreference(payload.data);
+  } catch {
+    return DEFAULT_AI_SETTINGS_PREFERENCE;
+  }
 }
 
 async function requestLocalOfficialLawVerification(input: {
@@ -2472,7 +2528,64 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
           ? draftSummary.followUpAction
           : "Task 기록을 업데이트하기 전에 인용 근거를 확인하세요.",
     },
+    localCodexUsage: output.localCodexUsage,
+    localCodexBridgeSchemaVersion: output.localCodexBridgeSchemaVersion,
   };
+}
+
+function normalizeLocalCodexUsageMetadata(
+  output: unknown,
+  preference: AiSettingsPreference,
+  status: LocalCodexStatus,
+): LocalCodexUsageMetadata {
+  const outputRecord = isRecord(output) ? output : {};
+  const usageRecord = isRecord(outputRecord.localCodexUsage)
+    ? outputRecord.localCodexUsage
+    : isRecord(outputRecord.usage)
+      ? outputRecord.usage
+      : {};
+  const inputTokens = normalizeUsageTokenCount(usageRecord.inputTokens ?? usageRecord.input_tokens);
+  const outputTokens = normalizeUsageTokenCount(usageRecord.outputTokens ?? usageRecord.output_tokens);
+  const totalTokens = normalizeUsageTokenCount(usageRecord.totalTokens ?? usageRecord.total_tokens) || inputTokens + outputTokens;
+  const usageAvailable =
+    typeof usageRecord.usageAvailable === "boolean" ? usageRecord.usageAvailable : inputTokens > 0 || outputTokens > 0 || totalTokens > 0;
+  const model = typeof usageRecord.model === "string" && usageRecord.model.trim() ? usageRecord.model.trim() : preference.aiDefaultModel;
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    usageAvailable,
+    model,
+    bridgeSchemaVersion: status.bridgeSchemaVersion,
+  };
+}
+
+function normalizeUsageTokenCount(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+async function recordLocalCodexUsage(input: {
+  generated: AssistantOutput;
+  savedRecord: SavedAssistantRecord;
+  taskId: string;
+}) {
+  const usage = input.generated.localCodexUsage;
+  await postJson("/api/assistant/usage/me", {
+    taskId: input.taskId,
+    assistantRecordId: input.savedRecord.id,
+    runtimeMode: "extension-native-bridge-in-page",
+    model: usage?.model ?? DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel,
+    inputTokens: usage?.usageAvailable ? usage.inputTokens : 0,
+    outputTokens: usage?.usageAvailable ? usage.outputTokens : 0,
+    status: "success",
+    metadata: {
+      workflow: "daily-task-panel",
+      architectRunId: input.savedRecord.id,
+      usageAvailable: Boolean(usage?.usageAvailable),
+      bridgeSchemaVersion: usage?.bridgeSchemaVersion ?? input.generated.localCodexBridgeSchemaVersion,
+    },
+  });
 }
 
 function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefined {
@@ -2761,6 +2874,7 @@ function requestLocalCodexBridge<T>(
   command: "status" | "generate" | "select-region" | "verify-official-law",
   input?: unknown,
   timeoutMs = 30000,
+  options?: LocalCodexBridgeRequestOptions,
 ): Promise<T> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("로컬 Codex 로그인 연결은 브라우저에서만 사용할 수 있습니다."));
@@ -2810,6 +2924,7 @@ function requestLocalCodexBridge<T>(
         requestId,
         command,
         input,
+        ...(options?.codexOptions ? { codexOptions: options.codexOptions } : {}),
       },
       window.location.origin,
     );

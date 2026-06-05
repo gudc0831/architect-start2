@@ -25,6 +25,7 @@ import type {
   CreateAssistantUsageEventInput,
   ListAssistantAuditEventsInput,
   ListAssistantUsageEventsInput,
+  ListAssistantUsageEventsForProfileInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
   UpsertAssistantRunPolicyInput,
@@ -421,7 +422,7 @@ class LocalAssistantRepository implements AssistantRepository {
       taskId: input.taskId ?? null,
       profileId: input.profileId,
       assistantRecordId: input.assistantRecordId ?? null,
-      executionMode: "saas-api",
+      executionMode: input.executionMode,
       runtimeMode: input.runtimeMode,
       provider: input.provider,
       model: input.model,
@@ -450,6 +451,14 @@ class LocalAssistantRepository implements AssistantRepository {
     return store.usageEvents
       .filter((event) => event.projectId === input.projectId && (!input.month || event.createdAt.startsWith(`${input.month}-`)))
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listUsageEventsForProfile(input: ListAssistantUsageEventsForProfileInput) {
+    const store = await readStore();
+    return store.usageEvents
+      .filter((event) => event.profileId === input.profileId && event.createdAt >= input.from && event.createdAt < input.to)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(0, input.limit ?? 1000);
   }
 
   async createAuditEvent(input: CreateAssistantAuditEventInput) {

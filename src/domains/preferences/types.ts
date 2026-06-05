@@ -311,3 +311,85 @@ export function sanitizeTaskListLayoutPreference(input: unknown): TaskListLayout
 export function resolveDetailPanelWidth(input?: unknown) {
   return coerceDetailPanelWidthValue(input) ?? DETAIL_PANEL_DEFAULT_WIDTH;
 }
+
+export const aiReasoningEfforts = ["minimal", "low", "medium", "high"] as const;
+export const aiServiceTiers = ["auto", "default", "priority"] as const;
+export const aiLocalUsageRangeDays = [30, 90, 0] as const;
+
+export type AiReasoningEffort = (typeof aiReasoningEfforts)[number];
+export type AiServiceTier = (typeof aiServiceTiers)[number];
+export type AiLocalUsageRangeDays = (typeof aiLocalUsageRangeDays)[number];
+
+export type AiSettingsPreference = {
+  aiDefaultModel: string;
+  aiReasoningEffort: AiReasoningEffort;
+  aiServiceTier: AiServiceTier;
+  aiRequestTimeoutMs: number;
+  aiLocalUsageDefaultRangeDays: AiLocalUsageRangeDays;
+};
+
+export const AI_REQUEST_TIMEOUT_MIN_MS = 30000;
+export const AI_REQUEST_TIMEOUT_MAX_MS = 120000;
+export const DEFAULT_AI_SETTINGS_PREFERENCE: AiSettingsPreference = {
+  aiDefaultModel: "gpt-5-codex",
+  aiReasoningEffort: "medium",
+  aiServiceTier: "auto",
+  aiRequestTimeoutMs: AI_REQUEST_TIMEOUT_MAX_MS,
+  aiLocalUsageDefaultRangeDays: 30,
+};
+
+const AI_MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
+
+export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
+  return typeof value === "string" && aiReasoningEfforts.includes(value as AiReasoningEffort);
+}
+
+export function isAiServiceTier(value: unknown): value is AiServiceTier {
+  return typeof value === "string" && aiServiceTiers.includes(value as AiServiceTier);
+}
+
+export function isAiLocalUsageRangeDays(value: unknown): value is AiLocalUsageRangeDays {
+  return typeof value === "number" && aiLocalUsageRangeDays.includes(value as AiLocalUsageRangeDays);
+}
+
+function sanitizeAiModel(value: unknown) {
+  if (typeof value !== "string") {
+    return DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
+  }
+
+  const normalized = value.trim();
+  return AI_MODEL_PATTERN.test(normalized) ? normalized : DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
+}
+
+function sanitizeAiRequestTimeoutMs(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_AI_SETTINGS_PREFERENCE.aiRequestTimeoutMs;
+  }
+
+  return Math.max(AI_REQUEST_TIMEOUT_MIN_MS, Math.min(AI_REQUEST_TIMEOUT_MAX_MS, Math.round(numeric)));
+}
+
+function sanitizeAiLocalUsageRangeDays(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return isAiLocalUsageRangeDays(numeric) ? numeric : DEFAULT_AI_SETTINGS_PREFERENCE.aiLocalUsageDefaultRangeDays;
+}
+
+export function sanitizeAiSettingsPreference(input: unknown): AiSettingsPreference {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ...DEFAULT_AI_SETTINGS_PREFERENCE };
+  }
+
+  const preference = input as Partial<Record<keyof AiSettingsPreference, unknown>>;
+  return {
+    aiDefaultModel: sanitizeAiModel(preference.aiDefaultModel),
+    aiReasoningEffort: isAiReasoningEffort(preference.aiReasoningEffort)
+      ? preference.aiReasoningEffort
+      : DEFAULT_AI_SETTINGS_PREFERENCE.aiReasoningEffort,
+    aiServiceTier: isAiServiceTier(preference.aiServiceTier)
+      ? preference.aiServiceTier
+      : DEFAULT_AI_SETTINGS_PREFERENCE.aiServiceTier,
+    aiRequestTimeoutMs: sanitizeAiRequestTimeoutMs(preference.aiRequestTimeoutMs),
+    aiLocalUsageDefaultRangeDays: sanitizeAiLocalUsageRangeDays(preference.aiLocalUsageDefaultRangeDays),
+  };
+}

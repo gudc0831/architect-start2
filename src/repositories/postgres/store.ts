@@ -8,10 +8,17 @@ import {
   DEFAULT_TASK_STATUS,
   normalizeTaskStatus,
 } from "@/domains/task/status";
-import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
+import type {
+  AiSettingsPreference,
+  QuickCreateWidthMap,
+  TaskListLayoutPreference,
+  ThemeId,
+  ThemePreference,
+} from "@/domains/preferences/types";
 import {
   DEFAULT_THEME_ID,
   sanitizeQuickCreateWidths,
+  sanitizeAiSettingsPreference,
   sanitizeTaskListLayoutPreference,
   sanitizeThemeId,
 } from "@/domains/preferences/types";
@@ -1327,6 +1334,42 @@ class PostgresPreferenceRepository implements PreferenceRepository {
     return {
       themeId: sanitizeThemeId(record.themeId),
     };
+  }
+
+  async getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference> {
+    const record = await prisma.profilePreference.findUnique({
+      where: { profileId },
+      select: {
+        aiDefaultModel: true,
+        aiReasoningEffort: true,
+        aiServiceTier: true,
+        aiRequestTimeoutMs: true,
+        aiLocalUsageDefaultRangeDays: true,
+      },
+    });
+
+    return sanitizeAiSettingsPreference(record ?? {});
+  }
+
+  async saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): Promise<AiSettingsPreference> {
+    const sanitized = sanitizeAiSettingsPreference(preference);
+    const record = await prisma.profilePreference.upsert({
+      where: { profileId },
+      update: sanitized,
+      create: {
+        profileId,
+        ...sanitized,
+      },
+      select: {
+        aiDefaultModel: true,
+        aiReasoningEffort: true,
+        aiServiceTier: true,
+        aiRequestTimeoutMs: true,
+        aiLocalUsageDefaultRangeDays: true,
+      },
+    });
+
+    return sanitizeAiSettingsPreference(record);
   }
 }
 export const postgresProjectRepository = new PostgresProjectRepository();

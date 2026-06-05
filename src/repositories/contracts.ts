@@ -1,4 +1,10 @@
-import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
+import type {
+  AiSettingsPreference,
+  QuickCreateWidthMap,
+  TaskListLayoutPreference,
+  ThemeId,
+  ThemePreference,
+} from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import type { FileMetadata } from "@/domains/file/analysis";
 import type { FileAnalysisSearchResult } from "@/domains/file/search";
@@ -181,6 +187,8 @@ export interface PreferenceRepository {
   saveTaskListLayout(profileId: string, layout: TaskListLayoutPreference): Promise<TaskListLayoutPreference>;
   getThemePreference(profileId: string): Promise<ThemePreference>;
   saveThemePreference(profileId: string, themeId: ThemeId): Promise<ThemePreference>;
+  getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference>;
+  saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): Promise<AiSettingsPreference>;
 }
 
 export type TaskFileSummaryMap = Record<string, TaskFileSummary>;

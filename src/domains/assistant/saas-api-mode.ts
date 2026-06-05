@@ -17,6 +17,8 @@ export type AssistantPolicyDecision =
   | "rate_limited";
 export type AssistantUsageStatus = "success" | "blocked" | "failed" | "cancelled";
 export type AssistantProviderCallMode = "mock" | "live";
+export type AssistantUsageExecutionMode = "saas-api" | "local-chatgpt-codex";
+export type AssistantUsageProvider = AssistantPolicyProvider | "local-codex";
 
 export type AssistantRunPolicy = {
   id: string;
@@ -43,9 +45,9 @@ export type AssistantUsageEvent = {
   taskId: string | null;
   profileId: string;
   assistantRecordId: string | null;
-  executionMode: "saas-api";
+  executionMode: AssistantUsageExecutionMode;
   runtimeMode: string;
-  provider: AssistantPolicyProvider;
+  provider: AssistantUsageProvider;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -56,6 +58,33 @@ export type AssistantUsageEvent = {
   errorCode: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
+};
+
+export type MyAssistantUsageBucket = {
+  bucket: string;
+  serviceInputTokens: number;
+  serviceOutputTokens: number;
+  serviceTotalTokens: number;
+  serviceRunCount: number;
+  failedRunCount: number;
+  workflowCounts: Record<string, number>;
+};
+
+export type MyAssistantUsageSummary = {
+  range: {
+    from: string;
+    to: string;
+    granularity: "day" | "week" | "month";
+  };
+  totals: {
+    serviceInputTokens: number;
+    serviceOutputTokens: number;
+    serviceTotalTokens: number;
+    serviceRunCount: number;
+    failedRunCount: number;
+  };
+  buckets: MyAssistantUsageBucket[];
+  metadataOnly: true;
 };
 
 export type AssistantAuditEvent = {

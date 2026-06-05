@@ -115,6 +115,7 @@ export function Sidebar({
     [isPreview],
   );
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
+  const aiSettingsHref = "/ai-settings" as Route;
   const canShowProjectAdminLink =
     !isPreview &&
     Boolean(authUser) &&
@@ -159,6 +160,12 @@ export function Sidebar({
     }
   }, [adminHref, isPreview, router]);
 
+  const warmAiSettingsNavigation = useCallback(() => {
+    if (!isPreview) {
+      router.prefetch(aiSettingsHref);
+    }
+  }, [aiSettingsHref, isPreview, router]);
+
   useEffect(() => {
     if (isPreview || !projectLoaded || !currentProjectId) {
       return;
@@ -169,6 +176,7 @@ export function Sidebar({
         router.prefetch(item.href);
       });
       warmAdminNavigation();
+      warmAiSettingsNavigation();
       void ensureDashboardScopeLoaded("active")
         .then(() => fetchWorkspaceDailyTaskUserOrders())
         .catch(() => undefined);
@@ -176,7 +184,7 @@ export function Sidebar({
     });
 
     return () => cancelSidebarIdleWork(handle);
-  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router, warmAdminNavigation]);
+  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router, warmAdminNavigation, warmAiSettingsNavigation]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -312,6 +320,18 @@ export function Sidebar({
                   <span className="sidebar__link-label">{item.label}</span>
                 </Link>
               ))}
+              {!isPreview && authUser?.accessStatus === "active" ? (
+                <Link
+                  className={clsx("sidebar__link", pathname === aiSettingsHref && "sidebar__link--active")}
+                  href={aiSettingsHref}
+                  onFocus={warmAiSettingsNavigation}
+                  onMouseEnter={warmAiSettingsNavigation}
+                  onPointerDownCapture={warmAiSettingsNavigation}
+                >
+                  <span aria-hidden="true" className="sidebar__link-index">06</span>
+                  <span className="sidebar__link-label">AI settings</span>
+                </Link>
+              ) : null}
               {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
                 <Link
                   className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
@@ -342,6 +362,17 @@ export function Sidebar({
                 {item.label}
               </Link>
             ))}
+            {!isPreview && authUser?.accessStatus === "active" ? (
+              <Link
+                className={clsx("sidebar__link", pathname === aiSettingsHref && "sidebar__link--active")}
+                href={aiSettingsHref}
+                onFocus={warmAiSettingsNavigation}
+                onMouseEnter={warmAiSettingsNavigation}
+                onPointerDownCapture={warmAiSettingsNavigation}
+              >
+                AI settings
+              </Link>
+            ) : null}
             {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
               <Link
                 className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}

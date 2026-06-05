@@ -20,6 +20,8 @@ import type {
   AssistantPolicyProvider,
   AssistantRunPolicy,
   AssistantUsageEvent,
+  AssistantUsageExecutionMode,
+  AssistantUsageProvider,
   AssistantUsageStatus,
 } from "@/domains/assistant/saas-api-mode";
 
@@ -106,9 +108,9 @@ export type CreateAssistantUsageEventInput = {
   taskId?: string | null;
   profileId: string;
   assistantRecordId?: string | null;
-  executionMode: "saas-api";
+  executionMode: AssistantUsageExecutionMode;
   runtimeMode: string;
-  provider: AssistantPolicyProvider;
+  provider: AssistantUsageProvider;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -123,6 +125,13 @@ export type CreateAssistantUsageEventInput = {
 export type ListAssistantUsageEventsInput = {
   projectId: string;
   month?: string;
+};
+
+export type ListAssistantUsageEventsForProfileInput = {
+  profileId: string;
+  from: string;
+  to: string;
+  limit?: number;
 };
 
 export type ListAssistantAuditEventsInput = {
@@ -181,6 +190,7 @@ export interface AssistantRepository {
   upsertRunPolicy(input: UpsertAssistantRunPolicyInput): Promise<AssistantRunPolicy>;
   createUsageEvent(input: CreateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
   listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
+  listUsageEventsForProfile(input: ListAssistantUsageEventsForProfileInput): Promise<AssistantUsageEvent[]>;
   createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;
   listAuditEvents(input: ListAssistantAuditEventsInput): Promise<AssistantAuditEvent[]>;
   deleteAuditEventsByIds(input: DeleteAssistantAuditEventsByIdsInput): Promise<DeleteAssistantAuditEventsByIdsResult>;

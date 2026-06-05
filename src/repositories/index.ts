@@ -255,4 +255,10 @@ export const preferenceRepository: PreferenceRepository = {
   saveThemePreference(profileId, themeId) {
     return getPreferenceRepository().saveThemePreference(profileId, themeId);
   },
+  getAiSettingsPreference(profileId) {
+    return getPreferenceRepository().getAiSettingsPreference(profileId);
+  },
+  saveAiSettingsPreference(profileId, preference) {
+    return getPreferenceRepository().saveAiSettingsPreference(profileId, preference);
+  },
 };
