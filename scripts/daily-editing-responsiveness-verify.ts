@@ -29,7 +29,7 @@ import {
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 import type { TaskRecord } from "@/domains/task/types";
-import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
+import { classifyRouteDatabaseError, handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
 import { resolvePublicSiteUrl } from "@/lib/auth/public-site-url";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { localizeError } from "@/lib/ui-copy";
@@ -439,9 +439,12 @@ const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf
 const taskReorderRouteSource = readFileSync(resolve("src/app/api/tasks/reorder/route.ts"), "utf8");
 const taskUpdateRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/route.ts"), "utf8");
 const taskTrashRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/trash/route.ts"), "utf8");
+const editLeaseRouteSource = readFileSync(resolve("src/app/api/edit-leases/route.ts"), "utf8");
+const routeErrorSource = readFileSync(resolve("src/lib/api/route-error.ts"), "utf8");
 const prismaSource = readFileSync(resolve("src/lib/prisma.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
+const taskInlineEditorOverlaySource = readFileSync(resolve("src/components/tasks/task-inline-editor-overlay.tsx"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
 const updateTaskOrdersSource = postgresStoreSource.slice(
   postgresStoreSource.indexOf("async updateTaskOrders"),
@@ -519,6 +522,26 @@ assert.match(taskWorkspaceSource, /if \(!canReorderDailyTasks\) \{\s*setErrorMes
 assert.match(taskWorkspaceSource, /canReorderRows=\{canReorderDailyTasks\}/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
+assert.match(editLeaseRouteSource, /export const maxDuration = 30/);
+assert.match(editLeaseRouteSource, /isUuid/);
+assert.match(editLeaseRouteSource, /EDIT_LEASE_TARGET_ID_INVALID/);
+assert.match(editLeaseRouteSource, /cleanupExpiredEditLeasesBestEffort/);
+assert.match(editLeaseRouteSource, /expiresAt:\s*\{\s*lte:\s*now\s*\}/);
+assert.doesNotMatch(editLeaseRouteSource, /await prisma\.editLease\.deleteMany\(\{\s*where:\s*\{\s*expiresAt:\s*\{\s*lte:\s*now\s*\}\s*\}\s*\}\s*\)/);
+assert.match(editLeaseRouteSource, /retryEditLeaseAcquisitionAfterUniqueConflict/);
+assert.match(
+  editLeaseRouteSource,
+  /error instanceof Prisma\.PrismaClientKnownRequestError && error\.code === "P2002"[\s\S]*retryEditLeaseAcquisitionAfterUniqueConflict/,
+);
+assert.match(editLeaseRouteSource, /handleEditLeaseAcquisitionError/);
+assert.match(editLeaseRouteSource, /EDIT_LEASE_RETRYABLE_CONFLICT/);
+assert.match(editLeaseRouteSource, /EDIT_LEASE_TRANSACTION_UNAVAILABLE/);
+assert.match(routeErrorSource, /classifyRouteDatabaseError/);
+assert.match(routeErrorSource, /DATABASE_SCHEMA_UNAVAILABLE/);
+assert.match(routeErrorSource, /DATABASE_PERMISSION_DENIED/);
+assert.match(routeErrorSource, /DATABASE_INVALID_INPUT/);
+assert.match(routeErrorSource, /sanitizeRouteErrorDetails/);
+assert.doesNotMatch(routeErrorSource, /stack:\s*error\.stack/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS = process\.env\.VERCEL \? 2_000 : 10_000/);
 assert.match(prismaSource, /function buildRuntimeDatabaseUrl\(databaseUrl: string\)/);
@@ -528,6 +551,40 @@ assert.match(prismaSource, /parsed\.searchParams\.set\("pgbouncer", "true"\)/);
 assert.match(prismaSource, /allowExitOnIdle: true/);
 assert.match(taskWorkspaceSource, /const DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS = 30000/);
 assert.match(taskWorkspaceSource, /async function fetchDailyMutationRequest/);
+assert.match(taskWorkspaceSource, /type EditLeaseAcquisitionResult = "acquired" \| "degraded" \| "blocked"/);
+assert.match(taskWorkspaceSource, /pendingTaskListEditLeaseRequestsRef = useRef<Map<string, Promise<EditLeaseAcquisitionResult>>>\(new Map\(\)\)/);
+assert.match(taskWorkspaceSource, /getPendingTaskListFocusCellKey\(cell\)/);
+assert.match(taskWorkspaceSource, /const pendingRequest = pendingTaskListEditLeaseRequestsRef\.current\.get\(requestKey\);/);
+assert.match(taskWorkspaceSource, /inlineSavingCells, setInlineSavingCells/);
+assert.match(taskWorkspaceSource, /buildInlineSavingCellKey\(currentTask\.id, columnKey\)/);
+assert.match(taskWorkspaceSource, /clearInlineSavingCellMap\(previous, currentTask\.id, columnKey\)/);
+assert.match(taskWorkspaceSource, /inlineSavingCells\[buildInlineSavingCellKey\(overlayCell\.taskId, overlayCell\.columnKey as TaskListColumnKey\)\]/);
+assert.match(taskWorkspaceSource, /isRecoverableEditLeaseFailure/);
+assert.match(taskWorkspaceSource, /readApiError\(response, "updateTaskFailed"\)/);
+assert.match(
+  taskWorkspaceSource,
+  /localFirstActiveTasksRef\.current\.find\(\(task\) => task\.id === targetTaskId\) \?\? null/,
+);
+assert.match(taskWorkspaceSource, /taskIdOverride \?\? draftSnapshot\.session\?\.taskId \?\? draftRef\.current\?\.id/);
+assert.match(taskWorkspaceSource, /saveInlineTaskListField\(activeCell\.columnKey, \{\}, activeCell\.taskId\)/);
+assert.match(taskWorkspaceSource, /onCommit\(commitColumnKey, valueOverride, overlayCell\.taskId\)/);
+assert.match(taskWorkspaceSource, /return "degraded"/);
+assert.match(taskWorkspaceSource, /if \(acquisition === "acquired"\)/);
+assert.match(taskWorkspaceSource, /if \(acquisition === "degraded"\)/);
+assert.match(taskWorkspaceSource, /const overlayActiveCell = useMemo/);
+assert.match(taskWorkspaceSource, /const overlayPendingFocusCell = useMemo/);
+assert.match(taskWorkspaceSource, /const getOverlayCellNode = useCallback/);
+assert.match(taskWorkspaceSource, /const currentSnapshot = draftStore\.getSnapshot\(\);/);
+assert.match(
+  taskWorkspaceSource,
+  /currentSnapshot\.session\?\.taskId === activeCellTaskId &&\s*currentSnapshot\.session\.columnKey === activeCellColumnKey &&\s*currentSnapshot\.draft\?\.id === draft\.id/s,
+);
+assert.match(taskWorkspaceSource, /const handleTaskListInlineFocusHandled = useCallback/);
+assert.match(taskInlineEditorOverlaySource, /const anchorStateRef = useRef/);
+assert.match(taskInlineEditorOverlaySource, /areAnchorRectsEqual\(previous\.rect, nextAnchorRect\)/);
+assert.match(taskInlineEditorOverlaySource, /anchorStateRef\.current = nextState/);
+assert.match(taskWorkspaceSource, /calendarLinked:\s*"calendarLinked"/);
+assert.match(editLeaseRouteSource, /"calendarLinked"/);
 assert.match(taskWorkspaceSource, /const localFirstTasks = useMemo/);
 assert.match(taskWorkspaceSource, /buildStoredOrderTaskTree\(localFirstTasks\)/);
 assert.match(taskWorkspaceSource, /localFirstActiveTasksRef\.current\.length/);
@@ -559,6 +616,56 @@ assert.equal(
   ),
   true,
 );
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2021", meta: { modelName: "EditLease" } }), {
+  status: 503,
+  code: "DATABASE_SCHEMA_UNAVAILABLE",
+  message: "Database schema is temporarily unavailable",
+});
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2022", meta: { column: "field_key" } }), {
+  status: 503,
+  code: "DATABASE_SCHEMA_UNAVAILABLE",
+  message: "Database schema is temporarily unavailable",
+});
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2028" }), {
+  status: 503,
+  code: "DATABASE_TRANSACTION_UNAVAILABLE",
+  message: "Database transaction is temporarily unavailable",
+});
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2003", meta: { field_name: "edit_leases_project_id_fkey" } }), {
+  status: 409,
+  code: "DATABASE_CONSTRAINT_VIOLATION",
+  message: "Database constraint prevented the change",
+});
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2025" }), {
+  status: 409,
+  code: "DATABASE_RECORD_CONFLICT",
+  message: "Database record changed before the request completed",
+});
+assert.deepEqual(classifyRouteDatabaseError({ code: "P2034" }), {
+  status: 409,
+  code: "DATABASE_RETRYABLE_CONFLICT",
+  message: "Database transaction conflict. Please retry.",
+});
+assert.deepEqual(classifyRouteDatabaseError({ meta: { code: "42501" } }), {
+  status: 503,
+  code: "DATABASE_PERMISSION_DENIED",
+  message: "Database permission is not available for this operation",
+});
+assert.deepEqual(classifyRouteDatabaseError({ meta: { code: "22P02" } }), {
+  status: 400,
+  code: "DATABASE_INVALID_INPUT",
+  message: "Request contains invalid database input",
+});
+assert.deepEqual(classifyRouteDatabaseError({ meta: { code: "40001" } }), {
+  status: 409,
+  code: "DATABASE_RETRYABLE_CONFLICT",
+  message: "Database transaction conflict. Please retry.",
+});
+assert.deepEqual(classifyRouteDatabaseError({ meta: { code: "40P01" } }), {
+  status: 409,
+  code: "DATABASE_RETRYABLE_CONFLICT",
+  message: "Database transaction conflict. Please retry.",
+});
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;

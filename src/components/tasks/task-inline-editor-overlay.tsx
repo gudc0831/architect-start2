@@ -128,10 +128,15 @@ export function TaskInlineEditorOverlay({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const focusHandledRef = useRef(false);
   const [anchorState, setAnchorState] = useState<TaskInlineEditorOverlayAnchorState>(null);
+  const anchorStateRef = useRef<TaskInlineEditorOverlayAnchorState>(null);
   const anchorRect = activeCell && anchorState && areTaskGridCellKeysEqual(activeCell, anchorState.cell) ? anchorState.rect : null;
 
   const syncAnchorRect = useCallback(() => {
     if (!activeCell) {
+      if (anchorStateRef.current) {
+        anchorStateRef.current = null;
+        setAnchorState(null);
+      }
       return false;
     }
 
@@ -145,20 +150,17 @@ export function TaskInlineEditorOverlay({
       return false;
     }
 
-    setAnchorState((previous) => {
-      if (
-        previous &&
-        areTaskGridCellKeysEqual(previous.cell, activeCell) &&
-        areAnchorRectsEqual(previous.rect, nextAnchorRect)
-      ) {
-        return previous;
-      }
+    const previous = anchorStateRef.current;
+    if (previous && areTaskGridCellKeysEqual(previous.cell, activeCell) && areAnchorRectsEqual(previous.rect, nextAnchorRect)) {
+      return true;
+    }
 
-      return {
-        cell: activeCell,
-        rect: nextAnchorRect,
-      };
-    });
+    const nextState = {
+      cell: activeCell,
+      rect: nextAnchorRect,
+    };
+    anchorStateRef.current = nextState;
+    setAnchorState(nextState);
     return true;
   }, [activeCell, getCellNode]);
 

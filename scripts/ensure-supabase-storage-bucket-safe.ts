@@ -44,7 +44,8 @@ async function main() {
   let created = false;
 
   if (existing.error) {
-    const status = "status" in existing.error ? existing.error.status : "statusCode" in existing.error ? existing.error.statusCode : null;
+    const errorWithLegacyStatus = existing.error as { statusCode?: number };
+    const status = existing.error.status ?? errorWithLegacyStatus.statusCode ?? null;
     if (status !== 404 && !existing.error.message.toLowerCase().includes("not found")) {
       throw new Error(existing.error.message);
     }

@@ -159,3 +159,22 @@ Before the final response, always check:
 - List repo skills with `npm run codex:skills:list`.
 - When this repo needs browser UI verification, prefer the project-shared `verify-browser-ui` skill at `codex/skills/verify-browser-ui`.
 - If the global skill registry is stale or missing that skill, read the repo-local `SKILL.md` directly and sync it before relying on the global copy.
+
+## Exact Preview Auth Session
+
+- For authenticated verification of `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily`, use only the dedicated non-automated Chrome profile at `output/browser-check/auth-profiles/exact-preview-chrome`.
+- Do not use Playwright-controlled Chrome for Google OAuth login; Google may block it as an unsafe browser. Open normal Chrome with that dedicated profile and let the user complete login there.
+- Do not ask the user to paste cookies, refresh tokens, auth headers, DB URLs, or secrets into chat. Never print cookie values or session contents.
+- After the user confirms login, close only Chrome processes whose command line contains that dedicated profile path, then reuse that same profile for exact Preview browser verification.
+- Do not use the user's default Chrome profile for automation. Keep the verification session isolated to the dedicated profile path above.
+
+## Exact Preview Daily Edit-Lease Regression Protocol
+
+- When the user reports `This page couldn't load` or a crash on the exact Preview `/daily`, do not assume the cause is `POST /api/edit-leases`. First separate: alias/deployment target, current route path, OAuth error query, app auth state, browser console/page errors, network route statuses, and Vercel 500/503 logs.
+- Treat `/preview/daily` as smoke only. Final signoff for edit behavior must use authenticated DB-backed `/daily` on the exact Preview URL.
+- For issue-title inline edit regressions, verify the chained workflow: delay `PATCH /api/tasks/*` long enough to keep server sync pending, then edit `issueTitle` for three different task rows consecutively.
+- Required pass evidence for that workflow: at least 3 `POST /api/edit-leases` 2xx responses, 3 `PATCH /api/tasks/{taskId}` 2xx responses, final DOM values matching all three edits, browser console/page errors 0, API server errors 0, and no Next.js error boundary.
+- Do not accept one edit/cancel or one successful lease POST as sufficient proof. Prior failures included a React overlay loop after a 200 lease response and a blur-commit race that produced 3 lease POSTs but only 2 task PATCHes.
+- Preserve `/daily` local-first behavior while fixing this class of bugs: no table-wide disable, no global same-column saving lock, no forced full refresh, and no waiting for the server response before showing local edits.
+- Inline commit paths must carry the active cell task id. Do not infer the save target only from the currently selected task or a mutable draft ref during blur.
+- Overlay anchor measurement must compare the next anchor state to the previous state before calling `setState`; unstable cell objects or layout-effect anchor updates can reintroduce maximum-update-depth crashes.

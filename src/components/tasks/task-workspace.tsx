@@ -442,6 +442,7 @@ type PendingTaskListFocusCell = {
   taskId: string;
   columnKey: TaskListColumnKey;
 };
+type EditLeaseAcquisitionResult = "acquired" | "degraded" | "blocked";
 
 type TaskListRowInteractionState = {
   selectedTaskId: string | null;
@@ -805,6 +806,10 @@ function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
   };
 }
 
+function getPendingTaskListFocusCellKey(cell: PendingTaskListFocusCell) {
+  return `${cell.taskId}:${cell.columnKey}`;
+}
+
 function isWorkspaceNavigationTarget(target: HTMLElement) {
   return Boolean(target.closest('[data-workspace-navigation="true"]'));
 }
@@ -863,6 +868,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const [calendarHolidayDateKeys, setCalendarHolidayDateKeys] = useState<string[] | null>(null);
   const [calendarHolidayLoadedMonths, setCalendarHolidayLoadedMonths] = useState<string[] | null>(null);
   const [inlineSavingFields, setInlineSavingFields] = useState<Partial<Record<TaskListColumnKey, boolean>>>({});
+  const [inlineSavingCells, setInlineSavingCells] = useState<Record<string, boolean>>({});
   const [taskSortMode, setTaskSortMode] = useState<DailyTaskSortMode>("manual");
   const [isTaskOrderMenuOpen, setIsTaskOrderMenuOpen] = useState(false);
   const [taskFocusKey, setTaskFocusKey] = useState<TaskFocusKey | null>(null);
@@ -944,6 +950,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const draftRef = useRef<TaskRecord | null>(null);
   const activeTaskListInlineEditCellRef = useRef<PendingTaskListFocusCell | null>(null);
   const activeTaskListEditLeaseCellRef = useRef<PendingTaskListFocusCell | null>(null);
+  const pendingTaskListEditLeaseRequestsRef = useRef<Map<string, Promise<EditLeaseAcquisitionResult>>>(new Map());
   const parentTaskNumberDraftRef = useRef("");
   const selectedParentTaskRef = useRef<TaskRecord | null>(null);
   const selectedTaskRef = useRef<TaskRecord | null>(null);
@@ -3066,6 +3073,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setDraft(null);
       setParentTaskNumberDraft("");
       setInlineSavingFields({});
+      setInlineSavingCells({});
       resetDraftDirtyFields();
       return;
     }
@@ -3078,6 +3086,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setDraft(toDraftTask(selectedTask));
       setParentTaskNumberDraft(nextParentTaskNumber);
       setInlineSavingFields({});
+      setInlineSavingCells({});
       resetDraftDirtyFields();
       return;
     }
@@ -3492,29 +3501,47 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     [markDraftFieldDirty, taskEditorDraftStore],
   );
   const acquireTaskListEditLease = useCallback(
-    async (cell: PendingTaskListFocusCell) => {
+    async (cell: PendingTaskListFocusCell): Promise<EditLeaseAcquisitionResult> => {
       if (isPreview || !canEditWorkspace) {
-        return true;
+        return "acquired";
       }
 
-      setErrorMessage(null);
+      const requestKey = getPendingTaskListFocusCellKey(cell);
+      const pendingRequest = pendingTaskListEditLeaseRequestsRef.current.get(requestKey);
+      if (pendingRequest) {
+        return pendingRequest;
+      }
 
-      try {
-        const response = await fetch("/api/edit-leases", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildEditLeasePayload(cell)),
-        });
+      const request = (async () => {
+        setErrorMessage(null);
 
-        if (response.ok) {
-          return true;
+        try {
+          const response = await fetch("/api/edit-leases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildEditLeasePayload(cell)),
+          });
+
+          if (response.ok) {
+            return "acquired";
+          }
+
+          const error = await readApiError(response, "updateTaskFailed");
+          setErrorMessage(error.message);
+          return isRecoverableEditLeaseFailure(error) ? "degraded" : "blocked";
+        } catch (error) {
+          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+          return "degraded";
         }
+      })();
 
-        setErrorMessage(await readErrorMessage(response, "updateTaskFailed"));
-        return false;
-      } catch {
-        setErrorMessage(localizeError({ fallbackKey: "updateTaskFailed" }));
-        return false;
+      pendingTaskListEditLeaseRequestsRef.current.set(requestKey, request);
+      try {
+        return await request;
+      } finally {
+        if (pendingTaskListEditLeaseRequestsRef.current.get(requestKey) === request) {
+          pendingTaskListEditLeaseRequestsRef.current.delete(requestKey);
+        }
       }
     },
     [canEditWorkspace, isPreview, setErrorMessage],
@@ -5213,15 +5240,30 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }
 
   const saveInlineTaskListField = useCallback(
-    async (columnKey: TaskListColumnKey, valueOverride: Partial<TaskRecord> = {}) => {
+    async (columnKey: TaskListColumnKey, valueOverride: Partial<TaskRecord> = {}, taskIdOverride?: string) => {
       const field = getEditableTaskListField(columnKey);
-      const currentDraft = draftRef.current;
-      const currentTask = selectedTaskRef.current;
-      if (!field || !currentDraft || !currentTask || currentDraft.id !== currentTask.id) return;
+      const draftSnapshot = taskEditorDraftStore.getSnapshot();
+      const targetTaskId =
+        taskIdOverride ?? draftSnapshot.session?.taskId ?? draftRef.current?.id ?? selectedTaskRef.current?.id ?? null;
+      const storeDraft =
+        targetTaskId && draftSnapshot.session?.taskId === targetTaskId && draftSnapshot.draft?.id === targetTaskId
+          ? draftSnapshot.draft
+          : null;
+      const refDraft = targetTaskId && draftRef.current?.id === targetTaskId ? draftRef.current : null;
+      const currentDraft = storeDraft ?? refDraft;
+      const selectedTask = selectedTaskRef.current;
+      const currentTask =
+        targetTaskId && selectedTask?.id === targetTaskId
+          ? selectedTask
+          : targetTaskId
+            ? localFirstActiveTasksRef.current.find((task) => task.id === targetTaskId) ?? null
+            : null;
+      if (!field || !currentTask) return;
 
       const overrideKeys = Object.keys(valueOverride);
+      const baseDraft = currentDraft ?? currentTask;
       const draftForSave =
-        overrideKeys.length > 0 ? withEmptyTaskFileSummary({ ...currentDraft, ...valueOverride }) : currentDraft;
+        overrideKeys.length > 0 ? withEmptyTaskFileSummary({ ...baseDraft, ...valueOverride }) : baseDraft;
       const payload =
         field === "assignee"
           ? { assignee: draftForSave.assignee, assigneeProfileId: draftForSave.assigneeProfileId }
@@ -5250,6 +5292,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       }
 
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
+      setInlineSavingCells((previous) => ({ ...previous, [buildInlineSavingCellKey(currentTask.id, columnKey)]: true }));
       addTaskPendingPatchValues(currentTask.id, payload);
       const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
       applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
@@ -5280,6 +5323,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
           } finally {
             setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+            setInlineSavingCells((previous) => clearInlineSavingCellMap(previous, currentTask.id, columnKey));
           }
           return;
         }
@@ -5296,6 +5340,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
         } finally {
           setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+          setInlineSavingCells((previous) => clearInlineSavingCellMap(previous, currentTask.id, columnKey));
         }
       })();
     },
@@ -5312,6 +5357,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       releaseActiveTaskListEditLease,
       setErrorMessage,
       setTaskListActiveInlineEditCell,
+      taskEditorDraftStore,
     ],
   );
   const commitActiveTaskListInlineEdit = useCallback(() => {
@@ -5320,7 +5366,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return false;
     }
 
-    void saveInlineTaskListField(activeCell.columnKey);
+    void saveInlineTaskListField(activeCell.columnKey, {}, activeCell.taskId);
     return true;
   }, [saveInlineTaskListField]);
   async function shiftTaskStatus(task: TaskRecord, direction: -1 | 1) {
@@ -5926,16 +5972,21 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setPendingTaskListFocusCell(nextCell);
 
     void (async () => {
-      const acquired = await acquireTaskListEditLease(nextCell);
+      const acquisition = await acquireTaskListEditLease(nextCell);
       const isStillEditingCell = arePendingTaskListFocusCellsEqual(activeTaskListInlineEditCellRef.current, nextCell);
 
-      if (acquired) {
+      if (acquisition === "acquired") {
         if (isStillEditingCell) {
           activeTaskListEditLeaseCellRef.current = nextCell;
           return;
         }
 
         void releaseTaskListEditLease(nextCell);
+        return;
+      }
+
+      if (acquisition === "degraded") {
+        activeTaskListEditLeaseCellRef.current = null;
         return;
       }
 
@@ -5976,6 +6027,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     setIsDetailPanelSticky(false);
     setDetailPanelState("collapsed");
   }, [commitActiveTaskListInlineEdit, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell]);
+  const handleTaskListInlineFocusHandled = useCallback(() => {
+    setPendingTaskListFocusCell(null);
+  }, []);
   const clearTaskSelectionFromOutsideInteraction = useCallback(async () => {
     if (!selectedTaskId || saving || isClearingSelectionRef.current) {
       return;
@@ -6966,11 +7020,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     draftStore={taskEditorDraftStore}
                     draft={draft}
                     getCellNode={getTaskListRowCellNode}
-                    inlineSavingFields={inlineSavingFields}
+                    inlineSavingCells={inlineSavingCells}
                     onCancel={cancelInlineTaskListField}
                     onChange={updateInlineTaskListEditorDraft}
                     onCommit={saveInlineTaskListField}
-                    onFocusHandled={() => setPendingTaskListFocusCell(null)}
+                    onFocusHandled={handleTaskListInlineFocusHandled}
                     pendingFocusCell={pendingTaskListFocusCell}
                     workTypeDefinitions={workTypeDefinitions}
                   />
@@ -8592,7 +8646,7 @@ function TaskListInlineEditorOverlay({
   activeCell,
   assigneeOptions,
   draft,
-  inlineSavingFields,
+  inlineSavingCells,
   workTypeDefinitions,
   categoryDefinitionsByField,
   getCellNode,
@@ -8606,12 +8660,12 @@ function TaskListInlineEditorOverlay({
   activeCell: PendingTaskListFocusCell | null;
   assigneeOptions: readonly AssigneeOption[];
   draft: TaskRecord | null;
-  inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
+  inlineSavingCells: Readonly<Record<string, boolean>>;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
   getCellNode: (taskId: string, columnKey: TaskListColumnKey) => HTMLDivElement | null;
   onChange: TaskFormChangeHandler;
-  onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
+  onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>, taskIdOverride?: string) => Promise<void> | void;
   onCancel: (columnKey: TaskListColumnKey) => void;
   pendingFocusCell: PendingTaskListFocusCell | null;
   onFocusHandled: () => void;
@@ -8619,23 +8673,52 @@ function TaskListInlineEditorOverlay({
 }) {
   const draftSnapshot = useTaskEditorDraftStoreSnapshot(draftStore);
   const activeFieldKey = activeCell ? getEditableTaskListField(activeCell.columnKey) : null;
-  const overlayActiveCell = activeCell ? createTaskGridCellKey(activeCell.taskId, activeCell.columnKey) : null;
-  const overlayPendingFocusCell = pendingFocusCell ? createTaskGridCellKey(pendingFocusCell.taskId, pendingFocusCell.columnKey) : null;
+  const activeCellTaskId = activeCell?.taskId ?? null;
+  const activeCellColumnKey = activeCell?.columnKey ?? null;
+  const pendingFocusCellTaskId = pendingFocusCell?.taskId ?? null;
+  const pendingFocusCellColumnKey = pendingFocusCell?.columnKey ?? null;
+  const overlayActiveCell = useMemo(
+    () => (activeCellTaskId && activeCellColumnKey ? createTaskGridCellKey(activeCellTaskId, activeCellColumnKey) : null),
+    [activeCellColumnKey, activeCellTaskId],
+  );
+  const overlayPendingFocusCell = useMemo(
+    () =>
+      pendingFocusCellTaskId && pendingFocusCellColumnKey
+        ? createTaskGridCellKey(pendingFocusCellTaskId, pendingFocusCellColumnKey)
+        : null,
+    [pendingFocusCellColumnKey, pendingFocusCellTaskId],
+  );
+  const getOverlayCellNode = useCallback(
+    (taskId: string, columnKey: string) => getCellNode(taskId, columnKey as TaskListColumnKey),
+    [getCellNode],
+  );
 
   useEffect(() => {
-    if (!activeCell || !activeFieldKey || !draft || draft.id !== activeCell.taskId) {
-      draftStore.clear();
+    const currentSnapshot = draftStore.getSnapshot();
+
+    if (!activeCellTaskId || !activeCellColumnKey || !activeFieldKey || !draft || draft.id !== activeCellTaskId) {
+      if (currentSnapshot.isEditing) {
+        draftStore.clear();
+      }
       return;
     }
 
-    draftStore.beginInlineEdit(createTaskGridCellKey(activeCell.taskId, activeCell.columnKey), draft);
-  }, [activeCell, activeFieldKey, draft, draftStore]);
+    if (
+      currentSnapshot.session?.taskId === activeCellTaskId &&
+      currentSnapshot.session.columnKey === activeCellColumnKey &&
+      currentSnapshot.draft?.id === draft.id
+    ) {
+      return;
+    }
+
+    draftStore.beginInlineEdit(createTaskGridCellKey(activeCellTaskId, activeCellColumnKey), draft);
+  }, [activeCellColumnKey, activeCellTaskId, activeFieldKey, draft, draftStore]);
 
   return (
     <TaskInlineEditorOverlay
       activeCell={overlayActiveCell}
       className="sheet-table__editor-overlay"
-      getCellNode={(taskId, columnKey) => getCellNode(taskId, columnKey as TaskListColumnKey)}
+      getCellNode={getOverlayCellNode}
       onFocusHandled={onFocusHandled}
       pendingFocusCell={overlayPendingFocusCell}
       renderEditor={({ activeCell: overlayCell }) => {
@@ -8658,8 +8741,8 @@ function TaskListInlineEditorOverlay({
             assigneeOptions={assigneeOptions}
             onCancel={onCancel}
             onChange={onChange}
-            onCommit={onCommit}
-            saving={Boolean(inlineSavingFields[overlayCell.columnKey as TaskListColumnKey])}
+            onCommit={(commitColumnKey, valueOverride) => onCommit(commitColumnKey, valueOverride, overlayCell.taskId)}
+            saving={Boolean(inlineSavingCells[buildInlineSavingCellKey(overlayCell.taskId, overlayCell.columnKey as TaskListColumnKey)])}
             workTypeDefinitions={workTypeDefinitions}
           />
         );
@@ -9079,6 +9162,19 @@ function clearInlineSavingFieldMap(previous: Partial<Record<TaskListColumnKey, b
 
   const next = { ...previous };
   delete next[columnKey];
+  return next;
+}
+
+function buildInlineSavingCellKey(taskId: string, columnKey: TaskListColumnKey) {
+  return `${taskId}:${columnKey}`;
+}
+
+function clearInlineSavingCellMap(previous: Readonly<Record<string, boolean>>, taskId: string, columnKey: TaskListColumnKey) {
+  const key = buildInlineSavingCellKey(taskId, columnKey);
+  if (!previous[key]) return previous;
+
+  const next = { ...previous };
+  delete next[key];
   return next;
 }
 
@@ -11088,6 +11184,18 @@ class ApiResponseError extends Error {
     super(message);
     this.name = "ApiResponseError";
   }
+}
+
+function isRecoverableEditLeaseFailure(error: ApiResponseError) {
+  if (error.status === 409) {
+    return (
+      error.code === "EDIT_LEASE_RETRYABLE_CONFLICT" ||
+      error.code === "DATABASE_RETRYABLE_CONFLICT" ||
+      error.code === "DATABASE_RECORD_CONFLICT"
+    );
+  }
+
+  return error.status === 500 || error.status === 502 || error.status === 503 || error.status === 504;
 }
 
 function isApiConflictError(error: unknown, code?: string) {
