@@ -42,8 +42,12 @@ assert.match(featureFlagSource, /DAILY_CELL_DOCUMENTS_ENABLED/);
 assert.match(featureFlagSource, /NEXT_PUBLIC_DAILY_CELL_DOCUMENTS_ENABLED/);
 
 assert.match(snapshotRouteSource, /requireCurrentProjectAccess/);
+assert.match(snapshotRouteSource, /isDailyCellDocumentsEnabled/);
+assert.match(snapshotRouteSource, /TASK_CELL_DOCUMENTS_DISABLED/);
 assert.match(snapshotRouteSource, /getTaskCellDocument/);
 assert.match(updateRouteSource, /assertRequestIntegrity/);
+assert.match(updateRouteSource, /isDailyCellDocumentsEnabled/);
+assert.match(updateRouteSource, /TASK_CELL_DOCUMENTS_DISABLED/);
 assert.match(updateRouteSource, /requireCurrentProjectEditor/);
 assert.match(updateRouteSource, /applyTaskCellDocumentUpdate/);
 assert.match(serviceSource, /clientUpdateId/);

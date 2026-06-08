@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { badRequest, notFound } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
-import { badRequest } from "@/lib/api/errors";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { requireUser } from "@/lib/auth/require-user";
+import { isDailyCellDocumentsEnabled } from "@/lib/features/daily-cell-documents";
 import { applyTaskCellDocumentUpdate } from "@/use-cases/task-cell-document-service";
 
 export const maxDuration = 30;
@@ -13,6 +14,10 @@ export async function POST(
   context: { params: Promise<{ taskId: string; fieldKey: string }> },
 ) {
   try {
+    if (!isDailyCellDocumentsEnabled()) {
+      throw notFound("Task cell documents are disabled.", "TASK_CELL_DOCUMENTS_DISABLED");
+    }
+
     assertRequestIntegrity(request);
     const user = await requireUser();
     const projectContext = await requireCurrentProjectEditor(user);
