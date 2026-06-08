@@ -179,9 +179,7 @@ export function Sidebar({
       event.preventDefault();
       const targetHref = String(href);
       markWorkspaceRouteTransition(mode, targetHref);
-      window.setTimeout(() => {
-        router.push(href);
-      }, 0);
+      router.push(href);
 
       window.setTimeout(() => {
         const transition = window.__architectRouteTransitionStart;

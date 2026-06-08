@@ -18,10 +18,21 @@ type ProbeResponse = {
   body: unknown;
 };
 
+type NetworkEvent = {
+  atMs: number;
+  kind: "request" | "response" | "requestfailed";
+  method?: string;
+  resourceType?: string;
+  status?: number;
+  url: string;
+  failure?: string | null;
+};
+
 type Options = {
   url: string;
   delayMs: number;
   maxNavigationMs: number;
+  navigationOnly: boolean;
 };
 
 function parseOptions(argv: string[]): Options {
@@ -32,6 +43,7 @@ function parseOptions(argv: string[]): Options {
     url,
     delayMs: Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 4000,
     maxNavigationMs: Number.isFinite(maxNavigationMs) && maxNavigationMs > 0 ? maxNavigationMs : 1000,
+    navigationOnly: argv.includes("--navigation-only"),
   };
 }
 
@@ -312,6 +324,7 @@ async function main() {
   const options = parseOptions(process.argv.slice(2));
   assert.ok(options.url, "--url or PREVIEW_BASE_URL is required");
 
+  const probeStartedAt = Date.now();
   const url = new URL(options.url);
   assert.equal(url.pathname, "/daily", "navigation pending-sync proof must target the DB-backed /daily route");
 
@@ -334,6 +347,40 @@ async function main() {
   const context = await browser.newContext();
   await addJarCookies(context, url, jar);
   const page = await context.newPage();
+  const networkEvents: NetworkEvent[] = [];
+  const recordNetworkEvent = (event: NetworkEvent) => {
+    networkEvents.push(event);
+    if (networkEvents.length > 80) {
+      networkEvents.shift();
+    }
+  };
+  page.on("request", (requestInfo) => {
+    recordNetworkEvent({
+      atMs: Date.now() - probeStartedAt,
+      kind: "request",
+      method: requestInfo.method(),
+      resourceType: requestInfo.resourceType(),
+      url: requestInfo.url(),
+    });
+  });
+  page.on("response", (response) => {
+    recordNetworkEvent({
+      atMs: Date.now() - probeStartedAt,
+      kind: "response",
+      status: response.status(),
+      url: response.url(),
+    });
+  });
+  page.on("requestfailed", (requestInfo) => {
+    recordNetworkEvent({
+      atMs: Date.now() - probeStartedAt,
+      kind: "requestfailed",
+      method: requestInfo.method(),
+      resourceType: requestInfo.resourceType(),
+      url: requestInfo.url(),
+      failure: requestInfo.failure()?.errorText ?? null,
+    });
+  });
 
   await page.route(`${url.origin}/api/tasks`, async (route, requestInfo) => {
     if (requestInfo.method() === "POST" && postStartedAt === null) {
@@ -348,6 +395,66 @@ async function main() {
   try {
     await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
+
+    if (options.navigationOnly) {
+      const navigationStartedAt = Date.now();
+      await page.evaluate(() => {
+        window.__architectPendingSyncNavigationProbe = true;
+      });
+      await page.locator(".sidebar").first().hover();
+      const boardLink = page.locator('nav[data-workspace-navigation="true"] a[href="/board"]').first();
+      await boardLink.waitFor({ state: "visible", timeout: 2_000 });
+      const clickedHref = await boardLink.evaluate((anchor) => (anchor instanceof HTMLAnchorElement ? anchor.href : ""));
+      await boardLink.click();
+      let navigationTimedOut = false;
+      try {
+        await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
+      } catch {
+        navigationTimedOut = true;
+      }
+      const navigationMs = Date.now() - navigationStartedAt;
+      const sameDocumentNavigation = await page
+        .evaluate(() => Boolean(window.__architectPendingSyncNavigationProbe))
+        .catch(() => false);
+      const navigationDiagnostics = await page
+        .evaluate(() => ({
+          href: window.location.href,
+          pathname: window.location.pathname,
+          routeTransitionStart: window.__architectRouteTransitionStart ?? null,
+        }))
+        .catch((error) => ({
+          href: page.url(),
+          pathname: new URL(page.url()).pathname,
+          routeTransitionStart: null,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      const ok = navigationMs <= options.maxNavigationMs && sameDocumentNavigation;
+
+      console.log(
+        JSON.stringify(
+          {
+            ok,
+            url: url.toString(),
+            navigationOnly: true,
+            maxNavigationMs: options.maxNavigationMs,
+            navigationStartedAtMs: navigationStartedAt - probeStartedAt,
+            navigationMs,
+            navigationTimedOut,
+            sameDocumentNavigation,
+            clickedHref,
+            navigationDiagnostics,
+            ...(ok ? {} : { networkEvents }),
+          },
+          null,
+          2,
+        ),
+      );
+
+      if (!ok) {
+        process.exitCode = 1;
+      }
+      return;
+    }
 
     const composer = page.locator(".composer-card").first();
     await composer.waitFor({ state: "visible", timeout: 15_000 });
@@ -428,6 +535,7 @@ async function main() {
           delayedPostMs: options.delayMs,
           maxNavigationMs: options.maxNavigationMs,
           localRowVisibleMs,
+          navigationStartedAtMs: navigationStartedAt - probeStartedAt,
           navigationMs,
           navigationTimedOut,
           sameDocumentNavigation,
@@ -436,6 +544,7 @@ async function main() {
           postStartedAfterClickMs: postStartedAt === null ? null : postStartedAt - createClickAt,
           createStatus,
           cleanup: { trashStatus, deleteStatus },
+          ...(ok ? {} : { networkEvents }),
         },
         null,
         2,
