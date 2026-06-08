@@ -369,12 +369,8 @@ async function main() {
     await page.evaluate(() => {
       window.__architectPendingSyncNavigationProbe = true;
     });
-    await page.locator('a[href="/board"]').first().evaluate((anchor) => {
-      if (!(anchor instanceof HTMLAnchorElement)) {
-        throw new Error("Board navigation target is not an anchor");
-      }
-      anchor.click();
-    });
+    await page.locator(".sidebar").first().hover();
+    await page.getByRole("link", { name: /보드|Board/i }).first().click();
     await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
     const navigationMs = Date.now() - navigationStartedAt;
     const sameDocumentNavigation = await page

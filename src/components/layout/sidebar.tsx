@@ -176,10 +176,8 @@ export function Sidebar({
         return;
       }
 
-      event.preventDefault();
       const targetHref = String(href);
       markWorkspaceRouteTransition(mode, targetHref);
-      router.push(href);
 
       window.setTimeout(() => {
         const transition = window.__architectRouteTransitionStart;
@@ -195,7 +193,7 @@ export function Sidebar({
         }
       }, WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS);
     },
-    [router],
+    [],
   );
 
   const warmAdminNavigation = useCallback(() => {
