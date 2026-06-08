@@ -61,4 +61,10 @@ assert.ok(
   "requireUser should try verified JWT claims before falling back to getUser",
 );
 
+const postgresStoreSource = readSource("src/repositories/postgres/store.ts");
+assert.match(postgresStoreSource, /repository\.lockAndTaskNumberLookup/);
+assert.match(postgresStoreSource, /with lock as \(/);
+assert.doesNotMatch(postgresStoreSource, /repository\.advisoryLock/);
+assert.doesNotMatch(postgresStoreSource, /repository\.maxTaskNumberLookup/);
+
 console.log("daily create latency harness: ok");

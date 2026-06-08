@@ -422,24 +422,26 @@ class PostgresTaskRepository implements TaskRepository {
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
     const record = await prisma.$transaction(async (tx) => {
-      const existingStart = performance.now();
-      const existing = await tx.task.findUnique({ where: { id } });
-      recordTiming?.("repository.existingIdLookup", performance.now() - existingStart);
-      if (existing && !existing.purgedAt) {
-        return existing;
+      if (input.id) {
+        const existingStart = performance.now();
+        const existing = await tx.task.findUnique({ where: { id } });
+        recordTiming?.("repository.existingIdLookup", performance.now() - existingStart);
+        if (existing && !existing.purgedAt) {
+          return existing;
+        }
       }
 
-      const advisoryLockStart = performance.now();
-      await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
-      recordTiming?.("repository.advisoryLock", performance.now() - advisoryLockStart);
-      const maxNumberStart = performance.now();
-      const last = await tx.task.findFirst({
-        where: { projectId: input.projectId },
-        orderBy: { taskNumber: "desc" },
-        select: { taskNumber: true },
-      });
-      recordTiming?.("repository.maxTaskNumberLookup", performance.now() - maxNumberStart);
-      const taskNumber = (last?.taskNumber ?? 0) + 1;
+      const taskNumberStart = performance.now();
+      const [taskNumberRow] = await tx.$queryRaw<{ taskNumber: number }[]>(Prisma.sql`
+        with lock as (
+          select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))
+        )
+        select coalesce(max(t.task_number), 0) + 1 as "taskNumber"
+        from lock
+        left join tasks t on t.project_id = ${input.projectId}::uuid
+      `);
+      recordTiming?.("repository.lockAndTaskNumberLookup", performance.now() - taskNumberStart);
+      const taskNumber = Number(taskNumberRow?.taskNumber ?? 1);
       const parentTaskId = input.parentTaskId ?? null;
       const siblingOrderStart = performance.now();
       const siblingOrder =
