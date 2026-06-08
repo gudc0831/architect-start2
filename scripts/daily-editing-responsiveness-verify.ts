@@ -444,6 +444,7 @@ const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/stor
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
 const sidebarSource = readFileSync(resolve("src/components/layout/sidebar.tsx"), "utf8");
 const dailyMutationJournalSource = readFileSync(resolve("src/components/tasks/daily-mutation-journal.ts"), "utf8");
+const dailyRowSyncBusSource = readFileSync(resolve("src/components/tasks/daily-row-sync-bus.ts"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
 const updateTaskOrdersSource = postgresStoreSource.slice(
   postgresStoreSource.indexOf("async updateTaskOrders"),
@@ -555,6 +556,11 @@ assert.match(taskWorkspaceSource, /publishDailyRowSyncOperationEvent/);
 assert.match(taskWorkspaceSource, /subscribeDailyRowSyncEvents/);
 assert.match(taskWorkspaceSource, /postgres_changes/);
 assert.match(taskWorkspaceSource, /filter: `project_id=eq\.\$\{currentProjectId\}`/);
+assert.match(dailyRowSyncBusSource, /createSupabaseBrowserClient/);
+assert.match(dailyRowSyncBusSource, /private: true/);
+assert.match(dailyRowSyncBusSource, /SUPABASE_EVENT_NAME = "daily-row-sync"/);
+assert.match(dailyRowSyncBusSource, /publishSupabaseDailyRowSyncEvent/);
+assert.match(dailyRowSyncBusSource, /subscribeSupabaseDailyRowSyncEvents/);
 assert.match(taskWorkspaceSource, /dailyMutationRemoteRefreshSuppressFlushUntilRef/);
 assert.match(taskWorkspaceSource, /a\[href\], \.daily-sheet__view-mode-toggle/);
 assert.match(sidebarSource, /markWorkspaceRouteTransition\(mode, targetHref\)/);

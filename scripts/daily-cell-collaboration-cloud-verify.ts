@@ -39,6 +39,17 @@ function buildYTextReplaceUpdate(input: { yStateBase64: string | null; plainText
   return Buffer.from(Y.encodeStateAsUpdate(doc, before)).toString("base64");
 }
 
+function buildStateVectorBase64(input: { yStateBase64: string | null; plainText: string }) {
+  const doc = new Y.Doc();
+  if (input.yStateBase64) {
+    Y.applyUpdate(doc, Buffer.from(input.yStateBase64, "base64"));
+  } else {
+    doc.getText("value").insert(0, input.plainText);
+  }
+
+  return Buffer.from(Y.encodeStateVector(doc)).toString("base64");
+}
+
 async function main() {
   if (process.env.APP_BACKEND_MODE !== "cloud") {
     throw new Error("daily cell collaboration cloud verification requires APP_BACKEND_MODE=cloud");
@@ -137,11 +148,18 @@ async function main() {
       updateBase64,
     });
 
-    const [snapshot, task, updateCount] = await Promise.all([
+    const [snapshot, catchUpSnapshot, task, updateCount] = await Promise.all([
       getTaskCellDocument({
         projectId: project.id,
         taskId: createdTaskId,
         fieldKey: "issueTitle",
+      }),
+      getTaskCellDocument({
+        projectId: project.id,
+        taskId: createdTaskId,
+        fieldKey: "issueTitle",
+        knownVersion: initial.version,
+        stateVectorBase64: buildStateVectorBase64(initial),
       }),
       prisma.task.findFirst({
         where: {
@@ -169,6 +187,10 @@ async function main() {
       first.plainText === mergedText &&
       duplicate.version === first.version &&
       snapshot.plainText === mergedText &&
+      catchUpSnapshot.catchUpMode === "updates" &&
+      catchUpSnapshot.updates.length === 1 &&
+      catchUpSnapshot.updates[0]?.documentVersion === first.version &&
+      Boolean(catchUpSnapshot.diffUpdateBase64) &&
       task?.title === mergedText &&
       updateCount === 1 &&
       cleanupCheck === null;
@@ -181,6 +203,10 @@ async function main() {
           fieldKey: "issueTitle",
           firstVersion: first.version,
           duplicateVersion: duplicate.version,
+          catchUpMode: catchUpSnapshot.catchUpMode,
+          catchUpUpdateCount: catchUpSnapshot.updates.length,
+          catchUpDocumentVersion: catchUpSnapshot.updates[0]?.documentVersion ?? null,
+          diffUpdateReturned: Boolean(catchUpSnapshot.diffUpdateBase64),
           projectionMatched: task?.title === mergedText,
           duplicateUpdateCount: updateCount,
           cleanedUp: cleanupCheck === null,

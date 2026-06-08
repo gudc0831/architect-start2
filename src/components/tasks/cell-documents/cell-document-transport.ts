@@ -1,6 +1,8 @@
 "use client";
 
 import { buildTaskCellDocumentTopic, type TaskCellDocumentFieldKey } from "@/domains/task/cell-documents";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
 export type CellDocumentTransportEvent = {
   topic: string;
@@ -14,37 +16,36 @@ export type CellDocumentTransportEvent = {
 };
 
 const CHANNEL_NAME = "architect-start.task-cell-documents";
+const SUPABASE_EVENT_NAME = "cell-document-update";
+const SUPABASE_SUBSCRIBE_TIMEOUT_MS = 2_000;
 
 let sourceId: string | null = null;
 
 export function publishCellDocumentUpdateEvent(input: Omit<CellDocumentTransportEvent, "topic" | "sourceId" | "occurredAt">) {
-  if (!canUseBroadcastChannel()) {
-    return;
-  }
-
-  const channel = new BroadcastChannel(CHANNEL_NAME);
-  channel.postMessage({
+  const event = {
     ...input,
     topic: buildTaskCellDocumentTopic(input.projectId, input.taskId, input.fieldKey),
     sourceId: getSourceId(),
     occurredAt: new Date().toISOString(),
-  } satisfies CellDocumentTransportEvent);
-  channel.close();
+  } satisfies CellDocumentTransportEvent;
+
+  if (canUseBroadcastChannel()) {
+    const channel = new BroadcastChannel(CHANNEL_NAME);
+    channel.postMessage(event);
+    channel.close();
+  }
+
+  void publishSupabaseCellDocumentUpdateEvent(event);
 }
 
 export function subscribeCellDocumentUpdateEvents(
   input: { projectId: string; taskId: string; fieldKey: TaskCellDocumentFieldKey },
   handler: (event: CellDocumentTransportEvent) => void,
 ) {
-  if (!canUseBroadcastChannel()) {
-    return () => {};
-  }
-
   const topic = buildTaskCellDocumentTopic(input.projectId, input.taskId, input.fieldKey);
   const ownSourceId = getSourceId();
-  const channel = new BroadcastChannel(CHANNEL_NAME);
-  channel.onmessage = (message) => {
-    const event = readCellDocumentTransportEvent(message.data);
+  const cleanup: Array<() => void> = [];
+  const handleEvent = (event: CellDocumentTransportEvent | null) => {
     if (!event || event.topic !== topic || event.sourceId === ownSourceId) {
       return;
     }
@@ -52,7 +53,22 @@ export function subscribeCellDocumentUpdateEvents(
     handler(event);
   };
 
-  return () => channel.close();
+  if (canUseBroadcastChannel()) {
+    const channel = new BroadcastChannel(CHANNEL_NAME);
+    channel.onmessage = (message) => handleEvent(readCellDocumentTransportEvent(message.data));
+    cleanup.push(() => channel.close());
+  }
+
+  const removeSupabaseSubscription = subscribeSupabaseCellDocumentUpdateEvents(topic, handleEvent);
+  if (removeSupabaseSubscription) {
+    cleanup.push(removeSupabaseSubscription);
+  }
+
+  return () => {
+    for (const remove of cleanup) {
+      remove();
+    }
+  };
 }
 
 function readCellDocumentTransportEvent(value: unknown): CellDocumentTransportEvent | null {
@@ -91,4 +107,77 @@ function getSourceId() {
 
 function canUseBroadcastChannel() {
   return typeof BroadcastChannel !== "undefined";
+}
+
+function buildSupabaseChannelName(topic: string) {
+  return `private:${CHANNEL_NAME}:${topic}`;
+}
+
+function subscribeSupabaseCellDocumentUpdateEvents(
+  topic: string,
+  handler: (event: CellDocumentTransportEvent | null) => void,
+) {
+  if (!hasSupabaseClientConfig()) {
+    return null;
+  }
+
+  const supabase = createSupabaseBrowserClient();
+  const channel = supabase
+    .channel(buildSupabaseChannelName(topic), {
+      config: {
+        broadcast: { self: false },
+        private: true,
+      },
+    })
+    .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
+      handler(readCellDocumentTransportEvent((message as { payload?: unknown }).payload));
+    });
+
+  channel.subscribe();
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
+async function publishSupabaseCellDocumentUpdateEvent(event: CellDocumentTransportEvent) {
+  if (!hasSupabaseClientConfig()) {
+    return;
+  }
+
+  const supabase = createSupabaseBrowserClient();
+  const channel = supabase.channel(buildSupabaseChannelName(event.topic), {
+    config: {
+      broadcast: { self: false },
+      private: true,
+    },
+  });
+
+  try {
+    await waitForSupabaseSubscription(channel);
+    await channel.send({
+      event: SUPABASE_EVENT_NAME,
+      payload: event,
+      type: "broadcast",
+    });
+  } catch {
+    // BroadcastChannel and HTTP catch-up remain the durable fallback.
+  } finally {
+    void supabase.removeChannel(channel);
+  }
+}
+
+function waitForSupabaseSubscription(channel: ReturnType<ReturnType<typeof createSupabaseBrowserClient>["channel"]>) {
+  return new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error("Supabase cell-document channel subscribe timeout")), SUPABASE_SUBSCRIBE_TIMEOUT_MS);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        window.clearTimeout(timeoutId);
+        resolve();
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        window.clearTimeout(timeoutId);
+        reject(new Error(`Supabase cell-document channel subscribe failed: ${status}`));
+      }
+    });
+  });
 }

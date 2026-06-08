@@ -14,6 +14,17 @@ import {
 import { badRequest, notFound } from "@/lib/api/errors";
 import { prisma } from "@/lib/prisma";
 
+const MAX_RETAINED_CELL_UPDATES = 100;
+
+type TaskCellDocumentCatchUpUpdate = {
+  id: string;
+  clientUpdateId: string;
+  actorProfileId: string;
+  documentVersion: number;
+  updateBase64: string;
+  createdAt: string;
+};
+
 type TaskCellDocumentSnapshot = {
   id: string;
   projectId: string;
@@ -24,6 +35,9 @@ type TaskCellDocumentSnapshot = {
   plainText: string;
   scalarValueJson: unknown;
   yStateBase64: string | null;
+  catchUpMode: "current" | "snapshot" | "updates";
+  diffUpdateBase64: string | null;
+  updates: TaskCellDocumentCatchUpUpdate[];
   updatedAt: string;
 };
 
@@ -39,11 +53,23 @@ export async function getTaskCellDocument(input: {
   projectId: string;
   taskId: string;
   fieldKey: string;
+  knownVersion?: number | null;
+  stateVectorBase64?: string | null;
 }): Promise<TaskCellDocumentSnapshot> {
   const fieldKey = assertTaskCellDocumentFieldKey(input.fieldKey);
   const task = await findTaskProjection(input.projectId, input.taskId);
   const document = await ensureTaskCellDocument(input.projectId, task, fieldKey);
-  return toTaskCellDocumentSnapshot(document);
+  const knownVersion = normalizeKnownVersion(input.knownVersion);
+  const updates = knownVersion !== null ? await listCatchUpUpdates(document.id, knownVersion, document.version) : [];
+  const diffUpdateBase64 = input.stateVectorBase64
+    ? buildYStateDiffBase64(document.yState, input.stateVectorBase64)
+    : null;
+
+  return toTaskCellDocumentSnapshot(document, {
+    diffUpdateBase64,
+    knownVersion,
+    updates,
+  });
 }
 
 export async function applyTaskCellDocumentUpdate(input: {
@@ -123,6 +149,7 @@ export async function applyTaskCellDocumentUpdate(input: {
       return document;
     }
 
+    const nextDocumentVersion = document.version + 1;
     const nextDocumentState = applyYTextUpdate(document.yState, updatePayload);
     const projectionColumn = TASK_CELL_TEXT_FIELD_TO_COLUMN[fieldKey];
 
@@ -132,6 +159,7 @@ export async function applyTaskCellDocumentUpdate(input: {
         cellDocumentId: document.id,
         clientUpdateId,
         actorProfileId: input.actorProfileId,
+        documentVersion: nextDocumentVersion,
         updatePayload,
       },
     });
@@ -145,6 +173,8 @@ export async function applyTaskCellDocumentUpdate(input: {
         updatedBy: input.actorProfileId,
       },
     });
+
+    await pruneTaskCellDocumentUpdates(tx, document.id);
 
     await tx.task.updateMany({
       where: {
@@ -162,6 +192,42 @@ export async function applyTaskCellDocumentUpdate(input: {
   });
 
   return toTaskCellDocumentSnapshot(result);
+}
+
+async function listCatchUpUpdates(documentId: string, knownVersion: number, currentVersion: number) {
+  if (knownVersion >= currentVersion) {
+    return [];
+  }
+
+  const expectedGap = currentVersion - knownVersion;
+  if (expectedGap > MAX_RETAINED_CELL_UPDATES) {
+    return [];
+  }
+
+  const updates = await prisma.taskCellUpdate.findMany({
+    where: {
+      cellDocumentId: documentId,
+      documentVersion: { gt: knownVersion },
+    },
+    orderBy: [{ documentVersion: "asc" }, { createdAt: "asc" }],
+    take: MAX_RETAINED_CELL_UPDATES + 1,
+  });
+
+  return updates.length === expectedGap ? updates : [];
+}
+
+async function pruneTaskCellDocumentUpdates(tx: Prisma.TransactionClient, documentId: string) {
+  await tx.$executeRaw(Prisma.sql`
+    delete from task_cell_updates
+    where cell_document_id = ${documentId}::uuid
+      and id not in (
+        select id
+        from task_cell_updates
+        where cell_document_id = ${documentId}::uuid
+        order by document_version desc, created_at desc
+        limit ${MAX_RETAINED_CELL_UPDATES}
+      )
+  `);
 }
 
 function buildTaskCellDocumentLockKey(projectId: string, taskId: string, fieldKey: TaskCellDocumentFieldKey) {
@@ -288,6 +354,17 @@ function applyYTextUpdate(currentState: Uint8Array | Buffer | null, updatePayloa
   return { plainText, yState };
 }
 
+function buildYStateDiffBase64(currentState: Uint8Array | Buffer | null, stateVectorBase64: string) {
+  if (!currentState) {
+    return null;
+  }
+
+  const stateVector = decodeBase64Bytes(stateVectorBase64, "TASK_CELL_DOCUMENT_STATE_VECTOR_INVALID");
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(currentState));
+  return Buffer.from(Y.encodeStateAsUpdate(doc, stateVector)).toString("base64");
+}
+
 function toTaskCellDocumentSnapshot(document: {
   id: string;
   projectId: string;
@@ -299,7 +376,27 @@ function toTaskCellDocumentSnapshot(document: {
   scalarValueJson: unknown;
   version: number;
   updatedAt: Date;
-}): TaskCellDocumentSnapshot {
+}, options: {
+  diffUpdateBase64?: string | null;
+  knownVersion?: number | null;
+  updates?: Array<{
+    id: string;
+    clientUpdateId: string;
+    actorProfileId: string;
+    documentVersion: number;
+    updatePayload: Uint8Array | Buffer;
+    createdAt: Date;
+  }>;
+} = {}): TaskCellDocumentSnapshot {
+  const updates = options.updates ?? [];
+  const knownVersion = options.knownVersion ?? null;
+  const catchUpMode =
+    knownVersion === null || knownVersion >= document.version
+      ? "current"
+      : updates.length > 0
+        ? "updates"
+        : "snapshot";
+
   return {
     id: document.id,
     projectId: document.projectId,
@@ -310,8 +407,26 @@ function toTaskCellDocumentSnapshot(document: {
     plainText: document.plainText,
     scalarValueJson: document.scalarValueJson,
     yStateBase64: document.yState ? Buffer.from(document.yState).toString("base64") : null,
+    catchUpMode,
+    diffUpdateBase64: options.diffUpdateBase64 ?? null,
+    updates: updates.map((update) => ({
+      id: update.id,
+      clientUpdateId: update.clientUpdateId,
+      actorProfileId: update.actorProfileId,
+      documentVersion: update.documentVersion,
+      updateBase64: Buffer.from(update.updatePayload).toString("base64"),
+      createdAt: update.createdAt.toISOString(),
+    })),
     updatedAt: document.updatedAt.toISOString(),
   };
+}
+
+function normalizeKnownVersion(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 function decodeBase64Bytes(value: string, code: string) {

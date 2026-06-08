@@ -216,12 +216,14 @@ model TaskCellUpdate {
   cellDocumentId String   @map("cell_document_id") @db.Uuid
   clientUpdateId String   @map("client_update_id")
   actorProfileId String   @map("actor_profile_id") @db.Uuid
+  documentVersion Int     @default(1) @map("document_version")
   updatePayload  Bytes    @map("update_payload")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   cellDocument   TaskCellDocument @relation(fields: [cellDocumentId], references: [id], onDelete: Cascade)
 
   @@unique([cellDocumentId, clientUpdateId])
+  @@index([cellDocumentId, documentVersion])
   @@index([projectId, createdAt])
   @@map("task_cell_updates")
 }

@@ -2,6 +2,8 @@
 
 import type { DailyMutationOperation, DailyMutationOperationType, DailyMutationScope } from "@/components/tasks/daily-mutation-journal";
 import { buildDailyMutationScopeKey } from "@/components/tasks/daily-mutation-journal";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
 export type DailyRowSyncEventName = "daily-journal-updated" | "task-created" | "task-synced" | "task-failed";
 
@@ -21,6 +23,8 @@ export type DailyRowSyncEvent = {
 };
 
 const DAILY_ROW_SYNC_CHANNEL_NAME = "architect-start.daily-row-sync";
+const SUPABASE_EVENT_NAME = "daily-row-sync";
+const SUPABASE_SUBSCRIBE_TIMEOUT_MS = 2_000;
 
 let sourceId: string | null = null;
 
@@ -28,20 +32,24 @@ export function publishDailyRowSyncEvent(
   scope: DailyMutationScope,
   event: Omit<DailyRowSyncEvent, "scopeKey" | "projectId" | "profileId" | "occurredAt" | "sourceId">,
 ) {
-  if (!canUseBroadcastChannel()) {
-    return;
-  }
-
-  const channel = new BroadcastChannel(DAILY_ROW_SYNC_CHANNEL_NAME);
-  channel.postMessage({
+  const rowSyncEvent = {
     ...event,
     scopeKey: buildDailyMutationScopeKey(scope),
     projectId: scope.projectId,
     profileId: scope.profileId,
     occurredAt: new Date().toISOString(),
     sourceId: getDailyRowSyncSourceId(),
-  } satisfies DailyRowSyncEvent);
+  } satisfies DailyRowSyncEvent;
+
+  if (!canUseBroadcastChannel()) {
+    void publishSupabaseDailyRowSyncEvent(rowSyncEvent);
+    return;
+  }
+
+  const channel = new BroadcastChannel(DAILY_ROW_SYNC_CHANNEL_NAME);
+  channel.postMessage(rowSyncEvent);
   channel.close();
+  void publishSupabaseDailyRowSyncEvent(rowSyncEvent);
 }
 
 export function publishDailyRowSyncOperationEvent(scope: DailyMutationScope, name: DailyRowSyncEventName, operation: DailyMutationOperation) {
@@ -57,15 +65,10 @@ export function publishDailyRowSyncOperationEvent(scope: DailyMutationScope, nam
 }
 
 export function subscribeDailyRowSyncEvents(scope: DailyMutationScope, handler: (event: DailyRowSyncEvent) => void) {
-  if (!canUseBroadcastChannel()) {
-    return () => {};
-  }
-
   const scopeKey = buildDailyMutationScopeKey(scope);
   const ownSourceId = getDailyRowSyncSourceId();
-  const channel = new BroadcastChannel(DAILY_ROW_SYNC_CHANNEL_NAME);
-  channel.onmessage = (message) => {
-    const event = readDailyRowSyncEvent(message.data);
+  const cleanup: Array<() => void> = [];
+  const handleEvent = (event: DailyRowSyncEvent | null) => {
     if (!event || event.scopeKey !== scopeKey || event.sourceId === ownSourceId) {
       return;
     }
@@ -73,8 +76,21 @@ export function subscribeDailyRowSyncEvents(scope: DailyMutationScope, handler: 
     handler(event);
   };
 
+  if (canUseBroadcastChannel()) {
+    const channel = new BroadcastChannel(DAILY_ROW_SYNC_CHANNEL_NAME);
+    channel.onmessage = (message) => handleEvent(readDailyRowSyncEvent(message.data));
+    cleanup.push(() => channel.close());
+  }
+
+  const removeSupabaseSubscription = subscribeSupabaseDailyRowSyncEvents(scopeKey, handleEvent);
+  if (removeSupabaseSubscription) {
+    cleanup.push(removeSupabaseSubscription);
+  }
+
   return () => {
-    channel.close();
+    for (const remove of cleanup) {
+      remove();
+    }
   };
 }
 
@@ -127,4 +143,77 @@ function getDailyRowSyncSourceId() {
 
 function canUseBroadcastChannel() {
   return typeof BroadcastChannel !== "undefined";
+}
+
+function buildSupabaseChannelName(scopeKey: string) {
+  return `private:${DAILY_ROW_SYNC_CHANNEL_NAME}:${scopeKey}`;
+}
+
+function subscribeSupabaseDailyRowSyncEvents(
+  scopeKey: string,
+  handler: (event: DailyRowSyncEvent | null) => void,
+) {
+  if (!hasSupabaseClientConfig()) {
+    return null;
+  }
+
+  const supabase = createSupabaseBrowserClient();
+  const channel = supabase
+    .channel(buildSupabaseChannelName(scopeKey), {
+      config: {
+        broadcast: { self: false },
+        private: true,
+      },
+    })
+    .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
+      handler(readDailyRowSyncEvent((message as { payload?: unknown }).payload));
+    });
+
+  channel.subscribe();
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
+async function publishSupabaseDailyRowSyncEvent(event: DailyRowSyncEvent) {
+  if (!hasSupabaseClientConfig()) {
+    return;
+  }
+
+  const supabase = createSupabaseBrowserClient();
+  const channel = supabase.channel(buildSupabaseChannelName(event.scopeKey), {
+    config: {
+      broadcast: { self: false },
+      private: true,
+    },
+  });
+
+  try {
+    await waitForSupabaseSubscription(channel);
+    await channel.send({
+      event: SUPABASE_EVENT_NAME,
+      payload: event,
+      type: "broadcast",
+    });
+  } catch {
+    // IndexedDB journal, BroadcastChannel, postgres_changes, and focus catch-up remain the durable fallbacks.
+  } finally {
+    void supabase.removeChannel(channel);
+  }
+}
+
+function waitForSupabaseSubscription(channel: ReturnType<ReturnType<typeof createSupabaseBrowserClient>["channel"]>) {
+  return new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error("Supabase daily row channel subscribe timeout")), SUPABASE_SUBSCRIBE_TIMEOUT_MS);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        window.clearTimeout(timeoutId);
+        resolve();
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        window.clearTimeout(timeoutId);
+        reject(new Error(`Supabase daily row channel subscribe failed: ${status}`));
+      }
+    });
+  });
 }
