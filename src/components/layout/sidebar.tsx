@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo } from "react";
-import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -23,6 +23,10 @@ const items = [
   { href: "/materials", mode: "materials" },
   { href: "/trash", mode: "trash" },
 ] as const;
+
+const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 150;
+
+type WorkspaceNavMode = (typeof items)[number]["mode"];
 
 type SidebarIdleHandle =
   | {
@@ -130,7 +134,7 @@ export function Sidebar({
   const sessionSectionLabel = isPreview ? "안전 미리보기" : "세션";
 
   const warmWorkspaceNavigation = useCallback(
-    (href: Route, mode: (typeof items)[number]["mode"]) => {
+    (href: Route, mode: WorkspaceNavMode) => {
       router.prefetch(href);
 
       if (isPreview || !projectLoaded || !currentProjectId) {
@@ -152,6 +156,46 @@ export function Sidebar({
         .catch(() => undefined);
     },
     [currentProjectId, ensureDashboardScopeLoaded, isPreview, projectLoaded, router],
+  );
+  const prefetchWorkspaceRoute = useCallback(
+    (href: Route) => {
+      router.prefetch(href);
+    },
+    [router],
+  );
+  const navigateWorkspaceRoute = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>, mode: WorkspaceNavMode, href: Route) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      const targetHref = String(href);
+      markWorkspaceRouteTransition(mode, targetHref);
+      router.push(href);
+
+      window.setTimeout(() => {
+        const transition = window.__architectRouteTransitionStart;
+        if (transition?.href !== targetHref) {
+          return;
+        }
+
+        const targetUrl = new URL(targetHref, window.location.href);
+        const currentPath = `${window.location.pathname}${window.location.search}`;
+        const targetPath = `${targetUrl.pathname}${targetUrl.search}`;
+        if (currentPath !== targetPath) {
+          window.location.assign(targetUrl.href);
+        }
+      }, WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS);
+    },
+    [router],
   );
 
   const warmAdminNavigation = useCallback(() => {
@@ -311,10 +355,10 @@ export function Sidebar({
                   className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                   key={item.href}
                   href={item.href}
-                  onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
+                  onClickCapture={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                   onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                   onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
-                  onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
+                  onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
                 >
                   <span aria-hidden="true" className="sidebar__link-index">{String(index + 1).padStart(2, "0")}</span>
                   <span className="sidebar__link-label">{item.label}</span>
@@ -354,10 +398,10 @@ export function Sidebar({
                 className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                 key={item.href}
                 href={item.href}
-                onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
+                onClickCapture={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                 onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                 onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
-                onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
+                onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
               >
                 {item.label}
               </Link>
