@@ -370,12 +370,32 @@ async function main() {
       window.__architectPendingSyncNavigationProbe = true;
     });
     await page.locator(".sidebar").first().hover();
-    await page.getByRole("link", { name: /보드|Board/i }).first().click();
-    await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
+    const boardLink = page.locator('nav[data-workspace-navigation="true"] a[href="/board"]').first();
+    await boardLink.waitFor({ state: "visible", timeout: 2_000 });
+    const clickedHref = await boardLink.evaluate((anchor) => (anchor instanceof HTMLAnchorElement ? anchor.href : ""));
+    await boardLink.click();
+    let navigationTimedOut = false;
+    try {
+      await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
+    } catch {
+      navigationTimedOut = true;
+    }
     const navigationMs = Date.now() - navigationStartedAt;
     const sameDocumentNavigation = await page
       .evaluate(() => Boolean(window.__architectPendingSyncNavigationProbe))
       .catch(() => false);
+    const navigationDiagnostics = await page
+      .evaluate(() => ({
+        href: window.location.href,
+        pathname: window.location.pathname,
+        routeTransitionStart: window.__architectRouteTransitionStart ?? null,
+      }))
+      .catch((error) => ({
+        href: page.url(),
+        pathname: new URL(page.url()).pathname,
+        routeTransitionStart: null,
+        error: error instanceof Error ? error.message : String(error),
+      }));
 
     let createStatus: number | "timeout" = "timeout";
     try {
@@ -409,7 +429,10 @@ async function main() {
           maxNavigationMs: options.maxNavigationMs,
           localRowVisibleMs,
           navigationMs,
+          navigationTimedOut,
           sameDocumentNavigation,
+          clickedHref,
+          navigationDiagnostics,
           postStartedAfterClickMs: postStartedAt === null ? null : postStartedAt - createClickAt,
           createStatus,
           cleanup: { trashStatus, deleteStatus },
