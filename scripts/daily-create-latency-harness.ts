@@ -9,6 +9,7 @@ function readSource(path: string) {
 const adminServiceSource = readSource("src/use-cases/admin/admin-service.ts");
 const taskServiceSource = readSource("src/use-cases/task-service.ts");
 const projectGuardsSource = readSource("src/lib/auth/project-guards.ts");
+const requireUserSource = readSource("src/lib/auth/require-user.ts");
 const buildFunctionStart = adminServiceSource.indexOf("async function buildEffectiveTaskCategoriesByField");
 assert.notEqual(buildFunctionStart, -1, "buildEffectiveTaskCategoriesByField should exist");
 
@@ -51,6 +52,13 @@ assert.ok(
   currentProjectAccessSource.indexOf("adminRepository.getProjectAccess") <
     currentProjectAccessSource.indexOf("adminRepository.getProjectSelection"),
   "selected project access should use the one-query fast path before fallback project selection",
+);
+
+assert.match(requireUserSource, /supabase\.auth\.getClaims\(\)/);
+assert.match(requireUserSource, /supabase\.auth\.getUser\(\)/);
+assert.ok(
+  requireUserSource.indexOf("supabase.auth.getClaims()") < requireUserSource.indexOf("supabase.auth.getUser()"),
+  "requireUser should try verified JWT claims before falling back to getUser",
 );
 
 console.log("daily create latency harness: ok");
