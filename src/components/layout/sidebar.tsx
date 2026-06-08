@@ -24,8 +24,6 @@ const items = [
   { href: "/trash", mode: "trash" },
 ] as const;
 
-const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 10_000;
-
 type WorkspaceNavMode = (typeof items)[number]["mode"];
 
 type SidebarIdleHandle =
@@ -86,10 +84,6 @@ function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope | nu
   }
 
   return mode === "trash" ? "trash" : "active";
-}
-
-function canUseSameDocumentWorkspaceNavigation(mode: WorkspaceNavMode) {
-  return mode !== "materials";
 }
 
 export function Sidebar({
@@ -183,31 +177,14 @@ export function Sidebar({
       const targetHref = String(href);
       markWorkspaceRouteTransition(mode, targetHref);
 
-      if (canUseSameDocumentWorkspaceNavigation(mode)) {
-        event.preventDefault();
-        const targetUrl = new URL(targetHref, window.location.href);
-        const targetPath = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
-        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        if (currentPath !== targetPath) {
-          window.history.pushState(window.history.state, "", targetPath);
-          window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
-        }
-        return;
+      event.preventDefault();
+      const targetUrl = new URL(targetHref, window.location.href);
+      const targetPath = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentPath !== targetPath) {
+        window.history.pushState(window.history.state, "", targetPath);
+        window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
       }
-
-      window.setTimeout(() => {
-        const transition = window.__architectRouteTransitionStart;
-        if (transition?.href !== targetHref) {
-          return;
-        }
-
-        const targetUrl = new URL(targetHref, window.location.href);
-        const currentPath = `${window.location.pathname}${window.location.search}`;
-        const targetPath = `${targetUrl.pathname}${targetUrl.search}`;
-        if (currentPath !== targetPath) {
-          window.location.assign(targetUrl.href);
-        }
-      }, WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS);
     },
     [],
   );

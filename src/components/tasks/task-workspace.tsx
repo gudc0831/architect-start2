@@ -26,6 +26,7 @@ import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLay
 import clsx from "clsx";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ProjectMaterialsPage } from "@/components/project-context/project-materials-page";
 import {
   getTaskCategoricalFieldOptions,
   labelForTaskCategoricalFieldValue,
@@ -170,6 +171,11 @@ import {
 } from "@/lib/ui-copy";
 
 type TaskWorkspaceProps = { mode: DashboardMode };
+type TaskWorkspaceContentMode = Exclude<DashboardMode, "materials">;
+type TaskWorkspaceContentProps = {
+  mode: DashboardMode;
+  pathnameMode: TaskWorkspaceContentMode | null;
+};
 type DetailPanelState = "collapsed" | "expanded";
 type TaskFormLayoutVariant = "detail" | "composer";
 type ComposerLayoutMode = "strip" | "wrapped" | "stacked";
@@ -823,6 +829,8 @@ function dashboardModeFromPathname(pathname: string): DashboardMode | null {
       return "calendar";
     case "/daily":
       return "daily";
+    case "/materials":
+      return "materials";
     case "/trash":
       return "trash";
     default:
@@ -830,11 +838,21 @@ function dashboardModeFromPathname(pathname: string): DashboardMode | null {
   }
 }
 
-export function TaskWorkspace({ mode: routeMode }: TaskWorkspaceProps) {
+export function TaskWorkspace(props: TaskWorkspaceProps) {
+  const pathname = usePathname();
+  const pathnameMode = dashboardModeFromPathname(pathname);
+  if (pathnameMode === "materials") {
+    return <ProjectMaterialsPage preview={pathname.startsWith("/preview")} />;
+  }
+
+  return <TaskWorkspaceContent {...props} pathnameMode={pathnameMode} />;
+}
+
+function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceContentProps) {
   const authUser = useAuthUser();
   const router = useRouter();
   const pathname = usePathname();
-  const mode = dashboardModeFromPathname(pathname) ?? routeMode;
+  const mode = pathnameMode ?? routeMode;
   const isPreview = pathname.startsWith("/preview");
   const taskReorderOrderScope = !isPreview && mode === "daily" ? "daily" : null;
   const { themeId } = useTheme();
