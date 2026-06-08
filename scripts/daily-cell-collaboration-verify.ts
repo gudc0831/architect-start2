@@ -73,5 +73,6 @@ assert.match(workspaceSource, /dailyCellDocumentsEnabled/);
 assert.match(workspaceSource, /TaskCellEditor/);
 assert.match(workspaceSource, /commitInlineTaskCellDocumentField/);
 assert.match(workspaceSource, /isTextCellDocumentField/);
+assert.match(workspaceSource, /publishDailyRowSyncEvent\(dailyMutationScopeRef\.current/);
 
 console.log("daily cell collaboration static guard: ok");

@@ -100,6 +100,7 @@
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.36.0",
     "eslint-config-next": "^16.2.4",
+    "playwright": "^1.60.0",
     "prettier": "^3.6.2",
     "prisma": "^7.7.0",
     "tsx": "^4.21.0",

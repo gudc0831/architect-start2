@@ -5407,6 +5407,14 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       const patch = { [fieldKey]: value } as Partial<TaskRecord>;
       clearDraftDirtyFields([fieldKey]);
       applyTaskClientUpdate(withEmptyTaskFileSummary({ ...currentTask, ...patch }), [fieldKey]);
+      if (dailyMutationScopeRef.current) {
+        publishDailyRowSyncEvent(dailyMutationScopeRef.current, {
+          name: "task-synced",
+          operationType: "update",
+          taskId: currentTask.id,
+          serverTaskId: currentTask.id,
+        });
+      }
       releaseActiveTaskListEditLease();
       activeTaskListInlineEditCellRef.current = null;
       setTaskListActiveInlineEditCell(null);
