@@ -557,6 +557,8 @@ assert.match(taskWorkspaceSource, /publishDailyRowSyncOperationEvent/);
 assert.match(taskWorkspaceSource, /subscribeDailyRowSyncEvents/);
 assert.match(taskWorkspaceSource, /event\.task/);
 assert.match(taskWorkspaceSource, /withEmptyTaskFileSummary\(event\.task\)/);
+assert.match(taskWorkspaceSource, /event\.sourceId\.startsWith\("server:"\)/);
+assert.match(taskWorkspaceSource, /event\.sourceId\.startsWith\("db:"\)/);
 assert.match(taskWorkspaceSource, /postgres_changes/);
 assert.match(taskWorkspaceSource, /filter: `project_id=eq\.\$\{currentProjectId\}`/);
 assert.match(dailyRowSyncBusSource, /createSupabaseBrowserClient/);

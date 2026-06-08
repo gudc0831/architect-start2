@@ -3986,7 +3986,13 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
 
     return subscribeDailyRowSyncEvents(dailyMutationScope, (event) => {
       dailyMutationRemoteRefreshSuppressFlushUntilRef.current = Date.now() + 1_500;
-      if (event.task && event.task.projectId === dailyMutationScope.projectId && !event.task.deletedAt && !event.task.purgedAt) {
+      if (
+        event.task &&
+        (event.sourceId.startsWith("server:") || event.sourceId.startsWith("db:")) &&
+        event.task.projectId === dailyMutationScope.projectId &&
+        !event.task.deletedAt &&
+        !event.task.purgedAt
+      ) {
         const syncedTask = withEmptyTaskFileSummary(event.task);
         setDashboardScopeTasks("active", (previous) => {
           const existingIndex = previous.findIndex((task) => task.id === syncedTask.id);

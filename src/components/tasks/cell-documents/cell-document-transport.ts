@@ -1,8 +1,6 @@
 "use client";
 
 import { buildTaskCellDocumentTopic, type TaskCellDocumentFieldKey } from "@/domains/task/cell-documents";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
 export type CellDocumentTransportEvent = {
   topic: string;
@@ -16,8 +14,6 @@ export type CellDocumentTransportEvent = {
 };
 
 const CHANNEL_NAME = "architect-start.task-cell-documents";
-const SUPABASE_EVENT_NAME = "cell-document-update";
-const SUPABASE_SUBSCRIBE_TIMEOUT_MS = 2_000;
 
 let sourceId: string | null = null;
 
@@ -34,8 +30,6 @@ export function publishCellDocumentUpdateEvent(input: Omit<CellDocumentTransport
     channel.postMessage(event);
     channel.close();
   }
-
-  void publishSupabaseCellDocumentUpdateEvent(event);
 }
 
 export function subscribeCellDocumentUpdateEvents(
@@ -57,11 +51,6 @@ export function subscribeCellDocumentUpdateEvents(
     const channel = new BroadcastChannel(CHANNEL_NAME);
     channel.onmessage = (message) => handleEvent(readCellDocumentTransportEvent(message.data));
     cleanup.push(() => channel.close());
-  }
-
-  const removeSupabaseSubscription = subscribeSupabaseCellDocumentUpdateEvents(topic, handleEvent);
-  if (removeSupabaseSubscription) {
-    cleanup.push(removeSupabaseSubscription);
   }
 
   return () => {
@@ -107,99 +96,4 @@ function getSourceId() {
 
 function canUseBroadcastChannel() {
   return typeof BroadcastChannel !== "undefined";
-}
-
-function buildSupabaseChannelName(topic: string) {
-  return `private:${CHANNEL_NAME}:${topic}`;
-}
-
-function subscribeSupabaseCellDocumentUpdateEvents(
-  topic: string,
-  handler: (event: CellDocumentTransportEvent | null) => void,
-) {
-  if (!hasSupabaseClientConfig()) {
-    return null;
-  }
-
-  const supabase = createSupabaseBrowserClient();
-  let cancelled = false;
-  let channel: ReturnType<typeof supabase.channel> | null = null;
-
-  void (async () => {
-    await setSupabaseRealtimeAuth(supabase);
-    if (cancelled) {
-      return;
-    }
-
-    channel = supabase
-      .channel(buildSupabaseChannelName(topic), {
-        config: {
-          broadcast: { self: false },
-          private: true,
-        },
-      })
-      .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
-        handler(readCellDocumentTransportEvent((message as { payload?: unknown }).payload));
-      });
-
-    channel.subscribe();
-  })();
-  return () => {
-    cancelled = true;
-    if (channel) {
-      void supabase.removeChannel(channel);
-    }
-  };
-}
-
-async function publishSupabaseCellDocumentUpdateEvent(event: CellDocumentTransportEvent) {
-  if (!hasSupabaseClientConfig()) {
-    return;
-  }
-
-  const supabase = createSupabaseBrowserClient();
-  await setSupabaseRealtimeAuth(supabase);
-  const channel = supabase.channel(buildSupabaseChannelName(event.topic), {
-    config: {
-      broadcast: { self: false },
-      private: true,
-    },
-  });
-
-  try {
-    await waitForSupabaseSubscription(channel);
-    await channel.send({
-      event: SUPABASE_EVENT_NAME,
-      payload: event,
-      type: "broadcast",
-    });
-  } catch {
-    // BroadcastChannel and HTTP catch-up remain the durable fallback.
-  } finally {
-    void supabase.removeChannel(channel);
-  }
-}
-
-async function setSupabaseRealtimeAuth(supabase: ReturnType<typeof createSupabaseBrowserClient>) {
-  const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-  const accessToken = data.session?.access_token;
-  if (accessToken) {
-    supabase.realtime.setAuth(accessToken);
-  }
-}
-
-function waitForSupabaseSubscription(channel: ReturnType<ReturnType<typeof createSupabaseBrowserClient>["channel"]>) {
-  return new Promise<void>((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => reject(new Error("Supabase cell-document channel subscribe timeout")), SUPABASE_SUBSCRIBE_TIMEOUT_MS);
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        window.clearTimeout(timeoutId);
-        resolve();
-      }
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-        window.clearTimeout(timeoutId);
-        reject(new Error(`Supabase cell-document channel subscribe failed: ${status}`));
-      }
-    });
-  });
 }

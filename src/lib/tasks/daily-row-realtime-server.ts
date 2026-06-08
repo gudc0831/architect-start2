@@ -44,7 +44,7 @@ export async function publishDailyRowRealtimeInvalidation(input: DailyRowRealtim
         task: input.task,
         taskId: input.taskId ?? null,
       },
-      { timeout: 1_000 },
+      { timeout: 5_000 },
     );
     void supabase.removeChannel(channel);
   } catch {
