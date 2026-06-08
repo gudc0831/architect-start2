@@ -36,6 +36,7 @@ import type {
   TaskFileSummaryMap,
   TaskOrderUpdateInput,
   TaskRepository,
+  TaskRepositoryCreateOptions,
   TaskUserOrderRecord,
   UpdateProjectInput,
   UpdateTaskInput,
@@ -416,23 +417,31 @@ class PostgresTaskRepository implements TaskRepository {
     return (last?.taskNumber ?? 0) + 1;
   }
 
-  async createTask(input: CreateTaskInput) {
+  async createTask(input: CreateTaskInput, options: TaskRepositoryCreateOptions = {}) {
+    const recordTiming = options.recordTiming;
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
     const record = await prisma.$transaction(async (tx) => {
+      const existingStart = performance.now();
       const existing = await tx.task.findUnique({ where: { id } });
+      recordTiming?.("repository.existingIdLookup", performance.now() - existingStart);
       if (existing && !existing.purgedAt) {
         return existing;
       }
 
+      const advisoryLockStart = performance.now();
       await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
+      recordTiming?.("repository.advisoryLock", performance.now() - advisoryLockStart);
+      const maxNumberStart = performance.now();
       const last = await tx.task.findFirst({
         where: { projectId: input.projectId },
         orderBy: { taskNumber: "desc" },
         select: { taskNumber: true },
       });
+      recordTiming?.("repository.maxTaskNumberLookup", performance.now() - maxNumberStart);
       const taskNumber = (last?.taskNumber ?? 0) + 1;
       const parentTaskId = input.parentTaskId ?? null;
+      const siblingOrderStart = performance.now();
       const siblingOrder =
         input.siblingOrder ??
         ((await tx.task.aggregate({
@@ -444,8 +453,10 @@ class PostgresTaskRepository implements TaskRepository {
           },
           _max: { siblingOrder: true },
         }))._max.siblingOrder ?? -1) + 1;
+      recordTiming?.("repository.siblingOrderAggregate", performance.now() - siblingOrderStart);
 
-      return tx.task.create({
+      const insertStart = performance.now();
+      const created = await tx.task.create({
         data: {
           id,
           projectId: input.projectId,
@@ -465,6 +476,8 @@ class PostgresTaskRepository implements TaskRepository {
           purgedAt: null,
         },
       });
+      recordTiming?.("repository.insert", performance.now() - insertStart);
+      return created;
     });
 
     return toTaskRecord(record);

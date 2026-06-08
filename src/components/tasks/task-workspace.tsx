@@ -42,6 +42,7 @@ import { createTaskEditorDraftStore, useTaskEditorDraftStoreSnapshot, type TaskE
 import { createTaskGridDomRegistry, createTaskGridCellKey } from "@/components/tasks/task-grid-dom-registry";
 import { createTaskListRowMetricsStore } from "@/components/tasks/task-grid-metrics-store";
 import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-overlay";
+import { TaskCellEditor } from "@/components/tasks/cell-documents/task-cell-editor";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import {
@@ -50,6 +51,7 @@ import {
   buildDailyMutationScopeKey,
   buildDailyOptimisticTaskId,
   classifyDailyMutationFlushFailure,
+  cleanupSyncedDailyMutationOperations,
   computeDailyMutationRetryDelayMs,
   createDailyMutationId,
   deleteDailyMutationOperation,
@@ -74,6 +76,7 @@ import {
   type DailyMutationScope,
   type DailyMutationSummary,
 } from "@/components/tasks/daily-mutation-journal";
+import { publishDailyRowSyncEvent, publishDailyRowSyncOperationEvent, subscribeDailyRowSyncEvents } from "@/components/tasks/daily-row-sync-bus";
 import {
   applyPendingTaskPatchValues,
   clearMatchingPendingTaskPatchValues,
@@ -96,6 +99,7 @@ import { canEditProjectWorkspace, canReadProject } from "@/lib/auth/project-capa
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { isDailyCellDocumentsEnabled } from "@/lib/features/daily-cell-documents";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import { recordWorkspaceRouteReady } from "@/lib/workspace/route-timing";
 import {
@@ -107,6 +111,7 @@ import {
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
 import { DEFAULT_TASK_STATUS, isTaskStatus, TASK_STATUS_ORDER } from "@/domains/task/status";
+import { isTextCellDocumentField, type TextCellDocumentFieldKey } from "@/domains/task/cell-documents";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { buildSiblingOrderUpdates, buildStoredOrderTaskTree } from "@/domains/task/ordering";
@@ -806,7 +811,7 @@ function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
 }
 
 function isWorkspaceNavigationTarget(target: HTMLElement) {
-  return Boolean(target.closest('[data-workspace-navigation="true"]'));
+  return Boolean(target.closest('[data-workspace-navigation="true"], a[href], .daily-sheet__view-mode-toggle'));
 }
 
 export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
@@ -819,6 +824,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isWarmStudio = themeId === "posthog";
   const isAppleWorkbench = themeId === "apple-workbench";
   const isPreviewDaily = isPreview && mode === "daily";
+  const dailyCellDocumentsEnabled = isDailyCellDocumentsEnabled();
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
@@ -935,6 +941,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const localFirstActiveTasksRef = useRef<TaskRecord[]>([]);
   const dailyMutationFlushTimerRef = useRef<number | null>(null);
   const dailyMutationFlushRunningRef = useRef(false);
+  const dailyMutationRemoteRefreshSuppressFlushUntilRef = useRef(0);
   const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
   const settleDailyFailedReorderIfServerSatisfiedRef = useRef<
     (operation: DailyMutationOperation, now: number) => Promise<boolean>
@@ -1375,6 +1382,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return [] as DailyMutationOperation[];
     }
 
+    await cleanupSyncedDailyMutationOperations(dailyMutationScope);
     let operations = await listDailyMutationOperations(dailyMutationScope);
     const staleSyncingOperations = operations.filter((operation) => shouldResetDailyMutationSyncingOperation(operation));
     const legacyFailedOperations = operations.filter((operation) => shouldRecoverLegacyFailedDailyMutation(operation));
@@ -1424,8 +1432,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     async (operation: DailyMutationOperation) => {
       await putDailyMutationOperation(operation);
       await refreshDailyMutationJournal();
+      if (dailyMutationScope) {
+        publishDailyRowSyncOperationEvent(dailyMutationScope, "daily-journal-updated", operation);
+      }
     },
-    [refreshDailyMutationJournal],
+    [dailyMutationScope, refreshDailyMutationJournal],
   );
 
   useEffect(() => {
@@ -3825,6 +3836,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               failureKind: failure.kind,
               lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
             }));
+            if (dailyMutationScopeRef.current) {
+              publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-failed", operation);
+            }
           }
         }
       } finally {
@@ -3841,6 +3855,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const flushSoon = () => {
+      if (Date.now() < dailyMutationRemoteRefreshSuppressFlushUntilRef.current) {
+        return;
+      }
+
       if (dailyMutationFlushTimerRef.current !== null) {
         return;
       }
@@ -3874,6 +3892,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   useEffect(() => {
     if (!dailyMutationScope || dailyMutationSummary.totalActive === 0) {
+      return;
+    }
+
+    if (Date.now() < dailyMutationRemoteRefreshSuppressFlushUntilRef.current) {
       return;
     }
 
@@ -3920,6 +3942,46 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [fetchDailySyncTasks, setDashboardScopeTasks],
   );
+
+  useEffect(() => {
+    if (!dailyMutationScope || mode !== "daily") {
+      return;
+    }
+
+    return subscribeDailyRowSyncEvents(dailyMutationScope, () => {
+      dailyMutationRemoteRefreshSuppressFlushUntilRef.current = Date.now() + 1_500;
+      void (async () => {
+        await refreshDailyMutationJournal();
+        await refreshDailyServerTaskStateForSync({ includeTrash: true });
+      })();
+    });
+  }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
+
+  useEffect(() => {
+    if (isPreview || mode !== "daily" || !currentProjectId || !hasSupabaseClientConfig()) {
+      return;
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase
+      .channel(`project:${currentProjectId}:tasks`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tasks", filter: `project_id=eq.${currentProjectId}` },
+        () => {
+          void (async () => {
+            await refreshDailyMutationJournal();
+            await refreshDailyServerTaskStateForSync({ includeTrash: true });
+          })();
+        },
+      );
+
+    channel.subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [currentProjectId, isPreview, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
 
   async function settleDailyFailedReorderIfServerSatisfied(operation: DailyMutationOperation, now: number) {
     const nextRetryAt = new Date(now + DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS).toISOString();
@@ -4012,6 +4074,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setDashboardScopeTasks("active", (previous) =>
         reconcileDailyMutationCreateSuccess(previous, payload.tempTask.id, taskWithFileSummary),
       );
+      if (dailyMutationScopeRef.current) {
+        publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-created", {
+          ...operation,
+          serverTaskId: json.data.id,
+        });
+      }
       if (taskListRowInteractionStore.getState().selectedTaskId === payload.tempTask.id) {
         setTaskListSelection(json.data.id);
       }
@@ -4187,6 +4255,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       nextRetryAt: null,
     }));
     await refreshDailyMutationJournal();
+    if (dailyMutationScopeRef.current) {
+      publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-synced", {
+        ...operation,
+        serverTaskId: values.serverTaskId ?? operation.serverTaskId,
+      });
+    }
   }
 
   async function markDailyMutationPending(operation: DailyMutationOperation) {
@@ -4260,6 +4334,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       setTasks((previous) => [...previous, tempTask]);
       setTaskListSelection(tempTask.id);
+      publishDailyRowSyncEvent(dailyMutationScope, {
+        name: "task-created",
+        operationType: "create",
+        taskId: tempTask.id,
+        tempTaskId: tempTask.id,
+        clientMutationId,
+      });
       void flushDailyMutationJournal();
 
       if (canCollapseCreateForm) {
@@ -5313,6 +5394,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setErrorMessage,
       setTaskListActiveInlineEditCell,
     ],
+  );
+
+  const commitInlineTaskCellDocumentField = useCallback(
+    (fieldKey: TextCellDocumentFieldKey, value: string) => {
+      const activeCell = activeTaskListInlineEditCellRef.current;
+      const currentTask = selectedTaskRef.current;
+      if (!activeCell || !currentTask || activeCell.taskId !== currentTask.id) {
+        return;
+      }
+
+      const patch = { [fieldKey]: value } as Partial<TaskRecord>;
+      clearDraftDirtyFields([fieldKey]);
+      applyTaskClientUpdate(withEmptyTaskFileSummary({ ...currentTask, ...patch }), [fieldKey]);
+      releaseActiveTaskListEditLease();
+      activeTaskListInlineEditCellRef.current = null;
+      setTaskListActiveInlineEditCell(null);
+      setPendingTaskListFocusCell(null);
+    },
+    [applyTaskClientUpdate, clearDraftDirtyFields, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell],
   );
   const commitActiveTaskListInlineEdit = useCallback(() => {
     const activeCell = activeTaskListInlineEditCellRef.current;
@@ -6963,10 +7063,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     activeCell={activeTaskListInlineEditCell}
                     assigneeOptions={assigneeOptions}
                     categoryDefinitionsByField={categoryDefinitionsByField}
+                    cellDocumentsEnabled={dailyCellDocumentsEnabled}
                     draftStore={taskEditorDraftStore}
                     draft={draft}
                     getCellNode={getTaskListRowCellNode}
                     inlineSavingFields={inlineSavingFields}
+                    onCellDocumentCommitted={commitInlineTaskCellDocumentField}
                     onCancel={cancelInlineTaskListField}
                     onChange={updateInlineTaskListEditorDraft}
                     onCommit={saveInlineTaskListField}
@@ -8591,12 +8693,14 @@ function TaskListInlineEditor({
 function TaskListInlineEditorOverlay({
   activeCell,
   assigneeOptions,
+  cellDocumentsEnabled,
   draft,
   inlineSavingFields,
   workTypeDefinitions,
   categoryDefinitionsByField,
   getCellNode,
   onChange,
+  onCellDocumentCommitted,
   onCommit,
   onCancel,
   pendingFocusCell,
@@ -8605,12 +8709,14 @@ function TaskListInlineEditorOverlay({
 }: {
   activeCell: PendingTaskListFocusCell | null;
   assigneeOptions: readonly AssigneeOption[];
+  cellDocumentsEnabled: boolean;
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
   getCellNode: (taskId: string, columnKey: TaskListColumnKey) => HTMLDivElement | null;
   onChange: TaskFormChangeHandler;
+  onCellDocumentCommitted: (fieldKey: TextCellDocumentFieldKey, value: string) => void;
   onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   onCancel: (columnKey: TaskListColumnKey) => void;
   pendingFocusCell: PendingTaskListFocusCell | null;
@@ -8647,6 +8753,19 @@ function TaskListInlineEditorOverlay({
 
         if (!fieldKey || !overlayDraft || overlayDraft.id !== overlayCell.taskId) {
           return null;
+        }
+
+        if (cellDocumentsEnabled && isTextCellDocumentField(fieldKey) && !isOptimisticTaskId(overlayDraft.id)) {
+          const columnKey = overlayCell.columnKey as TaskListColumnKey;
+          return (
+            <TaskCellEditor
+              fieldKey={fieldKey}
+              onCancel={() => onCancel(columnKey)}
+              onChange={onChange}
+              onCommitted={onCellDocumentCommitted}
+              task={overlayDraft}
+            />
+          );
         }
 
         return (

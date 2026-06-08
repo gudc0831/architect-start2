@@ -70,8 +70,8 @@ export const taskRepository: TaskRepository = {
   findTaskById(taskId) {
     return getTaskRepository().findTaskById(taskId);
   },
-  createTask(input) {
-    return getTaskRepository().createTask(input);
+  createTask(input, options) {
+    return getTaskRepository().createTask(input, options);
   },
   updateTask(taskId, input) {
     return getTaskRepository().updateTask(taskId, input);

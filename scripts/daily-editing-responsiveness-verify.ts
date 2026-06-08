@@ -442,6 +442,7 @@ const taskTrashRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/tr
 const prismaSource = readFileSync(resolve("src/lib/prisma.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
+const dailyMutationJournalSource = readFileSync(resolve("src/components/tasks/daily-mutation-journal.ts"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
 const updateTaskOrdersSource = postgresStoreSource.slice(
   postgresStoreSource.indexOf("async updateTaskOrders"),
@@ -539,6 +540,21 @@ assert.match(taskWorkspaceSource, /operation\.status === "failed" \|\| operation
 assert.match(taskWorkspaceSource, /isDailyReorderMutationSatisfiedByServerState\(operation, currentTasks\)/);
 assert.match(taskWorkspaceSource, /const discardFailedDailyMutations = useCallback/);
 assert.match(taskWorkspaceSource, /deleteDailyMutationOperation\(operation\.operationId\)/);
+assert.match(taskRouteSource, /meta: \{ timings: timing\.timings \}/);
+assert.match(taskRouteSource, /Server-Timing/);
+assert.match(taskServiceSource, /service\.effectiveCategories/);
+assert.match(taskServiceSource, /service\.repositoryCreate/);
+assert.match(postgresStoreSource, /repository\.advisoryLock/);
+assert.match(postgresStoreSource, /repository\.maxTaskNumberLookup/);
+assert.match(postgresStoreSource, /repository\.siblingOrderAggregate/);
+assert.match(dailyMutationJournalSource, /cleanupSyncedDailyMutationOperations/);
+assert.match(dailyMutationJournalSource, /DAILY_MUTATION_SYNCED_RETENTION_MS/);
+assert.match(taskWorkspaceSource, /publishDailyRowSyncOperationEvent/);
+assert.match(taskWorkspaceSource, /subscribeDailyRowSyncEvents/);
+assert.match(taskWorkspaceSource, /postgres_changes/);
+assert.match(taskWorkspaceSource, /filter: `project_id=eq\.\$\{currentProjectId\}`/);
+assert.match(taskWorkspaceSource, /dailyMutationRemoteRefreshSuppressFlushUntilRef/);
+assert.match(taskWorkspaceSource, /a\[href\], \.daily-sheet__view-mode-toggle/);
 assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
 assert.match(reorderTasksSource, /command\.action === "set_sibling_order" && taskRepository\.setTaskSiblingOrder/);
 assert.match(reorderTasksSource, /taskRepository\.setTaskSiblingOrder\(\{/);

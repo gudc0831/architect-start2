@@ -41,6 +41,11 @@
     "legal-manual-smoke:generate-capture": "tsx scripts/legal-manual-smoke-generate-capture.ts",
     "assistant-thread-memory:validate": "tsx scripts/assistant-thread-memory-validate.ts",
     "task-review:smoke": "powershell -ExecutionPolicy Bypass -File scripts/task-review-service-smoke.ps1",
+    "daily:editing:verify": "tsx scripts/daily-editing-responsiveness-verify.ts",
+    "daily:cloud-latency:verify": "tsx scripts/daily-cloud-latency-verify.ts",
+    "daily:cell-collaboration:verify": "tsx scripts/daily-cell-collaboration-verify.ts",
+    "daily:cell-collaboration:cloud-verify": "tsx scripts/daily-cell-collaboration-cloud-verify.ts",
+    "daily:cell-collaboration:two-window": "tsx scripts/daily-cell-collaboration-two-window-verify.ts",
     "file-analysis:embedding:plan": "tsx scripts/file-analysis-embedding-backfill-plan.ts",
     "file-analysis:embedding:worker": "tsx scripts/file-analysis-embedding-worker.ts",
     "file-analysis:chunks:debug": "tsx scripts/file-analysis-chunk-debug-report.ts",
@@ -75,7 +80,8 @@
     "next": "^16.2.7",
     "pg": "^8.21.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "yjs": "^13.6.31"
   },
   "overrides": {
     "@hono/node-server": "1.19.13",

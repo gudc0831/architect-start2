@@ -115,6 +115,8 @@ const DB_VERSION = 1;
 const STORE_NAME = "operations";
 export const DAILY_MUTATION_PAYLOAD_SIZE_LIMIT_BYTES = 256 * 1024;
 export const DAILY_MUTATION_MAX_RETRY_COUNT = 6;
+export const DAILY_MUTATION_SYNCED_RETENTION_MS = 15_000;
+export const DAILY_MUTATION_SYNCED_MAX_RETAINED = 20;
 const REORDER_OPERATION_ID_PREFIX = "daily-reorder:";
 
 type StoredOperation = DailyMutationOperation & {
@@ -514,6 +516,28 @@ export async function listDailyMutationOperations(scope: DailyMutationScope) {
     .filter((operation) => operation.scopeKey === scopeKey)
     .map(fromStoredOperation)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export async function cleanupSyncedDailyMutationOperations(
+  scope: DailyMutationScope,
+  options: { now?: number; retentionMs?: number; maxRetained?: number } = {},
+) {
+  if (!canUseIndexedDb()) {
+    return 0;
+  }
+
+  const now = options.now ?? Date.now();
+  const retentionMs = options.retentionMs ?? DAILY_MUTATION_SYNCED_RETENTION_MS;
+  const maxRetained = options.maxRetained ?? DAILY_MUTATION_SYNCED_MAX_RETAINED;
+  const syncedOperations = (await listDailyMutationOperations(scope))
+    .filter((operation) => operation.status === "synced")
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  const operationIdsToDelete = syncedOperations
+    .filter((operation, index) => index >= maxRetained || Date.parse(operation.updatedAt) < now - retentionMs)
+    .map((operation) => operation.operationId);
+
+  await Promise.all(operationIdsToDelete.map((operationId) => deleteDailyMutationOperation(operationId)));
+  return operationIdsToDelete.length;
 }
 
 export async function updateDailyMutationOperation(

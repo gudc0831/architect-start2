@@ -11,8 +11,10 @@ import {
   isCompatibleTaskStatus,
   normalizeTaskStatus,
 } from "@/domains/task/status";
+import { TEXT_CELL_DOCUMENT_FIELDS } from "@/domains/task/cell-documents";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { backendMode } from "@/lib/backend-mode";
+import { isDailyCellDocumentsEnabled } from "@/lib/features/daily-cell-documents";
 import { requireAllowedWorkType, resolvePatchedWorkType } from "@/lib/task-work-type-write";
 import {
   buildSiblingOrderUpdates,
@@ -24,6 +26,8 @@ import {
 import { adminRepository } from "@/repositories/admin";
 import { fileRepository, taskRepository } from "@/repositories";
 import type { CreateTaskInput, UpdateTaskInput } from "@/repositories/contracts";
+import type { StageTimingRecorder } from "@/lib/timing/stage-timing";
+import { timeStage, timeStageSync } from "@/lib/timing/stage-timing";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { permanentlyDeleteTrashSelection } from "@/use-cases/trash-service";
 
@@ -139,23 +143,29 @@ export async function createTask(
   input: Omit<CreateTaskInput, "projectId" | "projectName">,
   userId?: string | null,
   selectedProject?: TaskProjectContext,
+  options: { recordTiming?: StageTimingRecorder } = {},
 ) {
-  const project = selectedProject ?? (await getSelectedTaskProject());
+  const recordTiming = options.recordTiming;
+  const project = selectedProject ?? (await timeStage(recordTiming, "service.selectedProject", () => getSelectedTaskProject()));
   const shouldResolveParent = hasParentTaskReference(input);
-  const activeTasksPromise = shouldResolveParent ? taskRepository.listActiveTasks(project.id) : Promise.resolve([]);
+  const activeTasksPromise = shouldResolveParent
+    ? timeStage(recordTiming, "service.activeTasksForParent", () => taskRepository.listActiveTasks(project.id))
+    : Promise.resolve([]);
   const [activeTasks, effectiveCategories, foundationSettings, assignee] = await Promise.all([
     activeTasksPromise,
-    loadEffectiveTaskCategories(project.id),
-    loadAdminFoundationSettings(),
-    resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee),
+    timeStage(recordTiming, "service.effectiveCategories", () => loadEffectiveTaskCategories(project.id)),
+    timeStage(recordTiming, "service.foundationSettings", () => loadAdminFoundationSettings()),
+    timeStage(recordTiming, "service.assigneeResolution", () => resolveTaskAssignee(project.id, input.assigneeProfileId, input.assignee)),
   ]);
-  const parentTaskId = shouldResolveParent ? resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber) : null;
+  const parentTaskId = shouldResolveParent
+    ? timeStageSync(recordTiming, "service.parentResolution", () => resolveParentTaskId(activeTasks, input.parentTaskId, input.parentTaskNumber))
+    : null;
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
-  const status = normalizeStatus(input.status);
+  const status = timeStageSync(recordTiming, "service.inputNormalization", () => normalizeStatus(input.status));
   const requestedSiblingOrder =
     typeof input.siblingOrder === "number" && Number.isFinite(input.siblingOrder) ? input.siblingOrder : undefined;
 
-  const task = await taskRepository.createTask({
+  const createInput = timeStageSync(recordTiming, "service.repositoryInputBuild", () => ({
     projectId: project.id,
     projectName: project.name,
     id: input.id,
@@ -204,9 +214,13 @@ export async function createTask(
     siblingOrder: requestedSiblingOrder ?? (shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined),
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
-  });
+  }));
 
-  return applyFoundationSettingsToTask(task, foundationSettings);
+  const task = await timeStage(recordTiming, "service.repositoryCreate", () =>
+    taskRepository.createTask(createInput, { recordTiming }),
+  );
+
+  return timeStageSync(recordTiming, "service.applyFoundationSettings", () => applyFoundationSettingsToTask(task, foundationSettings));
 }
 
 async function persistUserTaskOrder(
@@ -433,6 +447,8 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     throw notFound("Task not found", "TASK_NOT_FOUND");
   }
 
+  assertTaskRowPatchAllowedWithCellDocuments(input);
+
   const expectedVersion = Number(input.version);
   if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
     throw badRequest("version is required", "TASK_VERSION_REQUIRED");
@@ -478,6 +494,20 @@ export async function updateTask(taskId: string, input: UpdateTaskCommand, userI
     "Another user updated this task first. Reload the latest data and try again.",
     "TASK_VERSION_CONFLICT",
   );
+}
+
+function assertTaskRowPatchAllowedWithCellDocuments(input: UpdateTaskCommand) {
+  if (!isDailyCellDocumentsEnabled()) {
+    return;
+  }
+
+  const blockedField = TEXT_CELL_DOCUMENT_FIELDS.find((fieldKey) => Object.prototype.hasOwnProperty.call(input, fieldKey));
+  if (blockedField) {
+    throw badRequest(
+      `Field ${blockedField} is backed by a cell document and must be updated through the cell-document API.`,
+      "TASK_CELL_DOCUMENT_FIELD_DIRECT_WRITE_BLOCKED",
+    );
+  }
 }
 
 export async function moveTaskToTrash(taskId: string, userId?: string | null) {
