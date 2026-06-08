@@ -85,6 +85,8 @@ assert.match(transportSource, /BroadcastChannel/);
 assert.match(transportSource, /createSupabaseBrowserClient/);
 assert.match(transportSource, /private: true/);
 assert.match(transportSource, /cell-document-update/);
+assert.match(transportSource, /setSupabaseRealtimeAuth/);
+assert.match(transportSource, /supabase\.realtime\.setAuth/);
 assert.match(transportSource, /buildTaskCellDocumentTopic/);
 assert.match(hookSource, /Y\.mergeUpdates/);
 assert.match(hookSource, /putCellDocumentJournalOperation/);

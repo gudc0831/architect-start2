@@ -122,20 +122,33 @@ function subscribeSupabaseCellDocumentUpdateEvents(
   }
 
   const supabase = createSupabaseBrowserClient();
-  const channel = supabase
-    .channel(buildSupabaseChannelName(topic), {
-      config: {
-        broadcast: { self: false },
-        private: true,
-      },
-    })
-    .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
-      handler(readCellDocumentTransportEvent((message as { payload?: unknown }).payload));
-    });
+  let cancelled = false;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
 
-  channel.subscribe();
+  void (async () => {
+    await setSupabaseRealtimeAuth(supabase);
+    if (cancelled) {
+      return;
+    }
+
+    channel = supabase
+      .channel(buildSupabaseChannelName(topic), {
+        config: {
+          broadcast: { self: false },
+          private: true,
+        },
+      })
+      .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
+        handler(readCellDocumentTransportEvent((message as { payload?: unknown }).payload));
+      });
+
+    channel.subscribe();
+  })();
   return () => {
-    void supabase.removeChannel(channel);
+    cancelled = true;
+    if (channel) {
+      void supabase.removeChannel(channel);
+    }
   };
 }
 
@@ -145,6 +158,7 @@ async function publishSupabaseCellDocumentUpdateEvent(event: CellDocumentTranspo
   }
 
   const supabase = createSupabaseBrowserClient();
+  await setSupabaseRealtimeAuth(supabase);
   const channel = supabase.channel(buildSupabaseChannelName(event.topic), {
     config: {
       broadcast: { self: false },
@@ -163,6 +177,14 @@ async function publishSupabaseCellDocumentUpdateEvent(event: CellDocumentTranspo
     // BroadcastChannel and HTTP catch-up remain the durable fallback.
   } finally {
     void supabase.removeChannel(channel);
+  }
+}
+
+async function setSupabaseRealtimeAuth(supabase: ReturnType<typeof createSupabaseBrowserClient>) {
+  const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+  const accessToken = data.session?.access_token;
+  if (accessToken) {
+    supabase.realtime.setAuth(accessToken);
   }
 }
 

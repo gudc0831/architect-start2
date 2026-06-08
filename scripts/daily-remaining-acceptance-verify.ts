@@ -29,6 +29,7 @@ type Options = {
   realtimeTimeoutMs: number;
   reorderDelayMs: number;
   url: string;
+  viewerReadyMs: number;
 };
 
 type AuthMeData = {
@@ -63,10 +64,12 @@ function readOptionValue(argv: string[], key: string) {
 function parseOptions(argv: string[]): Options {
   const realtimeTimeoutMs = Number(readOptionValue(argv, "--realtime-timeout-ms") || "11000");
   const reorderDelayMs = Number(readOptionValue(argv, "--reorder-delay-ms") || "1500");
+  const viewerReadyMs = Number(readOptionValue(argv, "--viewer-ready-ms") || "5000");
   return {
     realtimeTimeoutMs: Number.isFinite(realtimeTimeoutMs) && realtimeTimeoutMs > 0 ? realtimeTimeoutMs : 11000,
     reorderDelayMs: Number.isFinite(reorderDelayMs) && reorderDelayMs > 0 ? reorderDelayMs : 1500,
     url: readOptionValue(argv, "--url") || process.env.PREVIEW_BASE_URL || "",
+    viewerReadyMs: Number.isFinite(viewerReadyMs) && viewerReadyMs >= 0 ? viewerReadyMs : 5000,
   };
 }
 
@@ -414,9 +417,10 @@ async function verifyRealtimeAndPermissions(input: {
   noAccess: ProbeUser;
   projectId: string;
   realtimeTimeoutMs: number;
+  viewerReadyMs: number;
   viewer: ProbeUser;
 }) {
-  const { baseUrl, editor, noAccess, projectId, realtimeTimeoutMs, viewer } = input;
+  const { baseUrl, editor, noAccess, projectId, realtimeTimeoutMs, viewer, viewerReadyMs } = input;
   const marker = `codex-realtime-${Date.now()}`;
   let taskId: string | null = null;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
@@ -442,7 +446,7 @@ async function verifyRealtimeAndPermissions(input: {
     await viewerPage.goto(baseUrl.toString(), { waitUntil: "domcontentloaded" });
     await viewerPage.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
     await viewerPage.locator("body").waitFor({ state: "visible", timeout: 10_000 });
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await new Promise((resolve) => setTimeout(resolve, viewerReadyMs));
 
     const beforeCreateFetchCount = (await readTaskFetchEvents(viewerPage)).length;
     const createStartedAt = Date.now();
@@ -474,7 +478,7 @@ async function verifyRealtimeAndPermissions(input: {
     record(
       "viewer received task via Supabase realtime without BroadcastChannel",
       rowVisibleMs < realtimeTimeoutMs && afterCreateFetches.length > 0,
-      `rowVisibleMs=${rowVisibleMs}; taskFetchesAfterCreate=${afterCreateFetches.length}; fetchesBefore=${beforeCreateFetchCount}`,
+      `rowVisibleMs=${rowVisibleMs}; taskFetchesAfterCreate=${afterCreateFetches.length}; fetchesBefore=${beforeCreateFetchCount}; viewerReadyMs=${viewerReadyMs}`,
     );
 
     assert.ok(taskId, "taskId should exist after realtime probe create");
@@ -613,6 +617,7 @@ async function main() {
     noAccess,
     projectId,
     realtimeTimeoutMs: options.realtimeTimeoutMs,
+    viewerReadyMs: options.viewerReadyMs,
     viewer,
   });
   await verifyReorderSyncStatus({ baseUrl, editor, reorderDelayMs: options.reorderDelayMs });

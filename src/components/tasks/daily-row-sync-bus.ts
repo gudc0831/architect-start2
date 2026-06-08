@@ -168,20 +168,33 @@ function subscribeSupabaseDailyRowSyncEvents(
   }
 
   const supabase = createSupabaseBrowserClient();
-  const channel = supabase
-    .channel(buildDailyRowSyncSupabaseChannelName(scopeKey), {
-      config: {
-        broadcast: { self: false },
-        private: true,
-      },
-    })
-    .on("broadcast", { event: DAILY_ROW_SYNC_SUPABASE_EVENT_NAME }, (message) => {
-      handler(readDailyRowSyncEvent((message as { payload?: unknown }).payload));
-    });
+  let cancelled = false;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
 
-  channel.subscribe();
+  void (async () => {
+    await setSupabaseRealtimeAuth(supabase);
+    if (cancelled) {
+      return;
+    }
+
+    channel = supabase
+      .channel(buildDailyRowSyncSupabaseChannelName(scopeKey), {
+        config: {
+          broadcast: { self: false },
+          private: true,
+        },
+      })
+      .on("broadcast", { event: DAILY_ROW_SYNC_SUPABASE_EVENT_NAME }, (message) => {
+        handler(readDailyRowSyncEvent((message as { payload?: unknown }).payload));
+      });
+
+    channel.subscribe();
+  })();
   return () => {
-    void supabase.removeChannel(channel);
+    cancelled = true;
+    if (channel) {
+      void supabase.removeChannel(channel);
+    }
   };
 }
 
@@ -191,6 +204,7 @@ async function publishSupabaseDailyRowSyncEvent(event: DailyRowSyncEvent) {
   }
 
   const supabase = createSupabaseBrowserClient();
+  await setSupabaseRealtimeAuth(supabase);
   const channel = supabase.channel(buildDailyRowSyncSupabaseChannelName(event.scopeKey), {
     config: {
       broadcast: { self: false },
@@ -209,6 +223,14 @@ async function publishSupabaseDailyRowSyncEvent(event: DailyRowSyncEvent) {
     // IndexedDB journal, BroadcastChannel, postgres_changes, and focus catch-up remain the durable fallbacks.
   } finally {
     void supabase.removeChannel(channel);
+  }
+}
+
+async function setSupabaseRealtimeAuth(supabase: ReturnType<typeof createSupabaseBrowserClient>) {
+  const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+  const accessToken = data.session?.access_token;
+  if (accessToken) {
+    supabase.realtime.setAuth(accessToken);
   }
 }
 

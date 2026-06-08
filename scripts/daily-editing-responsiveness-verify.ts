@@ -562,6 +562,8 @@ assert.match(dailyRowSyncBusSource, /private: true/);
 assert.match(dailyRowSyncBusSource, /buildDailyRowSyncProjectScopeKey/);
 assert.match(dailyRowSyncBusSource, /buildDailyRowSyncSupabaseChannelName/);
 assert.match(dailyRowSyncBusSource, /DAILY_ROW_SYNC_SUPABASE_EVENT_NAME/);
+assert.match(dailyRowSyncBusSource, /setSupabaseRealtimeAuth/);
+assert.match(dailyRowSyncBusSource, /supabase\.realtime\.setAuth/);
 assert.match(dailyRowSyncBusSource, /publishSupabaseDailyRowSyncEvent/);
 assert.match(dailyRowSyncBusSource, /subscribeSupabaseDailyRowSyncEvents/);
 assert.match(taskRouteSource, /route\.publishDailyRealtime/);
