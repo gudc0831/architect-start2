@@ -41,6 +41,12 @@ type TaskCellDocumentSnapshot = {
   updatedAt: string;
 };
 
+class TaskCellDocumentConcurrentUpdateError extends Error {
+  constructor() {
+    super("Task cell document concurrent update retry required.");
+  }
+}
+
 type TaskProjectionForCell = {
   id: string;
   projectId: string;
@@ -95,7 +101,9 @@ export async function applyTaskCellDocumentUpdate(input: {
     throw badRequest("Cell document update size is invalid.", "TASK_CELL_DOCUMENT_UPDATE_SIZE_INVALID");
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const result = await prisma.$transaction(async (tx) => {
     const task = await tx.task.findFirst({
       where: {
         id: input.taskId,
@@ -172,14 +180,20 @@ export async function applyTaskCellDocumentUpdate(input: {
       },
     });
 
-    const updatedDocument = await tx.taskCellDocument.update({
-      where: { id: document.id },
+    const updatedDocumentResult = await tx.taskCellDocument.updateMany({
+      where: { id: document.id, version: document.version },
       data: {
         yState: nextDocumentState.yState,
         plainText: nextDocumentState.plainText,
         version: { increment: 1 },
         updatedBy: input.actorProfileId,
       },
+    });
+    if (updatedDocumentResult.count !== 1) {
+      throw new TaskCellDocumentConcurrentUpdateError();
+    }
+    const updatedDocument = await tx.taskCellDocument.findUniqueOrThrow({
+      where: { id: document.id },
     });
 
     await pruneTaskCellDocumentUpdates(tx, document.id);
@@ -197,9 +211,18 @@ export async function applyTaskCellDocumentUpdate(input: {
     });
 
     return updatedDocument;
-  });
+      });
 
-  return toTaskCellDocumentSnapshot(result);
+      return toTaskCellDocumentSnapshot(result);
+    } catch (error) {
+      if (error instanceof TaskCellDocumentConcurrentUpdateError && attempt < 3) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new TaskCellDocumentConcurrentUpdateError();
 }
 
 async function listCatchUpUpdates(documentId: string, knownVersion: number, currentVersion: number) {
