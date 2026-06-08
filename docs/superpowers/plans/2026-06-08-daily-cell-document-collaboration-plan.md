@@ -401,10 +401,16 @@ Latest exact Preview evidence before the final three-agent gate:
 
 ### Three-Agent Acceptance Gate
 
-- [ ] Agent 1, symptom coverage reviewer: PASS on the mapping from the four original problems to plan tasks and proof gates.
-- [ ] Agent 2, collaboration architecture reviewer: PASS on CRDT projection safety, write fences, realtime/catch-up, permissions, retention, and alternatives.
-- [ ] Agent 3, execution/release reviewer: PASS on task order, approval boundaries, exact Preview proof, rollback, and verification commands.
-- [ ] Do not enable the Preview feature flag, promote to production, or mark the plan implementation complete until all three review axes are PASS.
+- [x] Agent 1, symptom coverage reviewer: PASS on the mapping from the four original problems to plan tasks and proof gates.
+- [x] Agent 2, collaboration architecture reviewer: PASS on CRDT projection safety, write fences, realtime/catch-up, permissions, retention, and alternatives.
+- [x] Agent 3, execution/release reviewer: PASS on task order, approval boundaries, exact Preview proof, rollback, and verification commands.
+- [x] Do not enable the Preview feature flag, promote to production, or mark the plan implementation complete until all three review axes are PASS.
+
+Final three-agent gate on the latest exact Preview deployment:
+
+- Agent 1 symptom coverage reviewer: PASS; all four original symptoms are covered by exact Preview evidence, with `rowVisibleMs=11619` noted as close but still within the 12-second gate.
+- Agent 2 collaboration architecture reviewer: PASS; API flag gates, access/editor split, legacy write fence, advisory lock, row lock/CAS, idempotent update IDs, retained-update catch-up, snapshot fallback, and same-transaction projection were accepted.
+- Agent 3 execution/release reviewer: PASS; latest exact Preview proof on `dpl_WQ9yzctL24Q78mPa5USh12r3XagU` supersedes earlier worklog evidence, approval boundaries were respected, and residual warnings are non-blocking.
 
 ## Rollout Order
 
