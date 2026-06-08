@@ -452,10 +452,26 @@ async function main() {
     excerpt: "Stored excerpt",
     sourceUrl: `https://open.law.go.kr/LSO/lawService.do?oC${"="}raw-token&target=law`,
     recordId: "law:building-act",
+    officialSourceName: "국가법령정보센터",
+    lawName: "건축법",
+    articleLabel: "제11조",
+    articleNumber: "11",
+    effectiveDate: "2026-01-01",
+    checkedAt: "2026-06-08T00:00:00.000Z",
+    apiSourceUrl: "https://open.law.go.kr/LSO/lawService.do?target=law",
+    verificationStatus: "verified",
     legal: mapped.evidence[0]?.legal,
   }]);
   assert.deepEqual(normalizedStorageEvidence[0]?.legal, mapped.evidence[0]?.legal);
   assert.equal(normalizedStorageEvidence[0]?.sourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(normalizedStorageEvidence[0]?.officialSourceName, "국가법령정보센터");
+  assert.equal(normalizedStorageEvidence[0]?.lawName, "건축법");
+  assert.equal(normalizedStorageEvidence[0]?.articleLabel, "제11조");
+  assert.equal(normalizedStorageEvidence[0]?.articleNumber, "11");
+  assert.equal(normalizedStorageEvidence[0]?.effectiveDate, "2026-01-01");
+  assert.equal(normalizedStorageEvidence[0]?.checkedAt, "2026-06-08T00:00:00.000Z");
+  assert.equal(normalizedStorageEvidence[0]?.apiSourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(normalizedStorageEvidence[0]?.verificationStatus, "verified");
   const previousLawOpenDataOcForStorage = process.env.LAW_OPEN_DATA_OC;
   try {
     process.env.LAW_OPEN_DATA_OC = "stored-secret";
@@ -937,8 +953,10 @@ async function main() {
   assert.doesNotMatch(assistantSaasModeSource, /retrieval:\s*toAssistantGenerateRetrievalSnapshot\(retrieved\)/);
 
   const taskAssistantPanelSource = await readFile(join(process.cwd(), "src", "components", "tasks", "task-assistant-panel.tsx"), "utf8");
-  assert.match(taskAssistantPanelSource, /evidenceReadinessWarnings:\s*retrieved\.evidenceReadinessWarnings/);
-  assert.match(taskAssistantPanelSource, /evidenceReadinessWarnings:\s*input\.evidenceReadinessWarnings/);
+  assert.match(taskAssistantPanelSource, /evidenceReadinessWarnings:\s*verifiedRetrieval\.evidenceReadinessWarnings/);
+  assert.match(taskAssistantPanelSource, /evidenceReadinessWarnings:\s*retrieval\.evidenceReadinessWarnings/);
+  assert.match(taskAssistantPanelSource, /projectContextChunks:\s*retrieval\.projectContextChunks/);
+  assert.match(taskAssistantPanelSource, /projectContextTrace:\s*retrieval\.projectContextTrace/);
   assert.match(taskAssistantPanelSource, /formatEvidenceReadinessWarningsForAssistant/);
   assert.match(taskAssistantPanelSource, /retrieval:\s*RetrieveResponse/);
   assert.match(taskAssistantPanelSource, /const reviewRequestSeqRef = useRef\(0\)/);
@@ -948,7 +966,7 @@ async function main() {
   assert.match(taskAssistantPanelSource, /postTaskReviewJson\(\{[\s\S]*?mode:\s*"generate"/);
   assert.match(taskAssistantPanelSource, /normalizeGeneratedRetrieval\(review\.generated\?\.retrieval\)\s*\?\?/);
   assert.match(taskAssistantPanelSource, /setRecord\(review\.savedRecord\)/);
-  assert.match(taskAssistantPanelSource, /const retrieveForRecord = generated\.retrieval \?\? retrieved/);
+  assert.match(taskAssistantPanelSource, /const retrieveForRecord = generated\.retrieval \?\? verifiedRetrieval/);
   assert.doesNotMatch(taskAssistantPanelSource, /postJson<AssistantGenerateResponse>\("\/api\/assistant\/generate"/);
   assert.doesNotMatch(taskAssistantPanelSource, /appendLegalChangeReviewNotice\(generated\.answer,\s*generated\.retrieval\)/);
   assert.match(taskAssistantPanelSource, /retrieveForRecord\.taskContext\.taskId !== requestedTaskId/);

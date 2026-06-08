@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     const data = await retrieveAssistantEvidence({
       taskId: String(body.taskId ?? ""),
       question: String(body.question ?? ""),
+      user,
     });
 
     return NextResponse.json({ data });

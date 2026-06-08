@@ -770,11 +770,9 @@ export function TaskAssistantPanel({
       const generated =
         requestedExecutionMode === "local-codex"
           ? await generateLocalCodexReview({
-              evidence: verifiedRetrieval.evidence,
-              evidenceReadinessWarnings: verifiedRetrieval.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskContext: verifiedRetrieval.taskContext,
+              retrieval: verifiedRetrieval,
             })
           : generateArchitectReview({
               evidence: verifiedRetrieval.evidence,
@@ -2421,11 +2419,9 @@ async function checkOfficialLawPreflightWithExtension(input: {
 }
 
 async function generateLocalCodexReview(input: {
-  taskContext: AssistantTaskContext;
-  evidence: AssistantEvidence[];
-  evidenceReadinessWarnings?: EvidenceReadinessWarning[];
   instruction: string;
   question: string;
+  retrieval: RetrieveResponse;
 }): Promise<AssistantOutput> {
   const [status, preference] = await Promise.all([
     requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000),
@@ -2441,27 +2437,32 @@ async function generateLocalCodexReview(input: {
     serviceTier: preference.aiServiceTier,
     timeoutMs: preference.aiRequestTimeoutMs,
   };
+  const retrieval = input.retrieval;
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
     "generate",
     {
       instruction: input.instruction,
       question: input.question,
-      taskContext: input.taskContext,
-      evidence: input.evidence,
-      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+      taskContext: retrieval.taskContext,
+      evidence: retrieval.evidence,
+      legalEvidence: retrieval.legalEvidence ?? [],
+      projectContextChunks: retrieval.projectContextChunks ?? [],
+      projectContextTrace: retrieval.projectContextTrace,
+      evidenceReadinessWarnings: retrieval.evidenceReadinessWarnings ?? [],
     },
     preference.aiRequestTimeoutMs,
     { codexOptions },
   );
 
-  const output = normalizeLocalCodexOutput(generated, input.taskContext);
+  const output = normalizeLocalCodexOutput(generated, retrieval.taskContext);
   return {
     ...output,
+    retrieval,
     answer: appendLegalChangeReviewNotice(output.answer, {
-      taskContext: input.taskContext,
-      evidence: input.evidence,
-      unavailableEvidenceKinds: [],
-      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+      taskContext: retrieval.taskContext,
+      evidence: retrieval.evidence,
+      unavailableEvidenceKinds: retrieval.unavailableEvidenceKinds,
+      evidenceReadinessWarnings: retrieval.evidenceReadinessWarnings ?? [],
     }),
     localCodexUsage: normalizeLocalCodexUsageMetadata(generated, preference, status),
     localCodexBridgeSchemaVersion: status.bridgeSchemaVersion,
