@@ -8,6 +8,7 @@ function readSource(path: string) {
 
 const adminServiceSource = readSource("src/use-cases/admin/admin-service.ts");
 const taskServiceSource = readSource("src/use-cases/task-service.ts");
+const projectGuardsSource = readSource("src/lib/auth/project-guards.ts");
 const buildFunctionStart = adminServiceSource.indexOf("async function buildEffectiveTaskCategoriesByField");
 assert.notEqual(buildFunctionStart, -1, "buildEffectiveTaskCategoriesByField should exist");
 
@@ -37,5 +38,19 @@ assert.match(loadEffectiveSource, /resolveEffectiveTaskCategoryDefinitions\(allD
 assert.match(loadEffectiveSource, /resolveEffectiveTaskCategoryDefinitions\(allDefinitions, "coordinationScope", projectId\)/);
 assert.doesNotMatch(loadEffectiveSource, /listEffectiveTaskCategoryDefinitions\(/);
 assert.doesNotMatch(loadEffectiveSource, /listEffectiveWorkTypeDefinitions\(/);
+
+const currentProjectAccessStart = projectGuardsSource.indexOf("export async function requireCurrentProjectAccess");
+assert.notEqual(currentProjectAccessStart, -1, "requireCurrentProjectAccess should exist");
+const currentProjectAccessEnd = projectGuardsSource.indexOf("export async function requireProjectManager", currentProjectAccessStart);
+assert.notEqual(currentProjectAccessEnd, -1, "requireCurrentProjectAccess should stay before requireProjectManager");
+const currentProjectAccessSource = projectGuardsSource.slice(currentProjectAccessStart, currentProjectAccessEnd);
+assert.match(currentProjectAccessSource, /const sessionProjectId = await getProjectSessionProjectId\(\)/);
+assert.match(currentProjectAccessSource, /adminRepository\.getProjectAccess\(sessionProjectId, resolvedUser\.id\)/);
+assert.match(currentProjectAccessSource, /canReadProject\(\{/);
+assert.ok(
+  currentProjectAccessSource.indexOf("adminRepository.getProjectAccess") <
+    currentProjectAccessSource.indexOf("adminRepository.getProjectSelection"),
+  "selected project access should use the one-query fast path before fallback project selection",
+);
 
 console.log("daily create latency harness: ok");

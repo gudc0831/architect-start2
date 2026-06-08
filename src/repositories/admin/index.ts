@@ -32,6 +32,9 @@ export const adminRepository: AdminRepository = {
   getProjectMembership(projectId, profileId) {
     return getAdminRepository().getProjectMembership(projectId, profileId);
   },
+  getProjectAccess(projectId, profileId) {
+    return getAdminRepository().getProjectAccess(projectId, profileId);
+  },
   createProject(input) {
     return getAdminRepository().createProject(input);
   },

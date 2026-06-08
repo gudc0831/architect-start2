@@ -265,6 +265,19 @@ export class LocalAdminRepository implements AdminRepository {
     );
   }
 
+  async getProjectAccess(projectId: string, profileId: string) {
+    const store = await readStore();
+    const project = store.projects.find((entry) => entry.id === projectId);
+    if (!project) {
+      return null;
+    }
+
+    const membership =
+      store.memberships.find((entry) => entry.projectId === projectId && entry.profileId === profileId) ?? null;
+
+    return { project, membership };
+  }
+
   async createProject(input: CreateAdminProjectInput) {
     const store = await readStore();
     const name = sanitizeText(input.name);

@@ -26,6 +26,11 @@ export type ReplaceProjectMembershipsInput = {
   actorId: string | null;
 };
 
+export type ProjectAccessRecord = {
+  project: ProjectSummary;
+  membership: ProjectMembershipRecord | null;
+};
+
 export type CreateWorkTypeDefinitionInput = {
   projectId: string | null;
   code: string;
@@ -63,6 +68,7 @@ export interface AdminRepository {
   listProjectsForProfile(profileId: string): Promise<ProjectSummary[]>;
   getProjectById(projectId: string): Promise<ProjectSummary | null>;
   getProjectMembership(projectId: string, profileId: string): Promise<ProjectMembershipRecord | null>;
+  getProjectAccess(projectId: string, profileId: string): Promise<ProjectAccessRecord | null>;
   createProject(input: CreateAdminProjectInput): Promise<ProjectSummary>;
   updateProject(projectId: string, input: UpdateAdminProjectInput): Promise<ProjectSummary>;
   listProfiles(): Promise<AdminProfileSummary[]>;

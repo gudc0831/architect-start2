@@ -224,6 +224,28 @@ export class PostgresAdminRepository implements AdminRepository {
     return membership ? toMembershipRecord(membership) : null;
   }
 
+  async getProjectAccess(projectId: string, profileId: string) {
+    const membership = await adminPrisma.projectMembership.findFirst({
+      where: { projectId, profileId },
+      include: {
+        project: true,
+      },
+    });
+
+    if (!membership) {
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+      });
+
+      return project ? { project: toProjectSummary(project), membership: null } : null;
+    }
+
+    return {
+      project: toProjectSummary(membership.project),
+      membership: toMembershipRecord(membership),
+    };
+  }
+
   async createProject(input: CreateAdminProjectInput) {
     const name = sanitizeText(input.name);
     if (!name) {
