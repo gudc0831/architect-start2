@@ -4,6 +4,7 @@ import {
   normalizeTaskCategoryFieldValue,
   resolvePatchedTaskCategoryFieldValue,
 } from "@/domains/admin/task-category-values";
+import { resolveEffectiveTaskCategoryDefinitions, type TaskCategoryDefinition } from "@/domains/admin/task-category-definitions";
 import {
   canonicalizeTaskStatusHistory,
   createTaskStatusHistoryEntry,
@@ -23,6 +24,7 @@ import {
   type TaskOrderingStrategy,
   type TaskReorderCommand,
 } from "@/domains/task/ordering";
+import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import { adminRepository } from "@/repositories/admin";
 import { fileRepository, taskRepository } from "@/repositories";
 import type { CreateTaskInput, UpdateTaskInput } from "@/repositories/contracts";
@@ -979,13 +981,17 @@ async function loadAdminFoundationSettings() {
 }
 
 async function loadEffectiveTaskCategories(projectId: string): Promise<EffectiveTaskCategories> {
-  const [workType, coordinationScope, requestedBy, relatedDisciplines, locationRef] = await Promise.all([
-    adminRepository.listEffectiveWorkTypeDefinitions(projectId),
-    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "coordinationScope"),
-    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "requestedBy"),
-    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "relatedDisciplines"),
-    adminRepository.listEffectiveTaskCategoryDefinitions(projectId, "locationRef"),
+  const [globalDefinitions, projectDefinitions] = await Promise.all([
+    adminRepository.listGlobalTaskCategoryDefinitions(),
+    adminRepository.listProjectTaskCategoryDefinitions(projectId),
   ]);
+  const allDefinitions: TaskCategoryDefinition[] = [...globalDefinitions, ...projectDefinitions];
+  const workType = resolveEffectiveTaskCategoryDefinitions(allDefinitions, "workType", projectId)
+    .selectableDefinitions as WorkTypeDefinition[];
+  const coordinationScope = resolveEffectiveTaskCategoryDefinitions(allDefinitions, "coordinationScope", projectId).selectableDefinitions;
+  const requestedBy = resolveEffectiveTaskCategoryDefinitions(allDefinitions, "requestedBy", projectId).selectableDefinitions;
+  const relatedDisciplines = resolveEffectiveTaskCategoryDefinitions(allDefinitions, "relatedDisciplines", projectId).selectableDefinitions;
+  const locationRef = resolveEffectiveTaskCategoryDefinitions(allDefinitions, "locationRef", projectId).selectableDefinitions;
 
   return {
     workType,

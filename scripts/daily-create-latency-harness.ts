@@ -7,6 +7,7 @@ function readSource(path: string) {
 }
 
 const adminServiceSource = readSource("src/use-cases/admin/admin-service.ts");
+const taskServiceSource = readSource("src/use-cases/task-service.ts");
 const buildFunctionStart = adminServiceSource.indexOf("async function buildEffectiveTaskCategoriesByField");
 assert.notEqual(buildFunctionStart, -1, "buildEffectiveTaskCategoriesByField should exist");
 
@@ -24,5 +25,17 @@ assert.doesNotMatch(buildFunctionSource, /listProjectTaskCategoryDefinitions\(cu
 const postgresAdminStoreSource = readSource("src/repositories/admin/postgres-store.ts");
 assert.match(postgresAdminStoreSource, /async listGlobalTaskCategoryDefinitions\(fieldKey\?: TaskCategoryFieldKey\) \{\s*await ensureGlobalBaseWorkTypes\(\);/);
 assert.match(postgresAdminStoreSource, /\.\.\.\(fieldKey \? \{ fieldKey \} : \{\}\)/);
+
+const loadEffectiveStart = taskServiceSource.indexOf("async function loadEffectiveTaskCategories");
+assert.notEqual(loadEffectiveStart, -1, "loadEffectiveTaskCategories should exist");
+const loadEffectiveEnd = taskServiceSource.indexOf("async function listAllTasks", loadEffectiveStart);
+assert.notEqual(loadEffectiveEnd, -1, "loadEffectiveTaskCategories should stay before listAllTasks");
+const loadEffectiveSource = taskServiceSource.slice(loadEffectiveStart, loadEffectiveEnd);
+assert.match(loadEffectiveSource, /adminRepository\.listGlobalTaskCategoryDefinitions\(\)/);
+assert.match(loadEffectiveSource, /adminRepository\.listProjectTaskCategoryDefinitions\(projectId\)/);
+assert.match(loadEffectiveSource, /resolveEffectiveTaskCategoryDefinitions\(allDefinitions, "workType", projectId\)/);
+assert.match(loadEffectiveSource, /resolveEffectiveTaskCategoryDefinitions\(allDefinitions, "coordinationScope", projectId\)/);
+assert.doesNotMatch(loadEffectiveSource, /listEffectiveTaskCategoryDefinitions\(/);
+assert.doesNotMatch(loadEffectiveSource, /listEffectiveWorkTypeDefinitions\(/);
 
 console.log("daily create latency harness: ok");
