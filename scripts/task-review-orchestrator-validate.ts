@@ -6,7 +6,11 @@ import {
   verifyOfficialLawEvidence,
 } from "../src/domains/legal/official-law-api";
 import type { AssistantEvidence } from "../src/domains/assistant/types";
-import { sanitizeTaskReviewEvidence } from "../src/use-cases/task-review-service";
+import {
+  sanitizeTaskReviewEvidence,
+  selectEvidenceForOfficialLawVerification,
+  selectEvidenceForTaskReviewGeneration,
+} from "../src/use-cases/task-review-service";
 
 const regulationEvidence: AssistantEvidence[] = [
   {
@@ -17,6 +21,18 @@ const regulationEvidence: AssistantEvidence[] = [
     excerpt: "건축법 제49조 피난시설 관련 검토 seed",
     sourceUrl: "https://www.law.go.kr/법령/건축법?JO=004900&OC=server-secret-oc",
     confidenceWeight: 0.74,
+  },
+];
+
+const lawNameOnlySeedEvidence: AssistantEvidence[] = [
+  {
+    id: "regulation:generic-seed",
+    kind: "regulation",
+    priority: 2,
+    title: "국토계획법 용도지역ㆍ건폐율ㆍ용적률 확인 seed",
+    excerpt: "국토의 계획 및 이용에 관한 법률 및 시행령의 용도지역ㆍ건폐율ㆍ용적률 관련 조문",
+    sourceUrl: "https://www.law.go.kr/법령/국토의계획및이용에관한법률",
+    confidenceWeight: 0.46,
   },
 ];
 
@@ -88,6 +104,11 @@ async function main() {
   assert.equal(lawNameOnlyReport.status, "failed");
   assert.equal(lawNameOnlyReport.sources.some((source) => source.status === "verified"), false);
   checks.push("law-name-only prompts do not verify arbitrary first articles");
+
+  assert.deepEqual(selectEvidenceForOfficialLawVerification("일반 task 완료 기준 검토", lawNameOnlySeedEvidence), []);
+  assert.equal(selectEvidenceForOfficialLawVerification("국토계획법 기준 검토", lawNameOnlySeedEvidence).length, 1);
+  assert.deepEqual(selectEvidenceForTaskReviewGeneration(lawNameOnlySeedEvidence, new Set()), []);
+  checks.push("task-review excludes law-name-only regulation seeds unless the prompt explicitly requires law verification");
 
   await assertSourceBoundaries(checks);
 

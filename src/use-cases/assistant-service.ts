@@ -1051,6 +1051,14 @@ export function normalizeAssistantEvidenceForStorage(value: unknown): AssistantE
         sourceUrl: normalizeOptionalHttpUrl(record.sourceUrl),
         recordId: normalizeOptionalText(record.recordId),
         confidenceWeight: Number.isFinite(record.confidenceWeight) ? Number(record.confidenceWeight) : undefined,
+        officialSourceName: normalizeOptionalText(record.officialSourceName),
+        lawName: normalizeOptionalText(record.lawName),
+        articleLabel: normalizeOptionalText(record.articleLabel),
+        articleNumber: normalizeOptionalText(record.articleNumber),
+        effectiveDate: normalizeOptionalText(record.effectiveDate),
+        checkedAt: normalizeOptionalText(record.checkedAt),
+        apiSourceUrl: normalizeOptionalHttpUrl(record.apiSourceUrl),
+        verificationStatus: normalizeVerificationStatus(record.verificationStatus),
         legal: normalizeLegalEvidenceMetadata(record.legal),
       } satisfies AssistantEvidence;
       if (normalized.excerpt) {
@@ -1088,6 +1096,10 @@ function normalizeLegalEvidenceMetadata(value: unknown): AssistantLegalEvidenceM
       : [],
     confidenceReason: normalizeOptionalRedactedText(value.confidenceReason),
   };
+}
+
+function normalizeVerificationStatus(value: unknown): AssistantEvidence["verificationStatus"] | undefined {
+  return value === "verified" || value === "needs_review" || value === "failed" ? value : undefined;
 }
 
 function isLegalSourceAuthorityPair(sourceKind: string, authorityRank: string): boolean {

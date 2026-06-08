@@ -10,6 +10,7 @@ import type {
   TaskReviewSavedRecord,
 } from "@/domains/assistant/task-review";
 import {
+  extractLawArticleLocators,
   officialLawSourceToEvidence,
   verifyOfficialLawEvidence,
   type OfficialLawVerificationReport,
@@ -33,20 +34,30 @@ export async function reviewTaskWithServerOrchestrator(
   const retrieved = await retrieveAssistantEvidence({
     taskId: input.taskId,
     question: input.question,
+    user,
   });
+  const lawVerificationEvidence = selectEvidenceForOfficialLawVerification(input.question, retrieved.evidence);
   const lawReport = await verifyOfficialLawEvidence({
     question: input.question,
-    evidence: retrieved.evidence,
+    evidence: lawVerificationEvidence,
     fetchImpl: input.fetchImpl,
   });
   const officialEvidence = lawReport.sources.map(officialLawSourceToEvidence).filter((item): item is AssistantEvidence => Boolean(item));
-  const evidence = sanitizeTaskReviewEvidence([...officialEvidence, ...retrieved.evidence]).sort(
+  const verifiedLawEvidenceIds = new Set(
+    lawReport.sources
+      .filter((source) => source.status === "verified")
+      .map((source) => source.evidenceId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const generationEvidence = selectEvidenceForTaskReviewGeneration(retrieved.evidence, verifiedLawEvidenceIds);
+  const omittedRegulationCount = retrieved.evidence.filter((item) => item.kind === "regulation").length - generationEvidence.filter((item) => item.kind === "regulation").length;
+  const evidence = sanitizeTaskReviewEvidence([...officialEvidence, ...generationEvidence]).sort(
     (left, right) => left.priority - right.priority,
   );
   const evidenceDigest = buildEvidenceDigest(evidence);
   const officialLawDigest = buildOfficialLawDigest(lawReport);
   const evidenceReadiness = buildEvidenceReadiness({ unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds });
-  const structuredReviewSchema = buildStructuredReviewPreview(input.question, evidence, lawReport);
+  const structuredReviewSchema = buildStructuredReviewPreview(input.question, evidence, lawReport, omittedRegulationCount);
 
   if (lawReport.status === "failed") {
     return {
@@ -177,6 +188,31 @@ export function sanitizeTaskReviewEvidence(evidence: AssistantEvidence[]) {
     ...item,
     sourceUrl: sanitizeEvidenceSourceUrl(item.sourceUrl),
   }));
+}
+
+export function selectEvidenceForOfficialLawVerification(question: string, evidence: AssistantEvidence[]) {
+  if (isExplicitOfficialLawReviewQuestion(question)) {
+    return evidence;
+  }
+
+  return evidence.filter((item) => item.kind !== "regulation" || hasVerifiableOfficialLawLocator(question, item));
+}
+
+export function selectEvidenceForTaskReviewGeneration(evidence: AssistantEvidence[], verifiedLawEvidenceIds: Set<string>) {
+  return evidence.filter((item) => item.kind !== "regulation" || verifiedLawEvidenceIds.has(item.id));
+}
+
+function hasVerifiableOfficialLawLocator(question: string, evidence: AssistantEvidence) {
+  return extractLawArticleLocators(question, [evidence]).some((locator) => Boolean(locator.articleNumber));
+}
+
+function isExplicitOfficialLawReviewQuestion(question: string) {
+  return (
+    extractLawArticleLocators(question, []).length > 0 ||
+    /법규|법령|법적|법률|조문|조항|시행령|시행규칙|조례|고시|인허가|허가|적법|피난|방화|용적률|건폐율|주차장|주택건설기준|공동주택|도로\s*경사/.test(
+      question,
+    )
+  );
 }
 
 function sanitizeEvidenceSourceUrl(value?: string) {
@@ -334,6 +370,7 @@ function buildStructuredReviewPreview(
   question: string,
   evidence: AssistantEvidence[],
   lawReport: OfficialLawVerificationReport,
+  omittedRegulationCount = 0,
 ): StructuredTaskReviewSchema {
   const verifiedSources = lawReport.sources.filter((source) => source.status === "verified");
   const evidenceIds = evidence.map((item) => item.id);
@@ -362,7 +399,7 @@ function buildStructuredReviewPreview(
         status: evidenceIds.length > 0 ? "needs_review" : "blocked",
       },
     ],
-    warnings: buildWarnings(lawReport, evidence),
+    warnings: buildWarnings(lawReport, evidence, omittedRegulationCount),
     evidenceConflicts: [],
     confidence: {
       score: lawReport.status === "verified" ? 82 : 64,
@@ -381,8 +418,19 @@ function buildStructuredReviewPreview(
   };
 }
 
-function buildWarnings(lawReport: OfficialLawVerificationReport, evidence: AssistantEvidence[]): StructuredTaskReviewSchema["warnings"] {
+function buildWarnings(
+  lawReport: OfficialLawVerificationReport,
+  evidence: AssistantEvidence[],
+  omittedRegulationCount = 0,
+): StructuredTaskReviewSchema["warnings"] {
   const warnings: StructuredTaskReviewSchema["warnings"] = [];
+  if (omittedRegulationCount > 0) {
+    warnings.push({
+      message: `${omittedRegulationCount}건의 regulation seed는 공식 조문 locator가 없어 생성 근거에서 제외했습니다.`,
+      severity: "warning",
+      evidenceIds: [],
+    });
+  }
   if (lawReport.status === "verified" && lawReport.failures.length > 0) {
     warnings.push({
       message: `일부 법규 locator 검증이 실패했습니다: ${lawReport.failures.join(" / ")}`,

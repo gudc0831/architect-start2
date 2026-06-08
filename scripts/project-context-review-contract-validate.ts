@@ -8,6 +8,8 @@ const saasModeSource = readFileSync(join(root, "src", "domains", "assistant", "s
 const assistantServiceSource = readFileSync(join(root, "src", "use-cases", "assistant-service.ts"), "utf8");
 const assistantSaasServiceSource = readFileSync(join(root, "src", "use-cases", "assistant-saas-mode-service.ts"), "utf8");
 const taskPanelSource = readFileSync(join(root, "src", "components", "tasks", "task-assistant-panel.tsx"), "utf8");
+const retrieveRouteSource = readFileSync(join(root, "src", "app", "api", "assistant", "retrieve", "route.ts"), "utf8");
+const taskReviewServiceSource = readFileSync(join(root, "src", "use-cases", "task-review-service.ts"), "utf8");
 
 const trace: ProjectContextTraceSnapshot = {
   corpusType: "project_context",
@@ -96,6 +98,26 @@ assert.match(saasModeSource, /projectContextTrace: ProjectContextTraceSnapshot/)
 assert.match(assistantServiceSource, /retrieveProjectContextForTaskReview/);
 assert.match(assistantServiceSource, /projectContextChunks: projectContextRetrieval\.chunks/);
 assert.match(assistantSaasServiceSource, /projectContextChunks: retrieved\.projectContextChunks/);
+assert.match(
+  retrieveRouteSource,
+  /retrieveAssistantEvidence\(\{[\s\S]*?taskId:\s*String\(body\.taskId \?\? ""\),[\s\S]*?question:\s*String\(body\.question \?\? ""\),[\s\S]*?user,?[\s\S]*?\}\)/,
+  "assistant retrieve route must pass the authenticated user into retrieval",
+);
+assert.match(
+  taskReviewServiceSource,
+  /retrieveAssistantEvidence\(\{[\s\S]*?taskId:\s*input\.taskId,[\s\S]*?question:\s*input\.question,[\s\S]*?user,?[\s\S]*?\}\)/,
+  "task-review orchestrator must pass the authenticated user into retrieval",
+);
+assert.doesNotMatch(
+  retrieveRouteSource,
+  /retrieveAssistantEvidence\(\{[\s\S]*?question:\s*String\(body\.question \?\? ""\),\s*\}\)/,
+  "assistant retrieve route must not fall back to unauthenticated project_context retrieval",
+);
+assert.doesNotMatch(
+  taskReviewServiceSource,
+  /retrieveAssistantEvidence\(\{[\s\S]*?question:\s*input\.question,\s*\}\)/,
+  "task-review orchestrator must not fall back to unauthenticated project_context retrieval",
+);
 assert.match(taskPanelSource, /법적 근거/);
 assert.match(taskPanelSource, /프로젝트 업로드 자료 반영/);
 assert.match(taskPanelSource, /프로젝트 업로드 자료 검토 상태/);
