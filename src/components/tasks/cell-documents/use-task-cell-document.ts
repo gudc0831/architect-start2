@@ -19,8 +19,6 @@ import {
   publishCellDocumentUpdateEvent,
   subscribeCellDocumentUpdateEvents,
 } from "@/components/tasks/cell-documents/cell-document-transport";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
 type CellDocumentSnapshot = {
   id: string;
@@ -97,39 +95,6 @@ export function useTaskCellDocument(input: {
         }
       },
     );
-  }, [catchUp, input.fieldKey, input.projectId, input.taskId]);
-
-  useEffect(() => {
-    if (!hasSupabaseClientConfig()) {
-      return;
-    }
-
-    const supabase = createSupabaseBrowserClient();
-    const channel = supabase
-      .channel(`project:${input.projectId}:task-cell-documents`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "task_cell_documents",
-          filter: `project_id=eq.${input.projectId}`,
-        },
-        (payload) => {
-          const row = ((payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old) ?? {}) as {
-            task_id?: unknown;
-            field_key?: unknown;
-          };
-          if (row.task_id === input.taskId && row.field_key === input.fieldKey) {
-            void catchUp();
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
   }, [catchUp, input.fieldKey, input.projectId, input.taskId]);
 
   useEffect(() => {

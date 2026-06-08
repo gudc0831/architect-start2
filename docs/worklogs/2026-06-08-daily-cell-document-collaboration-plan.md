@@ -47,3 +47,12 @@ Failure: Exact URL `daily-cell-collaboration-two-window-verify.ts` failed after 
 Cause: The cell-document service serialized duplicate client update IDs but did not serialize concurrent updates to the same document state.
 Fix: Use `pg_advisory_xact_lock(209759, hashtext(projectId:taskId:fieldKey))` inside the transaction so each concurrent update re-reads and applies against the latest committed document state.
 Residual: The final post-lock Preview deployment, alias inspect, and exact two-window proof remain required before the three-agent gate can be considered PASS.
+
+Req: Address final collaboration architecture reviewer concern about direct browser table subscription permissions.
+Diff: Removed the client-side Supabase `postgres_changes` subscription to `task_cell_documents` from `use-task-cell-document.ts`. Cell-document collaboration now uses same-origin `BroadcastChannel` for browser-window update fanout and permission-checked HTTP snapshot/update routes for catch-up, focus, online, and reload recovery. Updated the static collaboration guard to fail if direct `postgres_changes` or `task_cell_documents` table subscription code returns to the hook.
+Why: API read/write permissions were correct, but direct browser table subscriptions made the no-access/viewer/editor realtime boundary depend on Supabase table policy that was not explicitly proven in this branch. Removing the direct subscription keeps the trust boundary at app-authenticated HTTP APIs.
+Verify/Time: Re-ran `npm run typecheck`, `npm run lint`, and `npm run daily:cell-collaboration:verify` successfully after removing the direct subscription. Final deployment/proof must be taken after this change is committed and aliased.
+Failure: Final collaboration architecture reviewer returned REVISE because no-access/viewer/editor `postgres_changes` subscription permissions for `task_cell_documents` were not explicitly proven.
+Cause: The hook subscribed directly to `task_cell_documents` changes even though the rest of the implementation already had API-level project access/editor checks.
+Fix: Removed the direct browser table subscription and made the guard enforce API/BroadcastChannel-only cell-document sync.
+Residual: Cross-device realtime for cell documents is now HTTP catch-up on focus/online/reload rather than live table subscription. Same-origin multi-window live merge remains covered by BroadcastChannel and exact two-window proof; production expansion can add a private authorized realtime channel later.
