@@ -24,7 +24,7 @@ const items = [
   { href: "/trash", mode: "trash" },
 ] as const;
 
-const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 1_000;
+const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 10_000;
 
 type WorkspaceNavMode = (typeof items)[number]["mode"];
 

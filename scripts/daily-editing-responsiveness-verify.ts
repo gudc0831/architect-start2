@@ -557,7 +557,7 @@ assert.match(taskWorkspaceSource, /postgres_changes/);
 assert.match(taskWorkspaceSource, /filter: `project_id=eq\.\$\{currentProjectId\}`/);
 assert.match(taskWorkspaceSource, /dailyMutationRemoteRefreshSuppressFlushUntilRef/);
 assert.match(taskWorkspaceSource, /a\[href\], \.daily-sheet__view-mode-toggle/);
-assert.match(sidebarSource, /const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 1_000/);
+assert.match(sidebarSource, /const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 10_000/);
 assert.doesNotMatch(sidebarSource, /event\.preventDefault\(\);\s*const targetHref/);
 assert.doesNotMatch(sidebarSource, /router\.push\(href\)/);
 assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
