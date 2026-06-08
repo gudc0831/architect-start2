@@ -4001,7 +4001,9 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       }
       void (async () => {
         await refreshDailyMutationJournal();
-        await refreshDailyServerTaskStateForSync({ includeTrash: true });
+        await refreshDailyServerTaskStateForSync({
+          includeTrash: event.operationType === "delete" || event.operationType === "trash",
+        });
       })();
     });
   }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync, setDashboardScopeTasks]);

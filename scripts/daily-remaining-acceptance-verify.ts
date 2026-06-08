@@ -62,11 +62,11 @@ function readOptionValue(argv: string[], key: string) {
 }
 
 function parseOptions(argv: string[]): Options {
-  const realtimeTimeoutMs = Number(readOptionValue(argv, "--realtime-timeout-ms") || "11000");
+  const realtimeTimeoutMs = Number(readOptionValue(argv, "--realtime-timeout-ms") || "12000");
   const reorderDelayMs = Number(readOptionValue(argv, "--reorder-delay-ms") || "1500");
   const viewerReadyMs = Number(readOptionValue(argv, "--viewer-ready-ms") || "5000");
   return {
-    realtimeTimeoutMs: Number.isFinite(realtimeTimeoutMs) && realtimeTimeoutMs > 0 ? realtimeTimeoutMs : 11000,
+    realtimeTimeoutMs: Number.isFinite(realtimeTimeoutMs) && realtimeTimeoutMs > 0 ? realtimeTimeoutMs : 12000,
     reorderDelayMs: Number.isFinite(reorderDelayMs) && reorderDelayMs > 0 ? reorderDelayMs : 1500,
     url: readOptionValue(argv, "--url") || process.env.PREVIEW_BASE_URL || "",
     viewerReadyMs: Number.isFinite(viewerReadyMs) && viewerReadyMs >= 0 ? viewerReadyMs : 5000,
