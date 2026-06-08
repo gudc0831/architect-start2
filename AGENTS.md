@@ -23,6 +23,14 @@ This document defines the operating instructions for Codex in this workspace. Th
 - For multi-step tasks, keep an internal checklist and finish without omissions.
 - If blocked, do not stop immediately; try one or two reasonable fallback paths first.
 
+## Approval Policy
+
+- Standing approval covers read-only investigation, `rg`, `git status`, `git diff`, log inspection, local tests/lint/build/validators, small edits inside the requested scope, non-trivial `docs/worklogs/` entries, and read-only Vercel/Git/GitHub checks for exact URLs, branches, aliases, commits, or SHAs.
+- A direct request such as "push", "deploy", "fix the alias", or "merge to main" counts as approval for that action end to end, but still requires pre-push validation when practical, branch divergence checks, deployment or alias target confirmation, and exact SHA/URL evidence after completion.
+- Ask before `git push`, merge to `main`, tag/release creation, Vercel deploy or alias/protection/auth changes, DB migrations, production/staging data changes, dependency or global CLI installs, `.env`/secret/token/auth-profile changes, operating-rule changes, and long-running or billable work unless the user explicitly requested that action.
+- Always get fresh explicit approval before `git reset --hard`, force push, branch deletion, recursive delete/move, production DB writes/deletes, printing secret values, loosening PowerShell execution policy, or changing permission/authentication/security policy.
+- When approval is required, ask in Korean with: `승인 필요`, `작업`, `대상`, `지금 필요한 이유`, `위험`, `되돌리기`, and `검증`.
+
 ## Skill Routing
 
 - For larger coding or documentation tasks, or when structured coordination, role separation, or risk-based review would improve quality, use the repo-local `harness-engineering` skill if available.
@@ -138,6 +146,12 @@ Before the final response, always check:
 - For commit-linked logs, prefer the compact `Req / Diff / Why / Verify/Time` format, keep it to 3-5 non-empty lines, and base the `Diff` line on the staged diff.
 - Keep logs brief and factual. Do not create committed work logs for trivial edits unless the user explicitly asks for them.
 
+## Failure Learning
+
+- When an important failure causes a wrong conclusion, wasted iteration, broken verification, deployment confusion, branch mistake, repeated tool error, or user-visible regression, record the symptom, cause, fix, evidence, and prevention in the worklog.
+- Add or update an `AGENTS.md` rule only when the prevention is durable, project-wide, and likely to prevent repeated mistakes. Keep the rule short and put the detailed evidence in the worklog.
+- Keep one-off or uncertain lessons in the worklog only. Do not add speculative or task-local rules to `AGENTS.md`.
+
 ## Prohibited Behaviors
 
 - Do not present unverified claims as facts.
@@ -159,3 +173,4 @@ Before the final response, always check:
 - List repo skills with `npm run codex:skills:list`.
 - When this repo needs browser UI verification, prefer the project-shared `verify-browser-ui` skill at `codex/skills/verify-browser-ui`.
 - If the global skill registry is stale or missing that skill, read the repo-local `SKILL.md` directly and sync it before relying on the global copy.
+- When validating local skills on Windows, do not treat `ModuleNotFoundError: No module named 'yaml'` or encoding trouble as a skill failure by itself. Use the bundled runtime with `PYTHONUTF8=1` when available, or run a dependency-free frontmatter/required-section check and record the validator limitation in the worklog.
