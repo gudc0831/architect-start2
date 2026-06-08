@@ -65,16 +65,15 @@ async function listAvailableProjectsForUser(user: AuthUser) {
 }
 
 async function buildEffectiveTaskCategoriesByField(currentProjectId: string | null) {
-  const definitions = await Promise.all(
-    taskCategoryFieldKeys.map(async (fieldKey) => {
-      const [globalDefinitions, projectDefinitions] = await Promise.all([
-        adminRepository.listGlobalTaskCategoryDefinitions(fieldKey),
-        currentProjectId ? adminRepository.listProjectTaskCategoryDefinitions(currentProjectId, fieldKey) : Promise.resolve([]),
-      ]);
-      const resolved = resolveEffectiveTaskCategoryDefinitions([...globalDefinitions, ...projectDefinitions], fieldKey, currentProjectId);
-      return [fieldKey, resolved] as const;
-    }),
-  );
+  const [globalDefinitions, projectDefinitions] = await Promise.all([
+    adminRepository.listGlobalTaskCategoryDefinitions(),
+    currentProjectId ? adminRepository.listProjectTaskCategoryDefinitions(currentProjectId) : Promise.resolve([]),
+  ]);
+  const allDefinitions = [...globalDefinitions, ...projectDefinitions];
+  const definitions = taskCategoryFieldKeys.map((fieldKey) => {
+    const resolved = resolveEffectiveTaskCategoryDefinitions(allDefinitions, fieldKey, currentProjectId);
+    return [fieldKey, resolved] as const;
+  });
 
   return Object.fromEntries(
     definitions.map(([fieldKey, resolved]) => [
