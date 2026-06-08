@@ -90,6 +90,10 @@ export async function applyTaskCellDocumentUpdate(input: {
       throw notFound("Task not found", "TASK_NOT_FOUND");
     }
 
+    await tx.$executeRaw(
+      Prisma.sql`select pg_advisory_xact_lock(209759, hashtext(${buildTaskCellDocumentLockKey(input.projectId, input.taskId, fieldKey)}))`,
+    );
+
     let document = await tx.taskCellDocument.findUnique({
       where: {
         projectId_taskId_fieldKey: {
@@ -158,6 +162,10 @@ export async function applyTaskCellDocumentUpdate(input: {
   });
 
   return toTaskCellDocumentSnapshot(result);
+}
+
+function buildTaskCellDocumentLockKey(projectId: string, taskId: string, fieldKey: TaskCellDocumentFieldKey) {
+  return `${projectId}:${taskId}:${fieldKey}`;
 }
 
 async function findTaskProjection(projectId: string, taskId: string): Promise<TaskProjectionForCell> {

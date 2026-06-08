@@ -52,6 +52,8 @@ assert.match(updateRouteSource, /requireCurrentProjectEditor/);
 assert.match(updateRouteSource, /applyTaskCellDocumentUpdate/);
 assert.match(serviceSource, /clientUpdateId/);
 assert.match(serviceSource, /cellDocumentId_clientUpdateId/);
+assert.match(serviceSource, /pg_advisory_xact_lock/);
+assert.match(serviceSource, /buildTaskCellDocumentLockKey/);
 assert.match(serviceSource, /Y\.applyUpdate/);
 assert.match(serviceSource, /Y\.encodeStateAsUpdate/);
 assert.match(serviceSource, /tx\.task\.updateMany/);
