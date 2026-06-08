@@ -346,7 +346,7 @@ model TaskCellUpdate {
 
 ## Task 10: Verification Matrix
 
-- [ ] Local static checks:
+- [x] Local static checks:
 
 ```powershell
 npm run typecheck
@@ -356,25 +356,25 @@ npx prisma validate
 git diff --check
 ```
 
-- [ ] Existing `/daily` guard:
+- [x] Existing `/daily` guard:
 
 ```powershell
 npx tsx scripts/daily-editing-responsiveness-verify.ts
 ```
 
-- [ ] New cell collaboration guard:
+- [x] New cell collaboration guard:
 
 ```powershell
 npx tsx scripts/daily-cell-collaboration-verify.ts
 ```
 
-- [ ] New two-window collaboration guard against the exact Preview route:
+- [x] New two-window collaboration guard against the exact Preview route:
 
 ```powershell
 npx tsx scripts/daily-cell-collaboration-two-window-verify.ts --url "https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily"
 ```
 
-- [ ] Two-window browser proof on the exact Preview `/daily` route:
+- [x] Two-window browser proof on the exact Preview `/daily` route:
   - window A opens same project/task/cell;
   - window B opens same login or same project account;
   - both edit a text cell concurrently;
@@ -385,10 +385,19 @@ npx tsx scripts/daily-cell-collaboration-two-window-verify.ts --url "https://arc
 
 ### Four-Issue Acceptance Matrix
 
-- [ ] Create latency: Preview `/api/tasks` timing output records route, service, and repository stages; temporary row appears locally within 1 second; server ack either reconciles or stays retryable without blocking editing.
-- [ ] Stuck sync message: after successful create/update/reorder, `daily-sync-status` clears or changes to a retryable failure state without manual browser refresh; `synced` journal records are cleaned or ignored in active counts.
-- [ ] Navigation while sync pending: while a create or edit is pending, user can switch `/daily` view tabs, sidebar routes, and workspace tabs after local persistence succeeds; only local persistence failure can block.
-- [ ] Same-account/multi-window sync: same-origin second window receives `BroadcastChannel` row events; remote window/device receives Supabase realtime invalidation; CRDT text cell edits merge in both windows and survive reload.
+- [x] Create latency: Preview `/api/tasks` timing output records route, service, and repository stages; temporary row appears locally within 1 second; server ack either reconciles or stays retryable without blocking editing.
+- [x] Stuck sync message: after successful create/update/reorder, `daily-sync-status` clears or changes to a retryable failure state without manual browser refresh; `synced` journal records are cleaned or ignored in active counts.
+- [x] Navigation while sync pending: while a create or edit is pending, user can switch `/daily` view tabs, sidebar routes, and workspace tabs after local persistence succeeds; only local persistence failure can block.
+- [x] Same-account/multi-window sync: same-origin second window receives `BroadcastChannel` row events; remote window/device receives Supabase realtime invalidation; CRDT text cell edits merge in both windows and survive reload.
+
+Latest exact Preview evidence before the final three-agent gate:
+
+- Target: `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily`, inspected as Preview deployment `dpl_8bqwnMTGnxj3MkhSuqUV4CQ59jc4`, alias target `https://architect-start2-i08w11jlr-chois-projects-7b2948cf.vercel.app`, branch `codex/multi-user-transition`, commit `56bebb8`.
+- Build logs confirmed `Branch: codex/multi-user-transition, Commit: 56bebb8`, 27 migrations, `/daily` and `/preview/daily` as separate routes, and DB schema up to date.
+- `npm run daily:remaining-acceptance:verify -- --url ".../daily"` returned `ok=true`; create timing included route/service/repository stages with `totalMs=8986`, viewer Supabase realtime row visibility `10579ms` before 12-second polling, viewer read allowed, viewer write denied `403 PROJECT_EDITOR_REQUIRED`, no-access denied `403 PROJECT_ACCESS_DENIED`, cleanup `trash=200/delete=200`, and delayed reorder sync status cleared with `remaining=0`.
+- `npx tsx scripts/daily-cell-collaboration-two-window-verify.ts --url ".../daily"` returned `ok=true`; local row `81ms`, second window row `5ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, server projection contained both `-A` and `-B`, both windows saw merged text without refresh, and reload preserved it.
+- `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --delay-ms=4000 --max-navigation-ms=1000` returned `ok=true` for `/board`: local row `41ms`, navigation `152ms`, same-document navigation `true`, cleanup `200/200`.
+- The same navigation verifier returned `ok=true` for `--target-path=/materials`: local row `50ms`, navigation `135ms`, same-document navigation `true`, cleanup `200/200`.
 
 ### Three-Agent Acceptance Gate
 

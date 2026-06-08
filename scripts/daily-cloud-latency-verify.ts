@@ -1,6 +1,9 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadEnvConfig } from "@next/env";
 
 loadEnvConfig(process.cwd());
+loadPreviewEnvFile();
 
 type Timing = {
   label: string;
@@ -13,6 +16,36 @@ type Options = {
   mutate: boolean;
   maxReadMs: number;
 };
+
+function loadPreviewEnvFile() {
+  const envPath = resolve(process.cwd(), ".env.preview.local");
+  if (!existsSync(envPath)) {
+    return;
+  }
+
+  const lines = readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    const key = match[1]!;
+    let value = match[2]!.trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    if (!process.env[key]) {
+      process.env[key] = value.replace(/\\n$/, "").trim();
+    }
+  }
+}
 
 function parseOptions(argv: string[]): Options {
   const maxReadMsValue = readOptionValue(argv, "--max-read-ms");
