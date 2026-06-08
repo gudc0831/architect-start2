@@ -4,6 +4,7 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
+import { publishDailyRowRealtimeInvalidation } from "@/lib/tasks/daily-row-realtime-server";
 import { createStageTimingCollector, formatServerTimingHeader, timeStage, timeStageSync } from "@/lib/timing/stage-timing";
 import { createTask, listTasks } from "@/use-cases/task-service";
 
@@ -61,6 +62,18 @@ export async function POST(request: Request) {
       { recordTiming: timing.record },
       ),
     );
+    if (task.isDaily) {
+      await timeStage(timing.record, "route.publishDailyRealtime", () =>
+        publishDailyRowRealtimeInvalidation({
+          actorProfileId: user.id,
+          clientMutationId: readOptionalClientMutationId(body),
+          name: "task-created",
+          operationType: "create",
+          projectId: context.project.id,
+          taskId: task.id,
+        }),
+      );
+    }
 
     return NextResponse.json(
       { data: task, meta: { timings: timing.timings } },

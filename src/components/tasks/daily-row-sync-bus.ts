@@ -2,6 +2,12 @@
 
 import type { DailyMutationOperation, DailyMutationOperationType, DailyMutationScope } from "@/components/tasks/daily-mutation-journal";
 import { buildDailyMutationScopeKey } from "@/components/tasks/daily-mutation-journal";
+import {
+  DAILY_ROW_SYNC_CHANNEL_NAME,
+  DAILY_ROW_SYNC_SUPABASE_EVENT_NAME,
+  buildDailyRowSyncProjectScopeKey,
+  buildDailyRowSyncSupabaseChannelName,
+} from "@/domains/task/daily-row-realtime";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
@@ -22,8 +28,6 @@ export type DailyRowSyncEvent = {
   sourceId: string;
 };
 
-const DAILY_ROW_SYNC_CHANNEL_NAME = "architect-start.daily-row-sync";
-const SUPABASE_EVENT_NAME = "daily-row-sync";
 const SUPABASE_SUBSCRIBE_TIMEOUT_MS = 2_000;
 
 let sourceId: string | null = null;
@@ -66,10 +70,16 @@ export function publishDailyRowSyncOperationEvent(scope: DailyMutationScope, nam
 
 export function subscribeDailyRowSyncEvents(scope: DailyMutationScope, handler: (event: DailyRowSyncEvent) => void) {
   const scopeKey = buildDailyMutationScopeKey(scope);
+  const projectScopeKey = buildDailyRowSyncProjectScopeKey(scope.projectId);
   const ownSourceId = getDailyRowSyncSourceId();
   const cleanup: Array<() => void> = [];
   const handleEvent = (event: DailyRowSyncEvent | null) => {
-    if (!event || event.scopeKey !== scopeKey || event.sourceId === ownSourceId) {
+    if (
+      !event ||
+      event.projectId !== scope.projectId ||
+      (event.scopeKey !== scopeKey && event.scopeKey !== projectScopeKey) ||
+      event.sourceId === ownSourceId
+    ) {
       return;
     }
 
@@ -85,6 +95,10 @@ export function subscribeDailyRowSyncEvents(scope: DailyMutationScope, handler: 
   const removeSupabaseSubscription = subscribeSupabaseDailyRowSyncEvents(scopeKey, handleEvent);
   if (removeSupabaseSubscription) {
     cleanup.push(removeSupabaseSubscription);
+  }
+  const removeSupabaseProjectSubscription = subscribeSupabaseDailyRowSyncEvents(projectScopeKey, handleEvent);
+  if (removeSupabaseProjectSubscription) {
+    cleanup.push(removeSupabaseProjectSubscription);
   }
 
   return () => {
@@ -145,10 +159,6 @@ function canUseBroadcastChannel() {
   return typeof BroadcastChannel !== "undefined";
 }
 
-function buildSupabaseChannelName(scopeKey: string) {
-  return `private:${DAILY_ROW_SYNC_CHANNEL_NAME}:${scopeKey}`;
-}
-
 function subscribeSupabaseDailyRowSyncEvents(
   scopeKey: string,
   handler: (event: DailyRowSyncEvent | null) => void,
@@ -159,13 +169,13 @@ function subscribeSupabaseDailyRowSyncEvents(
 
   const supabase = createSupabaseBrowserClient();
   const channel = supabase
-    .channel(buildSupabaseChannelName(scopeKey), {
+    .channel(buildDailyRowSyncSupabaseChannelName(scopeKey), {
       config: {
         broadcast: { self: false },
         private: true,
       },
     })
-    .on("broadcast", { event: SUPABASE_EVENT_NAME }, (message) => {
+    .on("broadcast", { event: DAILY_ROW_SYNC_SUPABASE_EVENT_NAME }, (message) => {
       handler(readDailyRowSyncEvent((message as { payload?: unknown }).payload));
     });
 
@@ -181,7 +191,7 @@ async function publishSupabaseDailyRowSyncEvent(event: DailyRowSyncEvent) {
   }
 
   const supabase = createSupabaseBrowserClient();
-  const channel = supabase.channel(buildSupabaseChannelName(event.scopeKey), {
+  const channel = supabase.channel(buildDailyRowSyncSupabaseChannelName(event.scopeKey), {
     config: {
       broadcast: { self: false },
       private: true,
@@ -191,7 +201,7 @@ async function publishSupabaseDailyRowSyncEvent(event: DailyRowSyncEvent) {
   try {
     await waitForSupabaseSubscription(channel);
     await channel.send({
-      event: SUPABASE_EVENT_NAME,
+      event: DAILY_ROW_SYNC_SUPABASE_EVENT_NAME,
       payload: event,
       type: "broadcast",
     });
