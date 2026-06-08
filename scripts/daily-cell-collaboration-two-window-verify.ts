@@ -244,7 +244,7 @@ function record(label: string, ok: boolean, detail?: string) {
   results.push({ label, ok, detail });
 }
 
-function buildYTextReplaceUpdate(input: { yStateBase64: string | null; plainText: string; nextText: string; clientId: number }) {
+function buildYTextAppendUpdate(input: { yStateBase64: string | null; plainText: string; appendedText: string; clientId: number }) {
   const doc = new Y.Doc();
   doc.clientID = input.clientId;
   if (input.yStateBase64) {
@@ -255,12 +255,7 @@ function buildYTextReplaceUpdate(input: { yStateBase64: string | null; plainText
 
   const text = doc.getText("value");
   const before = Y.encodeStateVector(doc);
-  doc.transact(() => {
-    text.delete(0, text.length);
-    if (input.nextText) {
-      text.insert(0, input.nextText);
-    }
-  });
+  text.insert(text.length, input.appendedText);
 
   return Buffer.from(Y.encodeStateAsUpdate(doc, before)).toString("base64");
 }
@@ -579,16 +574,16 @@ async function main() {
     record("sync status cleared after server ack without refresh", syncStatusCount === 0, syncStatusDetail);
 
     const initialSnapshot = await getCellSnapshot(url, jar, taskId);
-    const updateA = buildYTextReplaceUpdate({
+    const updateA = buildYTextAppendUpdate({
       yStateBase64: initialSnapshot.yStateBase64,
       plainText: initialSnapshot.plainText,
-      nextText: editA,
+      appendedText: editA,
       clientId: 1001,
     });
-    const updateB = buildYTextReplaceUpdate({
+    const updateB = buildYTextAppendUpdate({
       yStateBase64: initialSnapshot.yStateBase64,
       plainText: initialSnapshot.plainText,
-      nextText: editB,
+      appendedText: editB,
       clientId: 1002,
     });
     const [postA, postB] = await Promise.all([
