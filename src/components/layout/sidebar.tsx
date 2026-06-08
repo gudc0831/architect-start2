@@ -355,7 +355,7 @@ export function Sidebar({
                   className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                   key={item.href}
                   href={item.href}
-                  onClickCapture={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
+                  onClick={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                   onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                   onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
                   onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
@@ -398,7 +398,7 @@ export function Sidebar({
                 className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                 key={item.href}
                 href={item.href}
-                onClickCapture={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
+                onClick={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                 onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                 onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
                 onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
