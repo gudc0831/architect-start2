@@ -88,6 +88,10 @@ function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope | nu
   return mode === "trash" ? "trash" : "active";
 }
 
+function canUseSameDocumentWorkspaceNavigation(mode: WorkspaceNavMode) {
+  return mode !== "materials";
+}
+
 export function Sidebar({
   isExpanded,
   isPinned,
@@ -178,6 +182,18 @@ export function Sidebar({
 
       const targetHref = String(href);
       markWorkspaceRouteTransition(mode, targetHref);
+
+      if (canUseSameDocumentWorkspaceNavigation(mode)) {
+        event.preventDefault();
+        const targetUrl = new URL(targetHref, window.location.href);
+        const targetPath = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (currentPath !== targetPath) {
+          window.history.pushState(window.history.state, "", targetPath);
+          window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+        }
+        return;
+      }
 
       window.setTimeout(() => {
         const transition = window.__architectRouteTransitionStart;

@@ -814,10 +814,27 @@ function isWorkspaceNavigationTarget(target: HTMLElement) {
   return Boolean(target.closest('[data-workspace-navigation="true"], a[href], .daily-sheet__view-mode-toggle'));
 }
 
-export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
+function dashboardModeFromPathname(pathname: string): DashboardMode | null {
+  const workspacePathname = pathname.startsWith("/preview/") ? pathname.slice("/preview".length) : pathname;
+  switch (workspacePathname) {
+    case "/board":
+      return "board";
+    case "/calendar":
+      return "calendar";
+    case "/daily":
+      return "daily";
+    case "/trash":
+      return "trash";
+    default:
+      return null;
+  }
+}
+
+export function TaskWorkspace({ mode: routeMode }: TaskWorkspaceProps) {
   const authUser = useAuthUser();
   const router = useRouter();
   const pathname = usePathname();
+  const mode = dashboardModeFromPathname(pathname) ?? routeMode;
   const isPreview = pathname.startsWith("/preview");
   const taskReorderOrderScope = !isPreview && mode === "daily" ? "daily" : null;
   const { themeId } = useTheme();

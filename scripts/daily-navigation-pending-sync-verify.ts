@@ -8,6 +8,17 @@ import { chromium, type BrowserContext } from "playwright";
 declare global {
   interface Window {
     __architectPendingSyncNavigationProbe?: boolean;
+    __architectNavigationDebug?: {
+      clicks: Array<{
+        defaultPreventedAtCapture: boolean;
+        defaultPreventedAfterBubble: boolean;
+        href: string | null;
+        pathname: string;
+        timeMs: number;
+      }>;
+      pushes: Array<{ pathname: string; timeMs: number; url: string | null }>;
+      replaces: Array<{ pathname: string; timeMs: number; url: string | null }>;
+    };
   }
 }
 
@@ -28,22 +39,30 @@ type NetworkEvent = {
   failure?: string | null;
 };
 
+type NavigationTargetMode = "admin" | "board" | "calendar" | "daily" | "materials" | "trash";
+
 type Options = {
   url: string;
   delayMs: number;
   maxNavigationMs: number;
+  navigationMethod: "link" | "native-history";
   navigationOnly: boolean;
+  targetPath: string;
 };
 
 function parseOptions(argv: string[]): Options {
   const url = readOptionValue(argv, "--url") || process.env.PREVIEW_BASE_URL || "";
   const delayMs = Number(readOptionValue(argv, "--delay-ms") || "4000");
   const maxNavigationMs = Number(readOptionValue(argv, "--max-navigation-ms") || "1000");
+  const navigationMethod = readOptionValue(argv, "--navigation-method");
+  const targetPath = readOptionValue(argv, "--target-path") || "/board";
   return {
     url,
     delayMs: Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 4000,
     maxNavigationMs: Number.isFinite(maxNavigationMs) && maxNavigationMs > 0 ? maxNavigationMs : 1000,
+    navigationMethod: navigationMethod === "native-history" ? "native-history" : "link",
     navigationOnly: argv.includes("--navigation-only"),
+    targetPath: targetPath.startsWith("/") ? targetPath : `/${targetPath}`,
   };
 }
 
@@ -56,6 +75,24 @@ function readOptionValue(argv: string[], key: string) {
   const prefix = `${key}=`;
   const match = argv.find((value) => value.startsWith(prefix));
   return match ? match.slice(prefix.length) : "";
+}
+
+function navigationTargetModeFromPath(targetPath: string): NavigationTargetMode {
+  switch (targetPath) {
+    case "/admin":
+      return "admin";
+    case "/calendar":
+      return "calendar";
+    case "/daily":
+      return "daily";
+    case "/materials":
+      return "materials";
+    case "/trash":
+      return "trash";
+    case "/board":
+    default:
+      return "board";
+  }
 }
 
 function loadPreviewEnvFile() {
@@ -319,6 +356,126 @@ async function delay(ms: number) {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
+async function installNavigationDiagnostics(page: Awaited<ReturnType<BrowserContext["newPage"]>>, targetPath: string) {
+  await page.evaluate(`
+    (() => {
+      const diagnosticTargetPath = ${JSON.stringify(targetPath)};
+      const now = () =>
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+    window.__architectNavigationDebug = { clicks: [], pushes: [], replaces: [] };
+
+    const originalPushState = history.pushState.bind(history);
+    history.pushState = function (...args) {
+      const url = args.length >= 3 ? String(args[2]) : null;
+      const result = originalPushState(...args);
+      window.__architectNavigationDebug?.pushes.push({
+        pathname: window.location.pathname,
+        timeMs: now(),
+        url,
+      });
+      return result;
+    };
+
+    const originalReplaceState = history.replaceState.bind(history);
+    history.replaceState = function (...args) {
+      const url = args.length >= 3 ? String(args[2]) : null;
+      const result = originalReplaceState(...args);
+      window.__architectNavigationDebug?.replaces.push({
+        pathname: window.location.pathname,
+        timeMs: now(),
+        url,
+      });
+      return result;
+    };
+
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const anchor = target.closest('a[href="' + diagnosticTargetPath + '"]');
+        if (!anchor) {
+          return;
+        }
+        const eventRecord = {
+          defaultPreventedAtCapture: event.defaultPrevented,
+          defaultPreventedAfterBubble: event.defaultPrevented,
+          href: anchor.href,
+          pathname: window.location.pathname,
+          timeMs: now(),
+        };
+        window.__architectNavigationDebug?.clicks.push(eventRecord);
+        window.setTimeout(() => {
+          eventRecord.defaultPreventedAfterBubble = event.defaultPrevented;
+          eventRecord.pathname = window.location.pathname;
+        }, 0);
+      },
+      true,
+    );
+    })();
+  `);
+}
+
+async function readNavigationDiagnostics(page: Awaited<ReturnType<BrowserContext["newPage"]>>) {
+  return page
+    .evaluate(() => ({
+      href: window.location.href,
+      pathname: window.location.pathname,
+      routeTransitionStart: window.__architectRouteTransitionStart ?? null,
+      workspaceModeDataset: window.document.documentElement.dataset.architectWorkspaceMode ?? null,
+      workspaceReady: window.__architectWorkspaceReady ?? null,
+      navigationDebug: window.__architectNavigationDebug ?? null,
+    }))
+    .catch((error) => ({
+      href: page.url(),
+      pathname: new URL(page.url()).pathname,
+      routeTransitionStart: null,
+      workspaceModeDataset: null,
+      workspaceReady: null,
+      navigationDebug: null,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+}
+
+async function navigateToTarget(
+  page: Awaited<ReturnType<BrowserContext["newPage"]>>,
+  options: Pick<Options, "navigationMethod" | "targetPath">,
+) {
+  const targetMode = navigationTargetModeFromPath(options.targetPath);
+  await installNavigationDiagnostics(page, options.targetPath);
+  const targetLink = page.locator(`nav[data-workspace-navigation="true"] a[href="${options.targetPath}"]`).first();
+  await targetLink.waitFor({ state: "visible", timeout: 2_000 });
+  const clickedHref = await targetLink.evaluate((anchor) => (anchor instanceof HTMLAnchorElement ? anchor.href : ""));
+
+  if (options.navigationMethod === "native-history") {
+    await page.evaluate(
+      ({ href, mode }) => {
+        window.__architectPendingSyncNavigationProbe = true;
+        window.__architectRouteTransitionStart = {
+          fromPathname: window.location.pathname,
+          href,
+          startedAt:
+            typeof performance !== "undefined" && typeof performance.now === "function"
+              ? performance.now()
+              : Date.now(),
+          targetMode: mode,
+        };
+        window.history.pushState(window.history.state, "", href);
+        window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      },
+      { href: options.targetPath, mode: targetMode },
+    );
+  } else {
+    await targetLink.click();
+  }
+
+  return clickedHref;
+}
+
 async function main() {
   loadPreviewEnvFile();
   const options = parseOptions(process.argv.slice(2));
@@ -402,13 +559,10 @@ async function main() {
         window.__architectPendingSyncNavigationProbe = true;
       });
       await page.locator(".sidebar").first().hover();
-      const boardLink = page.locator('nav[data-workspace-navigation="true"] a[href="/board"]').first();
-      await boardLink.waitFor({ state: "visible", timeout: 2_000 });
-      const clickedHref = await boardLink.evaluate((anchor) => (anchor instanceof HTMLAnchorElement ? anchor.href : ""));
-      await boardLink.click();
+      const clickedHref = await navigateToTarget(page, options);
       let navigationTimedOut = false;
       try {
-        await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
+        await page.waitForFunction((targetPath) => window.location.pathname === targetPath, options.targetPath, { timeout: options.maxNavigationMs });
       } catch {
         navigationTimedOut = true;
       }
@@ -416,19 +570,14 @@ async function main() {
       const sameDocumentNavigation = await page
         .evaluate(() => Boolean(window.__architectPendingSyncNavigationProbe))
         .catch(() => false);
-      const navigationDiagnostics = await page
-        .evaluate(() => ({
-          href: window.location.href,
-          pathname: window.location.pathname,
-          routeTransitionStart: window.__architectRouteTransitionStart ?? null,
-        }))
-        .catch((error) => ({
-          href: page.url(),
-          pathname: new URL(page.url()).pathname,
-          routeTransitionStart: null,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      const ok = navigationMs <= options.maxNavigationMs && sameDocumentNavigation;
+      const navigationDiagnostics = await readNavigationDiagnostics(page);
+      const targetMode = navigationTargetModeFromPath(options.targetPath);
+      const workspaceModeMatches =
+        targetMode === "admin" ||
+        targetMode === "materials" ||
+        navigationDiagnostics.workspaceReady?.mode === targetMode ||
+        navigationDiagnostics.workspaceModeDataset === targetMode;
+      const ok = navigationMs <= options.maxNavigationMs && sameDocumentNavigation && workspaceModeMatches;
 
       console.log(
         JSON.stringify(
@@ -436,11 +585,14 @@ async function main() {
             ok,
             url: url.toString(),
             navigationOnly: true,
+            navigationMethod: options.navigationMethod,
+            targetPath: options.targetPath,
             maxNavigationMs: options.maxNavigationMs,
             navigationStartedAtMs: navigationStartedAt - probeStartedAt,
             navigationMs,
             navigationTimedOut,
             sameDocumentNavigation,
+            workspaceModeMatches,
             clickedHref,
             navigationDiagnostics,
             ...(ok ? {} : { networkEvents }),
@@ -477,13 +629,10 @@ async function main() {
       window.__architectPendingSyncNavigationProbe = true;
     });
     await page.locator(".sidebar").first().hover();
-    const boardLink = page.locator('nav[data-workspace-navigation="true"] a[href="/board"]').first();
-    await boardLink.waitFor({ state: "visible", timeout: 2_000 });
-    const clickedHref = await boardLink.evaluate((anchor) => (anchor instanceof HTMLAnchorElement ? anchor.href : ""));
-    await boardLink.click();
+    const clickedHref = await navigateToTarget(page, options);
     let navigationTimedOut = false;
     try {
-      await page.waitForFunction(() => window.location.pathname === "/board", undefined, { timeout: options.maxNavigationMs });
+      await page.waitForFunction((targetPath) => window.location.pathname === targetPath, options.targetPath, { timeout: options.maxNavigationMs });
     } catch {
       navigationTimedOut = true;
     }
@@ -491,18 +640,13 @@ async function main() {
     const sameDocumentNavigation = await page
       .evaluate(() => Boolean(window.__architectPendingSyncNavigationProbe))
       .catch(() => false);
-    const navigationDiagnostics = await page
-      .evaluate(() => ({
-        href: window.location.href,
-        pathname: window.location.pathname,
-        routeTransitionStart: window.__architectRouteTransitionStart ?? null,
-      }))
-      .catch((error) => ({
-        href: page.url(),
-        pathname: new URL(page.url()).pathname,
-        routeTransitionStart: null,
-        error: error instanceof Error ? error.message : String(error),
-      }));
+    const navigationDiagnostics = await readNavigationDiagnostics(page);
+    const targetMode = navigationTargetModeFromPath(options.targetPath);
+    const workspaceModeMatches =
+      targetMode === "admin" ||
+      targetMode === "materials" ||
+      navigationDiagnostics.workspaceReady?.mode === targetMode ||
+      navigationDiagnostics.workspaceModeDataset === targetMode;
 
     let createStatus: number | "timeout" = "timeout";
     try {
@@ -524,6 +668,7 @@ async function main() {
       localRowVisibleMs <= 1_000 &&
       navigationMs <= options.maxNavigationMs &&
       sameDocumentNavigation &&
+      workspaceModeMatches &&
       createStatus === 201 &&
       (deleteStatus === 200 || deleteStatus === 204);
 
@@ -532,6 +677,8 @@ async function main() {
         {
           ok,
           url: url.toString(),
+          navigationMethod: options.navigationMethod,
+          targetPath: options.targetPath,
           delayedPostMs: options.delayMs,
           maxNavigationMs: options.maxNavigationMs,
           localRowVisibleMs,
@@ -539,6 +686,7 @@ async function main() {
           navigationMs,
           navigationTimedOut,
           sameDocumentNavigation,
+          workspaceModeMatches,
           clickedHref,
           navigationDiagnostics,
           postStartedAfterClickMs: postStartedAt === null ? null : postStartedAt - createClickAt,
