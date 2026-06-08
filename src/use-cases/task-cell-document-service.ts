@@ -120,21 +120,29 @@ export async function applyTaskCellDocumentUpdate(input: {
       Prisma.sql`select pg_advisory_xact_lock(209759, hashtext(${buildTaskCellDocumentLockKey(input.projectId, input.taskId, fieldKey)}))`,
     );
 
-    let document = await tx.taskCellDocument.findUnique({
-      where: {
-        projectId_taskId_fieldKey: {
-          projectId: input.projectId,
-          taskId: input.taskId,
-          fieldKey,
-        },
-      },
+    await tx.taskCellDocument.createMany({
+      data: [buildInitialTaskCellDocumentCreateInput(input.projectId, task, fieldKey, input.actorProfileId)],
+      skipDuplicates: true,
     });
 
-    if (!document) {
-      document = await tx.taskCellDocument.create({
-        data: buildInitialTaskCellDocumentCreateInput(input.projectId, task, fieldKey, input.actorProfileId),
-      });
+    const lockedDocumentRows = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        select id::text
+        from task_cell_documents
+        where project_id = ${input.projectId}::uuid
+          and task_id = ${input.taskId}::uuid
+          and field_key = ${fieldKey}
+        for update
+      `,
+    );
+    const lockedDocumentId = lockedDocumentRows[0]?.id;
+    if (!lockedDocumentId) {
+      throw new Error("Task cell document row lock failed.");
     }
+
+    const document = await tx.taskCellDocument.findUniqueOrThrow({
+      where: { id: lockedDocumentId },
+    });
 
     const duplicateUpdate = await tx.taskCellUpdate.findUnique({
       where: {
