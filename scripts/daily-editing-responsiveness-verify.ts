@@ -442,6 +442,7 @@ const taskTrashRouteSource = readFileSync(resolve("src/app/api/tasks/[taskId]/tr
 const prismaSource = readFileSync(resolve("src/lib/prisma.ts"), "utf8");
 const postgresStoreSource = readFileSync(resolve("src/repositories/postgres/store.ts"), "utf8");
 const taskWorkspaceSource = readFileSync(resolve("src/components/tasks/task-workspace.tsx"), "utf8");
+const sidebarSource = readFileSync(resolve("src/components/layout/sidebar.tsx"), "utf8");
 const dailyMutationJournalSource = readFileSync(resolve("src/components/tasks/daily-mutation-journal.ts"), "utf8");
 const taskServiceSource = readFileSync(resolve("src/use-cases/task-service.ts"), "utf8");
 const updateTaskOrdersSource = postgresStoreSource.slice(
@@ -556,6 +557,7 @@ assert.match(taskWorkspaceSource, /postgres_changes/);
 assert.match(taskWorkspaceSource, /filter: `project_id=eq\.\$\{currentProjectId\}`/);
 assert.match(taskWorkspaceSource, /dailyMutationRemoteRefreshSuppressFlushUntilRef/);
 assert.match(taskWorkspaceSource, /a\[href\], \.daily-sheet__view-mode-toggle/);
+assert.match(sidebarSource, /const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 1_000/);
 assert.match(reorderTasksSource, /selectedProject\?: TaskProjectContext/);
 assert.match(reorderTasksSource, /command\.action === "set_sibling_order" && taskRepository\.setTaskSiblingOrder/);
 assert.match(reorderTasksSource, /taskRepository\.setTaskSiblingOrder\(\{/);

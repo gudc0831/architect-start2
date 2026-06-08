@@ -47,6 +47,7 @@
     "daily:cell-collaboration:verify": "tsx scripts/daily-cell-collaboration-verify.ts",
     "daily:cell-collaboration:cloud-verify": "tsx scripts/daily-cell-collaboration-cloud-verify.ts",
     "daily:cell-collaboration:two-window": "tsx scripts/daily-cell-collaboration-two-window-verify.ts",
+    "daily:navigation-pending-sync:verify": "tsx scripts/daily-navigation-pending-sync-verify.ts",
     "file-analysis:embedding:plan": "tsx scripts/file-analysis-embedding-backfill-plan.ts",
     "file-analysis:embedding:worker": "tsx scripts/file-analysis-embedding-worker.ts",
     "file-analysis:chunks:debug": "tsx scripts/file-analysis-chunk-debug-report.ts",
