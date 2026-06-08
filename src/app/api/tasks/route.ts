@@ -70,6 +70,7 @@ export async function POST(request: Request) {
           name: "task-created",
           operationType: "create",
           projectId: context.project.id,
+          task,
           taskId: task.id,
         }),
       );

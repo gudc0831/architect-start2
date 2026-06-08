@@ -14,6 +14,7 @@ type DailyRowRealtimeInvalidationInput = {
   name: DailyRowSyncEventName;
   operationType?: "create" | "update" | "delete" | "trash" | "restore" | "reorder";
   projectId: string;
+  task?: unknown;
   taskId?: string | null;
 };
 
@@ -40,6 +41,7 @@ export async function publishDailyRowRealtimeInvalidation(input: DailyRowRealtim
         scopeKey,
         serverTaskId: input.taskId ?? null,
         sourceId: `server:${randomUUID()}`,
+        task: input.task,
         taskId: input.taskId ?? null,
       },
       { timeout: 1_000 },

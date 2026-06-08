@@ -3984,14 +3984,27 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return;
     }
 
-    return subscribeDailyRowSyncEvents(dailyMutationScope, () => {
+    return subscribeDailyRowSyncEvents(dailyMutationScope, (event) => {
       dailyMutationRemoteRefreshSuppressFlushUntilRef.current = Date.now() + 1_500;
+      if (event.task && event.task.projectId === dailyMutationScope.projectId && !event.task.deletedAt && !event.task.purgedAt) {
+        const syncedTask = withEmptyTaskFileSummary(event.task);
+        setDashboardScopeTasks("active", (previous) => {
+          const existingIndex = previous.findIndex((task) => task.id === syncedTask.id);
+          if (existingIndex < 0) {
+            return mergeDailyMutationOperationsIntoActiveTasks([...previous, syncedTask], dailyMutationOperationsRef.current);
+          }
+
+          const next = previous.slice();
+          next[existingIndex] = syncedTask;
+          return mergeDailyMutationOperationsIntoActiveTasks(next, dailyMutationOperationsRef.current);
+        });
+      }
       void (async () => {
         await refreshDailyMutationJournal();
         await refreshDailyServerTaskStateForSync({ includeTrash: true });
       })();
     });
-  }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
+  }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync, setDashboardScopeTasks]);
 
   useEffect(() => {
     if (isPreview || mode !== "daily" || !currentProjectId || !hasSupabaseClientConfig()) {

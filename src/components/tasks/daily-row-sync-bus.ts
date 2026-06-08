@@ -8,6 +8,7 @@ import {
   buildDailyRowSyncProjectScopeKey,
   buildDailyRowSyncSupabaseChannelName,
 } from "@/domains/task/daily-row-realtime";
+import type { TaskRecord } from "@/domains/task/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 
@@ -21,6 +22,7 @@ export type DailyRowSyncEvent = {
   operationId?: string;
   clientMutationId?: string;
   operationType?: DailyMutationOperationType;
+  task?: TaskRecord | null;
   taskId?: string | null;
   tempTaskId?: string | null;
   serverTaskId?: string | null;
