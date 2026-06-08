@@ -2748,6 +2748,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
   const selectedTask = useMemo(() => (selectedTaskId ? taskById.get(selectedTaskId) ?? null : null), [selectedTaskId, taskById]);
+  const selectedTaskIsOptimistic = Boolean(selectedTask?.id && isOptimisticTaskId(selectedTask.id));
 
   useEffect(() => {
     if (mode !== "daily") {
@@ -2831,7 +2832,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [selectedTask, taskById]);
 
   useEffect(() => {
-    if (isPreview || mode !== "daily" || !selectedTask?.id) {
+    if (isPreview || mode !== "daily" || !selectedTask?.id || selectedTaskIsOptimistic) {
       setAssistantActionAudits([]);
       return;
     }
@@ -2879,7 +2880,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       abortController.abort();
       window.removeEventListener("architect:assistant-action-audit-saved", handleAssistantActionAuditSaved);
     };
-  }, [isPreview, mode, selectedTask?.id]);
+  }, [isPreview, mode, selectedTask?.id, selectedTaskIsOptimistic]);
 
   const selectedTaskAssistantAudit = useMemo(
     () => (selectedTask ? buildAssistantAuditIndicator(selectedTask, sortedTasks, selectedParentTask, assistantActionAudits) : null),
@@ -2900,12 +2901,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (!selectedTask?.id || selectedTaskFilesLoaded) {
+    if (!selectedTask?.id || selectedTaskIsOptimistic || selectedTaskFilesLoaded) {
       return;
     }
 
     void ensureTaskFilesLoaded(selectedTask.id);
-  }, [ensureTaskFilesLoaded, isTrashMode, selectedTask?.id, selectedTaskFilesLoaded, tasks]);
+  }, [ensureTaskFilesLoaded, isTrashMode, selectedTask?.id, selectedTaskFilesLoaded, selectedTaskIsOptimistic, tasks]);
   const filesByTaskId = useMemo(() => {
     return files.reduce<Record<string, FileRecord[]>>((acc, file) => {
       if (!acc[file.taskId]) acc[file.taskId] = [];
@@ -7759,7 +7760,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             </aside>
           ) : null}
 
-          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTask} /> : null}
+          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTaskIsOptimistic ? null : selectedTask} /> : null}
         </div>
       )}
     </section>
