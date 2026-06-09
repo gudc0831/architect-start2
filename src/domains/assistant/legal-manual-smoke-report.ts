@@ -584,7 +584,6 @@ function redactCredentialText(value: string, env: EnvLike): string {
 
 function configuredCredentialValues(env: EnvLike): string[] {
   return [
-    env.LAW_OPEN_DATA_OC,
     env.LEGAL_QUERY_EMBEDDING_API_KEY,
     env.ARCHITECT_FILE_EMBEDDING_API_KEY,
     env.OPENAI_API_KEY,

@@ -349,12 +349,7 @@ function normalizeEvidenceReadinessWarnings(warnings: EvidenceReadinessWarning[]
 }
 
 function redactEvidenceReadinessWarningText(value: string): string {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
-  if (officialLawCredential) {
-    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
-  }
-  return redacted;
+  return redactOfficialLawCredential(value);
 }
 
 async function fetchVerifiedLegalEvidenceBundle(input: {
@@ -568,8 +563,7 @@ function normalizeOptionalHttpUrl(value: unknown) {
       }
     }
     const sanitized = url.toString();
-    const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-    if (/[?&]oc=/i.test(sanitized) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
+    if (/[?&]oc=/i.test(sanitized)) {
       return undefined;
     }
 
@@ -580,17 +574,13 @@ function normalizeOptionalHttpUrl(value: unknown) {
 }
 
 function containsOfficialLawCredential(values: string[]) {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  return values.some((value) => value.includes(`OC${"="}`) || Boolean(officialLawCredential && value.includes(officialLawCredential)));
+  return values.some((value) => /(?:^|[?&\s])oc\s*=/i.test(value));
 }
 
 function redactOfficialLawCredential(value: string) {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
-  if (officialLawCredential) {
-    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
-  }
-  return redacted;
+  return value
+    .replace(/\bOC\s*=\s*[^&\s"]+/gi, "[redacted-credential]")
+    .replace(/([?&])OC=[^&#\s"]*/gi, "$1OC=[redacted-credential]");
 }
 
 function normalizeConfidenceWeight(value: unknown, kind: AssistantEvidence["kind"]) {

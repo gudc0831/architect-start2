@@ -10,14 +10,13 @@ type Check = {
 };
 
 const root = process.cwd();
-const fileEnv = readEnvFiles([".env", ".env.local"]);
+const fileEnv = readEnvFiles([".env", ".env.local", ".env.preview.local"]);
 
 const checks: Check[] = [
   checkEnv("DATABASE_URL", true, "AI review persistence and project_context retrieval require the database."),
-  checkEnv("LAW_OPEN_DATA_OC", true, "Official-law verification blocks legal/regulation generation when absent."),
-  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", false, "Optional verified legal bundle URL."),
-  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", false, "Required when verified legal bundle or legal-search integration is enabled."),
-  checkEnv("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS", false, "Required when VERIFIED_LEGAL_EVIDENCE_API_URL is configured for bundle retrieval."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", true, "Centralized verified legal evidence API URL is required for legal/regulation AI review."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", true, "Server-to-server secret is required for centralized verified legal evidence API calls."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS", false, "Optional source-id policy for latest bundle retrieval."),
   checkEnv("VERIFIED_LEGAL_SEARCH_API_URL", false, "Optional explicit verified legal search URL."),
   checkEnv("VERIFIED_LEGAL_SEARCH_ENABLED", false, "Set to 1 only when the server-to-server legal search API is reachable."),
 ];
@@ -44,8 +43,22 @@ if (hasBundleUrl && !hasVerifiedLegalSecret) {
 if (hasBundleUrl && !hasBundleSourceIds) {
   checks.push({
     id: "verified-legal-bundle:source-ids",
+    status: "pass",
+    detail: "VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS is optional; when absent, SaaS should rely on verified legal search or unfiltered bundle policy.",
+  });
+}
+
+if (hasConfiguredEnv("LAW_OPEN_DATA_OC")) {
+  checks.push({
+    id: "env:LAW_OPEN_DATA_OC",
     status: "fail",
-    detail: "VERIFIED_LEGAL_EVIDENCE_API_URL requires VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS for bundle retrieval.",
+    detail: "LAW_OPEN_DATA_OC must not be configured in architect-saas. Keep it only in verified-legal-evidence-api.",
+  });
+} else {
+  checks.push({
+    id: "env:LAW_OPEN_DATA_OC",
+    status: "pass",
+    detail: "LAW_OPEN_DATA_OC is absent from architect-saas, as required by the centralized verified legal evidence architecture.",
   });
 }
 
@@ -92,8 +105,8 @@ function checkEnv(name: string, required: boolean, detail: string): Check {
   }
   return {
     id: `env:${name}`,
-    status: required ? "fail" : "warn",
-    detail: `${name} is missing. ${detail}`,
+    status: required ? "fail" : "pass",
+    detail: required ? `${name} is missing. ${detail}` : `${name} is not configured. ${detail}`,
   };
 }
 

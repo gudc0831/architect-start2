@@ -228,21 +228,18 @@ async function main() {
     restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", previousVerifiedLegalEvidenceApiSecret);
   }
 
-  const previousLawOpenDataOc = process.env.LAW_OPEN_DATA_OC;
-  try {
-    process.env.LAW_OPEN_DATA_OC = "secret-oc";
-    const sanitizedWarnings = mapLegalSearchPayloadToEvidence({
+  const sanitizedWarnings = mapLegalSearchPayloadToEvidence({
       queryId: "legal_query:sanitized-warnings",
       hits: [],
       warnings: [{
         code: "UPSTREAM",
-        message: `Upstream URL https://open.law.go.kr/LSO/lawService.do?OC${"="}secret-oc&target=law failed for secret-oc`,
+        message: `Upstream URL https://open.law.go.kr/LSO/lawService.do?OC${"="}secret-oc&target=law failed`,
       }],
     });
-    const serializedWarnings = JSON.stringify(sanitizedWarnings.warnings);
-    assert.equal(serializedWarnings.includes(`OC${"="}`), false);
-    assert.equal(serializedWarnings.includes("secret-oc"), false);
-    const sanitizedConfidenceReason = mapLegalSearchPayloadToEvidence({
+  const serializedWarnings = JSON.stringify(sanitizedWarnings.warnings);
+  assert.equal(serializedWarnings.includes(`OC${"="}`), false);
+  assert.equal(serializedWarnings.includes("secret-oc"), false);
+  const sanitizedConfidenceReason = mapLegalSearchPayloadToEvidence({
       queryId: "legal_query:sanitized-confidence-reason",
       hits: [{
         chunkId: "chunk:sanitized-confidence",
@@ -254,19 +251,19 @@ async function main() {
         effective: { effectiveFrom: "2026-01-01" },
         stale: false,
         answerReady: true,
-        confidenceReason: `Upstream reason for OC${"="}secret-oc and secret-oc`,
+        confidenceReason: `Upstream reason for OC${"="}secret-oc`,
         warnings: [],
       }],
       warnings: [],
     });
-    const serializedConfidenceReason = JSON.stringify(sanitizedConfidenceReason.evidence);
-    assert.equal(serializedConfidenceReason.includes(`OC${"="}`), false);
-    assert.equal(serializedConfidenceReason.includes("secret-oc"), false);
-    assert.equal(
-      sanitizedConfidenceReason.evidence[0]?.legal?.confidenceReason?.includes("[redacted-credential]"),
-      true,
-    );
-    const sanitizedChunkId = mapLegalSearchPayloadToEvidence({
+  const serializedConfidenceReason = JSON.stringify(sanitizedConfidenceReason.evidence);
+  assert.equal(serializedConfidenceReason.includes(`OC${"="}`), false);
+  assert.equal(serializedConfidenceReason.includes("secret-oc"), false);
+  assert.equal(
+    sanitizedConfidenceReason.evidence[0]?.legal?.confidenceReason?.includes("[redacted-credential]"),
+    true,
+  );
+  const sanitizedChunkId = mapLegalSearchPayloadToEvidence({
       queryId: "legal_query:sanitized-chunk-id",
       hits: [{
         chunkId: `chunk:OC${"="}secret-oc`,
@@ -330,9 +327,6 @@ async function main() {
     assert.equal(serializedLocatorKey.includes(`OC${"="}`), false);
     assert.equal(serializedLocatorKey.includes("secret-oc"), false);
     assert.equal(serializedLocatorKey.includes("safeLocator"), true);
-  } finally {
-    restoreEnv("LAW_OPEN_DATA_OC", previousLawOpenDataOc);
-  }
 
   assert.deepEqual(selectLegalSearchContext({
     task: {
@@ -472,10 +466,7 @@ async function main() {
   assert.equal(normalizedStorageEvidence[0]?.checkedAt, "2026-06-08T00:00:00.000Z");
   assert.equal(normalizedStorageEvidence[0]?.apiSourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
   assert.equal(normalizedStorageEvidence[0]?.verificationStatus, "verified");
-  const previousLawOpenDataOcForStorage = process.env.LAW_OPEN_DATA_OC;
-  try {
-    process.env.LAW_OPEN_DATA_OC = "stored-secret";
-    const storedSecretBearingLegalEvidence = normalizeAssistantEvidenceForStorage([{
+  const storedSecretBearingLegalEvidence = normalizeAssistantEvidenceForStorage([{
       id: "legal-storage-secret",
       kind: "regulation",
       priority: 2,
@@ -483,11 +474,11 @@ async function main() {
       excerpt: "Stored secret legal excerpt",
       legal: {
         sourceId: `law:OC${"="}stored-secret`,
-        chunkId: "chunk:stored-secret",
+        chunkId: `chunk:OC${"="}stored-secret`,
         sourceKind: "statute",
         authorityRank: "statute",
         stale: false,
-        legalChangeWarnings: [`LEGAL_CHANGE_REVIEW_REQUIRED:${"stored-secret"}`],
+        legalChangeWarnings: [`LEGAL_CHANGE_REVIEW_REQUIRED:OC${"="}stored-secret`],
         confidenceReason: `Reason includes OC${"="}stored-secret`,
         locator: {
           [`OC${"="}stored-secret`]: "must not persist",
@@ -496,18 +487,15 @@ async function main() {
         },
       },
     }]);
-    const serializedStoredSecretBearingLegalEvidence = JSON.stringify(storedSecretBearingLegalEvidence);
-    assert.equal(serializedStoredSecretBearingLegalEvidence.includes(`OC${"="}`), false);
-    assert.equal(serializedStoredSecretBearingLegalEvidence.includes("stored-secret"), false);
-    assert.equal(serializedStoredSecretBearingLegalEvidence.includes("raw-token"), false);
-    assert.equal(
-      storedSecretBearingLegalEvidence[0]?.legal?.confidenceReason?.includes("[redacted-credential]"),
-      true,
-    );
-    assert.equal(serializedStoredSecretBearingLegalEvidence.includes("safeLocator"), true);
-  } finally {
-    restoreEnv("LAW_OPEN_DATA_OC", previousLawOpenDataOcForStorage);
-  }
+  const serializedStoredSecretBearingLegalEvidence = JSON.stringify(storedSecretBearingLegalEvidence);
+  assert.equal(serializedStoredSecretBearingLegalEvidence.includes(`OC${"="}`), false);
+  assert.equal(serializedStoredSecretBearingLegalEvidence.includes("stored-secret"), false);
+  assert.equal(serializedStoredSecretBearingLegalEvidence.includes("raw-token"), false);
+  assert.equal(
+    storedSecretBearingLegalEvidence[0]?.legal?.confidenceReason?.includes("[redacted-credential]"),
+    true,
+  );
+  assert.equal(serializedStoredSecretBearingLegalEvidence.includes("safeLocator"), true);
   const malformedStoredLegalEvidence = normalizeAssistantEvidenceForStorage([{
     id: "legal-storage-malformed",
     kind: "regulation",
@@ -704,8 +692,6 @@ async function main() {
 
   const assistantServiceModule = await import("../src/use-cases/assistant-service");
   assert.equal(typeof assistantServiceModule.mergeRetrievedAssistantEvidence, "function");
-  const previousLawOpenDataOcForMerge = process.env.LAW_OPEN_DATA_OC;
-  process.env.LAW_OPEN_DATA_OC = "bundle-secret";
   const mergedEvidence = assistantServiceModule.mergeRetrievedAssistantEvidence({
     baseEvidence: [{
       id: "task:base",
@@ -718,12 +704,11 @@ async function main() {
       evidence: [],
       warnings: [{
         code: "BUNDLE_WARNING",
-        message: `bundle warning https://open.law.go.kr/LSO/lawService.do?OC${"="}bundle-secret&target=law bundle-secret`,
+        message: `bundle warning https://open.law.go.kr/LSO/lawService.do?OC${"="}bundle-secret&target=law`,
       }],
     },
     verifiedLegalSearchEvidence: noAnswerReady,
   });
-  restoreEnv("LAW_OPEN_DATA_OC", previousLawOpenDataOcForMerge);
   assert.equal(mergedEvidence.evidence[0]?.id, "task:base");
   const mergedWarningText = JSON.stringify(mergedEvidence.evidenceReadinessWarnings);
   assert.equal(mergedWarningText.includes(`OC${"="}`), false);

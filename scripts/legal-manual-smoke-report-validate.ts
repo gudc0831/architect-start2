@@ -20,10 +20,8 @@ async function main() {
     "confidence reason",
   ]);
 
-  const previousLawOpenDataOc = process.env.LAW_OPEN_DATA_OC;
   const previousOpenAiKey = process.env.OPENAI_API_KEY;
   try {
-    process.env.LAW_OPEN_DATA_OC = "manual-smoke-oc-secret";
     process.env.OPENAI_API_KEY = ["sk", "manual", "smoke"].join("-");
 
     const captures = canonicalAssistantLegalManualSmokeCases.map((smokeCase, index) => ({
@@ -122,7 +120,6 @@ async function main() {
     assert.equal(missingEvidenceValidation.status, "failed");
     assert.ok(missingEvidenceValidation.failures.some((failure) => failure.includes("missing assistant legal evidence")));
   } finally {
-    restoreEnv("LAW_OPEN_DATA_OC", previousLawOpenDataOc);
     restoreEnv("OPENAI_API_KEY", previousOpenAiKey);
   }
 

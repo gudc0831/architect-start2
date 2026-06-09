@@ -83,6 +83,48 @@ function Find-Task {
   return @(ConvertTo-ItemArray $Tasks | Where-Object { $_.id -eq $TaskId } | Select-Object -First 1)[0]
 }
 
+function New-CellTextReplaceUpdateBase64 {
+  param([string]$PlainText, [string]$YStateBase64 = "")
+
+  $previousText = $env:ARCHITECT_CELL_NEXT_TEXT
+  $previousState = $env:ARCHITECT_CELL_STATE_BASE64
+  $env:ARCHITECT_CELL_NEXT_TEXT = $PlainText
+  $env:ARCHITECT_CELL_STATE_BASE64 = $YStateBase64
+  try {
+    $nodeScript = @'
+const Y = require("yjs");
+
+const doc = new Y.Doc();
+const yStateBase64 = process.env.ARCHITECT_CELL_STATE_BASE64 || "";
+if (yStateBase64) {
+  Y.applyUpdate(doc, Buffer.from(yStateBase64, "base64"));
+}
+const text = doc.getText("value");
+const before = Y.encodeStateVector(doc);
+doc.transact(() => {
+  text.delete(0, text.length);
+  const nextText = process.env.ARCHITECT_CELL_NEXT_TEXT || "";
+  if (nextText) {
+    text.insert(0, nextText);
+  }
+});
+process.stdout.write(Buffer.from(Y.encodeStateAsUpdate(doc, before)).toString("base64"));
+'@
+    return [string]($nodeScript | node -)
+  } finally {
+    if ($null -eq $previousText) {
+      Remove-Item Env:\ARCHITECT_CELL_NEXT_TEXT -ErrorAction SilentlyContinue
+    } else {
+      $env:ARCHITECT_CELL_NEXT_TEXT = $previousText
+    }
+    if ($null -eq $previousState) {
+      Remove-Item Env:\ARCHITECT_CELL_STATE_BASE64 -ErrorAction SilentlyContinue
+    } else {
+      $env:ARCHITECT_CELL_STATE_BASE64 = $previousState
+    }
+  }
+}
+
 function Read-TaskTitle {
   param([object]$Task)
   if ($Task.PSObject.Properties.Name -contains "issueTitle") {
@@ -172,14 +214,18 @@ for ($index = 1; $index -le 3; $index += 1) {
     throw "task edit $index target missing from create readback"
   }
   $note = "completion smoke edit $index $stamp"
-  $patch = Invoke-Json -Path "/api/tasks/$([uri]::EscapeDataString($currentTaskId))" -Method "PATCH" -Body @{
-    version = $current.version
-    issueDetailNote = $note
+  $cell = Invoke-Json -Path "/api/task-cell-documents/$([uri]::EscapeDataString($currentTaskId))/issueDetailNote"
+  Assert-Status -Label "task edit $index cell document read" -Response $cell -Expected @(200)
+  $cellData = Get-Data $cell
+  $updateBase64 = New-CellTextReplaceUpdateBase64 -PlainText $note -YStateBase64 ([string]$cellData.yStateBase64)
+  $cellUpdate = Invoke-Json -Path "/api/task-cell-documents/$([uri]::EscapeDataString($currentTaskId))/issueDetailNote/updates" -Method "POST" -Body @{
+    clientUpdateId = "completion-smoke-$index-$stamp"
+    updateBase64 = $updateBase64
   }
-  Assert-Status -Label "task edit $index" -Response $patch -Expected @(200)
-  $patched = Get-Data $patch
-  if ((Read-TaskNote -Task $patched) -ne $note) {
-    throw "task edit $index response did not contain updated note"
+  Assert-Status -Label "task edit $index cell document update" -Response $cellUpdate -Expected @(200)
+  $updatedCell = Get-Data $cellUpdate
+  if ([string]$updatedCell.plainText -ne $note) {
+    throw "task edit $index cell document response did not contain updated note"
   }
 
   $current = Read-TaskWithRetry -TaskId $currentTaskId -ExpectedNote $note
@@ -190,6 +236,7 @@ for ($index = 1; $index -le 3; $index += 1) {
     index = $index
     taskId = $currentTaskId
     version = $current.version
+    cellDocumentVersion = $updatedCell.version
     serverReadback = $true
   }
 }

@@ -341,7 +341,6 @@ function resolveVerifiedLegalEvidenceServiceUrl(inputServiceUrl: string | undefi
 function redactLegalBatchAuditText(value: string): string {
   const secrets = [
     process.env.LEGAL_CHANGE_MONITOR_SECRET,
-    process.env.LAW_OPEN_DATA_OC,
   ].map(normalizeText).filter(Boolean);
   let redacted = value
     .replace(/\bOC\s*=\s*[^&\s"]+/gi, "[redacted-credential]")

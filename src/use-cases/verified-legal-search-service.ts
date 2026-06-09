@@ -660,8 +660,7 @@ function normalizeOptionalHttpUrl(value: unknown): string | undefined {
       }
     }
     const sanitized = url.toString();
-    const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-    if (/[?&]oc=/i.test(sanitized) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
+    if (/[?&]oc=/i.test(sanitized)) {
       return undefined;
     }
     return sanitized;
@@ -671,8 +670,7 @@ function normalizeOptionalHttpUrl(value: unknown): string | undefined {
 }
 
 function containsOfficialLawCredential(values: string[]): boolean {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  return values.some((value) => /oc\s*=/i.test(value) || Boolean(officialLawCredential && value.includes(officialLawCredential)));
+  return values.some((value) => /(?:^|[?&\s])oc\s*=/i.test(value));
 }
 
 function resolveLegalSearchServiceUrl(inputServiceUrl: string | undefined): string {
@@ -694,12 +692,9 @@ function resolveLegalSearchServiceUrl(inputServiceUrl: string | undefined): stri
 }
 
 function redactOfficialLawCredential(value: string): string {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
-  if (officialLawCredential) {
-    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
-  }
-  return redacted;
+  return value
+    .replace(/\bOC\s*=\s*[^&\s"]+/gi, "[redacted-credential]")
+    .replace(/([?&])OC=[^&#\s"]*/gi, "$1OC=[redacted-credential]");
 }
 
 function extractJurisdiction(values: Array<string | undefined>): string | undefined {

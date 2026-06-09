@@ -10,6 +10,11 @@ This runbook verifies that the AI review service is ready beyond local login. It
 - GPT login is available, AI review executes, and WIKI approval request state is correct.
 - SaaS task creation and three consecutive edits work without a stale write conflict.
 
+2026-06-09 centralization note: `architect-saas` does not require or store
+`LAW_OPEN_DATA_OC`. Legal/regulation readiness is supplied by
+`verified-legal-evidence-api` through `VERIFIED_LEGAL_EVIDENCE_API_URL` and
+`VERIFIED_LEGAL_EVIDENCE_API_SECRET`.
+
 ## Preflight
 
 Run from `D:\architect-workspace\architect-saas-ai-review-readiness`.
@@ -79,7 +84,7 @@ This smoke does not prove GPT login or native bridge execution. It proves that t
 Troubleshooting:
 
 - On Windows PowerShell 5, always read curl response temp files as UTF-8 before `ConvertFrom-Json`. Korean task data can otherwise corrupt the JSON stream and make server readback look falsely broken.
-- Generic foundation `regulation` seeds without a law article locator must not be used as generation evidence for non-legal task reviews. Explicit legal questions still require a law name and article locator or official-law verification remains blocked.
+- Generic foundation `regulation` seeds without centralized verified legal evidence must not be used as generation evidence for non-legal task reviews. Explicit legal questions require answer-ready evidence from `verified-legal-evidence-api` or legal verification remains blocked.
 
 ## Local Codex/GPT Login And AI Review
 

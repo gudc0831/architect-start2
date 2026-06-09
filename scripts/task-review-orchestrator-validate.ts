@@ -1,30 +1,39 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import {
-  officialLawSourceToEvidence,
-  requiresOfficialLawVerification,
-  verifyOfficialLawEvidence,
-} from "../src/domains/legal/official-law-api";
 import type { AssistantEvidence } from "../src/domains/assistant/types";
 import {
+  isCentralizedVerifiedLegalEvidence,
+  requiresCentralizedLegalVerification,
+} from "../src/domains/legal/legal-verification-intent";
+import {
   sanitizeTaskReviewEvidence,
-  selectEvidenceForOfficialLawVerification,
+  selectEvidenceForCentralizedLegalVerification,
   selectEvidenceForTaskReviewGeneration,
 } from "../src/use-cases/task-review-service";
 
-const regulationEvidence: AssistantEvidence[] = [
+const verifiedRegulationEvidence: AssistantEvidence[] = [
   {
-    id: "regulation:fixture",
+    id: "verified-legal-search:law:building-act:chunk:49",
     kind: "regulation",
     priority: 1,
     title: "건축법 제49조",
-    excerpt: "건축법 제49조 피난시설 관련 검토 seed",
+    excerpt: "건축법 제49조 피난시설 관련 verified legal evidence",
     sourceUrl: "https://www.law.go.kr/법령/건축법?JO=004900&OC=server-secret-oc",
-    confidenceWeight: 0.74,
+    recordId: "law:building-act",
+    confidenceWeight: 0.82,
+    verificationStatus: "verified",
+    legal: {
+      sourceId: "law:building-act",
+      chunkId: "chunk:49",
+      sourceKind: "statute",
+      authorityRank: "statute",
+      stale: false,
+      legalChangeWarnings: [],
+    },
   },
 ];
 
-const lawNameOnlySeedEvidence: AssistantEvidence[] = [
+const unverifiedRegulationSeedEvidence: AssistantEvidence[] = [
   {
     id: "regulation:generic-seed",
     kind: "regulation",
@@ -39,32 +48,34 @@ const lawNameOnlySeedEvidence: AssistantEvidence[] = [
 async function main() {
   const checks: string[] = [];
 
-  assert.equal(requiresOfficialLawVerification("건축법 제49조 피난시설 검토", []), true);
-  checks.push("keyword-only legal prompts require official law verification");
+  assert.equal(requiresCentralizedLegalVerification("건축법 제49조 피난시설 검토", []), true);
+  assert.equal(requiresCentralizedLegalVerification("일반 task 진행 방법 검토", []), false);
+  assert.equal(requiresCentralizedLegalVerification("일반 task 진행 방법 검토", unverifiedRegulationSeedEvidence), true);
+  checks.push("legal/regulation prompts require centralized verified legal evidence");
 
-  const report = await verifyOfficialLawEvidence({
-    question: "건축법 제49조 피난시설 검토",
-    evidence: regulationEvidence,
-    oc: "server-secret-oc",
-    fetchImpl: mockLawFetch,
-    now: () => new Date("2026-05-29T00:00:00.000Z"),
-  });
+  assert.equal(isCentralizedVerifiedLegalEvidence(verifiedRegulationEvidence[0]!), true);
+  assert.equal(isCentralizedVerifiedLegalEvidence(unverifiedRegulationSeedEvidence[0]!), false);
+  assert.deepEqual(selectEvidenceForCentralizedLegalVerification(verifiedRegulationEvidence).map((item) => item.id), [
+    "verified-legal-search:law:building-act:chunk:49",
+  ]);
+  checks.push("centralized verified legal evidence is identified without a SaaS law.go.kr credential");
 
-  assert.equal(report.status, "verified");
-  assert.equal(report.sources[0].status, "verified");
-  assert.match(report.sources[0].apiUrl, /lawService\.do/);
-  assert.equal(report.sources[0].apiUrl.includes("OC="), false);
-  assert.equal(report.sources[0].searchApiUrl?.includes("OC="), false);
-  assert.equal(report.locators[0].sourceUrl?.includes("server-secret-oc"), false);
-  assert.equal(report.sources[0].sourceUrl?.includes("server-secret-oc"), false);
-  checks.push("official law verification succeeds and redacts OC values");
-
-  const officialEvidence = officialLawSourceToEvidence(report.sources[0]);
-  assert.equal(officialEvidence?.kind, "regulation");
-  assert.equal(officialEvidence?.priority, 0);
-  assert.equal(officialEvidence?.sourceUrl?.includes("OC="), false);
-  assert.equal(officialEvidence?.sourceUrl?.includes("server-secret-oc"), false);
-  checks.push("verified official law sources convert to sanitized regulation evidence");
+  const generationEvidence = selectEvidenceForTaskReviewGeneration([
+    ...verifiedRegulationEvidence,
+    ...unverifiedRegulationSeedEvidence,
+    {
+      id: "task:context",
+      kind: "task",
+      priority: 3,
+      title: "Task context",
+      excerpt: "Task context excerpt",
+    },
+  ], true);
+  assert.deepEqual(generationEvidence.map((item) => item.id), [
+    "verified-legal-search:law:building-act:chunk:49",
+    "task:context",
+  ]);
+  checks.push("task-review excludes unverified regulation seeds while preserving nonlegal task evidence");
 
   const sanitized = sanitizeTaskReviewEvidence([
     {
@@ -88,27 +99,9 @@ async function main() {
   ]);
   assert.equal(sanitized.some((item) => item.sourceUrl?.includes("OC=")), false);
   assert.equal(sanitized.some((item) => item.sourceUrl?.includes("server-secret-oc")), false);
-  assert.equal(sanitized[0].sourceUrl?.includes("JO=004900"), true);
-  assert.equal(sanitized[0].sourceUrl?.endsWith("#article"), true);
-  checks.push("task-review evidence URLs redact official law credentials before save");
-
-  const lawNameOnlyReport = await verifyOfficialLawEvidence({
-    question: "건축법 기준 검토",
-    evidence: [],
-    oc: "server-secret-oc",
-    fetchImpl: async (input) => {
-      throw new Error(`law-name-only query must not call official API: ${String(input)}`);
-    },
-    now: () => new Date("2026-05-29T00:00:00.000Z"),
-  });
-  assert.equal(lawNameOnlyReport.status, "failed");
-  assert.equal(lawNameOnlyReport.sources.some((source) => source.status === "verified"), false);
-  checks.push("law-name-only prompts do not verify arbitrary first articles");
-
-  assert.deepEqual(selectEvidenceForOfficialLawVerification("일반 task 완료 기준 검토", lawNameOnlySeedEvidence), []);
-  assert.equal(selectEvidenceForOfficialLawVerification("국토계획법 기준 검토", lawNameOnlySeedEvidence).length, 1);
-  assert.deepEqual(selectEvidenceForTaskReviewGeneration(lawNameOnlySeedEvidence, new Set()), []);
-  checks.push("task-review excludes law-name-only regulation seeds unless the prompt explicitly requires law verification");
+  assert.equal(sanitized[0]?.sourceUrl?.includes("JO=004900"), true);
+  assert.equal(sanitized[0]?.sourceUrl?.endsWith("#article"), true);
+  checks.push("task-review evidence URLs redact OC query params before save");
 
   await assertSourceBoundaries(checks);
 
@@ -121,6 +114,8 @@ async function assertSourceBoundaries(checks: string[]) {
   const taskReviewService = await readFile(new URL("../src/use-cases/task-review-service.ts", import.meta.url), "utf8");
   const saasService = await readFile(new URL("../src/use-cases/assistant-saas-mode-service.ts", import.meta.url), "utf8");
   const assistantService = await readFile(new URL("../src/use-cases/assistant-service.ts", import.meta.url), "utf8");
+  const legalSearchService = await readFile(new URL("../src/use-cases/verified-legal-search-service.ts", import.meta.url), "utf8");
+  const taskAssistantPanel = await readFile(new URL("../src/components/tasks/task-assistant-panel.tsx", import.meta.url), "utf8");
   const candidateImportService = await readFile(
     new URL("../src/use-cases/admin/verified-legal-candidate-import-service.ts", import.meta.url),
     "utf8",
@@ -130,9 +125,10 @@ async function assertSourceBoundaries(checks: string[]) {
     "utf8",
   );
 
-  assert.match(envExample, /^LAW_OPEN_DATA_OC=/m);
-  assert.match(envExample, /National Law Information Center|국가법령정보센터|LAW OPEN DATA/);
-  checks.push("official law server credential is documented as an environment variable");
+  assert.doesNotMatch(envExample, /^LAW_OPEN_DATA_OC=/m);
+  assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_URL=/m);
+  assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_SECRET=/m);
+  checks.push("SaaS env example documents verified legal API settings and not LAW_OPEN_DATA_OC");
 
   assert.match(taskReviewRoute, /requireCurrentProjectEditor/);
   assert.match(taskReviewRoute, /mode === "generate"/);
@@ -144,75 +140,40 @@ async function assertSourceBoundaries(checks: string[]) {
   assert.match(taskReviewService, /candidateState:\s*"not_candidate"/);
   assert.match(taskReviewService, /sanitizeTaskReviewEvidence/);
   assert.match(taskReviewService, /generateAssistantWithVerifiedEvidence/);
+  assert.match(taskReviewService, /requiresCentralizedLegalVerification/);
+  assert.doesNotMatch(taskReviewService, /from ["']@\/domains\/legal\/official-law-api["']/);
+  assert.doesNotMatch(taskReviewService, /verifyOfficialLawEvidence|officialLawSourceToEvidence|lawService\.do|lawSearch\.do/);
+  assert.doesNotMatch(taskReviewService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(taskReviewService, /reviewKnowledgeCandidate|\/approve/);
-  checks.push("task-review service saves not_candidate records without approval bypass");
+  checks.push("task-review service uses centralized verified legal evidence and no direct law.go.kr verifier");
 
   assert.match(saasService, /ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW/);
-  assert.match(saasService, /requiresOfficialLawVerification/);
+  assert.match(saasService, /requiresCentralizedLegalVerification/);
   assert.match(saasService, /generateAssistantWithVerifiedEvidence/);
   assert.match(saasService, /buildAssistantPromptText/);
   assert.match(saasService, /projectContextChunks/);
   assert.match(saasService, /appendLegalChangeReviewNotice/);
-  assert.match(saasService, /officialLawDigest/);
+  assert.doesNotMatch(saasService, /from ["']@\/domains\/legal\/official-law-api["']/);
   checks.push("SaaS generation routes legal prompts through task-review and preserves context metadata");
 
   assert.match(assistantService, /VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING/);
   assert.match(assistantService, /"x-verified-legal-evidence-api-secret": apiSecret/);
-  assert.doesNotMatch(assistantService, /sourceIds:\s*\[\]/);
-  checks.push("verified legal evidence service keeps server secret and source scoping boundaries");
+  assert.match(assistantService, /legalEvidence:\s*evidence\.filter/);
+  assert.match(assistantService, /projectContextChunks:\s*projectContextRetrieval\.chunks/);
+  assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
+  assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
+  checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
+
+  assert.match(taskAssistantPanel, /postTaskReviewJson/);
+  assert.match(taskAssistantPanel, /legalEvidence:\s*review\.evidence\.filter/);
+  assert.doesNotMatch(taskAssistantPanel, /verify-official-law|requestLocalOfficialLawVerification|checkOfficialLawPreflightWithExtension/);
+  checks.push("Browser/local Codex path relies on server task-review and has no direct official-law bridge fallback");
 
   const candidateImportSource = `${candidateImportService}\n${candidateImportRoute}`;
   assert.match(candidateImportSource, /candidateState:\s*"pending_review"/);
   assert.match(candidateImportRoute, /requireKnowledgeAdmin/);
   assert.doesNotMatch(candidateImportSource, /reviewKnowledgeCandidate|\/approve|candidateState:\s*"approved"/);
   checks.push("verified legal candidate import remains pending_review with no approval shortcut");
-}
-
-const mockLawFetch: typeof fetch = async (input) => {
-  const url = new URL(String(input));
-  assert.equal(url.searchParams.get("OC"), "server-secret-oc");
-
-  if (url.pathname.endsWith("/lawSearch.do")) {
-    return jsonResponse({
-      LawSearch: {
-        law: [
-          {
-            법령명한글: "건축법",
-            법령ID: "001760",
-            시행일자: "20260529",
-            법령상세링크: "/법령/건축법?OC=server-secret-oc",
-          },
-        ],
-      },
-    });
-  }
-
-  if (url.pathname.endsWith("/lawService.do")) {
-    assert.equal(url.searchParams.get("JO"), "004900");
-    return jsonResponse({
-      법령: {
-        조문: {
-          조문단위: [
-            {
-              조문번호: "49",
-              조문내용: "제49조 건축물의 피난시설 및 용도제한 등에 관한 기준.",
-            },
-          ],
-        },
-      },
-    });
-  }
-
-  throw new Error(`Unexpected official law API URL: ${url.toString()}`);
-};
-
-function jsonResponse(payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
 }
 
 void main();

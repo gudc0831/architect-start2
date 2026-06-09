@@ -5,16 +5,15 @@ import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode"
 import type {
   EvidenceReadinessItem,
   StructuredTaskReviewSchema,
+  TaskReviewLegalVerificationReport,
   TaskReviewMode,
   TaskReviewResponse,
   TaskReviewSavedRecord,
 } from "@/domains/assistant/task-review";
 import {
-  extractLawArticleLocators,
-  officialLawSourceToEvidence,
-  verifyOfficialLawEvidence,
-  type OfficialLawVerificationReport,
-} from "@/domains/legal/official-law-api";
+  isCentralizedVerifiedLegalEvidence,
+  requiresCentralizedLegalVerification,
+} from "@/domains/legal/legal-verification-intent";
 import { assistantRepository } from "@/repositories/assistant";
 import { generateAssistantWithVerifiedEvidence } from "@/use-cases/assistant-saas-mode-service";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
@@ -36,24 +35,21 @@ export async function reviewTaskWithServerOrchestrator(
     question: input.question,
     user,
   });
-  const lawVerificationEvidence = selectEvidenceForOfficialLawVerification(input.question, retrieved.evidence);
-  const lawReport = await verifyOfficialLawEvidence({
-    question: input.question,
-    evidence: lawVerificationEvidence,
-    fetchImpl: input.fetchImpl,
-  });
-  const officialEvidence = lawReport.sources.map(officialLawSourceToEvidence).filter((item): item is AssistantEvidence => Boolean(item));
-  const verifiedLawEvidenceIds = new Set(
-    lawReport.sources
-      .filter((source) => source.status === "verified")
-      .map((source) => source.evidenceId)
-      .filter((id): id is string => Boolean(id)),
-  );
-  const generationEvidence = selectEvidenceForTaskReviewGeneration(retrieved.evidence, verifiedLawEvidenceIds);
-  const omittedRegulationCount = retrieved.evidence.filter((item) => item.kind === "regulation").length - generationEvidence.filter((item) => item.kind === "regulation").length;
-  const evidence = sanitizeTaskReviewEvidence([...officialEvidence, ...generationEvidence]).sort(
+  const legalVerificationRequired = requiresCentralizedLegalVerification(input.question, retrieved.evidence);
+  const generationEvidence = selectEvidenceForTaskReviewGeneration(retrieved.evidence, legalVerificationRequired);
+  const omittedRegulationCount =
+    retrieved.evidence.filter((item) => item.kind === "regulation").length -
+    generationEvidence.filter((item) => item.kind === "regulation").length;
+  const evidence = sanitizeTaskReviewEvidence(generationEvidence).sort(
     (left, right) => left.priority - right.priority,
   );
+  const lawReport = buildCentralizedLegalVerificationReport({
+    question: input.question,
+    evidence,
+    originalEvidence: retrieved.evidence,
+    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+    legalVerificationRequired,
+  });
   const evidenceDigest = buildEvidenceDigest(evidence);
   const officialLawDigest = buildOfficialLawDigest(lawReport);
   const evidenceReadiness = buildEvidenceReadiness({ unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds });
@@ -62,7 +58,7 @@ export async function reviewTaskWithServerOrchestrator(
   if (lawReport.status === "failed") {
     return {
       status: "blocked" as const,
-      reason: "Official law verification failed before assistant record/WIKI candidate creation.",
+      reason: "Verified legal evidence API did not provide answer-ready legal evidence before assistant record/WIKI candidate creation.",
       taskContext: retrieved.taskContext,
       retrievedEvidence: {
         count: retrieved.evidence.length,
@@ -74,14 +70,14 @@ export async function reviewTaskWithServerOrchestrator(
       evidenceReadiness,
       generation: {
         status: "blocked" as const,
-        reason: "Generation is blocked until official law verification succeeds.",
+        reason: "Generation is blocked until centralized verified legal evidence succeeds.",
       },
       savedRecord: null,
       wiki: {
         candidateCreated: false,
         approvalAttempted: false,
         approvedKnowledgeItemId: null,
-        reason: "WIKI candidate creation is skipped when official law API verification has no verified source.",
+        reason: "WIKI candidate creation is skipped when the centralized verified legal API has no verified source.",
       },
     };
   }
@@ -96,7 +92,7 @@ export async function reviewTaskWithServerOrchestrator(
         evidenceDigest,
         officialLawDigest,
         officialLawStatus: lawReport.status,
-        legalEvidence: retrieved.legalEvidence,
+        legalEvidence: evidence.filter(isCentralizedVerifiedLegalEvidence),
         projectContextChunks: retrieved.projectContextChunks,
         projectContextTrace: retrieved.projectContextTrace,
         unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
@@ -122,8 +118,8 @@ export async function reviewTaskWithServerOrchestrator(
       status: "generated" as const,
       reason:
         lawReport.status === "verified"
-          ? "Official law verification succeeded and the generated task review was saved server-side."
-          : "Official law verification was not required and the generated task review was saved server-side.",
+          ? "Centralized verified legal evidence succeeded and the generated task review was saved server-side."
+          : "Centralized legal verification was not required and the generated task review was saved server-side.",
       taskContext: retrieved.taskContext,
       retrievedEvidence: {
         count: retrieved.evidence.length,
@@ -152,8 +148,8 @@ export async function reviewTaskWithServerOrchestrator(
     status: "ready_for_generation" as const,
     reason:
       lawReport.status === "verified"
-        ? "Official law verification succeeded. Server-side generation is waiting for an approved user-bound LLM execution mode."
-        : "Official law verification was not required. Server-side generation is waiting for an approved user-bound LLM execution mode.",
+        ? "Centralized verified legal evidence succeeded. Server-side generation is waiting for an approved user-bound LLM execution mode."
+        : "Centralized legal verification was not required. Server-side generation is waiting for an approved user-bound LLM execution mode.",
     taskContext: retrieved.taskContext,
     retrievedEvidence: {
       count: retrieved.evidence.length,
@@ -190,29 +186,15 @@ export function sanitizeTaskReviewEvidence(evidence: AssistantEvidence[]) {
   }));
 }
 
-export function selectEvidenceForOfficialLawVerification(question: string, evidence: AssistantEvidence[]) {
-  if (isExplicitOfficialLawReviewQuestion(question)) {
+export function selectEvidenceForCentralizedLegalVerification(evidence: AssistantEvidence[]) {
+  return evidence.filter(isCentralizedVerifiedLegalEvidence);
+}
+
+export function selectEvidenceForTaskReviewGeneration(evidence: AssistantEvidence[], legalVerificationRequired: boolean) {
+  if (!legalVerificationRequired) {
     return evidence;
   }
-
-  return evidence.filter((item) => item.kind !== "regulation" || hasVerifiableOfficialLawLocator(question, item));
-}
-
-export function selectEvidenceForTaskReviewGeneration(evidence: AssistantEvidence[], verifiedLawEvidenceIds: Set<string>) {
-  return evidence.filter((item) => item.kind !== "regulation" || verifiedLawEvidenceIds.has(item.id));
-}
-
-function hasVerifiableOfficialLawLocator(question: string, evidence: AssistantEvidence) {
-  return extractLawArticleLocators(question, [evidence]).some((locator) => Boolean(locator.articleNumber));
-}
-
-function isExplicitOfficialLawReviewQuestion(question: string) {
-  return (
-    extractLawArticleLocators(question, []).length > 0 ||
-    /법규|법령|법적|법률|조문|조항|시행령|시행규칙|조례|고시|인허가|허가|적법|피난|방화|용적률|건폐율|주차장|주택건설기준|공동주택|도로\s*경사/.test(
-      question,
-    )
-  );
+  return evidence.filter((item) => item.kind !== "regulation" || isCentralizedVerifiedLegalEvidence(item));
 }
 
 function sanitizeEvidenceSourceUrl(value?: string) {
@@ -271,7 +253,7 @@ function buildEvidenceDigest(evidence: AssistantEvidence[]) {
   );
 }
 
-function buildOfficialLawDigest(lawReport: OfficialLawVerificationReport) {
+function buildOfficialLawDigest(lawReport: TaskReviewLegalVerificationReport) {
   return digestJson({
     status: lawReport.status,
     failures: lawReport.failures,
@@ -279,9 +261,101 @@ function buildOfficialLawDigest(lawReport: OfficialLawVerificationReport) {
       lawName: source.lawName,
       articleLabel: source.articleLabel,
       apiUrl: source.apiUrl,
-      searchApiUrl: source.searchApiUrl,
     })),
   });
+}
+
+function buildCentralizedLegalVerificationReport(input: {
+  question: string;
+  evidence: AssistantEvidence[];
+  originalEvidence: AssistantEvidence[];
+  evidenceReadinessWarnings: Array<{ code: string; message: string }>;
+  legalVerificationRequired: boolean;
+}): TaskReviewLegalVerificationReport {
+  const checkedAt = new Date().toISOString();
+  const provider = {
+    name: "Verified Legal Evidence API",
+    docsUrl: "/api/evidence/bundle",
+  };
+  if (!input.legalVerificationRequired) {
+    return {
+      status: "not_required",
+      checkedAt,
+      provider,
+      locators: [],
+      sources: [],
+      failures: [],
+      retry: [],
+    };
+  }
+
+  const verifiedLegalEvidence = input.evidence.filter(isCentralizedVerifiedLegalEvidence);
+  if (verifiedLegalEvidence.length > 0) {
+    return {
+      status: "verified",
+      checkedAt,
+      provider,
+      locators: verifiedLegalEvidence.map((item) => ({
+        lawName: item.lawName ?? item.title,
+        articleLabel: item.articleLabel,
+        articleNumber: item.articleNumber,
+        evidenceId: item.id,
+        sourceUrl: item.sourceUrl ?? item.apiSourceUrl,
+      })),
+      sources: verifiedLegalEvidence.map((item) => ({
+        status: "verified",
+        lawName: item.lawName ?? item.title,
+        articleLabel: item.articleLabel,
+        articleNumber: item.articleNumber,
+        apiUrl: item.apiSourceUrl ?? item.sourceUrl ?? item.recordId ?? item.id,
+        checkedAt: item.checkedAt ?? checkedAt,
+        evidenceId: item.id,
+        reason: "Answer-ready legal evidence was supplied by the centralized verified legal API.",
+      })),
+      failures: [],
+      retry: [],
+    };
+  }
+
+  const failures = buildCentralizedLegalVerificationFailures(input.evidenceReadinessWarnings);
+  return {
+    status: "failed",
+    checkedAt,
+    provider,
+    locators: input.originalEvidence
+      .filter((item) => item.kind === "regulation")
+      .map((item) => ({
+        lawName: item.lawName ?? item.title,
+        articleLabel: item.articleLabel,
+        articleNumber: item.articleNumber,
+        evidenceId: item.id,
+        sourceUrl: item.sourceUrl ?? item.apiSourceUrl,
+      })),
+    sources: [],
+    failures,
+    retry: [
+      "Configure VERIFIED_LEGAL_EVIDENCE_API_URL and VERIFIED_LEGAL_EVIDENCE_API_SECRET on the SaaS server if centralized legal verification should run here.",
+      "Run verified-legal-evidence-api smoke/search validators and confirm the API returns answer-ready legal evidence for the requested task.",
+      "Do not add LAW_OPEN_DATA_OC to architect-saas; keep the official law credential inside verified-legal-evidence-api.",
+    ],
+  };
+}
+
+function buildCentralizedLegalVerificationFailures(warnings: Array<{ code: string; message: string }>) {
+  const legalWarnings = warnings.filter((warning) => /^VERIFIED_LEGAL_/.test(warning.code));
+  if (legalWarnings.length > 0) {
+    return legalWarnings.map((warning) => `${warning.code}: ${warning.message}`);
+  }
+
+  if (!process.env.VERIFIED_LEGAL_EVIDENCE_API_URL?.trim() && !process.env.VERIFIED_LEGAL_SEARCH_API_URL?.trim()) {
+    return ["VERIFIED_LEGAL_EVIDENCE_API_URL is missing; legal/regulation task-review cannot be treated as verified."];
+  }
+
+  if (!process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET?.trim()) {
+    return ["VERIFIED_LEGAL_EVIDENCE_API_SECRET is missing; legal/regulation task-review cannot call the centralized verified legal API."];
+  }
+
+  return ["Centralized verified legal API did not return answer-ready legal evidence for this legal/regulation task."];
 }
 
 function buildEvidenceReadiness(input: { unavailableEvidenceKinds: string[] }): EvidenceReadinessItem[] {
@@ -319,7 +393,7 @@ async function saveGeneratedTaskReviewRecord(input: {
   question: string;
   evidence: AssistantEvidence[];
   regulationCount: number;
-  lawReport: OfficialLawVerificationReport;
+  lawReport: TaskReviewLegalVerificationReport;
   evidenceDigest: string;
   officialLawDigest: string;
 }): Promise<TaskReviewSavedRecord> {
@@ -334,8 +408,8 @@ async function saveGeneratedTaskReviewRecord(input: {
     confidenceScore: Math.min(95, Math.max(60, 80 + input.regulationCount)),
     confidenceReason:
       input.lawReport.status === "verified"
-        ? "Official law API verification succeeded and the record was generated from the server-verified evidence bundle."
-        : "Official law verification was not required and the record was generated from the server-verified evidence bundle.",
+        ? "Centralized verified legal evidence succeeded and the record was generated from the server-verified evidence bundle."
+        : "Centralized legal verification was not required and the record was generated from the server-verified evidence bundle.",
     executionMode: "saas-api",
     runtimeMode: providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
     draftSummary: input.generated.suggestedDraftSummary,
@@ -369,7 +443,7 @@ async function saveGeneratedTaskReviewRecord(input: {
 function buildStructuredReviewPreview(
   question: string,
   evidence: AssistantEvidence[],
-  lawReport: OfficialLawVerificationReport,
+  lawReport: TaskReviewLegalVerificationReport,
   omittedRegulationCount = 0,
 ): StructuredTaskReviewSchema {
   const verifiedSources = lawReport.sources.filter((source) => source.status === "verified");
@@ -409,9 +483,9 @@ function buildStructuredReviewPreview(
       lawReport.status === "verified"
         ? {
             allowed: true,
-            title: trimText(question || "공식 법규 task review 후보", 80),
-            summary: "공식 법규 API 검증을 통과한 뒤 user-bound LLM 실행 결과를 바탕으로 후보 초안을 저장할 수 있습니다.",
-            tags: ["official-law-api", "task-review"].slice(0, 12),
+            title: trimText(question || "검증 법령 task review 후보", 80),
+            summary: "중앙 verified legal API 검증을 통과한 뒤 user-bound LLM 실행 결과를 바탕으로 후보 초안을 저장할 수 있습니다.",
+            tags: ["verified-legal-api", "task-review"].slice(0, 12),
             sourceEvidenceIds: evidenceIds,
           }
         : null,
@@ -419,14 +493,14 @@ function buildStructuredReviewPreview(
 }
 
 function buildWarnings(
-  lawReport: OfficialLawVerificationReport,
+  lawReport: TaskReviewLegalVerificationReport,
   evidence: AssistantEvidence[],
   omittedRegulationCount = 0,
 ): StructuredTaskReviewSchema["warnings"] {
   const warnings: StructuredTaskReviewSchema["warnings"] = [];
   if (omittedRegulationCount > 0) {
     warnings.push({
-      message: `${omittedRegulationCount}건의 regulation seed는 공식 조문 locator가 없어 생성 근거에서 제외했습니다.`,
+      message: `${omittedRegulationCount}건의 regulation seed는 중앙 verified legal API의 answer-ready 근거가 아니어서 생성 근거에서 제외했습니다.`,
       severity: "warning",
       evidenceIds: [],
     });
