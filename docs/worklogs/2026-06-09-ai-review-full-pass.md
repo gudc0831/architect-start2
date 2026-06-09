@@ -173,7 +173,8 @@ After user approval, runtime gates were executed. Legal readiness is now tracked
 ## Remaining Blockers
 
 - No local AI review readiness blocker remains.
-- Deployed SaaS readiness still depends on Vercel runtime env having a non-loopback centralized verified API URL and matching server secret.
+- Deployed legal/regulation AI review readiness still depends on Vercel runtime env having a non-loopback centralized verified API URL and matching server secret. No public verified API deployment URL was found during the 2026-06-09 verification run.
+- Authenticated deployed completion smoke needs `ARCHITECT_SMOKE_COOKIE`; it was absent in the verification shell, so `/api/auth/me` returned HTTP 401.
 - Do not add `LAW_OPEN_DATA_OC` to architect-saas; it belongs only in `verified-legal-evidence-api`.
 
 ## No-Secret Handling
@@ -182,3 +183,12 @@ After user approval, runtime gates were executed. Legal readiness is now tracked
 - Vercel and verified legal outputs were recorded by variable name/status only.
 - Cookie/session values were generated only in process memory for the approved smoke run and were not printed or stored.
 - Added-line diff scanning found no committed raw secret value; fixture and validator assertion literals were reviewed as non-secret test code.
+
+## Post-Push Deployment Verification
+
+- Commit pushed: `d0209167d6b89baa547e44ce532b1e42f53c3df1`.
+- Final Preview URL after Vercel env cleanup/redeploy: `https://architect-start2-e8su2e8pb-chois-projects-7b2948cf.vercel.app`.
+- Final deployment id: `dpl_64iyJ1rLhcErV1FSvkKoUNz43XoN`.
+- Final deployment status: Ready.
+- `GET /preview/daily`: HTTP 200.
+- `LAW_OPEN_DATA_OC` was removed from `architect-start2` Vercel Preview branch `codex/multi-user-transition` and Production. Values were not read or printed.

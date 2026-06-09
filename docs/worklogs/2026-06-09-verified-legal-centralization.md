@@ -107,9 +107,24 @@ No new endpoint was implemented. `verified-legal-evidence-api/docs/implementatio
 ## Remaining Blockers
 
 - No local AI review readiness blocker remains after configuring the SaaS runtime with the centralized verified API URL and secret.
-- Deployment readiness still depends on the deployed SaaS runtime having non-loopback verified API URL/secret values.
+- Deployed legal/regulation AI review readiness still depends on an externally reachable `verified-legal-evidence-api` URL and matching SaaS `VERIFIED_LEGAL_EVIDENCE_API_SECRET`. No public verified API deployment URL was found in the current Vercel workspace during this run.
 - Do not add `LAW_OPEN_DATA_OC` to `architect-saas`.
-- No DB migration, Vercel env change, alias change, production data write, push, or merge was performed during the centralization patch itself.
+- No DB migration, alias change, production data write, or merge was performed.
+
+## Post-Push Deployment Verification
+
+- Commit pushed: `d0209167d6b89baa547e44ce532b1e42f53c3df1`.
+- Initial Vercel commit status: PASS, deployment completed.
+- Initial Preview URL: `https://architect-start2-anlmxyk89-chois-projects-7b2948cf.vercel.app`.
+- SaaS Vercel env name audit found stale `LAW_OPEN_DATA_OC` in Preview branch and Production.
+- Removed `LAW_OPEN_DATA_OC` from `architect-start2` Preview branch `codex/multi-user-transition` and Production. Values were not read or printed.
+- Rechecked SaaS Vercel env names: no `LAW_OPEN_DATA_OC`, `VERIFIED_LEGAL_EVIDENCE_API_URL`, or `VERIFIED_LEGAL_EVIDENCE_API_SECRET` entries were listed.
+- Redeployed Preview after env removal.
+- Final verified Preview URL: `https://architect-start2-e8su2e8pb-chois-projects-7b2948cf.vercel.app`.
+- Final deployment id: `dpl_64iyJ1rLhcErV1FSvkKoUNz43XoN`.
+- Final deployment status: Ready.
+- `GET /preview/daily`: HTTP 200.
+- Authenticated completion smoke on the final Preview URL did not run to completion because `ARCHITECT_SMOKE_COOKIE` was absent in this shell; `/api/auth/me` returned HTTP 401. This is an authentication prerequisite issue, not a build/deploy failure.
 
 ## Secret Handling
 
