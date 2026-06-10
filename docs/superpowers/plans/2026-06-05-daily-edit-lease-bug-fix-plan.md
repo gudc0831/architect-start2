@@ -10,6 +10,13 @@
 
 ---
 
+## 2026-06-10 OLD/Covered Notice
+
+- [x] This plan is historical for the earlier Preview edit-lease crash investigation.
+- [x] Current `/daily` release readiness is tracked in `2026-06-08-daily-cell-document-collaboration-plan.md`.
+- [x] The current exact Preview proof covers create latency, stuck sync state, navigation while sync is pending, and two-window collaboration on `/daily`.
+- [ ] Reopen this plan only if the specific `POST /api/edit-leases` crash class returns on the exact active Preview or Production URL.
+
 ## Context
 
 User-visible issue:
@@ -356,4 +363,3 @@ Stop and ask the user before proceeding if any of these are true:
 - The exact Preview URL points to a different deployment than expected and an alias repair is needed.
 - The failure is not connected to `POST /api/edit-leases`.
 - The fix requires changing `/daily` local-first optimistic behavior beyond lease-specific degradation.
-

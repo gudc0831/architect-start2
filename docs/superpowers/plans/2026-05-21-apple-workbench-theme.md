@@ -10,6 +10,12 @@
 
 ---
 
+## 2026-06-10 Completed/Archived Notice
+
+- [x] This theme plan is completed and archived for current planning purposes.
+- [x] It is not part of the verified-legal, AI review, Browser Assistant, or `/daily` collaboration release gate.
+- [ ] Reopen only if new theme regressions are found on a current target URL/SHA.
+
 ### Task 1: Register Theme Contract
 
 **Files:**

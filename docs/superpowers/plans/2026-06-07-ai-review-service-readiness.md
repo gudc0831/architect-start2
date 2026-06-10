@@ -10,6 +10,14 @@
 
 ---
 
+## 2026-06-10 OLD/SUPERSEDED Notice
+
+- [x] This plan is historical and has been replaced for current release judgment by `2026-06-09-ai-review-full-pass-plan.md`.
+- [x] The old requirement that SaaS directly hold `LAW_OPEN_DATA_OC` is superseded by `2026-06-09-verified-legal-centralization-plan.md`.
+- [x] Current boundary ownership is tracked in `2026-06-09-cross-project-boundary-and-integration-plan.md`.
+- [x] Current exact Preview `/daily` release proof is tracked in `2026-06-08-daily-cell-document-collaboration-plan.md`.
+- [ ] Browser Assistant production metadata and production readiness remain open in the current plans; do not infer production PASS from this historical readiness plan.
+
 ## Harness Coordination
 
 Mode: `Strict`, because this touches authentication, official-law evidence, project-context retrieval, Local Codex, and cross-repo readiness.

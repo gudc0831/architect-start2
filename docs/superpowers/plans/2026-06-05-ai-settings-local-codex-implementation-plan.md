@@ -14,6 +14,12 @@
 
 The implementation has landed in `architect-saas` and the companion Browser Assistant bridge. Evidence includes `scripts/ai-settings-contract-validate.ts`, `/ai-settings`, preference APIs, usage APIs, AI settings client components, local usage cache, migration `202606050001_add_ai_settings_preferences_and_local_usage`, Browser Assistant native-host self-test, and merge worklogs. The previous unchecked boxes were stale planning state and have been updated to reflect the implemented local contract. Production Browser Assistant release still depends on production metadata and production readiness gates, not this SaaS feature plan alone.
 
+## 2026-06-10 Current Boundary Note
+
+- [x] `/ai-settings` implementation remains complete as a SaaS user-preference and metadata-only usage feature.
+- [x] Browser Assistant local bridge readiness in this plan does not replace the separate production Browser Assistant metadata/readiness gate.
+- [ ] Production Browser Assistant release readiness remains tracked by the current AI review and cross-project release plans.
+
 ## Planning Inputs
 
 - Design source read before planning: `D:\architect-workspace\architect-saas\docs\superpowers\specs\2026-06-05-ai-settings-local-codex-design.md`.

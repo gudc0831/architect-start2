@@ -16,7 +16,7 @@
 
 - **2026-06-09 status refresh:** local readiness and boundary validators now pass with centralized verified legal configuration. `npm run ai-review:readiness` reports `ready` with `DATABASE_URL`, `VERIFIED_LEGAL_EVIDENCE_API_URL`, and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` configured by presence only, and confirms `LAW_OPEN_DATA_OC` is absent from `architect-saas`. The remaining full-PASS risk is deployed Preview proof that the runtime uses a non-loopback verified legal API URL and matching server secret; do not treat local readiness as production signoff.
 - **2026-06-09 deployed Preview refresh:** direct Preview `https://architect-start2-eye0g2pyv-chois-projects-7b2948cf.vercel.app/daily` maps to deployment `dpl_3yNMpLqHb4BtDKc2Q2YL1CKrNBYB` at commit `f931be7`. Runtime task-review proof returned HTTP `409`/`blocked` because `VERIFIED_LEGAL_EVIDENCE_API_URL` is missing in the deployed SaaS Preview env. AI review full PASS remains blocked until Preview has the centralized verified legal API URL and secret configured and rerun proof shows answer-ready legal evidence.
-- **2026-06-10 Preview runtime refresh:** latest inspected Preview `/daily` target is `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`, branch/worktree `codex/multi-user-transition`, local HEAD `f931be7` plus uncommitted server-to-server bypass support. SaaS Preview env now has encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`; `LAW_OPEN_DATA_OC` remains absent from SaaS. Runtime completion smoke passed with auth `200`, task-review `200`, retrieve evidence count `8`, WIKI approval attempted `false`, WIKI candidate created `false`, saved assistant record `201`/candidate, and cleanup `true`.
+- **2026-06-10 final Preview runtime refresh:** latest inspected Preview `/daily` target is `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, branch/worktree `codex/multi-user-transition`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`. SaaS Preview env has encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`; `LAW_OPEN_DATA_OC` remains absent from SaaS. Runtime completion smoke passed with auth `200`, task-review `200`, retrieve evidence count `8`, WIKI approval attempted `false`, WIKI candidate created `false`, saved assistant record `201`/candidate, saved assistant record id `8b92593c-9008-401a-ae09-125774819a40`, and cleanup `true`.
 - `architect-saas` 현재 브랜치: `codex/multi-user-transition`.
 - 기존 계획: `docs/superpowers/plans/2026-06-07-ai-review-service-readiness.md`.
 - 기존 워크로그: `docs/worklogs/2026-06-08-ai-review-service-readiness.md`.
@@ -25,6 +25,17 @@
   - local validators, Preview verified-legal runtime proof, and latest exact `/daily` gates are PASS.
   - Latest completion smoke reported `projectContextChunkCount: 0`; a separate task with active project upload chunks is still required before claiming the project-context portion of full PASS.
 - 따라서 이번 계획은 신규 기능 설계가 아니라 남은 PASS 조건을 실제 타깃에서 닫는 실행 계획이다.
+
+## 2026-06-10 Checklist State
+
+- [x] SaaS local validators passed under centralized verified-legal assumptions: `task-review:validate`, `legal-search:validate`, legal batch audit adapter validator, `typecheck`, `vercel-build`, and `ai-review:readiness`.
+- [x] Deployed Preview runtime uses non-loopback verified legal API configuration through server-side env and does not require `LAW_OPEN_DATA_OC` in SaaS.
+- [x] Vercel-protected verified API Preview is reachable by SaaS server-to-server code using the configured protection bypass plus app secret; neither secret is exposed to the browser or docs.
+- [x] Exact Preview AI review completion smoke passed on `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app`.
+- [x] Exact Preview `/daily` release verifiers passed on the same URL/deployment: remaining acceptance, navigation pending-sync, and two-window collaboration.
+- [ ] Project upload context full-PASS remains open because the latest completion smoke returned `projectContextChunkCount: 0`.
+- [ ] Browser Assistant production metadata and `release:readiness:production` remain separate release gates.
+- [ ] Production deployment, promote, or alias change has not been performed.
 
 ## Harness Decision Gate
 
@@ -113,7 +124,7 @@
   - preview target은 deployment id/alias target과 함께 확정한다.
   - app session cookie 생성, service role 사용, browser auth profile 사용은 승인 후 진행한다.
   - `/api/assistant/retrieve`, `/api/assistant/task-review`, `/api/assistant/records`의 HTTP status와 body status를 기록한다.
-  - 2026-06-10 PASS on `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app`: retrieve succeeded, task-review HTTP `200`, WIKI approval attempted `false`, WIKI candidate created `false`, records `201`, WIKI candidate state `candidate`, cleanup `true`.
+  - 2026-06-10 PASS on `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app`: retrieve succeeded, task-review HTTP `200`, retrieve evidence count `8`, WIKI approval attempted `false`, WIKI candidate created `false`, records `201`, WIKI candidate state `candidate`, saved assistant record id `8b92593c-9008-401a-ae09-125774819a40`, cleanup `true`.
   - PASS: retrieve 200, task-review 200 `ready_for_generation`, records 201, WIKI approval bypass 없음, WIKI candidate state가 `candidate`.
 
 - [ ] **Step 6: Browser Assistant and Local Codex proof**

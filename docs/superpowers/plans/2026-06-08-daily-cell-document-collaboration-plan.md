@@ -14,7 +14,18 @@
 
 Implementation evidence now exists for the Task 0-10 scope: task-cell document Prisma models and migrations, feature flag helper, task-cell APIs, Yjs-backed service, browser store/outbox, BroadcastChannel transport, `/daily` editor integration, row-sync events, and exact Preview verification records. The old unchecked Task 0-9 boxes were stale and have been updated to match the implementation and worklog evidence. Release signoff still requires rerunning the exact Preview `/daily` verifier set against the current deployment URL, SHA, and deployment id before promotion.
 
-Latest exact Preview rerun target: `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`, branch/worktree `codex/multi-user-transition`, local HEAD `f931be7` plus uncommitted server-to-server bypass support. `daily:remaining-acceptance:verify`, `daily:navigation-pending-sync:verify --target-path=/board`, and `daily:cell-collaboration:two-window` all passed on this exact Preview URL. Earlier failures on `architect-start2-46yys90ys` remain historical flaky evidence and are superseded for this deployment.
+Latest exact Preview rerun target: `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, branch/worktree `codex/multi-user-transition`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`. `daily:remaining-acceptance:verify`, `daily:navigation-pending-sync:verify --target-path=/board`, and `daily:cell-collaboration:two-window` all passed on this exact Preview URL. Earlier failures on `architect-start2-46yys90ys` and older Preview targets remain historical evidence and are superseded for this deployment.
+
+## 2026-06-10 Final Git Preview Checklist
+
+- [x] Code committed and pushed before final runtime verification: `5724068f543b1f863f163e15a71434f18018de4c`.
+- [x] Exact Preview URL fixed before verification: `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app/daily`.
+- [x] Exact Preview deployment recorded: `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`.
+- [x] `daily:remaining-acceptance:verify` PASS on the exact URL.
+- [x] `daily:navigation-pending-sync:verify --target-path=/board` PASS on rerun; the first run had only cleanup delete `500`, then cleanup passed `200/200`.
+- [x] `daily:cell-collaboration:two-window` PASS on the exact URL.
+- [x] Release judgment remains Preview-only; no production promotion was performed.
+- [ ] If a future docs-only commit changes HEAD, rerun release judgment only when the target runtime SHA/deployment changes in a material way.
 
 ## Problem-To-Solution Coverage
 
@@ -404,10 +415,10 @@ Latest exact Preview evidence before the final three-agent gate:
 - `npx tsx scripts/daily-cell-collaboration-two-window-verify.ts --url ".../daily"` returned `ok=true`; local row `81ms`, second window row `5ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, server projection contained both `-A` and `-B`, both windows saw merged text without refresh, and reload preserved it.
 - `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --delay-ms=4000 --max-navigation-ms=1000` returned `ok=true` for `/board`: local row `41ms`, navigation `152ms`, same-document navigation `true`, cleanup `200/200`.
 - The same navigation verifier returned `ok=true` for `--target-path=/materials`: local row `50ms`, navigation `135ms`, same-document navigation `true`, cleanup `200/200`.
-- 2026-06-10 final rerun target: `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`.
-- `npm run daily:remaining-acceptance:verify -- --url ".../daily"` returned `ok=true`; create timing total `6740ms`, viewer realtime row visibility `10554ms`, viewer read allowed, viewer write denied `403 PROJECT_EDITOR_REQUIRED`, no-access denied `403 PROJECT_ACCESS_DENIED`, cleanup `trash=200/delete=200`, and delayed reorder sync status cleared with `remaining=0`.
-- `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --target-path=/board --delay-ms=4000 --max-navigation-ms=1000` returned `ok=true`; local row `56ms`, navigation `170ms`, same-document navigation `true`, cleanup `200/200`.
-- `npm run daily:cell-collaboration:two-window -- --url ".../daily"` returned `ok=true`; local row `68ms`, second window row `8ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, merged CRDT text was visible in both windows without refresh, and reload preserved the projection.
+- 2026-06-10 final Git Preview rerun target: `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`.
+- `npm run daily:remaining-acceptance:verify -- --url ".../daily"` returned `ok=true`; create timing total `8558ms`, viewer realtime row visibility `10185ms`, viewer read allowed, viewer write denied `403 PROJECT_EDITOR_REQUIRED`, no-access denied `403 PROJECT_ACCESS_DENIED`, cleanup `trash=200/delete=200`, and delayed reorder sync status cleared with `remaining=0`.
+- `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --target-path=/board --delay-ms=4000 --max-navigation-ms=1000` first proved navigation but failed only during cleanup delete with status `500`; rerun returned `ok=true`, local row `41ms`, navigation `143ms`, same-document navigation `true`, cleanup `trash=200/delete=200`.
+- `npm run daily:cell-collaboration:two-window -- --url ".../daily"` returned `ok=true`; local row `82ms`, second window row `6ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, merged CRDT text was visible in both windows without refresh, and reload preserved the projection.
 
 ### Three-Agent Acceptance Gate
 
@@ -418,9 +429,9 @@ Latest exact Preview evidence before the final three-agent gate:
 
 Final three-agent gate on the latest exact Preview deployment:
 
-- Agent 1 symptom coverage reviewer: PASS; all four original symptoms are covered by exact Preview evidence, with `rowVisibleMs=11619` noted as close but still within the 12-second gate.
+- Agent 1 symptom coverage reviewer: PASS; all four original symptoms are covered by exact Preview evidence on `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, with viewer realtime row visibility `10185ms` still within the 12-second gate.
 - Agent 2 collaboration architecture reviewer: PASS; API flag gates, access/editor split, legacy write fence, advisory lock, row lock/CAS, idempotent update IDs, retained-update catch-up, snapshot fallback, and same-transaction projection were accepted.
-- Agent 3 execution/release reviewer: PASS; latest exact Preview proof on `dpl_WQ9yzctL24Q78mPa5USh12r3XagU` supersedes earlier worklog evidence, approval boundaries were respected, and residual warnings are non-blocking.
+- Agent 3 execution/release reviewer: PASS; latest exact Preview proof on `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT` supersedes earlier worklog evidence, approval boundaries were respected, and residual warnings are non-blocking.
 
 ## Rollout Order
 

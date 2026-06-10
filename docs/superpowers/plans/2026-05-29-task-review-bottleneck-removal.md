@@ -10,6 +10,14 @@
 
 ---
 
+## 2026-06-10 OLD/SUPERSEDED Notice
+
+- [x] This plan is historical and is no longer the active task-review/legal architecture plan.
+- [x] The old SaaS-owned `LAW_OPEN_DATA_OC` direction is superseded by `2026-06-09-verified-legal-centralization-plan.md`.
+- [x] Current task-review ownership and cross-project boundaries are tracked in `2026-06-09-cross-project-boundary-and-integration-plan.md`.
+- [x] Current deployed Preview proof is tracked in `2026-06-09-ai-review-full-pass-plan.md`.
+- [ ] Do not use unchecked items in this historical plan as a current release checklist unless the plan is explicitly reopened and rewritten around the centralized verified API boundary.
+
 ## Selected Execution Mode
 
 Execution mode is fixed as **Subagent-Driven Development**.

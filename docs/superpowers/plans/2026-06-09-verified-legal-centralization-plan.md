@@ -28,6 +28,17 @@ Standing approval covers local investigation, local validators/tests, small requ
 - Some validators and worklogs describe a hybrid model where SaaS owns direct official law verification. These must be corrected or explicitly superseded by a centralization worklog.
 - Historical documents should not be silently rewritten. Current active worklogs and new centralization records should state the corrected architecture and list older conflicting documents.
 
+## 2026-06-10 Preview Runtime Closure
+
+- [x] `verified-legal-evidence-api` remains the owner of legal corpus artifacts, official legal source credentials, legal search, and evidence provenance.
+- [x] `architect-saas` uses only server-to-server verified legal env names: `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and optional `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`.
+- [x] `LAW_OPEN_DATA_OC` is absent from the SaaS Preview env and is not required by SaaS validators.
+- [x] The deployed SaaS Preview runtime was verified on `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`.
+- [x] Runtime task-review completion smoke returned HTTP `200`, retrieve evidence count `8`, and saved assistant record `201` without WIKI approval or WIKI auto-candidate creation.
+- [x] Vercel deployment protection is handled server-side with the bypass header and the verified API app secret; no secret values are documented or browser-exposed.
+- [x] Source policy was configured through `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`; corpus responsibility did not move into SaaS.
+- [ ] Production env/readiness/promotion is not done and must pass a separate production release gate.
+
 ## Verified API Contract Gate
 
 Before changing SaaS to depend on a server-to-server boundary, confirm whether `verified-legal-evidence-api` already exposes a usable contract:

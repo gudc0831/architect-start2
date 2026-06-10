@@ -35,14 +35,26 @@ Keep `architect-saas`, `verified-legal-evidence-api`, and `architect-browser-ass
 
 ## 2026-06-10 Verification Refresh
 
-- Current direct Preview target inspected for release verification: `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`, branch/worktree `codex/multi-user-transition`, local HEAD `f931be7` plus uncommitted server-to-server bypass support.
-- Branch alias `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app` is stale and still targets deployment `dpl_WQ9yzctL24Q78mPa5USh12r3XagU`, commit `7d45f81`. Do not use that alias for final release signoff until the alias target is repaired or intentionally accepted.
+- Current direct Preview target inspected for release verification: `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, branch/worktree `codex/multi-user-transition`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`.
+- Final proof uses the direct deployment URL above. Do not substitute a stale branch alias or `/preview/daily` smoke URL for release signoff.
 - SaaS local validators pass after the boundary cleanup: `npm run ai-review:readiness`, `npm run task-review:validate`, `npm run legal-search:validate`, `npx tsx scripts/legal-batch-audit-adapter-validate.ts`, `npm run typecheck`, and `npm run vercel-build`. `project-context:validate` passed in the prior refresh and was not rerun in the final 2026-06-10 deployment pass.
 - `verified-legal-evidence-api` validators pass: `npm run smoke:legal:preflight`, `npm run test:legal-search-api`, and `npm run test:project-context-boundary`.
 - Deployed Preview verified-legal proof is now PASS. SaaS Preview env lists encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`; runtime completion smoke returned task-review HTTP `200`, retrieve evidence count `8`, WIKI approval attempted `false`, WIKI candidate created `false`, saved record candidate state `candidate`, and cleanup `true`.
 - Exact Preview `/daily` gates are clean on the current deployment: `daily:remaining-acceptance:verify` PASS, `daily:navigation-pending-sync:verify --target-path=/board` PASS, and `daily:cell-collaboration:two-window` PASS.
 - Browser Assistant local readiness and native host self-test pass, but `npm run release:readiness:production` fails until production SaaS origin and production signing/publisher/install metadata are supplied.
 - Remaining full-PASS caveat: the 2026-06-10 completion smoke reported `projectContextChunkCount: 0`, so active project upload chunk proof is still separate from the verified-legal boundary proof.
+
+## Current Checklist
+
+- [x] `architect-saas` owns task-review orchestration, project context, saved records, and WIKI candidate state only.
+- [x] `verified-legal-evidence-api` owns corpus artifacts, source freshness, official legal credentials, and legal evidence API behavior.
+- [x] `architect-browser-assistant` remains local/browser execution surface and does not receive server legal secrets.
+- [x] SaaS Preview env uses `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and optional Vercel protection bypass; no `LAW_OPEN_DATA_OC` in SaaS.
+- [x] Exact Preview task-review runtime proof returned legal evidence from the verified API with task-review HTTP `200`.
+- [x] Exact Preview `/daily` verifiers passed on `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`.
+- [ ] Active project upload chunk proof remains open because `projectContextChunkCount` was `0` in the latest smoke.
+- [ ] Browser Assistant production metadata and production readiness remain open.
+- [ ] Production env/readiness/deploy promotion remain open and must be handled separately.
 
 ## Acceptance Gates
 

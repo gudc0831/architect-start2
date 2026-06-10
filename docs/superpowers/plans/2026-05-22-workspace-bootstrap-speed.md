@@ -10,6 +10,12 @@
 
 ---
 
+## 2026-06-10 OLD/Paused Notice
+
+- [x] This plan is paused and is not part of the current verified-legal, AI review, or `/daily` collaboration release gate.
+- [x] Its unchecked bootstrap performance tasks remain backlog items, not current release blockers.
+- [ ] Reopen only with a fresh target URL/SHA/deployment baseline and a separate performance acceptance matrix.
+
 ### Task 1: Lock The Bootstrap Contract
 
 **Files:**
