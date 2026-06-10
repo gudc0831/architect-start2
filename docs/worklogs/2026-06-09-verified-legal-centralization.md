@@ -108,8 +108,8 @@ No new endpoint was implemented. `verified-legal-evidence-api/docs/implementatio
 
 - No local AI review readiness blocker remains after configuring the SaaS runtime with the centralized verified API URL and secret.
 - `LAW_OPEN_DATA_OC` being absent from `architect-start2` / `architect-saas` is the correct centralized architecture state and is not a blocker.
-- Deployed legal/regulation AI review readiness depends only on an externally reachable `verified-legal-evidence-api` URL and matching SaaS `VERIFIED_LEGAL_EVIDENCE_API_SECRET`.
-- 2026-06-10 KST recheck: `architect-start2` Vercel Preview still has no `LAW_OPEN_DATA_OC` entry, which is correct. `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` entries are present in Preview but pulled as empty values, so deployed legal/regulation readiness is not complete yet.
+- Deployed legal/regulation AI review readiness depends only on an externally reachable `verified-legal-evidence-api` URL and matching SaaS `VERIFIED_LEGAL_EVIDENCE_API_SECRET`; this Preview env action is now closed for branch `codex/multi-user-transition`.
+- 2026-06-10 KST follow-up: `architect-start2` Vercel Preview still has no `LAW_OPEN_DATA_OC` entry, which is correct. Branch-scoped `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` were configured with `vercel env add --force` for `codex/multi-user-transition`. Sensitive `vercel env pull` output must not be used as value proof because encrypted/sensitive values can appear empty in the pulled temp file.
 - No DB migration, alias change, production data write, or merge was performed.
 
 ## Post-Push Deployment Verification
@@ -132,9 +132,22 @@ No new endpoint was implemented. `verified-legal-evidence-api/docs/implementatio
 - Correction: the absence of `LAW_OPEN_DATA_OC` from `architect-start2` is an expected PASS condition, not a missing-env problem.
 - Current Preview env pull by name/status only:
   - `LAW_OPEN_DATA_OC`: absent, correct.
-  - `VERIFIED_LEGAL_EVIDENCE_API_URL`: present but empty.
-  - `VERIFIED_LEGAL_EVIDENCE_API_SECRET`: present but empty.
-- Remaining deployed legal-readiness action is to configure non-empty verified API URL/secret values in the SaaS Preview runtime, not to add any law.go.kr key to SaaS.
+  - `VERIFIED_LEGAL_EVIDENCE_API_URL`: encrypted Preview branch entry configured after follow-up.
+  - `VERIFIED_LEGAL_EVIDENCE_API_SECRET`: encrypted Preview branch entry configured after follow-up.
+- The deployed legal-readiness env action was to configure verified API URL/secret values in the SaaS Preview runtime, not to add any law.go.kr key to SaaS.
+
+## 2026-06-10 Verified API Env Follow-Up
+
+- Configured `architect-start2` Preview branch `codex/multi-user-transition` with `VERIFIED_LEGAL_EVIDENCE_API_URL` pointing at the verified legal evidence Preview deployment URL.
+- Configured `architect-start2` Preview branch `codex/multi-user-transition` with `VERIFIED_LEGAL_EVIDENCE_API_SECRET` copied from the local `verified-legal-evidence-api` runtime env without printing the value.
+- Confirmed `architect-start2` Vercel env names list encrypted branch-scoped entries for `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`.
+- Confirmed `LAW_OPEN_DATA_OC` remains absent from `architect-start2`.
+- Redeployed `architect-start2` Preview after env changes.
+- Final follow-up Preview URL: `https://architect-start2-j6pxbb0gs-chois-projects-7b2948cf.vercel.app`.
+- Final follow-up deployment id: `dpl_HnyZ5mDeWyy9cR8iJA9pwj5WjVMC`.
+- Final follow-up deployment status: Ready.
+- `GET /preview/daily`: HTTP `200`.
+- Secret values were not printed. Temporary env inspection files were deleted.
 
 ## Secret Handling
 

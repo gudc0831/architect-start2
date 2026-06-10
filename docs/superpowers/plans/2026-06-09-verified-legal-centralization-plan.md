@@ -33,6 +33,8 @@ Standing approval covers local investigation, local validators/tests, small requ
 - [x] `verified-legal-evidence-api` remains the owner of legal corpus artifacts, official legal source credentials, legal search, and evidence provenance.
 - [x] `architect-saas` uses only server-to-server verified legal env names: `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and optional `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`.
 - [x] `LAW_OPEN_DATA_OC` is absent from the SaaS Preview env and is not required by SaaS validators.
+- [x] 2026-06-10 follow-up: `architect-start2` Preview branch `codex/multi-user-transition` was explicitly reconfigured with non-empty `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` values, without adding `LAW_OPEN_DATA_OC` to SaaS or printing secret values.
+- [x] 2026-06-10 follow-up redeploy: Preview `https://architect-start2-j6pxbb0gs-chois-projects-7b2948cf.vercel.app`, deployment `dpl_HnyZ5mDeWyy9cR8iJA9pwj5WjVMC`, is Ready and `/preview/daily` returns HTTP `200`.
 - [x] The deployed SaaS Preview runtime was verified on `https://architect-start2-9l8rhe7ox-chois-projects-7b2948cf.vercel.app`, deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`, verified code SHA `5724068f543b1f863f163e15a71434f18018de4c`.
 - [x] Runtime task-review completion smoke returned HTTP `200`, retrieve evidence count `8`, and saved assistant record `201` without WIKI approval or WIKI auto-candidate creation.
 - [x] Vercel deployment protection is handled server-side with the bypass header and the verified API app secret; no secret values are documented or browser-exposed.

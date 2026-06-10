@@ -174,8 +174,8 @@ After user approval, runtime gates were executed. Legal readiness is now tracked
 
 - No local AI review readiness blocker remains.
 - `LAW_OPEN_DATA_OC` being absent from `architect-start2` / `architect-saas` is correct and is not a blocker.
-- Deployed legal/regulation AI review readiness still depends on Vercel runtime env having a non-empty, non-loopback centralized verified API URL and matching server secret.
-- 2026-06-10 KST recheck: `architect-start2` Preview has no `LAW_OPEN_DATA_OC` entry, which is correct. `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` entries exist but pull as empty values, so deployed legal/regulation readiness remains blocked until those verified API values are configured.
+- Deployed legal/regulation AI review readiness depends on Vercel runtime env having a non-loopback centralized verified API URL and matching server secret. The Preview branch env action is closed for `codex/multi-user-transition` after the 2026-06-10 follow-up configuration.
+- 2026-06-10 KST follow-up: `architect-start2` Preview has no `LAW_OPEN_DATA_OC` entry, which is correct. Branch-scoped encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` entries were configured with `vercel env add --force` and the Preview was redeployed. Sensitive `vercel env pull` output can show empty values and is not used as value proof.
 - Authenticated deployed completion smoke needs `ARCHITECT_SMOKE_COOKIE`; it was absent in the verification shell, so `/api/auth/me` returned HTTP 401.
 - Do not add `LAW_OPEN_DATA_OC` to architect-saas; it belongs only in `verified-legal-evidence-api`.
 
@@ -194,4 +194,5 @@ After user approval, runtime gates were executed. Legal readiness is now tracked
 - Final deployment status: Ready.
 - `GET /preview/daily`: HTTP 200.
 - `LAW_OPEN_DATA_OC` was removed from `architect-start2` Vercel Preview branch `codex/multi-user-transition` and Production. Values were not read or printed.
-- 2026-06-10 wording correction: `LAW_OPEN_DATA_OC` absence is the desired `architect-start2` state. The remaining deployed legal-readiness blocker is empty/missing verified API URL/secret values, not the missing law.go.kr key.
+- 2026-06-10 wording correction: `LAW_OPEN_DATA_OC` absence is the desired `architect-start2` state. The deployed legal-readiness env action is verified API URL/secret configuration, not a law.go.kr key.
+- 2026-06-10 env follow-up: configured branch-scoped encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` for `codex/multi-user-transition`; confirmed `LAW_OPEN_DATA_OC` remains absent from SaaS; redeployed Preview `https://architect-start2-j6pxbb0gs-chois-projects-7b2948cf.vercel.app`, deployment `dpl_HnyZ5mDeWyy9cR8iJA9pwj5WjVMC`, Ready, with `/preview/daily` HTTP `200`.
