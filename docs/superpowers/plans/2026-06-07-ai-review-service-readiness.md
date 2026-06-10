@@ -16,7 +16,7 @@
 - [x] The old requirement that SaaS directly hold `LAW_OPEN_DATA_OC` is superseded by `2026-06-09-verified-legal-centralization-plan.md`.
 - [x] Current boundary ownership is tracked in `2026-06-09-cross-project-boundary-and-integration-plan.md`.
 - [x] Current exact Preview `/daily` release proof is tracked in `2026-06-08-daily-cell-document-collaboration-plan.md`.
-- [ ] Browser Assistant production metadata and production readiness remain open in the current plans; do not infer production PASS from this historical readiness plan.
+- [x] Browser Assistant production readiness is now tracked in the current full-PASS plan and passed for the unsigned interim path; do not infer signed release/Web Store promotion PASS from this historical readiness plan.
 
 ## Harness Coordination
 

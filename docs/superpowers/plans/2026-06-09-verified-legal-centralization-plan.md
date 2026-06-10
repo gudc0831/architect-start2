@@ -39,7 +39,17 @@ Standing approval covers local investigation, local validators/tests, small requ
 - [x] Runtime task-review completion smoke returned HTTP `200`, retrieve evidence count `8`, and saved assistant record `201` without WIKI approval or WIKI auto-candidate creation.
 - [x] Vercel deployment protection is handled server-side with the bypass header and the verified API app secret; no secret values are documented or browser-exposed.
 - [x] Source policy was configured through `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`; corpus responsibility did not move into SaaS.
-- [ ] Production env/readiness/promotion is not done and must pass a separate production release gate.
+- [x] 2026-06-10 verified API/env repair: the protected verified-legal Preview target `https://verified-legal-evidence-hp5490x70-chois-projects-7b2948cf.vercel.app`, deployment `dpl_GswMEwfdkZGrBxdMyfA8MnNktfx2`, returned HTTP `200` when called with both the verified API app secret header and the Vercel protection bypass header.
+- [x] 2026-06-10 SaaS redeploy after API/env repair: canonical authenticated Preview host `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app` resolves to deployment `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd`; its in-page AI review health check passed centralized verified legal evidence and answer generation readiness.
+- [x] 2026-06-10 Browser Assistant patch preserves the centralized legal boundary: Local Codex generation direct-reverifies only legacy `official-law:` evidence. Centralized `verified-legal-search:` evidence and unverified foundation `regulation` seeds do not trigger extension-side direct law.go.kr calls.
+- [x] Browser Assistant production readiness passed for the unsigned interim extension/native-host path: `18 pass, 1 warn, 0 fail` with the observed extension id, release owner, Web Store publisher metadata, stable native-host install root, and explicit unsigned waiver.
+- [ ] Production env/deploy/promotion is not done and must pass a separate release gate before serving production users.
+
+## 2026-06-10 Remaining Centralization Gates
+
+- [ ] Keep the verified-legal Preview project-level secret configuration durable for future redeploys. Immediate runtime proof is complete on `dpl_GswMEwfdkZGrBxdMyfA8MnNktfx2`, but future deployments must still prove the same `VERIFIED_LEGAL_EVIDENCE_API_SECRET` boundary and Vercel protection bypass configuration before they are used by SaaS.
+- [ ] Rerun the authenticated SaaS completion smoke on the canonical alias after an `ARCHITECT_SMOKE_COOKIE` is intentionally provided to the shell.
+- [ ] Do not promote to production until production env shape, production verified API target, production protection/bypass policy, deployment promotion, and Chrome Web Store/native-host release steps pass without printing secret values.
 
 ## Verified API Contract Gate
 
