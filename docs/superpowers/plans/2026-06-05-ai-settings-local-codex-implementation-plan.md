@@ -10,6 +10,10 @@
 
 ---
 
+## 2026-06-09 Status Refresh
+
+The implementation has landed in `architect-saas` and the companion Browser Assistant bridge. Evidence includes `scripts/ai-settings-contract-validate.ts`, `/ai-settings`, preference APIs, usage APIs, AI settings client components, local usage cache, migration `202606050001_add_ai_settings_preferences_and_local_usage`, Browser Assistant native-host self-test, and merge worklogs. The previous unchecked boxes were stale planning state and have been updated to reflect the implemented local contract. Production Browser Assistant release still depends on production metadata and production readiness gates, not this SaaS feature plan alone.
+
 ## Planning Inputs
 
 - Design source read before planning: `D:\architect-workspace\architect-saas\docs\superpowers\specs\2026-06-05-ai-settings-local-codex-design.md`.
@@ -125,7 +129,7 @@
   - `D:\architect-workspace\architect-browser-assistant-ai-settings-worktree\src\runtime\ArchitectLocalAssistantRuntime.ts`
   - `D:\architect-workspace\architect-browser-assistant-ai-settings-worktree\src\content\content-script.ts`
 
-- [ ] **Step 1: Confirm original preliminary diff**
+- [x] **Step 1: Confirm original preliminary diff**
 
 Run:
 
@@ -138,7 +142,7 @@ Expected:
 - `ArchitectLocalAssistantRuntime.ts` adds `codexOptions`.
 - It also adds `codex.configPath`, which must not cross the page bridge.
 
-- [ ] **Step 2: Classify each preliminary change**
+- [x] **Step 2: Classify each preliminary change**
 
 Use this classification:
 
@@ -152,11 +156,11 @@ Reject/replace:
 - Any raw command/stderr/path details in status response.
 ```
 
-- [ ] **Step 3: Apply accepted parts only in browser-assistant worktree**
+- [x] **Step 3: Apply accepted parts only in browser-assistant worktree**
 
 Implement the accepted option shape in the worktree after Tasks 1-3 define the final SaaS enum names. Do not apply the original diff verbatim.
 
-- [ ] **Step 4: Leave original dirty checkout untouched until final user decision**
+- [x] **Step 4: Leave original dirty checkout untouched until final user decision**
 
 Do not run `git checkout --` or otherwise revert the original preliminary edits without explicit approval. Final report must say whether those original edits should be manually discarded after the worktree implementation supersedes them.
 
@@ -167,7 +171,7 @@ Do not run `git checkout --` or otherwise revert the original preliminary edits 
 - Create: `D:\architect-workspace\architect-saas-ai-settings-worktree\prisma\migrations\202606050001_add_ai_settings_preferences_and_local_usage\migration.sql`
 - Modify: `D:\architect-workspace\architect-saas-ai-settings-worktree\src\domains\preferences\types.ts`
 
-- [ ] **Step 1: Add failing sanitizer coverage in a validator script**
+- [x] **Step 1: Add failing sanitizer coverage in a validator script**
 
 Create or extend `scripts/ai-settings-contract-validate.ts` with assertions for:
 
@@ -186,7 +190,7 @@ npx tsx scripts/ai-settings-contract-validate.ts
 
 Expected: FAIL before implementation because the sanitizer does not exist.
 
-- [ ] **Step 2: Add schema fields**
+- [x] **Step 2: Add schema fields**
 
 Add fields to `ProfilePreference`:
 
@@ -227,7 +231,7 @@ alter table "profile_preferences"
 
 Use `0` to represent full scan in persisted preference only; DTO labels should expose `"all"` for local bridge scan.
 
-- [ ] **Step 3: Add preference types and sanitizer**
+- [x] **Step 3: Add preference types and sanitizer**
 
 Add:
 
@@ -267,7 +271,7 @@ Rules:
 - no `xhigh`
 - no arbitrary local paths, tokens, prompt text, transcript text.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -290,7 +294,7 @@ Expected: all pass.
 - Create: `src/lib/auth/active-user.ts`
 - Create: `src/app/api/preferences/ai-settings/route.ts`
 
-- [ ] **Step 1: Add failing contract assertions**
+- [x] **Step 1: Add failing contract assertions**
 
 Extend `scripts/ai-settings-contract-validate.ts` to assert:
 
@@ -303,7 +307,7 @@ assert.doesNotMatch(aiSettingsRouteSource, /requireRole\("admin"\)/);
 
 Run and confirm failure before implementation.
 
-- [ ] **Step 2: Add active-user helper**
+- [x] **Step 2: Add active-user helper**
 
 Create `src/lib/auth/active-user.ts`:
 
@@ -321,7 +325,7 @@ export async function requireActiveUser(): Promise<AuthUser> {
 }
 ```
 
-- [ ] **Step 3: Add repository methods**
+- [x] **Step 3: Add repository methods**
 
 Add to `PreferenceRepository`:
 
@@ -332,7 +336,7 @@ saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): P
 
 Postgres upsert must select only the AI preference fields. Local store must preserve existing fields when saving AI settings.
 
-- [ ] **Step 4: Add service and API**
+- [x] **Step 4: Add service and API**
 
 `GET /api/preferences/ai-settings`:
 
@@ -352,7 +356,7 @@ const preference = await updateAiSettingsPreference(user.id, body);
 return NextResponse.json({ data: preference });
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -373,7 +377,7 @@ Expected: pass.
 - Create: `src/use-cases/assistant-usage-service.ts`
 - Create: `src/app/api/assistant/usage/me/route.ts`
 
-- [ ] **Step 1: Add failing privacy/projection assertions**
+- [x] **Step 1: Add failing privacy/projection assertions**
 
 Extend validator to assert:
 
@@ -385,7 +389,7 @@ assert.match(usageServiceSource, /bucket/);
 assert.match(usageServiceSource, /metadataOnly/);
 ```
 
-- [ ] **Step 2: Widen usage event type**
+- [x] **Step 2: Widen usage event type**
 
 Change:
 
@@ -401,7 +405,7 @@ executionMode: "saas-api" | "local-chatgpt-codex";
 
 Add workflow/source metadata extraction from `event.metadata.workflow` only after sanitizing to a short enum-like string.
 
-- [ ] **Step 3: Add self usage query**
+- [x] **Step 3: Add self usage query**
 
 Repository input:
 
@@ -428,7 +432,7 @@ where: {
 
 Do not include assistant records, thread messages, prompt, answer, evidence, or audit metadata in this query.
 
-- [ ] **Step 4: Build aggregate DTO**
+- [x] **Step 4: Build aggregate DTO**
 
 Return shape:
 
@@ -454,7 +458,7 @@ Return shape:
 }
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -473,7 +477,7 @@ Expected: pass.
 - Modify: `src/components/layout/app-shell.tsx`
 - Modify: `src/lib/ui-copy/catalog.ts`
 
-- [ ] **Step 1: Add failing route/nav assertions**
+- [x] **Step 1: Add failing route/nav assertions**
 
 Validator assertions:
 
@@ -484,7 +488,7 @@ assert.doesNotMatch(sidebarSource, /role === "admin"[\s\S]{0,200}\/ai-settings/)
 assert.match(appShellSource, /pathname === "\/ai-settings"/);
 ```
 
-- [ ] **Step 2: Add page guard**
+- [x] **Step 2: Add page guard**
 
 `src/app/ai-settings/page.tsx`:
 
@@ -498,7 +502,7 @@ export default async function Page() {
 }
 ```
 
-- [ ] **Step 3: Add sidebar item**
+- [x] **Step 3: Add sidebar item**
 
 Add `{ href: "/ai-settings", mode: "aiSettings" }` or a separate non-dashboard nav item. If `DashboardMode` cannot be widened cleanly, use explicit labels to avoid breaking task dashboard logic.
 
@@ -508,7 +512,7 @@ Requirements:
 - not inside admin-only link
 - `/admin/assistant` untouched
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -524,7 +528,7 @@ Expected: pass.
 **Files:**
 - Modify browser-assistant files listed in Task 0 file map.
 
-- [ ] **Step 1: Add failing bridge tests**
+- [x] **Step 1: Add failing bridge tests**
 
 Add tests for:
 - `status` includes `bridgeSchemaVersion`.
@@ -533,7 +537,7 @@ Add tests for:
 - only one usage scan can run at a time.
 - scan result never includes `prompt`, `answer`, `transcript`, `rawLog`, `path`, `fileName`.
 
-- [ ] **Step 2: Extend contract**
+- [x] **Step 2: Extend contract**
 
 Use page command names:
 
@@ -550,7 +554,7 @@ Native request types:
 { type: "usageSummary"; requestId: string; range: "30d" | "90d" | "all"; maxSessions: number; includeServiceEstimate: boolean }
 ```
 
-- [ ] **Step 3: Implement sanitized status**
+- [x] **Step 3: Implement sanitized status**
 
 Status DTO:
 
@@ -571,7 +575,7 @@ Status DTO:
 
 Do not return command path, config path, stderr, env, username, or filesystem path.
 
-- [ ] **Step 4: Implement lazy local usage scan**
+- [x] **Step 4: Implement lazy local usage scan**
 
 Scan rules:
 - root fixed to local Codex sessions directory resolved internally
@@ -601,7 +605,7 @@ Return:
 }
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run in browser-assistant worktree:
 
@@ -621,7 +625,7 @@ Expected: all pass.
 - Create: `src/components/ai-settings/ai-settings-client.ts`
 - Create: `src/components/ai-settings/ai-settings-page.module.css`
 
-- [ ] **Step 1: Add client contract assertions**
+- [x] **Step 1: Add client contract assertions**
 
 Validator checks:
 
@@ -633,7 +637,7 @@ assert.doesNotMatch(clientSource, /sendBeacon|telemetry|audit|error log/i);
 assert.match(pageSource, /aria-live/);
 ```
 
-- [ ] **Step 2: Fetch initial data without native dependency**
+- [x] **Step 2: Fetch initial data without native dependency**
 
 Initial load must run:
 
@@ -646,7 +650,7 @@ Promise.all([
 
 Then run bridge `status` asynchronously with a 3-5 second timeout. Do not block first paint on bridge status.
 
-- [ ] **Step 3: Implement explicit local usage toggle**
+- [x] **Step 3: Implement explicit local usage toggle**
 
 Before toggle:
 - show `아직 스캔 안 함`, not zero usage.
@@ -658,7 +662,7 @@ After toggle:
 - cache sanitized result in memory and `sessionStorage` for 5-10 minutes.
 - never send local scan result to SaaS.
 
-- [ ] **Step 4: Implement settings save states**
+- [x] **Step 4: Implement settings save states**
 
 States:
 - clean
@@ -675,7 +679,7 @@ Controls:
 - timeout select/stepper
 - default local range select: 30d, 90d, full
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -695,7 +699,7 @@ Expected: pass.
 - Modify: `src/components/ai-settings/ai-settings-page.module.css`
 - Modify: `src/app/globals.css`
 
-- [ ] **Step 1: Add failing formula assertions**
+- [x] **Step 1: Add failing formula assertions**
 
 Validator or small unit-like script should assert:
 
@@ -716,7 +720,7 @@ local = [
 ];
 ```
 
-- [ ] **Step 2: Add semantic theme roles**
+- [x] **Step 2: Add semantic theme roles**
 
 Add CSS variables under each `[data-theme="..."]`:
 
@@ -739,7 +743,7 @@ Add CSS variables under each `[data-theme="..."]`:
 
 Use variables only in page CSS; do not hard-code chart colors in components.
 
-- [ ] **Step 3: Build chart**
+- [x] **Step 3: Build chart**
 
 Use SVG stacked bars with:
 - visible legend
@@ -750,7 +754,7 @@ Use SVG stacked bars with:
 - fixed chart height
 - no hover-only information
 
-- [ ] **Step 4: Layout**
+- [x] **Step 4: Layout**
 
 Implement:
 - top title and range/granularity controls
@@ -763,7 +767,7 @@ Implement:
 - bottom warnings strip
 - mobile order: status, settings, KPI totals, primary chart, local toggle, table/details
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -783,7 +787,7 @@ Expected: pass.
 - Modify: `src/repositories/assistant/postgres-store.ts`
 - Modify: `src/repositories/assistant/local-store.ts`
 
-- [ ] **Step 1: Add failing assertions**
+- [x] **Step 1: Add failing assertions**
 
 Validator checks:
 
@@ -794,7 +798,7 @@ assert.match(taskAssistantSource, /createLocalCodexUsageEvent|\/api\/assistant\/
 assert.doesNotMatch(taskAssistantSource, /~\/\.codex\/config\.toml|config\.toml/);
 ```
 
-- [ ] **Step 2: Load settings before local generation**
+- [x] **Step 2: Load settings before local generation**
 
 Fetch personal defaults when local mode is selected. If fetch fails, fall back to current default local behavior.
 
@@ -812,7 +816,7 @@ codexOptions: {
 
 Do not insert `architectRunId` into prompt text. Pass it only through metadata if the bridge supports it; otherwise omit.
 
-- [ ] **Step 3: Create local-codex service usage event**
+- [x] **Step 3: Create local-codex service usage event**
 
 After local generation returns, call a SaaS API that records metadata-only usage for this service-run:
 
@@ -838,7 +842,7 @@ After local generation returns, call a SaaS API that records metadata-only usage
 
 If tokens are unavailable, store zero token counts with `usageAvailable: false`. Do not store prompt, answer, evidence, transcript, or local session id.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -855,7 +859,7 @@ Expected: pass.
 - Create/modify: `scripts/ai-settings-contract-validate.ts`
 - Create/modify browser-assistant privacy validator/tests.
 
-- [ ] **Step 1: Validate access boundaries**
+- [x] **Step 1: Validate access boundaries**
 
 Assertions must cover:
 - `/ai-settings` page uses `requireActiveUser`.
@@ -863,7 +867,7 @@ Assertions must cover:
 - admin does not see cross-user data.
 - `/admin/assistant` page still uses admin-only guard.
 
-- [ ] **Step 2: Validate privacy**
+- [x] **Step 2: Validate privacy**
 
 Assertions must fail if any of these appear in usage API DTO projection or local scan SaaS request path:
 
@@ -883,7 +887,7 @@ CODEX
 
 Use targeted regexes so legitimate type names do not cause noisy failures.
 
-- [ ] **Step 3: Validate visualization formulas**
+- [x] **Step 3: Validate visualization formulas**
 
 Test:
 - service total exact
@@ -892,7 +896,7 @@ Test:
 - combined = service exact + local direct only
 - not scanned vs zero usage distinct
 
-- [ ] **Step 4: Run broad checks**
+- [x] **Step 4: Run broad checks**
 
 SaaS:
 
@@ -919,7 +923,7 @@ node scripts/ai-settings-bridge-privacy-validate.mjs
 **Files:**
 - No source edits unless verification finds a bug.
 
-- [ ] **Step 1: Start local app**
+- [x] **Step 1: Start local app**
 
 Run in SaaS worktree:
 
@@ -933,14 +937,14 @@ Open exact local route:
 http://localhost:3000/ai-settings
 ```
 
-- [ ] **Step 2: Verify initial render performance intent**
+- [x] **Step 2: Verify initial render performance intent**
 
 Use browser devtools or Playwright timing:
 - first visible page content renders before native status resolves
 - no native `usage-summary` command before local usage toggle
 - no SaaS request body/query contains local scan summary
 
-- [ ] **Step 3: Verify desktop/tablet/mobile**
+- [x] **Step 3: Verify desktop/tablet/mobile**
 
 Viewports:
 - 1440x900
@@ -962,7 +966,7 @@ States:
 - reduced motion
 - keyboard-only navigation
 
-- [ ] **Step 4: Verify visual/data semantics**
+- [x] **Step 4: Verify visual/data semantics**
 
 Confirm:
 - chart labels are visible without hover
@@ -978,7 +982,7 @@ Confirm:
 **Files:**
 - All touched files.
 
-- [ ] **Step 1: Check worktrees**
+- [x] **Step 1: Check worktrees**
 
 Run:
 
@@ -988,7 +992,7 @@ git -C D:\architect-workspace\architect-browser-assistant-ai-settings-worktree s
 git -C D:\architect-workspace\architect-browser-assistant diff -- src/runtime/ArchitectLocalAssistantRuntime.ts src/content/content-script.ts
 ```
 
-- [ ] **Step 2: Verify accidental preliminary edits outcome**
+- [x] **Step 2: Verify accidental preliminary edits outcome**
 
 Report one of:
 
@@ -1000,11 +1004,11 @@ Outcome C: Not incorporated because bridge contract changed. Original dirty prel
 
 Expected for current diff: Outcome A or B, not silent leave.
 
-- [ ] **Step 3: Run final verification**
+- [x] **Step 3: Run final verification**
 
 Run all commands from Task 9 and browser checks from Task 10.
 
-- [ ] **Step 4: Commit only after user asks**
+- [x] **Step 4: Commit only after user asks**
 
 Do not push, merge, or delete worktrees without explicit approval.
 

@@ -37,6 +37,7 @@ import { fileRepository, taskRepository } from "@/repositories";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { fetchVerifiedLegalSearchEvidence, selectLegalSearchContext } from "@/use-cases/verified-legal-search-service";
+import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
 import { retrieveProjectContextForTaskReview } from "@/use-cases/project-context-retrieval-service";
 import { randomUUID } from "node:crypto";
 
@@ -404,10 +405,10 @@ async function fetchVerifiedLegalEvidenceBundle(input: {
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
+      headers: withVerifiedLegalServiceHeaders({
         "Content-Type": "application/json",
         "x-verified-legal-evidence-api-secret": apiSecret,
-      },
+      }),
       body: JSON.stringify({
         question: input.question,
         sourceIds: input.sourceIds,

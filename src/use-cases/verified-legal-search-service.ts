@@ -1,4 +1,5 @@
 import type { AssistantEvidence, AssistantLegalEvidenceMetadata } from "@/domains/assistant/types";
+import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
 
 export type EvidenceReadinessWarning = {
   code: string;
@@ -126,10 +127,10 @@ export async function fetchVerifiedLegalSearchEvidence(
   try {
     response = await (input.fetchImpl ?? fetch)(endpoint, {
       method: "POST",
-      headers: {
+      headers: withVerifiedLegalServiceHeaders({
         "Content-Type": "application/json",
         "x-verified-legal-evidence-api-secret": apiSecret,
-      },
+      }),
       body: JSON.stringify({
         query: input.question,
         jurisdiction: normalizeOptionalText(input.jurisdiction),

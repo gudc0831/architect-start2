@@ -181,11 +181,13 @@ async function main() {
   const previousLegalSearchApiUrl = process.env.VERIFIED_LEGAL_SEARCH_API_URL;
   const previousLegalSearchEnabled = process.env.VERIFIED_LEGAL_SEARCH_ENABLED;
   const previousVerifiedLegalEvidenceApiSecret = process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET;
+  const previousVercelBypassSecret = process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
   try {
     process.env.VERIFIED_LEGAL_EVIDENCE_API_URL = "http://legacy-evidence.local";
     delete process.env.VERIFIED_LEGAL_SEARCH_API_URL;
     delete process.env.VERIFIED_LEGAL_SEARCH_ENABLED;
     process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET = "fixture-legal-api-secret";
+    delete process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
     let legacyOnlyFetchCalled = false;
     const legacyOnly = await fetchVerifiedLegalSearchEvidence({
       question: "legacy bundle only",
@@ -226,6 +228,7 @@ async function main() {
     restoreEnv("VERIFIED_LEGAL_SEARCH_API_URL", previousLegalSearchApiUrl);
     restoreEnv("VERIFIED_LEGAL_SEARCH_ENABLED", previousLegalSearchEnabled);
     restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", previousVerifiedLegalEvidenceApiSecret);
+    restoreEnv("VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET", previousVercelBypassSecret);
   }
 
   const sanitizedWarnings = mapLegalSearchPayloadToEvidence({
@@ -568,6 +571,40 @@ async function main() {
   assert.equal(JSON.stringify(captured[0]?.body).includes("sourceIds"), false);
   assert.equal(JSON.stringify(captured[0]?.body).includes("authority"), false);
   assert.equal(captured[0]?.headers?.["x-verified-legal-evidence-api-secret"], "fixture-legal-api-secret");
+  assert.equal(captured[0]?.headers?.["x-vercel-protection-bypass"], undefined);
+
+  const previousFetchBypassSecret = process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
+  try {
+    process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET = "fixture-vercel-bypass";
+    const bypassCaptured: Array<{ headers?: Record<string, string> }> = [];
+    await fetchVerifiedLegalSearchEvidence({
+      question: "건축법 제11조",
+      serviceUrl: "http://legal.local",
+      apiSecret: "fixture-legal-api-secret",
+      fetchImpl: async (_input, init) => {
+        bypassCaptured.push({ headers: init?.headers as Record<string, string> | undefined });
+        return Response.json({
+          queryId: "legal_query:bypass",
+          hits: [{
+            chunkId: "chunk:act-11",
+            sourceId: "law:building-act",
+            sourceKind: "statute",
+            authorityRank: "statute",
+            title: "건축법",
+            excerpt: "건축법 제11조",
+            effective: { effectiveFrom: "2026-01-01" },
+            stale: false,
+            answerReady: true,
+            warnings: [],
+          }],
+          warnings: [],
+        });
+      },
+    });
+    assert.equal(bypassCaptured[0]?.headers?.["x-vercel-protection-bypass"], "fixture-vercel-bypass");
+  } finally {
+    restoreEnv("VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET", previousFetchBypassSecret);
+  }
 
   const invalidJsonOkResponse = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",

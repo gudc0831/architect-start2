@@ -1,3 +1,5 @@
+import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
+
 type FetchImpl = typeof fetch;
 
 type FetchLegalBatchAuditStatusInput = {
@@ -119,10 +121,10 @@ export async function fetchLegalBatchAuditStatus(
   try {
     response = await (input.fetchImpl ?? fetch)(endpoint, {
       method: "POST",
-      headers: {
+      headers: withVerifiedLegalServiceHeaders({
         "Content-Type": "application/json",
         "x-legal-change-monitor-secret": secret,
-      },
+      }),
       body: JSON.stringify({ reportPath }),
       signal: controller.signal,
     });

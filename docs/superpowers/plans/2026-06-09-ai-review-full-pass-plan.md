@@ -14,13 +14,16 @@
 
 ## Current State
 
+- **2026-06-09 status refresh:** local readiness and boundary validators now pass with centralized verified legal configuration. `npm run ai-review:readiness` reports `ready` with `DATABASE_URL`, `VERIFIED_LEGAL_EVIDENCE_API_URL`, and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` configured by presence only, and confirms `LAW_OPEN_DATA_OC` is absent from `architect-saas`. The remaining full-PASS risk is deployed Preview proof that the runtime uses a non-loopback verified legal API URL and matching server secret; do not treat local readiness as production signoff.
+- **2026-06-09 deployed Preview refresh:** direct Preview `https://architect-start2-eye0g2pyv-chois-projects-7b2948cf.vercel.app/daily` maps to deployment `dpl_3yNMpLqHb4BtDKc2Q2YL1CKrNBYB` at commit `f931be7`. Runtime task-review proof returned HTTP `409`/`blocked` because `VERIFIED_LEGAL_EVIDENCE_API_URL` is missing in the deployed SaaS Preview env. AI review full PASS remains blocked until Preview has the centralized verified legal API URL and secret configured and rerun proof shows answer-ready legal evidence.
+- **2026-06-10 Preview runtime refresh:** latest inspected Preview `/daily` target is `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`, branch/worktree `codex/multi-user-transition`, local HEAD `f931be7` plus uncommitted server-to-server bypass support. SaaS Preview env now has encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, `VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`; `LAW_OPEN_DATA_OC` remains absent from SaaS. Runtime completion smoke passed with auth `200`, task-review `200`, retrieve evidence count `8`, WIKI approval attempted `false`, WIKI candidate created `false`, saved assistant record `201`/candidate, and cleanup `true`.
 - `architect-saas` 현재 브랜치: `codex/multi-user-transition`.
 - 기존 계획: `docs/superpowers/plans/2026-06-07-ai-review-service-readiness.md`.
 - 기존 워크로그: `docs/worklogs/2026-06-08-ai-review-service-readiness.md`.
 - 기존 워크로그 기준으로 SaaS/Brower Assistant/Preview completion smoke의 상당 부분은 이미 통과했다.
-- 아직 전체 PASS로 볼 수 없는 핵심 gap은 두 가지다.
-  - Preview completion smoke에서 `projectContextChunkCount`가 `0`이었다.
-  - 중앙화 정정 이후 현재 로컬 `.env.preview.local`에는 `VERIFIED_LEGAL_EVIDENCE_API_URL`과 `VERIFIED_LEGAL_EVIDENCE_API_SECRET`가 없어 readiness가 blocked 된다.
+- 아직 전체 PASS로 볼 수 없는 핵심 gap은 project-context 실데이터 증거와 production release gate다.
+  - local validators, Preview verified-legal runtime proof, and latest exact `/daily` gates are PASS.
+  - Latest completion smoke reported `projectContextChunkCount: 0`; a separate task with active project upload chunks is still required before claiming the project-context portion of full PASS.
 - 따라서 이번 계획은 신규 기능 설계가 아니라 남은 PASS 조건을 실제 타깃에서 닫는 실행 계획이다.
 
 ## Harness Decision Gate
@@ -88,19 +91,20 @@
   - 실패하면 파일/라인/원인을 기록하고, 코드 수정은 별도 승인 후 진행한다.
   - PASS: 위 명령들이 PASS하거나, 코드 변경 필요 지점이 구체화된다.
 
-- [ ] **Step 3: AI readiness env gate**
-  - Status: pending SaaS verified legal API URL/secret in the local target env.
+- [x] **Step 3: AI readiness env gate**
+  - Status: local target env passes centralized verified legal readiness; deployed Preview runtime proof remains a release signoff gate.
   - 먼저 현재 로컬 env shape만 이름 기준으로 확인한다.
   - `VERIFIED_LEGAL_EVIDENCE_API_URL` 또는 `VERIFIED_LEGAL_EVIDENCE_API_SECRET`가 로컬 target env에 없으면 `npm run ai-review:readiness`는 local configured shell에서 PASS할 수 없다.
   - Vercel env 이름 기준 존재 여부는 `vercel env ls`로만 확인하고 값을 출력하지 않는다.
   - `vercel env pull` 또는 `.env.preview.local` 갱신은 secret file write이므로 승인 후에만 수행한다.
   - PASS: target env에서 `npm run ai-review:readiness` PASS 또는 승인 필요 사유가 명확히 기록된다.
 
-- [x] **Step 4: Project context chunk proof**
+- [ ] **Step 4: Project context chunk proof**
   - 기존 deployed smoke는 `projectContextChunkCount: 0`이었으므로 전체 PASS가 아니다.
   - 기존 프로젝트에 active upload chunks가 있으면 그 프로젝트/task를 사용한다.
   - 없다면 cloud DB 또는 app UI에 테스트 프로젝트 자료를 생성해야 하므로 승인 후 진행한다.
   - completion smoke 또는 브라우저 네트워크 증거에서 `projectContextTrace.status === "chunks_found"`와 `projectContextChunks.length > 0`를 확인한다.
+  - Current 2026-06-10 Preview smoke result: `projectContextChunkCount: 0`, so this remains not fully proven.
   - PASS: AI review retrieval과 task-review payload 모두 같은 active project context를 본다.
 
 - [x] **Step 5: Authenticated exact flow proof**
@@ -109,9 +113,10 @@
   - preview target은 deployment id/alias target과 함께 확정한다.
   - app session cookie 생성, service role 사용, browser auth profile 사용은 승인 후 진행한다.
   - `/api/assistant/retrieve`, `/api/assistant/task-review`, `/api/assistant/records`의 HTTP status와 body status를 기록한다.
+  - 2026-06-10 PASS on `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app`: retrieve succeeded, task-review HTTP `200`, WIKI approval attempted `false`, WIKI candidate created `false`, records `201`, WIKI candidate state `candidate`, cleanup `true`.
   - PASS: retrieve 200, task-review 200 `ready_for_generation`, records 201, WIKI approval bypass 없음, WIKI candidate state가 `candidate`.
 
-- [x] **Step 6: Browser Assistant and Local Codex proof**
+- [ ] **Step 6: Browser Assistant and Local Codex proof**
   - 승인 없이 가능한 Browser Assistant gates를 실행한다.
     - `npm run typecheck`
     - `npm run test`
@@ -121,6 +126,7 @@
     - `node scripts\verify-local-codex-generation.mjs --mock --json --strict`
   - real generation은 사용자 승인 후에만 실행한다.
     - `node scripts\verify-local-codex-generation.mjs --allow-external --json --strict --timeout-ms 180000`
+  - Current status: not rerun in this 2026-06-10 Preview pass. Production metadata and production readiness remain a separate release gate.
   - PASS: release gate와 native host path가 PASS하고, real generation은 승인 후 실제 응답으로 PASS한다.
 
 - [x] **Step 7: verified legal boundary proof**
@@ -129,6 +135,7 @@
     - `npm run test:legal-search-api`
     - `npm run test:project-context-boundary`
   - SaaS preview env에서 verified legal URL이 설정된 경우 loopback URL이 아닌지, secret/source-id presence가 맞는지 이름/상태만 기록한다.
+  - 2026-06-10 PASS: protected verified API Preview is reached through `x-vercel-protection-bypass` plus `x-verified-legal-evidence-api-secret`; task-review returned answer-ready legal evidence without moving `LAW_OPEN_DATA_OC` or corpus ownership into SaaS.
   - PASS: official-law verification은 strict하게 유지되고, project context와 legal evidence가 섞이지 않는다.
 
 - [x] **Step 8: Secret leakage sweep**

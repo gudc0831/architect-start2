@@ -10,6 +10,12 @@
 
 ---
 
+## 2026-06-09 Status Refresh
+
+Implementation evidence now exists for the Task 0-10 scope: task-cell document Prisma models and migrations, feature flag helper, task-cell APIs, Yjs-backed service, browser store/outbox, BroadcastChannel transport, `/daily` editor integration, row-sync events, and exact Preview verification records. The old unchecked Task 0-9 boxes were stale and have been updated to match the implementation and worklog evidence. Release signoff still requires rerunning the exact Preview `/daily` verifier set against the current deployment URL, SHA, and deployment id before promotion.
+
+Latest exact Preview rerun target: `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`, branch/worktree `codex/multi-user-transition`, local HEAD `f931be7` plus uncommitted server-to-server bypass support. `daily:remaining-acceptance:verify`, `daily:navigation-pending-sync:verify --target-path=/board`, and `daily:cell-collaboration:two-window` all passed on this exact Preview URL. Earlier failures on `architect-start2-46yys90ys` remain historical flaky evidence and are superseded for this deployment.
+
 ## Problem-To-Solution Coverage
 
 | Original problem | Fast fix before CRDT | Cell-document phase | Proof gate |
@@ -137,7 +143,7 @@ Modify:
 
 ## Task 0: Preflight And Exact Baseline
 
-- [ ] Run read-only worktree status:
+- [x] Run read-only worktree status:
 
 ```powershell
 git -C D:\architect-workspace\architect-saas status --short --branch
@@ -145,15 +151,15 @@ git -C D:\architect-workspace\architect-saas worktree list --porcelain
 git -C D:\architect-workspace\architect-saas rev-parse HEAD
 ```
 
-- [ ] Dirty-tree rule: if status is not clean except approved plan/worklog files, create an isolated implementation worktree/branch before code changes and do not touch unrelated user changes.
-- [ ] Confirm exact route before UI verification:
+- [x] Dirty-tree rule: if status is not clean except approved plan/worklog files, create an isolated implementation worktree/branch before code changes and do not touch unrelated user changes.
+- [x] Confirm exact route before UI verification:
 
 ```powershell
 # Browser target
 https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily
 ```
 
-- [ ] Capture exact Preview provenance before changing code or claiming deployment behavior:
+- [x] Capture exact Preview provenance before changing code or claiming deployment behavior:
 
 ```powershell
 npx vercel inspect https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app
@@ -162,51 +168,51 @@ git -C D:\architect-workspace\architect-saas rev-parse --abbrev-ref HEAD
 git -C D:\architect-workspace\architect-saas rev-parse HEAD
 ```
 
-- [ ] Record Preview URL, branch, local SHA, deployment id, alias target, and whether `/daily` is the authenticated DB-backed route rather than `/preview/daily`.
-- [ ] Capture current behavior without data writes unless approved: console errors, network timing for `/api/tasks`, journal status text, and whether navigation is blocked while `daily-sync-status` is visible.
-- [ ] Run read-only latency verifier only when `APP_BACKEND_MODE=cloud` is configured:
+- [x] Record Preview URL, branch, local SHA, deployment id, alias target, and whether `/daily` is the authenticated DB-backed route rather than `/preview/daily`.
+- [x] Capture current behavior without data writes unless approved: console errors, network timing for `/api/tasks`, journal status text, and whether navigation is blocked while `daily-sync-status` is visible.
+- [x] Run read-only latency verifier only when `APP_BACKEND_MODE=cloud` is configured:
 
 ```powershell
 npx tsx scripts/daily-cloud-latency-verify.ts --max-read-ms=3000
 ```
 
-- [ ] Ask before `--mutate`, migrations, dependency installation, Vercel deploys, or Preview DB writes.
+- [x] Ask before `--mutate`, migrations, dependency installation, Vercel deploys, or Preview DB writes.
 
 ## Task 1: Instrument And Optimize The Existing Create Path
 
-- [ ] Add timing checkpoints around `src/app/api/tasks/route.ts` POST stages: integrity, auth, project editor guard, body parse, `createTask`, JSON response.
-- [ ] Add internal timings inside `src/use-cases/task-service.ts` for category loading, foundation settings, parent resolution, assignee resolution, and repository create.
-- [ ] Add repository timings around advisory lock, max task number lookup, sibling order aggregate, and insert in `src/repositories/postgres/store.ts`.
-- [ ] Add an `npm` script for `scripts/daily-cloud-latency-verify.ts`.
-- [ ] Remove repeated category bootstrap checks from every create request, or cache their result with clear invalidation after admin category changes.
-- [ ] Avoid full active task reads during create unless parent resolution is actually needed.
-- [ ] Confirm advisory lock time is not dominating task number assignment; if it is, add a project counter table or narrower sequence strategy in a separate migration plan.
-- [ ] Keep `clientMutationId` idempotency for task creation.
-- [ ] Expected proof: `/api/tasks` POST stage timings identify the dominant cost, task create latency can be attributed to a named stage, and a create action no longer keeps the UI in a modal saving state.
+- [x] Add timing checkpoints around `src/app/api/tasks/route.ts` POST stages: integrity, auth, project editor guard, body parse, `createTask`, JSON response.
+- [x] Add internal timings inside `src/use-cases/task-service.ts` for category loading, foundation settings, parent resolution, assignee resolution, and repository create.
+- [x] Add repository timings around advisory lock, max task number lookup, sibling order aggregate, and insert in `src/repositories/postgres/store.ts`.
+- [x] Add an `npm` script for `scripts/daily-cloud-latency-verify.ts`.
+- [x] Remove repeated category bootstrap checks from every create request, or cache their result with clear invalidation after admin category changes.
+- [x] Avoid full active task reads during create unless parent resolution is actually needed.
+- [x] Confirm advisory lock time is not dominating task number assignment; if it is, add a project counter table or narrower sequence strategy in a separate migration plan.
+- [x] Keep `clientMutationId` idempotency for task creation.
+- [x] Expected proof: `/api/tasks` POST stage timings identify the dominant cost, task create latency can be attributed to a named stage, and a create action no longer keeps the UI in a modal saving state.
 
 ## Task 2: Fix Existing Background Sync UX And Row-Level Window Sync Before CRDT
 
-- [ ] In `src/components/tasks/daily-mutation-journal.ts`, add a bounded cleanup path for `synced` operations so they do not accumulate indefinitely.
-- [ ] In `src/components/tasks/task-workspace.tsx`, make the global sync pill non-blocking and informational only.
-- [ ] Inspect and change the `task-workspace.tsx` `document` `pointerdown` capture/outside-click path so server persistence pending state never blocks sidebar, route, view-tab, or workspace navigation after a local draft has been written to IndexedDB or a cell document.
-- [ ] Preserve blocking only for the narrow case where the local draft cannot be safely persisted locally.
-- [ ] Create `src/components/tasks/daily-row-sync-bus.ts` with a `BroadcastChannel` named for the `/daily` project scope.
-- [ ] Emit row-level events from existing daily mutation flow:
+- [x] In `src/components/tasks/daily-mutation-journal.ts`, add a bounded cleanup path for `synced` operations so they do not accumulate indefinitely.
+- [x] In `src/components/tasks/task-workspace.tsx`, make the global sync pill non-blocking and informational only.
+- [x] Inspect and change the `task-workspace.tsx` `document` `pointerdown` capture/outside-click path so server persistence pending state never blocks sidebar, route, view-tab, or workspace navigation after a local draft has been written to IndexedDB or a cell document.
+- [x] Preserve blocking only for the narrow case where the local draft cannot be safely persisted locally.
+- [x] Create `src/components/tasks/daily-row-sync-bus.ts` with a `BroadcastChannel` named for the `/daily` project scope.
+- [x] Emit row-level events from existing daily mutation flow:
   - `daily-journal-updated` after local journal write/update/delete;
   - `task-created` after optimistic create is inserted;
   - `task-synced` after server acknowledgement reconciles the operation;
   - `task-failed` after terminal failure or retryable failure classification.
-- [ ] On those events in sibling same-origin windows, refresh the daily journal status and run a silent `/api/tasks?orderScope=daily` refresh or existing equivalent reconciliation for the active scope.
-- [ ] Also refresh journal/reconcile on focus, online, and reconnect so missed BroadcastChannel events do not leave stale status visible.
-- [ ] Add Supabase Realtime row invalidation for the existing task projection before the CRDT layer:
+- [x] On those events in sibling same-origin windows, refresh the daily journal status and run a silent `/api/tasks?orderScope=daily` refresh or existing equivalent reconciliation for the active scope.
+- [x] Also refresh journal/reconcile on focus, online, and reconnect so missed BroadcastChannel events do not leave stale status visible.
+- [x] Add Supabase Realtime row invalidation for the existing task projection before the CRDT layer:
   - use `postgres_changes` on `tasks` for `INSERT`/`UPDATE`/`DELETE`, or DB-trigger Broadcast Changes when direct row payload exposure is not acceptable;
   - treat realtime as an invalidation/update hint and keep HTTP refresh as the source of catch-up truth.
-- [ ] Verification: create a task, immediately switch app tabs, return to `/daily`, and confirm the temporary row either reconciles or remains retryable without reload.
-- [ ] Verification: open a second same-origin window with the same login, create/update/trash/reorder in window A, and confirm window B updates via BroadcastChannel or server realtime without waiting for the 12-second poll.
+- [x] Verification: create a task, immediately switch app tabs, return to `/daily`, and confirm the temporary row either reconciles or remains retryable without reload.
+- [x] Verification: open a second same-origin window with the same login, create/update/trash/reorder in window A, and confirm window B updates via BroadcastChannel or server realtime without waiting for the 12-second poll.
 
 ## Task 3: Add Cell Document Schema
 
-- [ ] Add Prisma models equivalent to:
+- [x] Add Prisma models equivalent to:
 
 ```prisma
 model TaskCellDocument {
@@ -248,15 +254,15 @@ model TaskCellUpdate {
 }
 ```
 
-- [ ] Adjust relation fields in `Task` if Prisma requires reverse relations.
-- [ ] Preserve compound project containment with `Task.@@unique([projectId, id])`; do not rely on task id alone for authorization or cascade boundaries.
-- [ ] Add reverse relations on `Project`/`Task` only as required by Prisma validation and keep names explicit if relation-name collisions occur.
-- [ ] Create a safe migration through the repo migration workflow, not direct `db push`.
-- [ ] Do not apply migration to Preview or Production without explicit approval.
+- [x] Adjust relation fields in `Task` if Prisma requires reverse relations.
+- [x] Preserve compound project containment with `Task.@@unique([projectId, id])`; do not rely on task id alone for authorization or cascade boundaries.
+- [x] Add reverse relations on `Project`/`Task` only as required by Prisma validation and keep names explicit if relation-name collisions occur.
+- [x] Create a safe migration through the repo migration workflow, not direct `db push`.
+- [x] Do not apply migration to Preview or Production without explicit approval.
 
 ## Task 4: Add Domain Field Classification
 
-- [ ] Implement `src/domains/task/cell-documents.ts` with:
+- [x] Implement `src/domains/task/cell-documents.ts` with:
   - allowed task field keys;
   - `isTextCellDocumentField(fieldKey)`;
   - `isScalarCellDocumentField(fieldKey)`;
@@ -264,19 +270,19 @@ model TaskCellUpdate {
   - `assertTaskCellDocumentFieldKey(fieldKey)`;
   - field mapping for `issueTitle -> title`, `issueDetailNote -> description`, and `decision -> conclusion`;
   - payload limits such as `MAX_CELL_UPDATE_BYTES` and `MAX_CELL_SNAPSHOT_BYTES`.
-- [ ] Add tests or script assertions so unsupported field keys cannot create arbitrary document rooms.
-- [ ] Expected proof: invalid field keys return controlled 400 responses and cannot subscribe to private realtime topics.
+- [x] Add tests or script assertions so unsupported field keys cannot create arbitrary document rooms.
+- [x] Expected proof: invalid field keys return controlled 400 responses and cannot subscribe to private realtime topics.
 
 ## Task 5: Add Server APIs For Cell Documents
 
-- [ ] `GET /api/task-cell-documents/[taskId]/[fieldKey]`:
+- [x] `GET /api/task-cell-documents/[taskId]/[fieldKey]`:
   - require project access;
   - validate task belongs to selected project;
   - lazy-create document metadata from the current `tasks` projection for allowed fields;
   - accept optional `knownVersion` or Yjs `stateVector`;
   - return missing updates when the requested gap is within retention, otherwise return a compacted base64 Yjs snapshot;
   - return scalar value for scalar fields, version, and updated metadata.
-- [ ] `POST /api/task-cell-documents/[taskId]/[fieldKey]/updates`:
+- [x] `POST /api/task-cell-documents/[taskId]/[fieldKey]/updates`:
   - require project editor access;
   - validate request integrity;
   - require `clientUpdateId`;
@@ -284,37 +290,37 @@ model TaskCellUpdate {
   - idempotently store the update;
   - apply update to the persisted snapshot;
   - update the materialized `Task` projection in the same transaction.
-- [ ] Broadcast an invalidation or update event after successful commit. If broadcast fails, persistence still succeeds and clients catch up by HTTP.
-- [ ] Broadcast envelope must include `projectId`, `taskId`, `fieldKey`, `cellDocumentId`, `clientUpdateId`, `docVersion`, actor profile id, and enough metadata for clients to detect version gaps.
-- [ ] Add update-log retention and compaction policy:
+- [x] Broadcast an invalidation or update event after successful commit. If broadcast fails, persistence still succeeds and clients catch up by HTTP.
+- [x] Broadcast envelope must include `projectId`, `taskId`, `fieldKey`, `cellDocumentId`, `clientUpdateId`, `docVersion`, actor profile id, and enough metadata for clients to detect version gaps.
+- [x] Add update-log retention and compaction policy:
   - compact `updatePayload` records into `yState` after a bounded count or age;
   - retain enough recent updates for short disconnect catch-up;
   - if `yState` exceeds `MAX_CELL_SNAPSHOT_BYTES`, reject further growth with a controlled error and keep the existing task-row edit fallback disabled only for that field after product review.
-- [ ] Expected proof: duplicate `clientUpdateId` does not duplicate updates; task projection reflects the cell document text.
+- [x] Expected proof: duplicate `clientUpdateId` does not duplicate updates; task projection reflects the cell document text.
 
 ## Task 6: Add CRDT Field Write Fence
 
-- [ ] Add a disabled-by-default feature flag helper such as `DAILY_CELL_DOCUMENTS_ENABLED` in `src/lib/features/daily-cell-documents.ts`.
-- [ ] When the flag is disabled, prove existing task-row writes continue unchanged.
-- [ ] When a field is enabled as cell-document backed, all writes for that field must go through the cell-document API or a server translator that applies a Yjs update and updates the `tasks` projection in the same transaction.
-- [ ] Legacy task update routes must reject or route feature-flagged CRDT fields:
+- [x] Add a disabled-by-default feature flag helper such as `DAILY_CELL_DOCUMENTS_ENABLED` in `src/lib/features/daily-cell-documents.ts`.
+- [x] When the flag is disabled, prove existing task-row writes continue unchanged.
+- [x] When a field is enabled as cell-document backed, all writes for that field must go through the cell-document API or a server translator that applies a Yjs update and updates the `tasks` projection in the same transaction.
+- [x] Legacy task update routes must reject or route feature-flagged CRDT fields:
   - reject direct `issueTitle`, `issueDetailNote`, and `decision` patch writes with a controlled error when no translator is implemented;
   - or translate the patch into a cell-document update with a generated `clientUpdateId`, then update projection through the same cell-document path.
-- [ ] Keep scalar fields on the existing task-row path until their merge policy is explicitly approved.
-- [ ] Expected proof: under the feature flag, no API path can update `tasks.title`, `tasks.description`, or `tasks.conclusion` without also updating the matching cell document state.
+- [x] Keep scalar fields on the existing task-row path until their merge policy is explicitly approved.
+- [x] Expected proof: under the feature flag, no API path can update `tasks.title`, `tasks.description`, or `tasks.conclusion` without also updating the matching cell document state.
 
 ## Task 7: Add Browser Cell Document Store And Outbox
 
-- [ ] Add `cell-document-store.ts` to cache one document per `(projectId, taskId, fieldKey)`.
-- [ ] Add `cell-document-journal.ts` with an IndexedDB store separate from the row mutation journal.
-- [ ] Persist CRDT update payloads locally before reflecting them as "saved locally".
-- [ ] Add retry/backoff and stuck `syncing` reset equivalent to the existing daily mutation journal.
-- [ ] Keep per-cell status. Do not tie one cell's pending server ack to the entire task grid.
+- [x] Add `cell-document-store.ts` to cache one document per `(projectId, taskId, fieldKey)`.
+- [x] Add `cell-document-journal.ts` with an IndexedDB store separate from the row mutation journal.
+- [x] Persist CRDT update payloads locally before reflecting them as "saved locally".
+- [x] Add retry/backoff and stuck `syncing` reset equivalent to the existing daily mutation journal.
+- [x] Keep per-cell status. Do not tie one cell's pending server ack to the entire task grid.
 
 ## Task 8: Add Realtime Transport
 
-- [ ] Add BroadcastChannel for same-origin same-browser tabs/windows.
-- [ ] Add Supabase Realtime private channel integration for remote windows/devices:
+- [x] Add BroadcastChannel for same-origin same-browser tabs/windows.
+- [x] Add Supabase Realtime private channel integration for remote windows/devices:
   - topic: project/task/cell scoped;
   - channel config uses `private: true`;
   - topic names are built only through the allowlisted topic builder;
@@ -322,27 +328,27 @@ model TaskCellUpdate {
   - presence: active editor, cursor/selection metadata when available;
   - broadcast: CRDT update envelope or update notification;
   - replay only as a short disconnect bridge, not durable storage.
-- [ ] Add server row-realtime support for materialized projection changes:
+- [x] Add server row-realtime support for materialized projection changes:
   - use Supabase `postgres_changes` on `tasks` for simple invalidation when RLS/payload exposure is acceptable;
   - otherwise use DB-trigger Broadcast Changes with a minimal payload for `tasks` and `task_cell_documents`.
-- [ ] Add HTTP catch-up on focus, reconnect, and version mismatch.
-- [ ] HTTP catch-up contract:
+- [x] Add HTTP catch-up on focus, reconnect, and version mismatch.
+- [x] HTTP catch-up contract:
   - client sends `knownVersion` or encoded Yjs `stateVector`;
   - server returns missing updates when retained;
   - server returns compacted snapshot when the gap is too large;
   - client applies updates idempotently and silently ignores its own already-applied `clientUpdateId`.
-- [ ] Add subscription tests for no-access, viewer, editor, manager, and admin roles. Viewers may subscribe/read but cannot post updates; no-access users cannot subscribe.
-- [ ] Keep `/api/project/changes` polling as a fallback, but do not rely on 12-second polling for spreadsheet-like live sync.
+- [x] Add subscription tests for no-access, viewer, editor, manager, and admin roles. Viewers may subscribe/read but cannot post updates; no-access users cannot subscribe.
+- [x] Keep `/api/project/changes` polling as a fallback, but do not rely on 12-second polling for spreadsheet-like live sync.
 
 ## Task 9: Integrate `/daily` Cell Editors
 
-- [ ] Refactor text cells in `daily-grid-row-v2.tsx` to use `TaskCellEditor`.
-- [ ] Keep quick create local-first behavior in `task-workspace.tsx`; create the task row first, then lazily attach cell documents.
-- [ ] Update `task-workspace.tsx` selection/outside-click logic so navigation is blocked only when local persistence failed.
-- [ ] Convert active editor UI from "hard lock everywhere" to:
+- [x] Refactor text cells in `daily-grid-row-v2.tsx` to use `TaskCellEditor`.
+- [x] Keep quick create local-first behavior in `task-workspace.tsx`; create the task row first, then lazily attach cell documents.
+- [x] Update `task-workspace.tsx` selection/outside-click logic so navigation is blocked only when local persistence failed.
+- [x] Convert active editor UI from "hard lock everywhere" to:
   - CRDT text field: show collaborator presence, allow concurrent typing;
   - scalar field: use existing edit lease or conflict prompt until explicit merge policy exists.
-- [ ] Expected proof: two windows editing the same text cell both see merged text without refresh.
+- [x] Expected proof: two windows editing the same text cell both see merged text without refresh.
 
 ## Task 10: Verification Matrix
 
@@ -398,6 +404,10 @@ Latest exact Preview evidence before the final three-agent gate:
 - `npx tsx scripts/daily-cell-collaboration-two-window-verify.ts --url ".../daily"` returned `ok=true`; local row `81ms`, second window row `5ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, server projection contained both `-A` and `-B`, both windows saw merged text without refresh, and reload preserved it.
 - `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --delay-ms=4000 --max-navigation-ms=1000` returned `ok=true` for `/board`: local row `41ms`, navigation `152ms`, same-document navigation `true`, cleanup `200/200`.
 - The same navigation verifier returned `ok=true` for `--target-path=/materials`: local row `50ms`, navigation `135ms`, same-document navigation `true`, cleanup `200/200`.
+- 2026-06-10 final rerun target: `https://architect-start2-7sleh1k95-chois-projects-7b2948cf.vercel.app/daily`, deployment `dpl_Hq41dKQGiP4yKLnXvwrYg1pUnyGW`.
+- `npm run daily:remaining-acceptance:verify -- --url ".../daily"` returned `ok=true`; create timing total `6740ms`, viewer realtime row visibility `10554ms`, viewer read allowed, viewer write denied `403 PROJECT_EDITOR_REQUIRED`, no-access denied `403 PROJECT_ACCESS_DENIED`, cleanup `trash=200/delete=200`, and delayed reorder sync status cleared with `remaining=0`.
+- `npm run daily:navigation-pending-sync:verify -- --url ".../daily" --target-path=/board --delay-ms=4000 --max-navigation-ms=1000` returned `ok=true`; local row `56ms`, navigation `170ms`, same-document navigation `true`, cleanup `200/200`.
+- `npm run daily:cell-collaboration:two-window -- --url ".../daily"` returned `ok=true`; local row `68ms`, second window row `8ms`, sync status `count=0`, CRDT POSTs `A=200/B=200`, merged CRDT text was visible in both windows without refresh, and reload preserved the projection.
 
 ### Three-Agent Acceptance Gate
 

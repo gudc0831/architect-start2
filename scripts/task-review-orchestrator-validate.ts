@@ -128,6 +128,7 @@ async function assertSourceBoundaries(checks: string[]) {
   assert.doesNotMatch(envExample, /^LAW_OPEN_DATA_OC=/m);
   assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_URL=/m);
   assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_SECRET=/m);
+  assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET=/m);
   checks.push("SaaS env example documents verified legal API settings and not LAW_OPEN_DATA_OC");
 
   assert.match(taskReviewRoute, /requireCurrentProjectEditor/);
@@ -157,7 +158,8 @@ async function assertSourceBoundaries(checks: string[]) {
   checks.push("SaaS generation routes legal prompts through task-review and preserves context metadata");
 
   assert.match(assistantService, /VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING/);
-  assert.match(assistantService, /"x-verified-legal-evidence-api-secret": apiSecret/);
+  assert.match(assistantService, /withVerifiedLegalServiceHeaders/);
+  assert.match(legalSearchService, /withVerifiedLegalServiceHeaders/);
   assert.match(assistantService, /legalEvidence:\s*evidence\.filter/);
   assert.match(assistantService, /projectContextChunks:\s*projectContextRetrieval\.chunks/);
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);

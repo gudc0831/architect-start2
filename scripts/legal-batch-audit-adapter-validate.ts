@@ -54,10 +54,12 @@ async function main() {
   const previousEvidenceApiUrl = process.env.VERIFIED_LEGAL_EVIDENCE_API_URL;
   const previousMonitorSecret = process.env.LEGAL_CHANGE_MONITOR_SECRET;
   const previousReportPath = process.env.LEGAL_BATCH_AUDIT_REPORT_PATH;
+  const previousVercelBypassSecret = process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
   try {
     process.env.VERIFIED_LEGAL_EVIDENCE_API_URL = "http://verified-legal.local";
     process.env.LEGAL_CHANGE_MONITOR_SECRET = "monitor-secret";
     process.env.LEGAL_BATCH_AUDIT_REPORT_PATH = "seed-pilot.json";
+    delete process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
 
     const blocked = mapLegalBatchAuditPayloadToStatus({
       ...cleanPayload,
@@ -79,13 +81,21 @@ async function main() {
     assert.equal(blocked.failedSeeds[0]?.message.includes("monitor-secret"), false);
     assert.equal(JSON.stringify(blocked).includes(`OC${"="}`), false);
 
-    const captured: Array<{ url: string; body: unknown; secretHeader: string | null; signal?: AbortSignal }> = [];
+    const captured: Array<{
+      url: string;
+      body: unknown;
+      secretHeader: string | null;
+      bypassHeader: string | null;
+      signal?: AbortSignal;
+    }> = [];
     const fetched = await fetchLegalBatchAuditStatus({
       fetchImpl: async (input, init) => {
+        const headers = new Headers(init?.headers);
         captured.push({
           url: String(input),
           body: JSON.parse(String(init?.body)),
-          secretHeader: new Headers(init?.headers).get("x-legal-change-monitor-secret"),
+          secretHeader: headers.get("x-legal-change-monitor-secret"),
+          bypassHeader: headers.get("x-vercel-protection-bypass"),
           signal: init?.signal ?? undefined,
         });
         return Response.json(cleanPayload);
@@ -95,8 +105,22 @@ async function main() {
     assert.equal(captured[0]?.url, "http://verified-legal.local/api/legal/batch-refresh/audit-summary");
     assert.deepEqual(captured[0]?.body, { reportPath: "seed-pilot.json" });
     assert.equal(captured[0]?.secretHeader, "monitor-secret");
+    assert.equal(captured[0]?.bypassHeader, null);
     assert.ok(captured[0]?.signal instanceof AbortSignal);
     assert.equal(JSON.stringify(fetched).includes("monitor-secret"), false);
+
+    process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET = "fixture-vercel-bypass";
+    const bypassCaptured: Array<{ bypassHeader: string | null }> = [];
+    await fetchLegalBatchAuditStatus({
+      fetchImpl: async (_input, init) => {
+        bypassCaptured.push({
+          bypassHeader: new Headers(init?.headers).get("x-vercel-protection-bypass"),
+        });
+        return Response.json(cleanPayload);
+      },
+    });
+    assert.equal(bypassCaptured[0]?.bypassHeader, "fixture-vercel-bypass");
+    delete process.env.VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET;
 
     let unsafeFetchCalled = false;
     const unsafe = await fetchLegalBatchAuditStatus({
@@ -139,6 +163,7 @@ async function main() {
     restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", previousEvidenceApiUrl);
     restoreEnv("LEGAL_CHANGE_MONITOR_SECRET", previousMonitorSecret);
     restoreEnv("LEGAL_BATCH_AUDIT_REPORT_PATH", previousReportPath);
+    restoreEnv("VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET", previousVercelBypassSecret);
   }
 
   const missingSecret = await fetchLegalBatchAuditStatus({
