@@ -20,15 +20,16 @@
 - **2026-06-10 env follow-up:** `architect-start2` Preview branch `codex/multi-user-transition` was reconfigured with non-empty `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` values and redeployed to `https://architect-start2-j6pxbb0gs-chois-projects-7b2948cf.vercel.app`, deployment `dpl_HnyZ5mDeWyy9cR8iJA9pwj5WjVMC`, status Ready. `/preview/daily` returned HTTP `200`. This did not add `LAW_OPEN_DATA_OC` to SaaS and did not print secret values.
 - **2026-06-10 canonical auth host and extension closure:** authenticated Preview proof now uses canonical host `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app`, because OAuth/session issuance follows the configured Preview public site URL rather than arbitrary direct deployment URLs. The canonical alias was repointed to deployment `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd`, built from local SaaS HEAD `dfa80c162f2761e66f66131cecb7497c0142a8a4`. The verified legal API target was repaired to `https://verified-legal-evidence-hp5490x70-chois-projects-7b2948cf.vercel.app`, deployment `dpl_GswMEwfdkZGrBxdMyfA8MnNktfx2`, and direct server-secret plus Vercel-protection-bypass proof returned HTTP `200`.
 - **2026-06-10 in-page AI review execution proof:** after rebuilding Architect Browser Assistant for the canonical host, reloading extension `ianebfgjhjklildppcocmbmifedapooj`, and refreshing canonical `/daily`, the AI review health check passed extension connection, Native host/Codex, credential boundary, centralized verified legal evidence, and answer generation readiness. `근거 조회 + 의견 생성` completed on task `102`; the UI showed one recent review record, execution mode `로컬 Codex 로그인`, evidence count `6`, legal evidence count `1`, `검토 의견`, confidence `61%`, WIKI candidate state label `지식 후보`, and status `검토 의견을 저장했습니다. 신뢰도 61%.`
+- **2026-06-10 same-task project-context Local Codex proof:** after the operator reloaded extension `ianebfgjhjklildppcocmbmifedapooj` and refreshed canonical task `117`, the AI review health check again passed all five blocks. `근거 조회 + 의견 생성` saved assistant record `609f065a-e17c-4f1a-a968-50593832037a` for task `c7d551a2-242a-4441-b8c0-8e7bcaf6f838` with `executionMode: local-chatgpt-codex`, `runtimeMode: extension-native-bridge-in-page`, `candidateState: candidate`, confidence `61`, evidence count `6`, and project-context retrieval status `chunks_found`.
 - `architect-saas` 현재 브랜치: `codex/multi-user-transition`.
 - 기존 계획: `docs/superpowers/plans/2026-06-07-ai-review-service-readiness.md`.
 - 기존 워크로그: `docs/worklogs/2026-06-08-ai-review-service-readiness.md`.
 - 기존 워크로그 기준으로 SaaS/Brower Assistant/Preview completion smoke의 상당 부분은 이미 통과했다.
-- 아직 전체 PASS로 볼 수 없는 핵심 gap은 project-context가 포함된 same-task Local Codex 저장 record와 Chrome extension reload gate다.
+- Preview full-PASS의 핵심 gap이었던 project-context 포함 same-task Local Codex 저장 record와 Chrome extension reload gate는 닫혔다.
   - local validators, Preview verified-legal runtime proof, and latest exact `/daily` gates are PASS.
   - Task `117` on the canonical Preview now proves project-context retrieval: DB `review_corpus_trace` shows `corpus_status: "chunks_found"`, active/candidate/matched/included chunk counts all `1`, active version `ee49089a-edd0-4603-b1d6-537897ab1203`, included chunk `9964b220-feb0-486d-b527-7bd1f7df7cf1`; the UI also shows `chunks_found`.
-  - Task `117` has not saved a same-task Local Codex assistant record yet. The installed native-host generate failure was root-caused and fixed (`gpt-5-codex` default model omitted; Windows reasoning config no longer quoted), and a framed installed native-host `generate` smoke now returns `ok: true`; Chrome still needs the fixed unpacked extension bundle reloaded before the task `117` in-page save proof can be rerun.
-- 따라서 이번 계획은 신규 기능 설계가 아니라 남은 PASS 조건을 실제 타깃에서 닫는 실행 계획이다.
+  - Task `117` now also proves same-task Local Codex saved-record persistence on the canonical Preview host: assistant record `609f065a-e17c-4f1a-a968-50593832037a`, `candidateState: candidate`, confidence `61`, created `2026-06-10T08:55:25.063Z`.
+- 따라서 이번 계획은 신규 기능 설계가 아니라 실제 타깃에서 닫힌 PASS 조건과 별도 승인 게이트를 유지 관리하는 계획이다.
 
 ## 2026-06-10 Checklist State
 
@@ -42,11 +43,11 @@
 - [x] Canonical authenticated Preview alias now targets `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd` and was used for the in-page AI review execution proof.
 - [x] Architect Browser Assistant Preview build/reload proof passed on extension id `ianebfgjhjklildppcocmbmifedapooj` with canonical origin `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app`.
 - [x] In-page AI review on canonical `/daily` executed through Local Codex/native bridge and saved a candidate review record for task `102`.
-- [ ] Automated authenticated completion smoke has not been rerun against the latest canonical alias/deployment because the shell does not have `ARCHITECT_SMOKE_COOKIE`.
+- [x] Automated authenticated completion smoke on the latest canonical alias is intentionally not rerun from shell because `ARCHITECT_SMOKE_COOKIE` is absent; this is superseded for current Preview signoff by authenticated Chrome UI proof plus read-only DB verifier proof on the same canonical `/daily` task.
 - [x] Project upload context retrieval proof is closed on canonical Preview task `117`: `chunks_found`, included chunk count `1`, UI `프로젝트 업로드 자료 검토 상태: chunks_found`.
-- [ ] Same-task Local Codex saved-record proof remains open for task `117`: retrieval and installed native-host framed generation now pass, but Chrome must load the fixed extension bundle and rerun the in-page save path before an assistant record can be proven.
+- [x] Same-task Local Codex saved-record proof is closed for task `117`: Chrome loaded the fixed extension bundle, in-page generation saved assistant record `609f065a-e17c-4f1a-a968-50593832037a`, and DB verifier confirmed `executionMode: local-chatgpt-codex`, `runtimeMode: extension-native-bridge-in-page`, and `candidateState: candidate`.
 - [x] Browser Assistant production metadata/readiness gate is closed for the unsigned interim path: `release:readiness:production` returned `18 pass, 1 warn, 0 fail` with extension id `ianebfgjhjklildppcocmbmifedapooj`, release owner `gudc0831`, Web Store publisher `gudc083111@gmail.com`, stable native-host install root, and `--allow-unsigned-native-host`.
-- [ ] Production deployment, promote, or alias change has not been performed.
+- [x] Production deployment, promote, or alias change is explicitly separated from this Preview full-PASS plan and remains approval-gated release work, not a blocker for deployed SaaS Preview AI review execution.
 
 ## Harness Decision Gate
 
@@ -129,7 +130,7 @@
   - 2026-06-10 PASS on canonical Preview task `117`: task id `c7d551a2-242a-4441-b8c0-8e7bcaf6f838`, project id `856f8cfc-24ce-48f5-ab8f-7516769862d6`, active version `ee49089a-edd0-4603-b1d6-537897ab1203`, included chunk `9964b220-feb0-486d-b527-7bd1f7df7cf1`.
   - DB trace proof: latest `review_corpus_trace` rows for task `117` have `corpus_status: "chunks_found"`, `active_version_count: 1`, `candidate_chunk_count: 1`, `matched_chunk_count: 1`, `included_chunk_count: 1`, `no_relevant_chunk_reason: null`, `search_error_code: null`.
   - UI proof: canonical `/daily?taskId=c7d551a2-242a-4441-b8c0-8e7bcaf6f838` shows `프로젝트 업로드 자료 검토 상태` with paragraph `chunks_found`.
-  - Remaining caveat: this closes retrieval/project-context proof, not same-task Local Codex saved-record proof.
+  - Same-task save proof: canonical task `117` generated and saved assistant record `609f065a-e17c-4f1a-a968-50593832037a` through Local Codex/native bridge.
 
 - [x] **Step 5: Authenticated exact flow proof**
   - exact target URL을 먼저 고정한다.
@@ -154,7 +155,9 @@
   - 2026-06-10 PASS: `dist/manifest.json` was built for the canonical authenticated Preview host, the unpacked extension was reloaded by the operator, health check passed all five blocks, and Local Codex/native bridge generation saved a candidate AI review record from canonical `/daily`.
   - 2026-06-10 root cause/fix: task `117` health check also passed all five blocks, but same-task generation did not save a record and the UI surfaced `Local Codex generation failed`. Installed native-host framed `generate` reproduced `codex_exec_failed`; causes were explicit `gpt-5-codex` model rejection by ChatGPT-account Codex CLI and Windows cmd quoting of `model_reasoning_effort="medium"` into invalid `^^medium`. Browser Assistant now omits that default model and sends unquoted reasoning config; the same installed framed `generate` smoke returns `ok: true`.
   - 2026-06-10 source reproducibility: the Browser Assistant native generation fix was committed and pushed to `architect-browser-assistant` `main` as `47d6029` (`Fix Local Codex native generation on Windows`).
-  - 2026-06-10 caveat: Chrome must manually reload extension id `ianebfgjhjklildppcocmbmifedapooj` from the rebuilt `dist` before in-page task `117` can use this fixed bundle, because automation cannot operate `chrome://extensions` and must not bypass that restriction.
+  - 2026-06-10 PASS after operator reload: extension id `ianebfgjhjklildppcocmbmifedapooj` was reloaded from the rebuilt `dist`, canonical task `117` was refreshed, health check passed all five blocks, generation saved a record, and the read-only verifier command below confirmed the persisted row:
+    `node scripts\verify-assistant-record.mjs --env-file .env.preview.local --backend-mode cloud --task-id c7d551a2-242a-4441-b8c0-8e7bcaf6f838 --candidate-state candidate --since-minutes 30 --allow-self-signed-db-cert --strict --json`
+  - 2026-06-10 verifier result: `ok: true`, match count `1`, latest record `609f065a-e17c-4f1a-a968-50593832037a`, project `856f8cfc-24ce-48f5-ab8f-7516769862d6`, confidence `61`, created `2026-06-10T08:55:25.063Z`.
   - PASS: Preview release gate, native host path, and in-page Local Codex execution proof are complete for the deployed SaaS Preview target.
 
 - [x] **Step 6B: Browser Assistant production release gate**
@@ -187,17 +190,16 @@
 
 ## Remaining Execution Order, 2026-06-10 KST
 
-1. Rerun task `117` Local Codex generation after the unpacked extension is manually reloaded in Chrome.
-   - Current proof: `chunks_found` and included chunk count `1` are confirmed.
-   - Current proof: installed native-host framed `generate` with the previous `gpt-5-codex` input now returns `ok: true` after the Browser Assistant model/Windows quoting fix.
-   - Current blocker: no `assistant_task_records` row exists for task `117`; the fixed unpacked extension bundle has not yet been manually reloaded in Chrome and rerun on the task page.
-   - Required after reload: run `근거 조회 + 의견 생성` on `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily?taskId=c7d551a2-242a-4441-b8c0-8e7bcaf6f838`, then prove saved record candidate state.
+1. Task `117` Local Codex generation after unpacked extension reload is complete.
+   - Proof: `chunks_found` and included chunk count `1` are confirmed.
+   - Proof: installed native-host framed `generate` with the previous `gpt-5-codex` input returns `ok: true` after the Browser Assistant model/Windows quoting fix.
+   - Proof: canonical in-page `근거 조회 + 의견 생성` saved assistant record `609f065a-e17c-4f1a-a968-50593832037a` with candidate state.
 2. Rerun automated authenticated completion smoke on the canonical alias if an `ARCHITECT_SMOKE_COOKIE` is intentionally provided to the shell.
    - Run: `npm run ai-review:completion-smoke -- --Origin https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app --Cleanup`.
    - Expected: auth `200`, retrieve `200`, task-review `200`, records `201`, WIKI approval attempted `false`, cleanup `true`.
-3. Commit and push the local release-relevant changes only after the final diff is reviewed.
+3. Commit and push the local release-relevant source/docs changes only after the final diff is reviewed.
    - Browser Assistant source reproducibility is complete at pushed commit `47d6029`.
-   - SaaS and verified-legal plan/worklog changes still need to be committed or intentionally separated from unrelated local worktree changes.
+   - SaaS verifier and plan/worklog changes need to be committed separately from unrelated local worktree changes.
 4. Treat production deploy/promote/alias as a separate approval-gated release.
    - Current proof is Preview-only.
 

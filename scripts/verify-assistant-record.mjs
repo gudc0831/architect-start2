@@ -24,6 +24,8 @@ try {
       taskId: options.taskId,
       questionContains: options.questionContains,
       sinceMinutes: options.sinceMinutes,
+      allowSelfSignedDbCert: options.allowSelfSignedDbCert,
+      candidateState: options.candidateState,
     },
     matchCount: matches.length,
     latest: matches[0] ? sanitizeRecord(matches[0]) : null,
@@ -86,13 +88,20 @@ async function readEnv(envFile) {
     if (!["APP_BACKEND_MODE", "DATABASE_URL", "LOCAL_DATA_ROOT"].includes(key)) {
       continue;
     }
-    const value = trimmed.slice(separatorIndex + 1).trim().replace(/^["']|["']$/g, "");
+    const value = normalizeEnvValue(trimmed.slice(separatorIndex + 1));
     if (!env[key]) {
       env[key] = value;
     }
   }
 
   return env;
+}
+
+function normalizeEnvValue(rawValue) {
+  return rawValue
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/(?:\\r|\\n)+$/g, "");
 }
 
 function normalizeBackendMode(value) {
@@ -115,12 +124,15 @@ async function readPostgresRecords(env) {
     throw new Error("DATABASE_URL is required when APP_BACKEND_MODE=cloud.");
   }
 
-  const client = new Client({ connectionString: env.DATABASE_URL, ssl: { rejectUnauthorized: true } });
+  const client = new Client({
+    connectionString: env.DATABASE_URL,
+    ssl: { rejectUnauthorized: !options.allowSelfSignedDbCert },
+  });
   await client.connect();
   try {
     const result = await client.query(
       [
-        "select id, project_id, task_id, profile_id, question, execution_mode, runtime_mode, confidence_score, created_at",
+        "select id, project_id, task_id, profile_id, question, execution_mode, runtime_mode, candidate_state, confidence_score, created_at",
         "from public.assistant_task_records",
         "where execution_mode = $1",
         "order by created_at desc",
@@ -136,6 +148,7 @@ async function readPostgresRecords(env) {
       question: row.question,
       executionMode: row.execution_mode,
       runtimeMode: row.runtime_mode,
+      candidateState: row.candidate_state,
       confidenceScore: row.confidence_score,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     }));
@@ -150,6 +163,7 @@ function filterRecords(records) {
     .filter((record) => record.executionMode === options.executionMode)
     .filter((record) => !options.runtimeMode || record.runtimeMode === options.runtimeMode)
     .filter((record) => !options.taskId || record.taskId === options.taskId)
+    .filter((record) => !options.candidateState || record.candidateState === options.candidateState)
     .filter((record) => !options.questionContains || String(record.question ?? "").includes(options.questionContains))
     .filter((record) => {
       if (!cutoff) {
@@ -169,6 +183,7 @@ function sanitizeRecord(record) {
     taskId: record.taskId,
     executionMode: record.executionMode,
     runtimeMode: record.runtimeMode,
+    candidateState: record.candidateState,
     confidenceScore: record.confidenceScore,
     createdAt: record.createdAt,
     question: truncate(record.question, 160),
@@ -201,6 +216,8 @@ function parseArgs(args) {
     sinceMinutes: 60,
     strict: false,
     taskId: "",
+    allowSelfSignedDbCert: false,
+    candidateState: "",
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -235,6 +252,11 @@ function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--candidate-state") {
+      parsed.candidateState = args[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
     if (arg === "--since-minutes") {
       parsed.sinceMinutes = Number(args[index + 1] ?? parsed.sinceMinutes);
       index += 1;
@@ -246,6 +268,10 @@ function parseArgs(args) {
     }
     if (arg === "--strict") {
       parsed.strict = true;
+      continue;
+    }
+    if (arg === "--allow-self-signed-db-cert") {
+      parsed.allowSelfSignedDbCert = true;
       continue;
     }
   }

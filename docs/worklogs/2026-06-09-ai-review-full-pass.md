@@ -99,6 +99,7 @@ SaaS-side `LAW_OPEN_DATA_OC`; SaaS legal readiness now depends on
 | verified legal fixture/preflight | PASS | preflight ready, search API validator PASS, boundary validator PASS |
 | exact Preview AI review API flow | PASS | authenticated completion smoke on exact Preview origin |
 | project context runtime chunks | PASS | active upload chunk count 1, completion smoke `projectContextChunkCount: 1` |
+| canonical Preview same-task Local Codex save | PASS | task `117` saved assistant record `609f065a-e17c-4f1a-a968-50593832037a`, candidate state `candidate`, confidence `61` |
 
 ## Approved Runtime Execution
 
@@ -170,13 +171,23 @@ After user approval, runtime gates were executed. Legal readiness is now tracked
 - `wikiCandidateCheck`: `admin-candidate-queue`
 - `cleanup`: true
 
+### Canonical Preview Same-Task Local Codex Save
+
+- Target: `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app/daily?taskId=c7d551a2-242a-4441-b8c0-8e7bcaf6f838`
+- Task: `117`, id `c7d551a2-242a-4441-b8c0-8e7bcaf6f838`
+- Project: `856f8cfc-24ce-48f5-ab8f-7516769862d6`
+- Result: PASS after extension `ianebfgjhjklildppcocmbmifedapooj` reload and page refresh.
+- UI proof: health check passed extension connection, Native host/Codex, credential boundary, centralized verified legal evidence, and answer generation readiness; generation saved a record with evidence count `6`, confidence `61%`, and `검토 의견을 저장했습니다. 신뢰도 61%.`
+- DB verifier: `node scripts\verify-assistant-record.mjs --env-file .env.preview.local --backend-mode cloud --task-id c7d551a2-242a-4441-b8c0-8e7bcaf6f838 --candidate-state candidate --since-minutes 30 --allow-self-signed-db-cert --strict --json`
+- DB proof: `ok: true`, match count `1`, record `609f065a-e17c-4f1a-a968-50593832037a`, `executionMode: local-chatgpt-codex`, `runtimeMode: extension-native-bridge-in-page`, `candidateState: candidate`, created `2026-06-10T08:55:25.063Z`.
+
 ## Remaining Blockers
 
 - No local AI review readiness blocker remains.
 - `LAW_OPEN_DATA_OC` being absent from `architect-start2` / `architect-saas` is correct and is not a blocker.
 - Deployed legal/regulation AI review readiness depends on Vercel runtime env having a non-loopback centralized verified API URL and matching server secret. The Preview branch env action is closed for `codex/multi-user-transition` after the 2026-06-10 follow-up configuration.
 - 2026-06-10 KST follow-up: `architect-start2` Preview has no `LAW_OPEN_DATA_OC` entry, which is correct. Branch-scoped encrypted `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` entries were configured with `vercel env add --force` and the Preview was redeployed. Sensitive `vercel env pull` output can show empty values and is not used as value proof.
-- Authenticated deployed completion smoke needs `ARCHITECT_SMOKE_COOKIE`; it was absent in the verification shell, so `/api/auth/me` returned HTTP 401.
+- Authenticated deployed completion smoke rerun from shell would need `ARCHITECT_SMOKE_COOKIE`; it remains optional and was not rerun from shell because browser cookie/session stores must not be inspected or recorded. Current canonical Preview signoff is covered by authenticated Chrome UI proof plus read-only DB verifier proof on task `117`.
 - Do not add `LAW_OPEN_DATA_OC` to architect-saas; it belongs only in `verified-legal-evidence-api`.
 
 ## No-Secret Handling
