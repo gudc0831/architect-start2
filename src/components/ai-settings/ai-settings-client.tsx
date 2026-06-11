@@ -6,6 +6,7 @@ import type { AiSettingsPreference } from "@/domains/preferences/types";
 import {
   CODEX_DEFAULT_MODEL,
   DEFAULT_AI_SETTINGS_PREFERENCE,
+  WINDOWS_CODEX_MODEL_OPTIONS,
   sanitizeAiSettingsPreference,
 } from "@/domains/preferences/types";
 import {
@@ -509,7 +510,7 @@ function normalizeModelCatalog(catalog: LocalCodexModelCatalog, savedModel: stri
   const models = catalog.models
     .map((model) => ({
       value: sanitizeModelCatalogValue(model.value),
-      label: sanitizeModelCatalogValue(model.label || model.value),
+      label: sanitizeModelCatalogLabel(model.label || model.value),
       source:
         model.source === "known-catalog" || model.source === "saved-custom" || model.source === "codex-default"
           ? model.source
@@ -553,14 +554,14 @@ function normalizeModelOptions(catalog: LocalCodexModelCatalog | null, savedMode
     }
     models.set(value, {
       value,
-      label: sanitizeModelCatalogValue(model.label || value) || value,
+      label: sanitizeModelCatalogLabel(model.label || value) || value,
       source: model.source,
       available: Boolean(model.available),
     });
   };
 
-  addModel({ value: CODEX_DEFAULT_MODEL, label: CODEX_DEFAULT_MODEL, source: "codex-default", available: true });
-  catalog?.models.forEach(addModel);
+  const catalogModels = catalog?.models.length ? catalog.models : buildKnownWindowsCodexModelOptions();
+  catalogModels.forEach(addModel);
   const saved = sanitizeModelCatalogValue(savedModel);
   if (saved && !models.has(saved)) {
     addModel({ value: saved, label: saved, source: "saved-custom", available: false });
@@ -574,9 +575,27 @@ function buildFallbackModelCatalog(savedModel: string): LocalCodexModelCatalog {
     bridgeSchemaVersion: 0,
     refreshedAt: new Date().toISOString(),
     source: "fallback-catalog",
-    models: normalizeModelOptions(null, savedModel),
+    models: normalizeModelOptions(
+      {
+        bridgeSchemaVersion: 0,
+        refreshedAt: new Date().toISOString(),
+        source: "fallback-catalog",
+        models: buildKnownWindowsCodexModelOptions(),
+        warnings: [],
+      },
+      savedModel,
+    ),
     warnings: [{ code: "bridge_unavailable", label: "Local Codex bridge에서 모델 목록을 읽지 못했습니다." }],
   };
+}
+
+function buildKnownWindowsCodexModelOptions(): LocalCodexModelCatalog["models"] {
+  return WINDOWS_CODEX_MODEL_OPTIONS.map((model) => ({
+    value: model.value,
+    label: model.label,
+    source: "known-catalog",
+    available: true,
+  }));
 }
 
 function sanitizeModelCatalogValue(value: unknown) {
@@ -585,6 +604,14 @@ function sanitizeModelCatalogValue(value: unknown) {
   }
   const normalized = value.trim();
   return /^[A-Za-z0-9._:-]{1,80}$/.test(normalized) ? normalized : "";
+}
+
+function sanitizeModelCatalogLabel(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim();
+  return /^[A-Za-z0-9 ._:-]{1,120}$/.test(normalized) ? normalized : "";
 }
 
 function formatModelCatalogStatus(

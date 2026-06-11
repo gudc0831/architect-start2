@@ -315,7 +315,13 @@ export function resolveDetailPanelWidth(input?: unknown) {
 export const aiReasoningEfforts = ["minimal", "low", "medium", "high"] as const;
 export const aiServiceTiers = ["auto", "default", "priority"] as const;
 export const aiLocalUsageRangeDays = [30, 90, 0] as const;
-export const CODEX_DEFAULT_MODEL = "codex-default";
+export const WINDOWS_CODEX_MODEL_OPTIONS = [
+  { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
+  { value: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
+] as const;
+export const CODEX_DEFAULT_MODEL = WINDOWS_CODEX_MODEL_OPTIONS[0].value;
 
 export type AiReasoningEffort = (typeof aiReasoningEfforts)[number];
 export type AiServiceTier = (typeof aiServiceTiers)[number];
@@ -342,6 +348,10 @@ export const DEFAULT_AI_SETTINGS_PREFERENCE: AiSettingsPreference = {
 };
 
 const AI_MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
+const legacyAiModelAliases = new Map([
+  ["codex-default", CODEX_DEFAULT_MODEL],
+  ["gpt-5-codex", CODEX_DEFAULT_MODEL],
+]);
 
 export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
   return typeof value === "string" && aiReasoningEfforts.includes(value as AiReasoningEffort);
@@ -361,7 +371,8 @@ function sanitizeAiModel(value: unknown) {
   }
 
   const normalized = value.trim();
-  return AI_MODEL_PATTERN.test(normalized) ? normalized : DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
+  const aliased = legacyAiModelAliases.get(normalized.toLowerCase()) ?? normalized;
+  return AI_MODEL_PATTERN.test(aliased) ? aliased : DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
 }
 
 function sanitizeAiRequestTimeoutMs(value: unknown) {

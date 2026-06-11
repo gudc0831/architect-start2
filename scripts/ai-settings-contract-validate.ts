@@ -25,7 +25,8 @@ const preference = sanitizeAiSettingsPreference({
   aiLocalUsageDefaultRangeDays: 90,
   aiLocalCodexNoHistory: true,
 });
-assert.equal(sanitizeAiSettingsPreference({}).aiDefaultModel, "codex-default");
+assert.equal(sanitizeAiSettingsPreference({}).aiDefaultModel, "gpt-5.5");
+assert.equal(preference.aiDefaultModel, "gpt-5.5");
 assert.equal(preference.aiReasoningEffort, "medium");
 assert.equal(preference.aiServiceTier, "priority");
 assert.equal(preference.aiRequestTimeoutMs, 120000);
@@ -140,7 +141,8 @@ assert.match(clientSource, /sessionStorage/);
 assert.match(clientSource, /usage-summary/);
 assert.match(clientSource, /model-catalog/);
 assert.match(clientSource, /aiLocalCodexNoHistory/);
-assert.match(clientSource, /codex-default/);
+assert.match(clientSource, /WINDOWS_CODEX_MODEL_OPTIONS/);
+assert.match(clientSource, /sanitizeModelCatalogLabel/);
 assert.match(clientSource, /aria-live/);
 assert.match(clientSource, /readLocalUsageCache\(window\.sessionStorage/);
 assert.match(clientSource, /writeLocalUsageCache\(window\.sessionStorage/);
@@ -166,9 +168,19 @@ assert.doesNotMatch(aiSettingsCss, /--theme-text-strong/);
 const prismaSchema = readSource("prisma/schema.prisma");
 assert.match(prismaSchema, /aiLocalCodexNoHistory\s+Boolean/);
 assert.match(prismaSchema, /@map\("ai_local_codex_no_history"\)/);
+assert.match(prismaSchema, /@default\("gpt-5\.5"\)/);
+
+const preferenceTypesSource = readSource("src/domains/preferences/types.ts");
+assert.match(preferenceTypesSource, /WINDOWS_CODEX_MODEL_OPTIONS/);
+assert.match(preferenceTypesSource, /GPT-5\.5/);
+assert.match(preferenceTypesSource, /gpt-5-codex/);
 
 const migration = readSource("prisma/migrations/202606110001_add_ai_settings_local_codex_controls/migration.sql");
 assert.match(migration, /ai_local_codex_no_history/);
+
+const modelCatalogMigration = readSource("prisma/migrations/202606110002_use_windows_codex_model_catalog_defaults/migration.sql");
+assert.match(modelCatalogMigration, /alter column "ai_default_model" set default 'gpt-5\.5'/);
+assert.match(modelCatalogMigration, /'gpt-5-codex', 'codex-default'/);
 
 console.log("AI settings contract validation passed.");
 

@@ -3,6 +3,7 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { requireActiveUser } from "@/lib/auth/active-user";
 import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { CODEX_DEFAULT_MODEL } from "@/domains/preferences/types";
 import { createLocalCodexUsageEvent, getMyAssistantUsageSummary } from "@/use-cases/assistant-usage-service";
 
 type LocalCodexUsageBody = {
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
       profileId: user.id,
       assistantRecordId: body.assistantRecordId ?? null,
       runtimeMode: typeof body.runtimeMode === "string" ? body.runtimeMode : "extension-native-bridge-in-page",
-      model: typeof body.model === "string" ? body.model : "gpt-5-codex",
+      model: typeof body.model === "string" ? body.model : CODEX_DEFAULT_MODEL,
       inputTokens: typeof body.inputTokens === "number" ? body.inputTokens : null,
       outputTokens: typeof body.outputTokens === "number" ? body.outputTokens : null,
       status: body.status,

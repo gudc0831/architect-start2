@@ -1,5 +1,6 @@
 import type { AssistantUsageEvent, MyAssistantUsageSummary } from "@/domains/assistant/saas-api-mode";
 import type { AuthUser } from "@/domains/auth/types";
+import { CODEX_DEFAULT_MODEL } from "@/domains/preferences/types";
 import { badRequest, forbidden } from "@/lib/api/errors";
 import { taskRepository } from "@/repositories";
 import { assistantRepository } from "@/repositories/assistant";
@@ -73,7 +74,7 @@ export async function createLocalCodexUsageEvent(input: LocalCodexUsageInput) {
     executionMode: "local-chatgpt-codex",
     runtimeMode: normalizeShortText(input.runtimeMode, "extension-native-bridge-in-page"),
     provider: "local-codex",
-    model: normalizeShortText(input.model, "gpt-5-codex"),
+    model: normalizeShortText(input.model, CODEX_DEFAULT_MODEL),
     inputTokens: normalizeInputTokenCount(input.inputTokens, "inputTokens"),
     outputTokens: normalizeInputTokenCount(input.outputTokens, "outputTokens"),
     estimatedCostCents: 0,
