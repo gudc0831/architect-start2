@@ -40,6 +40,7 @@ Diff:
 - Updated `/ai-settings` fallback model catalog so the dropdown displays Windows Codex labels while saving/executing model ids.
 - Merged known Windows Codex options into bridge-provided catalogs so older installed Browser Assistant bridges that still return legacy aliases do not hide the app-style model list.
 - Split model value and label sanitization so future Windows Codex display names can include display-safe spacing.
+- Extracted the model catalog normalizer into a pure module and added a stale-bridge fixture to validate that `codex-default` / `gpt-5-codex` collapse to `GPT-5.5` while preserving the Windows Codex model list.
 - Updated Local Codex usage fallback model metadata to use the same default model id.
 - Updated Browser Assistant native host model catalog to prefer `codex debug models`, map `slug` to `value` and `display_name` to `label`, filter to `visibility: "list"`, and fall back to the known Windows Codex catalog when the CLI catalog is unavailable.
 - Preserved admin-only SaaS API activation boundary and Local Codex no-history behavior.

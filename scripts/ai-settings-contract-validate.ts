@@ -12,6 +12,10 @@ import {
   buildCombinedUsageMetrics,
   type LocalCodexUsageSummary,
 } from "../src/components/ai-settings/usage-aggregation";
+import {
+  normalizeModelCatalog,
+  type LocalCodexModelCatalog,
+} from "../src/components/ai-settings/model-catalog-normalization";
 import { sanitizeAiSettingsPreference } from "../src/domains/preferences/types";
 import { buildMyAssistantUsageSummary } from "../src/use-cases/assistant-usage-service";
 
@@ -32,6 +36,28 @@ assert.equal(preference.aiServiceTier, "priority");
 assert.equal(preference.aiRequestTimeoutMs, 120000);
 assert.equal(preference.aiLocalUsageDefaultRangeDays, 90);
 assert.equal(preference.aiLocalCodexNoHistory, true);
+
+const staleBridgeCatalog: LocalCodexModelCatalog = {
+  bridgeSchemaVersion: 1,
+  refreshedAt: "2026-06-11T14:32:00.000+09:00",
+  source: "local-codex-bridge",
+  codexCliVersion: "26.6.11",
+  models: [{ value: "codex-default", label: "codex-default", source: "codex-default", available: true }],
+  warnings: [],
+};
+const normalizedStaleBridgeCatalog = normalizeModelCatalog(staleBridgeCatalog, "gpt-5-codex");
+assert.equal(normalizedStaleBridgeCatalog.source, "local-codex-bridge");
+assert.equal(normalizedStaleBridgeCatalog.codexCliVersion, "26.6.11");
+assert.equal(normalizedStaleBridgeCatalog.models.filter((model) => model.value === "gpt-5.5").length, 1);
+assert.deepEqual(
+  normalizedStaleBridgeCatalog.models.map((model) => ({ value: model.value, label: model.label })),
+  [
+    { value: "gpt-5.5", label: "GPT-5.5" },
+    { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
+    { value: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
+  ],
+);
 
 const serviceSummary = buildMyAssistantUsageSummary({
   from: "2026-06-01T00:00:00.000Z",
@@ -141,19 +167,23 @@ assert.match(clientSource, /sessionStorage/);
 assert.match(clientSource, /usage-summary/);
 assert.match(clientSource, /model-catalog/);
 assert.match(clientSource, /aiLocalCodexNoHistory/);
-assert.match(clientSource, /WINDOWS_CODEX_MODEL_OPTIONS/);
-assert.match(clientSource, /resolveModelCatalogLabel/);
-assert.match(clientSource, /sanitizeModelCatalogLabel/);
-assert.match(clientSource, /normalized === "codex-default" \|\| normalized === "gpt-5-codex" \? CODEX_DEFAULT_MODEL/);
-assert.match(clientSource, /isLegacyDefaultAlias = rawValue === "codex-default" \|\| rawValue === "gpt-5-codex"/);
-assert.match(clientSource, /catalog\?\.models\.forEach\(addModel\);\s*buildKnownWindowsCodexModelOptions\(\)\.forEach\(addModel\);/);
-assert.doesNotMatch(clientSource, /catalog\?\.models\.length \? catalog\.models : buildKnownWindowsCodexModelOptions\(\)/);
+assert.match(clientSource, /normalizeModelCatalog/);
+assert.match(clientSource, /LocalCodexModelCatalog/);
 assert.match(clientSource, /aria-live/);
 assert.match(clientSource, /readLocalUsageCache\(window\.sessionStorage/);
 assert.match(clientSource, /writeLocalUsageCache\(window\.sessionStorage/);
 assert.doesNotMatch(clientSource, /fetch\([^)]*usage-summary/);
 assert.doesNotMatch(clientSource, /\/api\/assistant\/policy/);
 assert.doesNotMatch(clientSource, /sendBeacon|telemetry|audit|error log/i);
+
+const modelCatalogSource = readSource("src/components/ai-settings/model-catalog-normalization.ts");
+assert.match(modelCatalogSource, /WINDOWS_CODEX_MODEL_OPTIONS/);
+assert.match(modelCatalogSource, /resolveModelCatalogLabel/);
+assert.match(modelCatalogSource, /sanitizeModelCatalogLabel/);
+assert.match(modelCatalogSource, /normalized === "codex-default" \|\| normalized === "gpt-5-codex" \? CODEX_DEFAULT_MODEL/);
+assert.match(modelCatalogSource, /isLegacyDefaultAlias = rawValue === "codex-default" \|\| rawValue === "gpt-5-codex"/);
+assert.match(modelCatalogSource, /catalog\?\.models\.forEach\(addModel\);\s*buildKnownWindowsCodexModelOptions\(\)\.forEach\(addModel\);/);
+assert.doesNotMatch(modelCatalogSource, /catalog\?\.models\.length \? catalog\.models : buildKnownWindowsCodexModelOptions\(\)/);
 
 const taskPanelSource = readSource("src/components/tasks/task-assistant-panel.tsx");
 assert.match(taskPanelSource, /codexOptions/);
