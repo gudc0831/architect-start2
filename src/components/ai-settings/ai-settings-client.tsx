@@ -510,7 +510,7 @@ function normalizeModelCatalog(catalog: LocalCodexModelCatalog, savedModel: stri
   const models = catalog.models
     .map((model) => ({
       value: sanitizeModelCatalogValue(model.value),
-      label: sanitizeModelCatalogLabel(model.label || model.value),
+      label: resolveModelCatalogLabel(model),
       source:
         model.source === "known-catalog" || model.source === "saved-custom" || model.source === "codex-default"
           ? model.source
@@ -560,8 +560,8 @@ function normalizeModelOptions(catalog: LocalCodexModelCatalog | null, savedMode
     });
   };
 
-  const catalogModels = catalog?.models.length ? catalog.models : buildKnownWindowsCodexModelOptions();
-  catalogModels.forEach(addModel);
+  catalog?.models.forEach(addModel);
+  buildKnownWindowsCodexModelOptions().forEach(addModel);
   const saved = sanitizeModelCatalogValue(savedModel);
   if (saved && !models.has(saved)) {
     addModel({ value: saved, label: saved, source: "saved-custom", available: false });
@@ -603,7 +603,8 @@ function sanitizeModelCatalogValue(value: unknown) {
     return "";
   }
   const normalized = value.trim();
-  return /^[A-Za-z0-9._:-]{1,80}$/.test(normalized) ? normalized : "";
+  const aliased = normalized === "codex-default" || normalized === "gpt-5-codex" ? CODEX_DEFAULT_MODEL : normalized;
+  return /^[A-Za-z0-9._:-]{1,80}$/.test(aliased) ? aliased : "";
 }
 
 function sanitizeModelCatalogLabel(value: unknown) {
@@ -612,6 +613,17 @@ function sanitizeModelCatalogLabel(value: unknown) {
   }
   const normalized = value.trim();
   return /^[A-Za-z0-9 ._:-]{1,120}$/.test(normalized) ? normalized : "";
+}
+
+function resolveModelCatalogLabel(model: LocalCodexModelCatalog["models"][number]) {
+  const rawValue = typeof model.value === "string" ? model.value.trim() : "";
+  const value = sanitizeModelCatalogValue(model.value);
+  const knownLabel = WINDOWS_CODEX_MODEL_OPTIONS.find((option) => option.value === value)?.label;
+  const isLegacyDefaultAlias = rawValue === "codex-default" || rawValue === "gpt-5-codex";
+  if (knownLabel && (isLegacyDefaultAlias || model.source === "codex-default" || model.label === model.value)) {
+    return knownLabel;
+  }
+  return sanitizeModelCatalogLabel(model.label || knownLabel || value);
 }
 
 function formatModelCatalogStatus(

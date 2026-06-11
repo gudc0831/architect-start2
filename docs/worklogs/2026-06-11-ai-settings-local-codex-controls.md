@@ -4,7 +4,7 @@ Req: Implement `/ai-settings` Local Codex controls for no-history execution, mod
 
 Diff:
 - Added `aiLocalCodexNoHistory` profile preference and migration `202606110001_add_ai_settings_local_codex_controls`.
-- Changed default personal Local Codex model to `codex-default`, with existing saved custom values preserved in the dropdown.
+- Added Local Codex default-model handling, with existing saved custom values preserved in the dropdown. This was superseded below by the Windows Codex model catalog follow-up.
 - Replaced the model text input on `/ai-settings` with a model dropdown, refresh button, catalog source/CLI/timestamp status, and `Local Codex 기록 저장 안 함` option.
 - Passed `noHistory` through Local Codex AI review generation.
 - Added Browser Assistant `model-catalog` bridge command and native-host catalog response.
@@ -38,6 +38,7 @@ Diff:
 - Added a Prisma migration to set the `ai_default_model` default to `gpt-5.5` and rewrite legacy saved profile values to `gpt-5.5`.
 - Added a shared Windows Codex model option list: `GPT-5.5`, `GPT-5.4`, `GPT-5.4-Mini`, `GPT-5.3-Codex-Spark`.
 - Updated `/ai-settings` fallback model catalog so the dropdown displays Windows Codex labels while saving/executing model ids.
+- Merged known Windows Codex options into bridge-provided catalogs so older installed Browser Assistant bridges that still return legacy aliases do not hide the app-style model list.
 - Split model value and label sanitization so future Windows Codex display names can include display-safe spacing.
 - Updated Local Codex usage fallback model metadata to use the same default model id.
 - Updated Browser Assistant native host model catalog to prefer `codex debug models`, map `slug` to `value` and `display_name` to `label`, filter to `visibility: "list"`, and fall back to the known Windows Codex catalog when the CLI catalog is unavailable.
@@ -58,6 +59,7 @@ Verify:
 - SaaS Preview: `npm run db:migrate:safe` applied `202606110002_use_windows_codex_model_catalog_defaults`.
 - SaaS Preview: `npm run deploy:migration-gate` passed with `Database schema is up to date!`.
 - SaaS Preview: `npm run vercel-build` passed with Preview env loaded from branch `codex/multi-user-transition`.
+- SaaS compatibility refresh: `npx tsx scripts/ai-settings-contract-validate.ts`, `npm run typecheck`, `npm run build`, `npm run worklog:check`, `git diff --check`, Preview `deploy:migration-gate`, and Preview `vercel-build` passed after adding stale-bridge legacy-alias normalization.
 - Browser Assistant: `npx vitest run src/content/content-script.test.ts src/runtime/local-runtime-client.test.ts` passed.
 - Browser Assistant: `node --test native-host/codex-bridge-host.node-test.mjs` passed.
 - Browser Assistant: `npm run release:check` passed with local-dev/production-promotion warnings only.
