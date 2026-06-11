@@ -21,6 +21,16 @@ Strict mode.
 
 Standing approval covers local investigation, local validators/tests, small requested code/doc edits, and worklog updates. Separate approval is still required before DB migrations, Vercel env/deploy/alias changes, production data writes, git push/merge/tag, dependency installs/upgrades, or secret/auth profile changes.
 
+## 2026-06-11 Release Boundary
+
+The Preview centralization work can be closed without running the Production release plan. Production env changes, Production deployment, alias promotion, production data writes, OAuth production callback changes, Chrome Web Store upload, and native-host signing are deferred.
+
+This plan now separates three states:
+
+- Preview closure: centralized verified legal evidence is wired through SaaS Preview and Browser Assistant proof is recorded on the canonical Preview host.
+- Production resume gate: the checklist below must pass before production users are served.
+- Deferred production execution: no production release commands should be run as part of the current closeout.
+
 ## Current Conflicts To Correct
 
 - `architect-saas` readiness currently treats `LAW_OPEN_DATA_OC` as a required SaaS variable.
@@ -43,13 +53,26 @@ Standing approval covers local investigation, local validators/tests, small requ
 - [x] 2026-06-10 SaaS redeploy after API/env repair: canonical authenticated Preview host `https://architect-start2-git-codex-multi-d1c003-chois-projects-7b2948cf.vercel.app` resolves to deployment `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd`; its in-page AI review health check passed centralized verified legal evidence and answer generation readiness.
 - [x] 2026-06-10 Browser Assistant patch preserves the centralized legal boundary: Local Codex generation direct-reverifies only legacy `official-law:` evidence. Centralized `verified-legal-search:` evidence and unverified foundation `regulation` seeds do not trigger extension-side direct law.go.kr calls.
 - [x] Browser Assistant production readiness passed for the unsigned interim extension/native-host path: `18 pass, 1 warn, 0 fail` with the observed extension id, release owner, Web Store publisher metadata, stable native-host install root, and explicit unsigned waiver.
+- [x] Same-task Browser Assistant/Local Codex saved-record proof is closed on canonical Preview task `117`: assistant record `609f065a-e17c-4f1a-a968-50593832037a` was saved with `executionMode: local-chatgpt-codex`, `runtimeMode: extension-native-bridge-in-page`, and `candidateState: candidate` after the fixed extension bundle was reloaded.
 - [ ] Production env/deploy/promotion is not done and must pass a separate release gate before serving production users.
 
 ## 2026-06-10 Remaining Centralization Gates
 
 - [ ] Keep the verified-legal Preview project-level secret configuration durable for future redeploys. Immediate runtime proof is complete on `dpl_GswMEwfdkZGrBxdMyfA8MnNktfx2`, but future deployments must still prove the same `VERIFIED_LEGAL_EVIDENCE_API_SECRET` boundary and Vercel protection bypass configuration before they are used by SaaS.
-- [ ] Rerun the authenticated SaaS completion smoke on the canonical alias after an `ARCHITECT_SMOKE_COOKIE` is intentionally provided to the shell.
-- [ ] Do not promote to production until production env shape, production verified API target, production protection/bypass policy, deployment promotion, and Chrome Web Store/native-host release steps pass without printing secret values.
+- [ ] Rerun the authenticated SaaS completion smoke on the canonical alias only after an `ARCHITECT_SMOKE_COOKIE` is intentionally provided to the shell. Do not inspect browser/session stores just to obtain it; current Preview Browser Assistant proof is covered by the Chrome UI and saved-record verifier path.
+- [ ] Do not promote to production until the Production resume gate below passes without printing secret values.
+
+## Production Resume Gate
+
+Production release execution may resume only after these items are explicitly satisfied:
+
+- [ ] Production `architect-saas` env shape is confirmed for production-only values: `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL`, Supabase URL/anon/service role values, storage bucket, `VERIFIED_LEGAL_EVIDENCE_API_URL`, and `VERIFIED_LEGAL_EVIDENCE_API_SECRET`.
+- [ ] `LAW_OPEN_DATA_OC` remains absent from `architect-saas`; official legal-source credentials stay in `verified-legal-evidence-api`.
+- [ ] Production `verified-legal-evidence-api` target is deployed or selected, protected, and proven with matching server secret behavior from SaaS server-side calls.
+- [ ] Vercel deployment protection and bypass policy are confirmed for production without exposing bypass or app secrets to the browser.
+- [ ] Production OAuth/canonical host configuration is exact: app root, `/auth/callback`, Supabase Auth Site URL, Supabase redirect URL, and Google provider redirect URI.
+- [ ] Browser Assistant production origin allowlist, Web Store metadata/upload path, signed native-host installer, production install root, and extension id are finalized.
+- [ ] Authenticated production smoke proves `/daily`, centralized verified legal task review, Local Codex/native bridge saved records, and WIKI candidate boundary on the production host.
 
 ## Verified API Contract Gate
 

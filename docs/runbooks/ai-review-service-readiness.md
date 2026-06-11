@@ -35,6 +35,67 @@ Expected boundary:
 - `task-review` preview must not approve or create WIKI candidates.
 - Local Codex/GPT generated records saved through `/api/assistant/records` must become WIKI candidates with state `candidate`, awaiting admin review.
 
+## Preview Auth Canonical Host Check
+
+Before asking the operator to log in to a Preview URL or running authenticated
+Preview smoke, confirm that the URL being tested, the Vercel deployment/alias,
+and the auth canonical host are the same intended runtime.
+
+Required checks:
+
+```powershell
+npx vercel inspect <preview-url> --scope chois-projects-7b2948cf
+npx vercel env ls --scope chois-projects-7b2948cf
+```
+
+Then inspect the auth code path:
+
+- `src/lib/auth/public-site-url.ts`
+- `src/app/api/auth/google/route.ts`
+- `src/app/auth/callback/route.ts`
+
+Important rule:
+
+- If `NEXT_PUBLIC_SITE_URL` is configured for Preview, Google OAuth uses that
+  canonical host for callback and post-login redirects on non-loopback requests.
+  A direct deployment URL such as
+  `https://architect-start2-<hash>-chois-projects-7b2948cf.vercel.app` may keep
+  returning to `/login` even after the operator signs in, because the app session
+  is created on the canonical host instead.
+- Do not ask the operator to repeat login attempts on a direct deployment URL
+  until the canonical host is aligned.
+- Either verify on the canonical host after confirming its alias target is the
+  intended deployment, or change the Preview auth canonical host / alias target
+  with explicit approval and redeploy.
+- Browser Assistant must be rebuilt for the same origin that authenticated
+  `/daily` will actually use.
+
+## Production Deferred Preview Drift Guard
+
+When Production release execution is deferred, do not rerun production deploy,
+alias, env, OAuth, Web Store, or native-host signing steps. Keep the Preview
+proof current only when one of these drift inputs changes:
+
+- the SaaS Preview alias or direct deployment target
+- `NEXT_PUBLIC_SITE_URL` or any auth canonical host setting
+- `VERIFIED_LEGAL_EVIDENCE_API_URL`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, or
+  Vercel protection bypass configuration
+- Browser Assistant `ARCHITECT_SAAS_ORIGIN`, extension id, or unpacked bundle
+- native-host install root or Codex bridge build
+
+If any drift input changes, verify in this order:
+
+```powershell
+npx vercel inspect <canonical-preview-url> --scope chois-projects-7b2948cf
+npx vercel env ls --scope chois-projects-7b2948cf
+curl.exe -I -L <canonical-preview-url>/preview/daily
+```
+
+Then rebuild/reload Browser Assistant only when the SaaS origin changed, refresh
+`/daily`, run the in-page health check, and prove a same-task saved assistant
+record. The authenticated shell completion smoke is optional until an
+`ARCHITECT_SMOKE_COOKIE` is intentionally supplied.
+
 ## Local Server
 
 Start the SaaS app from the isolated worktree:
@@ -89,6 +150,31 @@ Troubleshooting:
 ## Local Codex/GPT Login And AI Review
 
 This part verifies the GPT login required by AI review: the local Codex/GPT provider used by the browser assistant native bridge. Do not substitute a generic `chatgpt.com` web login check for this proof.
+
+Before in-page execution:
+
+- Rebuild Architect Browser Assistant with `ARCHITECT_SAAS_ORIGIN` set to the
+  same origin that authenticated `/daily` uses.
+- In Chrome, reload the unpacked `Architect Browser Assistant` extension from
+  `chrome://extensions`, then refresh `/daily`. A rebuilt `dist/manifest.json`
+  is not enough by itself because Chrome keeps the previous unpacked
+  content-script registration until extension reload.
+- In the task panel, open `AI 검토` and click `연결 상태 확인`. If it reports
+  that the page connection is not responding, do not rerun login. Reload the
+  extension and refresh `/daily` first.
+- If centralized `verified-legal-search:` regulation evidence or foundation
+  `regulation` retrieval seeds are returned from SaaS, the browser assistant
+  must not re-query law.go.kr before Local Codex generation. A law.go.kr
+  "사용자 정보 검증 실패" during Local Codex generation after centralized health
+  PASS means the unpacked extension is stale or the legacy direct-verification
+  path regressed. Only legacy `official-law:` evidence should use the extension
+  direct law.go.kr recheck path.
+- Verify the native host with the actual production install root when Chrome is
+  registered to AppData:
+
+```powershell
+npm run native-host:verify-production-install -- --extension-id <chrome-extension-id> --install-root C:\Users\hcchoi\AppData\Local\Architect\BrowserAssistant\native-host
+```
 
 Required evidence:
 

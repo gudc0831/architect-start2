@@ -117,6 +117,15 @@ Before the final response, always check:
 4. If code or files changed, was a meaningful verification step run?
 5. Is anything still incomplete but described as complete?
 
+## Preview Auth And Exact URL Checks
+
+- Before authenticated Vercel Preview proof, verify the URL triad: requested URL, Vercel deployment or alias target, and the auth canonical host from `NEXT_PUBLIC_SITE_URL` / callback routing.
+- If `NEXT_PUBLIC_SITE_URL` points to a canonical Preview host, do not ask the user to repeatedly log in on a direct deployment URL. Either verify on the canonical host after proving its alias targets the intended deployment, or get approval to change the alias/env and redeploy.
+- Rebuild Browser Assistant for the same origin that authenticated `/daily` will actually use; a direct deployment origin and a branch alias origin are not interchangeable for extension host permissions or app cookies.
+- After rebuilding Browser Assistant for a new origin, require Chrome unpacked-extension reload plus `/daily` refresh before in-page Local Codex proof. If the task panel health check says the page connection is not responding, fix extension reload first instead of asking for another login.
+- When SaaS returns centralized `verified-legal-search:` regulation evidence or foundation `regulation` retrieval seeds, the browser extension must not require a second direct law.go.kr verification before Local Codex generation. Only legacy `official-law:` evidence should use the extension direct law.go.kr recheck path.
+- Never record cookies, local storage, session-store paths, or secret values in AGENTS, memory, worklogs, or final reports. Record only hostnames, variable names, pass/fail status, and non-secret provenance.
+
 ## Grounding Rules
 
 - Base claims only on provided context or actual tool output.

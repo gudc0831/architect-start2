@@ -18,6 +18,8 @@ The implementation has landed in `architect-saas` and the companion Browser Assi
 
 - [x] `/ai-settings` implementation remains complete as a SaaS user-preference and metadata-only usage feature.
 - [x] Browser Assistant local bridge readiness in this plan does not replace the separate production Browser Assistant metadata/readiness gate.
+- [x] 2026-06-10 deployed Preview AI review execution proof now exists in `2026-06-09-ai-review-full-pass-plan.md`: the canonical `/daily` host used Architect Browser Assistant plus Local Codex/native bridge and saved a WIKI candidate review record.
+- [x] This `/ai-settings` plan does not need to reopen for the AI review Preview execution proof; it remains a dependency provider, not the release signoff owner.
 - [ ] Production Browser Assistant release readiness remains tracked by the current AI review and cross-project release plans.
 
 ## Planning Inputs

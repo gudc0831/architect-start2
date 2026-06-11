@@ -1,6 +1,6 @@
 # Cross-Project Boundary And Integration Plan
 
-> **Status:** active boundary correction and release-readiness plan, created 2026-06-09 KST. This plan supersedes any wording that implies Architect SaaS should own official legal-source ingestion, legal-source credentials, or direct law.go.kr verification as part of task review.
+> **Status:** Preview boundary correction and release-readiness closeout, created 2026-06-09 KST and refreshed 2026-06-11 KST. This plan supersedes any wording that implies Architect SaaS should own official legal-source ingestion, legal-source credentials, or direct law.go.kr verification as part of task review. Production release execution is intentionally deferred to a separate gate.
 
 ## Goal
 
@@ -47,7 +47,27 @@ Keep `architect-saas`, `verified-legal-evidence-api`, and `architect-browser-ass
 - Exact Preview `/daily` collaboration gates were clean on deployment `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`: `daily:remaining-acceptance:verify` PASS, `daily:navigation-pending-sync:verify --target-path=/board` PASS, and `daily:cell-collaboration:two-window` PASS. These prove `/daily` collaboration behavior, not the final Browser Assistant execution proof.
 - Browser Assistant Preview readiness now passes for the canonical authenticated host. `npm run release:check` passed after the content-script patch, the native host production-install verifier passed with explicit install root, and in-page Local Codex/native bridge generation saved an AI review candidate from canonical `/daily`.
 - `npm run release:readiness:production` now passes for the unsigned interim release path: canonical Preview origin build, extension id `ianebfgjhjklildppcocmbmifedapooj`, release owner `gudc0831`, Web Store publisher `gudc083111@gmail.com`, stable native-host install root, and `--allow-unsigned-native-host` produced `18 pass, 1 warn, 0 fail`.
-- Active project upload chunk retrieval proof is now PASS on canonical Preview task `117`: `review_corpus_trace.corpus_status = chunks_found`, active/candidate/matched/included chunk counts all `1`, included chunk `9964b220-feb0-486d-b527-7bd1f7df7cf1`. Installed native-host framed generation is fixed and returns `ok: true`; the Browser Assistant fix is pushed at `47d6029`; same-task in-page Local Codex saved-record proof remains open until Chrome reloads the fixed unpacked extension bundle and reruns task `117`.
+- Active project upload chunk retrieval proof is now PASS on canonical Preview task `117`: `review_corpus_trace.corpus_status = chunks_found`, active/candidate/matched/included chunk counts all `1`, included chunk `9964b220-feb0-486d-b527-7bd1f7df7cf1`. The same-task in-page Local Codex saved-record proof is also closed: after Chrome reloaded the fixed unpacked Browser Assistant bundle, task `117` saved assistant record `609f065a-e17c-4f1a-a968-50593832037a` with `executionMode: local-chatgpt-codex`, `runtimeMode: extension-native-bridge-in-page`, and `candidateState: candidate`. The Browser Assistant fix is pushed at `47d6029`.
+
+## 2026-06-11 Production Deferral Decision
+
+Production release execution is deferred after the Preview closure work. The current closeout must not perform production Vercel env changes, production alias promotion, production deployment, production DB writes, OAuth production callback changes, Chrome Web Store upload, or native-host signing.
+
+Proceed now:
+
+- Keep the Preview proof record current and explicit about its exact host, deployment id, task id, record id, and Browser Assistant build origin.
+- Keep stale "open" plan wording closed where later evidence already proves the same task.
+- Keep `LAW_OPEN_DATA_OC` absent from `architect-saas`; verified legal source credentials stay in `verified-legal-evidence-api`.
+- Record repo heads and working-tree status before any later production resume.
+
+Resume Production only after these gates are satisfied without printing secret values:
+
+- Production SaaS env shape is confirmed, including `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL`, production Supabase values, `VERIFIED_LEGAL_EVIDENCE_API_URL`, and `VERIFIED_LEGAL_EVIDENCE_API_SECRET`.
+- Production verified legal API target and server secret parity are confirmed.
+- Production Vercel deployment protection and bypass policy are chosen and tested from the SaaS server side.
+- Production OAuth/canonical auth host and callback URLs are confirmed.
+- Browser Assistant Web Store/release metadata, signed native-host installer, extension origin allowlist, and production install root pass readiness.
+- Authenticated production smoke proves `/daily`, task review, assistant saved records, and WIKI candidate boundary on the production host.
 
 ## Current Checklist
 
@@ -59,10 +79,10 @@ Keep `architect-saas`, `verified-legal-evidence-api`, and `architect-browser-ass
 - [x] Exact Preview task-review runtime proof returned legal evidence from the verified API with task-review HTTP `200`.
 - [x] Exact Preview `/daily` verifiers passed on `dpl_7xRhLxNwoTtA9CQ6VBEFksaHYJiT`.
 - [x] Canonical Preview `/daily` in-page AI review executed with Browser Assistant/Local Codex and saved a WIKI candidate review record on task `102`.
-- [ ] Automated authenticated completion smoke has not been rerun against canonical alias deployment `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd` because `ARCHITECT_SMOKE_COOKIE` is not available in the shell.
-- [x] Active project upload chunk retrieval proof passed on canonical Preview task `117`; installed native-host generation is fixed, and same-task saved-record proof remains open separately until manual extension reload/rerun.
+- [ ] Automated authenticated completion smoke has not been rerun against canonical alias deployment `dpl_FHnaZWqidgSqAYAFwXJq1andRZEd` because `ARCHITECT_SMOKE_COOKIE` is not intentionally available in the shell. This is not a current Preview closeout blocker while Chrome UI proof plus read-only saved-record verification covers the Browser Assistant path.
+- [x] Active project upload chunk retrieval proof passed on canonical Preview task `117`; installed native-host generation is fixed; same-task saved-record proof is closed by assistant record `609f065a-e17c-4f1a-a968-50593832037a`.
 - [x] Browser Assistant production metadata and production readiness passed for the unsigned interim path.
-- [ ] Production env/readiness/deploy promotion remain open and must be handled separately.
+- [ ] Production env/readiness/deploy promotion remain deferred and must be handled by the Production resume gate above.
 
 ## Acceptance Gates
 
