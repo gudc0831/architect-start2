@@ -290,6 +290,7 @@ model ProfilePreference {
   aiServiceTier        String   @default("auto") @map("ai_service_tier")
   aiRequestTimeoutMs   Int      @default(120000) @map("ai_request_timeout_ms")
   aiLocalUsageDefaultRangeDays Int @default(30) @map("ai_local_usage_default_range_days")
+  aiLocalCodexNoHistory Boolean @default(false) @map("ai_local_codex_no_history")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)

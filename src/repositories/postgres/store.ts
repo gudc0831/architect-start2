@@ -1360,6 +1360,7 @@ class PostgresPreferenceRepository implements PreferenceRepository {
         aiServiceTier: true,
         aiRequestTimeoutMs: true,
         aiLocalUsageDefaultRangeDays: true,
+        aiLocalCodexNoHistory: true,
       },
     });
 
@@ -1381,6 +1382,7 @@ class PostgresPreferenceRepository implements PreferenceRepository {
         aiServiceTier: true,
         aiRequestTimeoutMs: true,
         aiLocalUsageDefaultRangeDays: true,
+        aiLocalCodexNoHistory: true,
       },
     });
 

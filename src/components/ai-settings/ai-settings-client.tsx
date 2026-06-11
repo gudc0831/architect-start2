@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MyAssistantUsageSummary } from "@/domains/assistant/saas-api-mode";
 import type { AiSettingsPreference } from "@/domains/preferences/types";
 import {
+  CODEX_DEFAULT_MODEL,
   DEFAULT_AI_SETTINGS_PREFERENCE,
   sanitizeAiSettingsPreference,
 } from "@/domains/preferences/types";
@@ -37,6 +38,23 @@ type LocalCodexStatus = {
   checkedAt?: string;
 };
 
+type LocalCodexModelCatalog = {
+  bridgeSchemaVersion: number;
+  refreshedAt: string;
+  source: "local-codex-bridge" | "fallback-catalog";
+  codexCliVersion?: string;
+  models: Array<{
+    value: string;
+    label: string;
+    source: "codex-default" | "known-catalog" | "saved-custom";
+    available: boolean;
+  }>;
+  warnings: Array<{
+    code: string;
+    label: string;
+  }>;
+};
+
 type LoadState = "idle" | "loading" | "ready" | "failed";
 
 export function AiSettingsClient({ user }: AiSettingsClientProps) {
@@ -48,6 +66,9 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
   const [serviceUsageState, setServiceUsageState] = useState<LoadState>("loading");
   const [localStatus, setLocalStatus] = useState<LocalCodexStatus | null>(null);
   const [localStatusState, setLocalStatusState] = useState<LoadState>("idle");
+  const [modelCatalog, setModelCatalog] = useState<LocalCodexModelCatalog | null>(null);
+  const [modelCatalogState, setModelCatalogState] = useState<LoadState>("idle");
+  const [modelCatalogMessage, setModelCatalogMessage] = useState("");
   const [localScanEnabled, setLocalScanEnabled] = useState(false);
   const [localRange, setLocalRange] = useState<LocalScanRange>(30);
   const [localUsage, setLocalUsage] = useState<LocalCodexUsageSummary | null>(null);
@@ -80,6 +101,16 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshModelCatalog(preference.aiDefaultModel);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+    // Initial refresh should use the saved preference loaded from the API.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedPreference.aiDefaultModel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +228,29 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
     }
   }
 
+  async function refreshModelCatalog(savedModel = preference.aiDefaultModel) {
+    setModelCatalogState("loading");
+    setModelCatalogMessage("");
+    try {
+      const catalog = await requestLocalRuntime<LocalCodexModelCatalog>(
+        "model-catalog",
+        { savedModel },
+        5000,
+      );
+      setModelCatalog(normalizeModelCatalog(catalog, savedModel));
+      setModelCatalogState("ready");
+    } catch (error) {
+      setModelCatalog(buildFallbackModelCatalog(savedModel));
+      setModelCatalogState("failed");
+      setModelCatalogMessage(errorMessage(error));
+    }
+  }
+
+  const modelOptions = useMemo(
+    () => normalizeModelOptions(modelCatalog, preference.aiDefaultModel),
+    [modelCatalog, preference.aiDefaultModel],
+  );
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -225,10 +279,34 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
           <div className={styles.formGrid}>
             <label className={styles.field}>
               <span>모델</span>
-              <input
-                value={preference.aiDefaultModel}
-                onChange={(event) => setPreference((current) => ({ ...current, aiDefaultModel: event.target.value }))}
-              />
+              <div className={styles.modelControlRow}>
+                <select
+                  value={preference.aiDefaultModel || CODEX_DEFAULT_MODEL}
+                  onChange={(event) =>
+                    setPreference((current) =>
+                      sanitizeAiSettingsPreference({ ...current, aiDefaultModel: event.target.value }),
+                    )
+                  }
+                >
+                  {modelOptions.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.label}
+                      {model.available ? "" : " (사용자 지정 값)"}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className={styles.secondaryButton}
+                  disabled={modelCatalogState === "loading"}
+                  onClick={() => void refreshModelCatalog()}
+                  type="button"
+                >
+                  새로고침
+                </button>
+              </div>
+              <small className={styles.modelCatalogStatus}>
+                {formatModelCatalogStatus(modelCatalog, modelCatalogState, modelCatalogMessage)}
+              </small>
             </label>
             <label className={styles.field}>
               <span>Reasoning</span>
@@ -291,6 +369,21 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
                 <option value={90}>최근 90일</option>
                 <option value={0}>전체</option>
               </select>
+            </label>
+            <label className={styles.toggleField}>
+              <input
+                checked={preference.aiLocalCodexNoHistory}
+                onChange={(event) =>
+                  setPreference((current) =>
+                    sanitizeAiSettingsPreference({ ...current, aiLocalCodexNoHistory: event.target.checked }),
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>Local Codex 기록 저장 안 함</strong>
+                <small>켜면 AI 검토 실행 시 Local Codex를 ephemeral 모드로 호출합니다. 이전 기록은 삭제하지 않습니다.</small>
+              </span>
             </label>
           </div>
 
@@ -405,6 +498,112 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function StatusPill({ label, state }: { label: string; state: "on" | "off" | "pending" }) {
   return <span className={`${styles.statusPill} ${styles[`statusPill_${state}`]}`}>{label}</span>;
+}
+
+function normalizeModelCatalog(catalog: LocalCodexModelCatalog, savedModel: string): LocalCodexModelCatalog {
+  const fallback = buildFallbackModelCatalog(savedModel);
+  if (!catalog || typeof catalog !== "object" || !Array.isArray(catalog.models)) {
+    return fallback;
+  }
+
+  const models = catalog.models
+    .map((model) => ({
+      value: sanitizeModelCatalogValue(model.value),
+      label: sanitizeModelCatalogValue(model.label || model.value),
+      source:
+        model.source === "known-catalog" || model.source === "saved-custom" || model.source === "codex-default"
+          ? model.source
+          : ("known-catalog" as const),
+      available: Boolean(model.available),
+    }))
+    .filter((model) => model.value);
+
+  const mergedModels = normalizeModelOptions(
+    {
+      ...catalog,
+      source: catalog.source === "local-codex-bridge" ? "local-codex-bridge" : "fallback-catalog",
+      models,
+      warnings: Array.isArray(catalog.warnings) ? catalog.warnings : [],
+    },
+    savedModel,
+  );
+
+  return {
+    bridgeSchemaVersion: typeof catalog.bridgeSchemaVersion === "number" ? catalog.bridgeSchemaVersion : fallback.bridgeSchemaVersion,
+    refreshedAt: typeof catalog.refreshedAt === "string" ? catalog.refreshedAt : fallback.refreshedAt,
+    source: catalog.source === "local-codex-bridge" ? "local-codex-bridge" : "fallback-catalog",
+    ...(typeof catalog.codexCliVersion === "string" && catalog.codexCliVersion.trim()
+      ? { codexCliVersion: catalog.codexCliVersion.trim() }
+      : {}),
+    models: mergedModels,
+    warnings: Array.isArray(catalog.warnings)
+      ? catalog.warnings
+          .filter((warning) => warning && typeof warning.code === "string" && typeof warning.label === "string")
+          .slice(0, 6)
+      : [],
+  };
+}
+
+function normalizeModelOptions(catalog: LocalCodexModelCatalog | null, savedModel: string) {
+  const models = new Map<string, LocalCodexModelCatalog["models"][number]>();
+  const addModel = (model: LocalCodexModelCatalog["models"][number]) => {
+    const value = sanitizeModelCatalogValue(model.value);
+    if (!value || models.has(value)) {
+      return;
+    }
+    models.set(value, {
+      value,
+      label: sanitizeModelCatalogValue(model.label || value) || value,
+      source: model.source,
+      available: Boolean(model.available),
+    });
+  };
+
+  addModel({ value: CODEX_DEFAULT_MODEL, label: CODEX_DEFAULT_MODEL, source: "codex-default", available: true });
+  catalog?.models.forEach(addModel);
+  const saved = sanitizeModelCatalogValue(savedModel);
+  if (saved && !models.has(saved)) {
+    addModel({ value: saved, label: saved, source: "saved-custom", available: false });
+  }
+
+  return [...models.values()];
+}
+
+function buildFallbackModelCatalog(savedModel: string): LocalCodexModelCatalog {
+  return {
+    bridgeSchemaVersion: 0,
+    refreshedAt: new Date().toISOString(),
+    source: "fallback-catalog",
+    models: normalizeModelOptions(null, savedModel),
+    warnings: [{ code: "bridge_unavailable", label: "Local Codex bridge에서 모델 목록을 읽지 못했습니다." }],
+  };
+}
+
+function sanitizeModelCatalogValue(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim();
+  return /^[A-Za-z0-9._:-]{1,80}$/.test(normalized) ? normalized : "";
+}
+
+function formatModelCatalogStatus(
+  catalog: LocalCodexModelCatalog | null,
+  state: LoadState,
+  message: string,
+) {
+  if (state === "loading") {
+    return "모델 목록을 새로고치는 중입니다.";
+  }
+
+  if (!catalog) {
+    return "모델 목록 새로고침 전입니다.";
+  }
+
+  const cli = catalog.codexCliVersion ? `Codex CLI ${catalog.codexCliVersion} 확인됨` : "Codex CLI 버전 미확인";
+  const refreshed = `마지막 갱신: ${formatDateTime(catalog.refreshedAt)}`;
+  const source = `목록 출처: ${catalog.source === "local-codex-bridge" ? "Local Codex bridge" : "fallback catalog"}`;
+  return [cli, refreshed, source, message].filter(Boolean).join(" · ");
 }
 
 function serviceUsageStateLabel(state: LoadState) {

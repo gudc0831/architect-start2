@@ -23,11 +23,14 @@ const preference = sanitizeAiSettingsPreference({
   aiServiceTier: "priority",
   aiRequestTimeoutMs: 999999,
   aiLocalUsageDefaultRangeDays: 90,
+  aiLocalCodexNoHistory: true,
 });
+assert.equal(sanitizeAiSettingsPreference({}).aiDefaultModel, "codex-default");
 assert.equal(preference.aiReasoningEffort, "medium");
 assert.equal(preference.aiServiceTier, "priority");
 assert.equal(preference.aiRequestTimeoutMs, 120000);
 assert.equal(preference.aiLocalUsageDefaultRangeDays, 90);
+assert.equal(preference.aiLocalCodexNoHistory, true);
 
 const serviceSummary = buildMyAssistantUsageSummary({
   from: "2026-06-01T00:00:00.000Z",
@@ -135,14 +138,19 @@ assert.doesNotMatch(usageRoute, /admin/);
 const clientSource = readSource("src/components/ai-settings/ai-settings-client.tsx");
 assert.match(clientSource, /sessionStorage/);
 assert.match(clientSource, /usage-summary/);
+assert.match(clientSource, /model-catalog/);
+assert.match(clientSource, /aiLocalCodexNoHistory/);
+assert.match(clientSource, /codex-default/);
 assert.match(clientSource, /aria-live/);
 assert.match(clientSource, /readLocalUsageCache\(window\.sessionStorage/);
 assert.match(clientSource, /writeLocalUsageCache\(window\.sessionStorage/);
 assert.doesNotMatch(clientSource, /fetch\([^)]*usage-summary/);
+assert.doesNotMatch(clientSource, /\/api\/assistant\/policy/);
 assert.doesNotMatch(clientSource, /sendBeacon|telemetry|audit|error log/i);
 
 const taskPanelSource = readSource("src/components/tasks/task-assistant-panel.tsx");
 assert.match(taskPanelSource, /codexOptions/);
+assert.match(taskPanelSource, /noHistory: preference\.aiLocalCodexNoHistory/);
 assert.match(taskPanelSource, /usageAvailable/);
 assert.match(taskPanelSource, /\.\.\.\(options\?\.codexOptions \? \{ codexOptions: options\.codexOptions \} : \{\}\)/);
 assert.doesNotMatch(taskPanelSource, /configPath/);
@@ -154,6 +162,13 @@ assert.match(usageService, /MAX_LOCAL_CODEX_USAGE_TOKENS/);
 
 const aiSettingsCss = readSource("src/components/ai-settings/ai-settings.module.css");
 assert.doesNotMatch(aiSettingsCss, /--theme-text-strong/);
+
+const prismaSchema = readSource("prisma/schema.prisma");
+assert.match(prismaSchema, /aiLocalCodexNoHistory\s+Boolean/);
+assert.match(prismaSchema, /@map\("ai_local_codex_no_history"\)/);
+
+const migration = readSource("prisma/migrations/202606110001_add_ai_settings_local_codex_controls/migration.sql");
+assert.match(migration, /ai_local_codex_no_history/);
 
 console.log("AI settings contract validation passed.");
 

@@ -315,6 +315,7 @@ export function resolveDetailPanelWidth(input?: unknown) {
 export const aiReasoningEfforts = ["minimal", "low", "medium", "high"] as const;
 export const aiServiceTiers = ["auto", "default", "priority"] as const;
 export const aiLocalUsageRangeDays = [30, 90, 0] as const;
+export const CODEX_DEFAULT_MODEL = "codex-default";
 
 export type AiReasoningEffort = (typeof aiReasoningEfforts)[number];
 export type AiServiceTier = (typeof aiServiceTiers)[number];
@@ -326,16 +327,18 @@ export type AiSettingsPreference = {
   aiServiceTier: AiServiceTier;
   aiRequestTimeoutMs: number;
   aiLocalUsageDefaultRangeDays: AiLocalUsageRangeDays;
+  aiLocalCodexNoHistory: boolean;
 };
 
 export const AI_REQUEST_TIMEOUT_MIN_MS = 30000;
 export const AI_REQUEST_TIMEOUT_MAX_MS = 120000;
 export const DEFAULT_AI_SETTINGS_PREFERENCE: AiSettingsPreference = {
-  aiDefaultModel: "gpt-5-codex",
+  aiDefaultModel: CODEX_DEFAULT_MODEL,
   aiReasoningEffort: "medium",
   aiServiceTier: "auto",
   aiRequestTimeoutMs: AI_REQUEST_TIMEOUT_MAX_MS,
   aiLocalUsageDefaultRangeDays: 30,
+  aiLocalCodexNoHistory: false,
 };
 
 const AI_MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
@@ -391,5 +394,9 @@ export function sanitizeAiSettingsPreference(input: unknown): AiSettingsPreferen
       : DEFAULT_AI_SETTINGS_PREFERENCE.aiServiceTier,
     aiRequestTimeoutMs: sanitizeAiRequestTimeoutMs(preference.aiRequestTimeoutMs),
     aiLocalUsageDefaultRangeDays: sanitizeAiLocalUsageRangeDays(preference.aiLocalUsageDefaultRangeDays),
+    aiLocalCodexNoHistory:
+      typeof preference.aiLocalCodexNoHistory === "boolean"
+        ? preference.aiLocalCodexNoHistory
+        : DEFAULT_AI_SETTINGS_PREFERENCE.aiLocalCodexNoHistory,
   };
 }

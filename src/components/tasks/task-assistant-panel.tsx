@@ -324,6 +324,7 @@ type LocalCodexBridgeRequestOptions = {
     reasoningEffort?: string;
     serviceTier?: string;
     timeoutMs?: number;
+    noHistory?: boolean;
   };
 };
 
@@ -2367,6 +2368,7 @@ async function generateLocalCodexReview(input: {
     reasoningEffort: preference.aiReasoningEffort,
     serviceTier: preference.aiServiceTier,
     timeoutMs: preference.aiRequestTimeoutMs,
+    noHistory: preference.aiLocalCodexNoHistory,
   };
   const retrieval = input.retrieval;
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
