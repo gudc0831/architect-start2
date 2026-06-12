@@ -30,6 +30,14 @@ Verify:
 - `npm run build` passed and included `/admin` plus `/ai-settings`.
 - Local process proof: port 3000 is now served by `D:\architect-workspace\architect-saas\node_modules\next\dist\server\lib\start-server.js`.
 - Local UI proof: Playwright with installed Edge opened `http://127.0.0.1:3000/admin`, saw the `기본 설정` page, found 9 tabs (`책임 분야`, `프로젝트 관리`, `프로젝트 참여자`, `협업 접근 권한`, `작업 유형`, `협업 범위`, `요청자`, `관련 분야`, `위치 참조`), and confirmed clicking `프로젝트 관리` switched the visible panel.
+- Commit: `0a59bf9` (`Integrate admin foundation tab worktree changes`) was pushed to `origin/codex/multi-user-transition`.
+- Preview: `https://architect-start2-dacqvgna9-chois-projects-7b2948cf.vercel.app` reached `Ready` with deployment id `dpl_G2pgp1j9HpQDQdK1h2G2BYPZxgZt`.
+- Preview HTTP: `/admin` returned `307` to `/login?next=%2Fadmin`; `/login` returned `200`.
+
+Cleanup boundary:
+- `bb0b` is no longer serving localhost:3000.
+- After explicit approval, `git worktree remove --force` removed the Git worktree registration and `git worktree prune` left only `D:\architect-workspace\architect-saas` in `git worktree list --porcelain`.
+- The physical `bb0b` folder was initially locked by a `node_repl.exe` tool process that had inherited the old worktree cwd; after stopping that tool process, `C:\Users\hcchoi\.codex\worktrees\bb0b` was removed successfully.
 
 Failure:
 - `npm run build` initially failed during `prisma generate` with `UNKNOWN: unknown error, open 'D:\architect-workspace\architect-saas\node_modules\.prisma\client\schema.prisma'`.
