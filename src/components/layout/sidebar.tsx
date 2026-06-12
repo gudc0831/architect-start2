@@ -364,7 +364,7 @@ export function Sidebar({
                   onPointerDownCapture={warmAiSettingsNavigation}
                 >
                   <span aria-hidden="true" className="sidebar__link-index">06</span>
-                  <span className="sidebar__link-label">AI settings</span>
+                  <span className="sidebar__link-label">AI 설정</span>
                 </Link>
               ) : null}
               {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
@@ -405,7 +405,7 @@ export function Sidebar({
                 onMouseEnter={warmAiSettingsNavigation}
                 onPointerDownCapture={warmAiSettingsNavigation}
               >
-                AI settings
+                AI 설정
               </Link>
             ) : null}
             {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (

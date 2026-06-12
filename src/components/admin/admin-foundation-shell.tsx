@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import type { AdminProfileSummary, ProjectMembershipRecord } from "@/domains/admin/types";
 import { useAuthUser } from "@/providers/auth-provider";
@@ -46,6 +46,12 @@ type CategoryDefinitionsMap = Record<TaskCategoryFieldKey, ProjectCategoryDefini
 type CategoryDraftMap = Record<TaskCategoryFieldKey, CategoryDraft>;
 type FoundationSettingsPayload = { ownerDiscipline: string };
 type SaveCategoryDefinitionInput = { labelKo: string; labelEn: string; sortOrder: number; isActive: boolean };
+type FoundationTabKey = "ownerDiscipline" | "projectManagement" | "projectMembers" | "access" | `category:${TaskCategoryFieldKey}`;
+type FoundationTabDefinition = {
+  key: FoundationTabKey;
+  label: string;
+  description: string;
+};
 
 const emptyCategoryDraft = (): CategoryDraft => ({ code: "", labelKo: "", labelEn: "", sortOrder: "0" });
 const emptyCategoryDefinitions = (): CategoryDefinitionsMap =>
@@ -79,6 +85,18 @@ const fieldDescription: Partial<Record<TaskCategoryFieldKey, string>> = {
 
 fieldDescription.requestedBy = "일일 작업의 요청자 열에서 선택할 항목을 관리합니다.";
 fieldDescription.locationRef = "일일 작업의 위치 참조 열에서 선택할 항목을 관리합니다.";
+
+function foundationCategoryTabKey(fieldKey: TaskCategoryFieldKey): FoundationTabKey {
+  return `category:${fieldKey}`;
+}
+
+function foundationTabDomId(tabKey: FoundationTabKey) {
+  return `admin-foundation-tab-${tabKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function foundationPanelDomId(tabKey: FoundationTabKey) {
+  return `admin-foundation-panel-${tabKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
 
 async function readJson<T>(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, init);
@@ -123,6 +141,20 @@ function SectionCard({
       </div>
       {children}
     </section>
+  );
+}
+
+function FoundationTabPanel({ tabKey, activeTabKey, children }: { tabKey: FoundationTabKey; activeTabKey: FoundationTabKey; children: ReactNode }) {
+  return (
+    <div
+      aria-labelledby={foundationTabDomId(tabKey)}
+      className={styles.tabPanel}
+      hidden={activeTabKey !== tabKey}
+      id={foundationPanelDomId(tabKey)}
+      role="tabpanel"
+    >
+      {children}
+    </div>
   );
 }
 
@@ -431,6 +463,7 @@ export function AdminFoundationShell() {
   const [savingMembers, setSavingMembers] = useState(false);
   const [ownerDiscipline, setOwnerDiscipline] = useState("건축");
   const [savingOwnerDiscipline, setSavingOwnerDiscipline] = useState(false);
+  const [activeTabKey, setActiveTabKey] = useState<FoundationTabKey>("ownerDiscipline");
 
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const selectedProjectLabel = selectedProject?.name ?? "선택된 프로젝트 없음";
@@ -444,6 +477,82 @@ export function AdminFoundationShell() {
     globalRole: authUser?.role ?? "member",
     projectRole: currentProjectRole,
   });
+  const visibleTabs = useMemo<FoundationTabDefinition[]>(() => {
+    const tabs: FoundationTabDefinition[] = [];
+
+    if (isGlobalAdmin) {
+      tabs.push({
+        key: "ownerDiscipline",
+        label: labelForField("ownerDiscipline"),
+        description: "작업 조회와 엑셀 내보내기에 적용되는 기본 책임 분야입니다.",
+      });
+    }
+
+    tabs.push(
+      {
+        key: "projectManagement",
+        label: "프로젝트 관리",
+        description: "현재 프로젝트 전환, 이름 변경, 신규 프로젝트 생성을 관리합니다.",
+      },
+      {
+        key: "projectMembers",
+        label: "프로젝트 참여자",
+        description: "선택된 프로젝트의 참여자와 역할을 관리합니다.",
+      },
+    );
+
+    if (canManageSelectedProject) {
+      tabs.push({
+        key: "access",
+        label: "협업 접근 권한",
+        description: "초대 링크와 접근 요청을 관리합니다.",
+      });
+    }
+
+    if (isGlobalAdmin || canManageSelectedProject) {
+      taskCategoryFieldKeys.forEach((fieldKey) => {
+        tabs.push({
+          key: foundationCategoryTabKey(fieldKey),
+          label: labelForField(fieldKey),
+          description: fieldDescription[fieldKey] ?? "일일 작업에서 선택할 카테고리 설정을 관리합니다.",
+        });
+      });
+    }
+
+    return tabs;
+  }, [canManageSelectedProject, isGlobalAdmin]);
+  const effectiveActiveTabKey = visibleTabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : (visibleTabs[0]?.key ?? "projectManagement");
+  const handleFoundationTabKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const currentIndex = visibleTabs.findIndex((tab) => tab.key === effectiveActiveTabKey);
+      if (currentIndex < 0 || visibleTabs.length === 0) {
+        return;
+      }
+
+      const lastIndex = visibleTabs.length - 1;
+      let nextIndex = currentIndex;
+
+      if (event.key === "ArrowRight") {
+        nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+      } else if (event.key === "ArrowLeft") {
+        nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = lastIndex;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      const nextTab = visibleTabs[nextIndex];
+      setActiveTabKey(nextTab.key);
+      window.requestAnimationFrame(() => {
+        document.getElementById(foundationTabDomId(nextTab.key))?.focus();
+      });
+    },
+    [effectiveActiveTabKey, visibleTabs],
+  );
   const projectSettingsByField = useMemo(
     () =>
       Object.fromEntries(
@@ -454,6 +563,12 @@ export function AdminFoundationShell() {
       ) as CategoryDefinitionsMap,
     [categoryDefinitionsByField, projectByField],
   );
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.key === activeTabKey)) {
+      setActiveTabKey(visibleTabs[0]?.key ?? "projectManagement");
+    }
+  }, [activeTabKey, visibleTabs]);
 
   const reloadGlobalCategories = useCallback(async () => {
     const entries = await Promise.all(
@@ -834,35 +949,64 @@ export function AdminFoundationShell() {
         ) : null}
       </header>
 
-      {isGlobalAdmin ? (
-      <SectionCard
-        description="모든 작업 상세 화면에서는 숨김 처리되고, 조회 값과 엑셀 내보내기에 동일하게 적용됩니다."
-        title={labelForField("ownerDiscipline")}
-      >
-        <div className={styles.inlineForm}>
-          <label className={styles.field}>
-            <span>{labelForField("ownerDiscipline")}</span>
-            <input onChange={(event) => setOwnerDiscipline(event.target.value)} value={ownerDiscipline} />
-          </label>
-          <button
-            className={clsx(styles.button, styles.buttonPrimary, styles.inlineAction)}
-            disabled={savingOwnerDiscipline}
-            onClick={() => {
-              void handleSaveOwnerDiscipline();
-            }}
-            type="button"
-          >
-            {savingOwnerDiscipline ? "저장하고 있습니다..." : "책임 분야 저장"}
-          </button>
+      <nav aria-label="기본 설정 항목" className={styles.foundationTabShell}>
+        <div className={styles.foundationTabList} onKeyDown={handleFoundationTabKeyDown} role="tablist">
+          {visibleTabs.map((tab) => {
+            const isActive = tab.key === effectiveActiveTabKey;
+
+            return (
+              <button
+                aria-controls={foundationPanelDomId(tab.key)}
+                aria-label={`${tab.label}: ${tab.description}`}
+                aria-selected={isActive}
+                className={clsx(styles.foundationTab, isActive && styles.foundationTabActive)}
+                id={foundationTabDomId(tab.key)}
+                key={tab.key}
+                onClick={() => setActiveTabKey(tab.key)}
+                role="tab"
+                tabIndex={isActive ? 0 : -1}
+                title={tab.description}
+                type="button"
+              >
+                <span className={styles.foundationTabLabel}>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
-      </SectionCard>
+      </nav>
+
+      {isGlobalAdmin ? (
+        <FoundationTabPanel activeTabKey={effectiveActiveTabKey} tabKey="ownerDiscipline">
+          <SectionCard
+            description="모든 작업 상세 화면에서는 숨김 처리되고, 조회 값과 엑셀 내보내기에 동일하게 적용됩니다."
+            title={labelForField("ownerDiscipline")}
+          >
+            <div className={styles.inlineForm}>
+              <label className={styles.field}>
+                <span>{labelForField("ownerDiscipline")}</span>
+                <input onChange={(event) => setOwnerDiscipline(event.target.value)} value={ownerDiscipline} />
+              </label>
+              <button
+                className={clsx(styles.button, styles.buttonPrimary, styles.inlineAction)}
+                disabled={savingOwnerDiscipline}
+                onClick={() => {
+                  void handleSaveOwnerDiscipline();
+                }}
+                type="button"
+              >
+                {savingOwnerDiscipline ? "저장하고 있습니다..." : "책임 분야 저장"}
+              </button>
+            </div>
+          </SectionCard>
+        </FoundationTabPanel>
       ) : null}
 
-      <SectionCard
-        aside={<span className={styles.supportMeta}>{availableProjects.length}개 프로젝트</span>}
-        description="빠른 전환과 현재 프로젝트 선택, 이름 변경, 신규 생성을 한 번에 정리합니다."
-        title="프로젝트 관리"
-      >
+      <FoundationTabPanel activeTabKey={effectiveActiveTabKey} tabKey="projectManagement">
+        <SectionCard
+          aside={<span className={styles.supportMeta}>{availableProjects.length}개 프로젝트</span>}
+          description="빠른 전환과 현재 프로젝트 선택, 이름 변경, 신규 생성을 한 번에 정리합니다."
+          title="프로젝트 관리"
+        >
         <div className={styles.projectLayout}>
           <div className={styles.columnStack}>
             <div className={styles.subcard}>
@@ -989,13 +1133,15 @@ export function AdminFoundationShell() {
             ) : null}
           </div>
         </div>
-      </SectionCard>
+        </SectionCard>
+      </FoundationTabPanel>
 
-      <SectionCard
-        aside={<span className={styles.supportMeta}>{selectedProjectLabel}</span>}
-        description="선택된 프로젝트의 참여자 목록을 편집하고 저장합니다."
-        title="프로젝트 참여자"
-      >
+      <FoundationTabPanel activeTabKey={effectiveActiveTabKey} tabKey="projectMembers">
+        <SectionCard
+          aside={<span className={styles.supportMeta}>{selectedProjectLabel}</span>}
+          description="선택된 프로젝트의 참여자 목록을 편집하고 저장합니다."
+          title="프로젝트 참여자"
+        >
         <div className={styles.membersLayout}>
           <div className={styles.membersGroup}>
             <div className={styles.groupHeader}>
@@ -1142,14 +1288,16 @@ export function AdminFoundationShell() {
             {savingMembers ? "저장하고 있습니다..." : "참여자 저장"}
           </button>
         </div>
-      </SectionCard>
+        </SectionCard>
+      </FoundationTabPanel>
 
       {canManageSelectedProject ? (
-        <SectionCard
-          aside={<span className={styles.supportMeta}>{selectedProjectLabel}</span>}
-          description="선택된 프로젝트의 초대 링크를 만들고 대기 중인 접근 요청을 검토합니다."
-          title="협업 접근 권한"
-        >
+        <FoundationTabPanel activeTabKey={effectiveActiveTabKey} tabKey="access">
+          <SectionCard
+            aside={<span className={styles.supportMeta}>{selectedProjectLabel}</span>}
+            description="선택된 프로젝트의 초대 링크를 만들고 대기 중인 접근 요청을 검토합니다."
+            title="협업 접근 권한"
+          >
           <div className={styles.membersLayout}>
             <div className={styles.membersGroup}>
               <div className={styles.groupHeader}>
@@ -1286,12 +1434,14 @@ export function AdminFoundationShell() {
               ))}
             </div>
           </div>
-        </SectionCard>
+          </SectionCard>
+        </FoundationTabPanel>
       ) : null}
 
       {isGlobalAdmin || canManageSelectedProject ? taskCategoryFieldKeys.map((fieldKey) => (
-        <SectionCard description={fieldDescription[fieldKey] ?? ""} key={fieldKey} title={labelForField(fieldKey)}>
-          <div className={styles.categoryGrid}>
+        <FoundationTabPanel activeTabKey={effectiveActiveTabKey} key={fieldKey} tabKey={foundationCategoryTabKey(fieldKey)}>
+          <SectionCard description={fieldDescription[fieldKey] ?? ""} title={labelForField(fieldKey)}>
+            <div className={styles.categoryGrid}>
             {isGlobalAdmin ? (
               <CategoryPane
                 caption="전체 프로젝트 공통"
@@ -1326,8 +1476,9 @@ export function AdminFoundationShell() {
                 onSaveDefinition={(definition, next) => saveProjectCategorySetting(fieldKey, definition, next)}
               />
             ) : null}
-          </div>
-        </SectionCard>
+            </div>
+          </SectionCard>
+        </FoundationTabPanel>
       )) : null}
     </section>
   );
