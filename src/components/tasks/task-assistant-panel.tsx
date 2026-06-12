@@ -522,6 +522,7 @@ export function TaskAssistantPanel({
     }
     return "검토 흐름이 처리되었습니다.";
   }, [output, question, retrieveResult, selectedTask, summarySaveState]);
+  const showLocalCodexConnectionHelp = Boolean(localCodexHealth?.steps.some((step) => step.status === "fail"));
 
   useEffect(() => {
     reviewRequestSeqRef.current += 1;
@@ -1739,10 +1740,12 @@ export function TaskAssistantPanel({
                     {localCodexDiagnostic(localCodexHealth)}
                   </p>
                 ) : null}
-                <p className="task-assistant__hint">
-                  사용자 PC의 Codex CLI 로그인 상태로 응답을 생성하며, SaaS는 Codex/OpenAI 인증 정보를 저장하지 않습니다.
-                  Chrome extension native host가 등록되어 있어야 합니다.
-                </p>
+                {showLocalCodexConnectionHelp ? (
+                  <p className="task-assistant__hint">
+                    사용자 PC의 Codex CLI 로그인 상태로 응답을 생성하며, SaaS는 Codex/OpenAI 인증 정보를 저장하지 않습니다.
+                    Chrome extension native host가 등록되어 있어야 합니다.
+                  </p>
+                ) : null}
               </section>
             ) : null}
             <label className="task-assistant__field">

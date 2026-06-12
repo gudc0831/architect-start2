@@ -118,6 +118,7 @@
 }
 
 .modelCatalogStatus,
+.fieldHint,
 .toggleField small {
   color: var(--muted);
   font-size: 0.82rem;

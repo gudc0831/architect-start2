@@ -200,7 +200,7 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
       const response = await fetch("/api/preferences/ai-settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(preference),
+        body: JSON.stringify(sanitizeAiSettingsPreference({ ...preference, aiServiceTier: "auto" })),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -314,32 +314,23 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
               </select>
             </label>
             <label className={styles.field}>
-              <span>Service tier</span>
+              <span>요청 제한 시간</span>
               <select
-                value={preference.aiServiceTier}
-                onChange={(event) =>
-                  setPreference((current) => sanitizeAiSettingsPreference({ ...current, aiServiceTier: event.target.value }))
-                }
-              >
-                <option value="auto">auto</option>
-                <option value="default">default</option>
-                <option value="priority">priority</option>
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span>Timeout</span>
-              <input
-                min={30000}
-                max={120000}
-                step={5000}
-                type="number"
                 value={preference.aiRequestTimeoutMs}
                 onChange={(event) =>
                   setPreference((current) =>
                     sanitizeAiSettingsPreference({ ...current, aiRequestTimeoutMs: Number(event.target.value) }),
                   )
                 }
-              />
+              >
+                <option value={30000}>30초</option>
+                <option value={60000}>60초</option>
+                <option value={90000}>90초</option>
+                <option value={120000}>120초 (2분)</option>
+              </select>
+              <small className={styles.fieldHint}>
+                Local Codex/브리지 응답을 기다리는 최대 시간입니다. 현재 {formatTimeoutDuration(preference.aiRequestTimeoutMs)}까지 기다립니다.
+              </small>
             </label>
             <label className={styles.field}>
               <span>Local usage 기본 범위</span>
@@ -623,6 +614,11 @@ function scanTimeoutMs(range: LocalScanRange) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ko-KR").format(value);
+}
+
+function formatTimeoutDuration(value: number) {
+  const seconds = Math.round(value / 1000);
+  return seconds >= 120 ? `${seconds}초 (2분)` : `${seconds}초`;
 }
 
 function formatDateTime(value: string) {

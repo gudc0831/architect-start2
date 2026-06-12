@@ -400,9 +400,7 @@ export function sanitizeAiSettingsPreference(input: unknown): AiSettingsPreferen
     aiReasoningEffort: isAiReasoningEffort(preference.aiReasoningEffort)
       ? preference.aiReasoningEffort
       : DEFAULT_AI_SETTINGS_PREFERENCE.aiReasoningEffort,
-    aiServiceTier: isAiServiceTier(preference.aiServiceTier)
-      ? preference.aiServiceTier
-      : DEFAULT_AI_SETTINGS_PREFERENCE.aiServiceTier,
+    aiServiceTier: DEFAULT_AI_SETTINGS_PREFERENCE.aiServiceTier,
     aiRequestTimeoutMs: sanitizeAiRequestTimeoutMs(preference.aiRequestTimeoutMs),
     aiLocalUsageDefaultRangeDays: sanitizeAiLocalUsageRangeDays(preference.aiLocalUsageDefaultRangeDays),
     aiLocalCodexNoHistory:

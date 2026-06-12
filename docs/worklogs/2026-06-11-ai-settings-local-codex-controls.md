@@ -44,6 +44,8 @@ Diff:
 - Updated Local Codex usage fallback model metadata to use the same default model id.
 - Updated Browser Assistant native host model catalog to prefer `codex debug models`, map `slug` to `value` and `display_name` to `label`, filter to `visibility: "list"`, and fall back to the known Windows Codex catalog when the CLI catalog is unavailable.
 - Preserved admin-only SaaS API activation boundary and Local Codex no-history behavior.
+- Hid the personal `Service tier` control and force personal AI settings to the automatic API processing tier, because this is not a meaningful user-facing Local Codex setting.
+- Renamed `Timeout` to `요청 제한 시간`, replaced the raw millisecond input with second-based options, and added explanatory copy for the Local Codex/bridge wait limit.
 
 Harness:
 - `hy` read-only pass reviewed the SaaS `/ai-settings` model value/label contract, sanitizer split, and focused validation path.
@@ -64,3 +66,25 @@ Verify:
 - Browser Assistant: `npx vitest run src/content/content-script.test.ts src/runtime/local-runtime-client.test.ts` passed.
 - Browser Assistant: `node --test native-host/codex-bridge-host.node-test.mjs` passed.
 - Browser Assistant: `npm run release:check` passed with local-dev/production-promotion warnings only.
+
+## Follow-up: Personal Settings Simplification and Preview Prep (2026-06-12)
+
+Req: Commit the current `/ai-settings` follow-up, deploy it to Preview, and leave verification evidence.
+
+Diff:
+- Forced personal AI settings writes through `aiServiceTier: "auto"` and updated preference sanitization so stale client values cannot keep `priority`.
+- Removed the personal `Service tier` selector from `/ai-settings`.
+- Renamed `Timeout` to `요청 제한 시간`, switched the control to second-based options, and added Local Codex/bridge wait-limit helper copy.
+- Kept admin usage report metrics under an explicit summary section and only shows the Local Codex connection setup hint when diagnostics fail.
+- Adjusted the materials page neutral controls/background styling that was already in the pending diff.
+
+Verify:
+- Workspace repo inventory: `architect-browser-assistant`, `architect-saas`, and `verified-legal-evidence-api` were fetched and all matched their upstream refs before this commit; only `architect-saas` had pending file changes.
+- SaaS: `git diff --check` passed.
+- SaaS: `npx tsx scripts/ai-settings-contract-validate.ts` passed.
+- SaaS: `npm run worklog:check` passed.
+- SaaS: `npm run typecheck` passed.
+- SaaS: `npm run lint` passed.
+- SaaS: `npm run build` passed and included `/ai-settings` plus `/api/preferences/ai-settings`.
+- Vercel: `with-ascii-host npx vercel whoami` authenticated as `gudc083111-4864`.
+- Vercel: `with-ascii-host npx vercel ls architect-start2 --scope chois-projects-7b2948cf` listed existing Ready Preview deployments before the new deployment.
