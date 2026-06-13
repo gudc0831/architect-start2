@@ -5,6 +5,10 @@ import {
   externalEvidenceToAssistantEvidence,
   normalizeExternalEvidenceMetadata,
 } from "@/domains/assistant/external-evidence";
+import {
+  assertKnowledgeCandidateReviewTransition,
+  nonDeletableWorkflowAuditTargetTypes,
+} from "@/domains/admin/knowledge-workflow";
 import { normalizeThreadSummaryUpdate } from "@/domains/assistant/thread-memory";
 import type {
   AssistantDraftSummary,
@@ -603,6 +607,8 @@ class PostgresAssistantRepository implements AssistantRepository {
     }
 
     const currentRecord = toRecord(current);
+    const nextCandidateState = input.action === "approve" ? "approved" : "rejected";
+    assertKnowledgeCandidateReviewTransition(currentRecord.candidateState, nextCandidateState);
     const timestamp = new Date().toISOString();
     const approvedKnowledgeItem =
       input.action === "approve"
@@ -640,13 +646,20 @@ class PostgresAssistantRepository implements AssistantRepository {
       approvedKnowledgeItem: approvedKnowledgeItem ?? currentRecord.metadata.approvedKnowledgeItem,
     };
 
-    const record = await prisma.assistantTaskRecord.update({
-      where: { id: input.recordId },
+    const updateResult = await prisma.assistantTaskRecord.updateMany({
+      where: {
+        id: input.recordId,
+        candidateState: { in: ["candidate", "pending_review"] },
+      },
       data: {
-        candidateState: input.action === "approve" ? "approved" : "rejected",
+        candidateState: nextCandidateState,
         metadata: nextMetadata as Prisma.InputJsonValue,
       },
     });
+    if (updateResult.count !== 1) {
+      throw new Error(`Invalid knowledge candidate transition: ${currentRecord.candidateState} -> ${nextCandidateState}`);
+    }
+    const record = await prisma.assistantTaskRecord.findUniqueOrThrow({ where: { id: input.recordId } });
 
     return { record: toRecord(record), approvedKnowledgeItem };
   }
@@ -784,6 +797,7 @@ class PostgresAssistantRepository implements AssistantRepository {
       where: {
         projectId: input.projectId,
         id: { in: input.ids },
+        targetType: { notIn: [...nonDeletableWorkflowAuditTargetTypes] },
       },
       select: { id: true },
     });
@@ -796,6 +810,7 @@ class PostgresAssistantRepository implements AssistantRepository {
         where: {
           projectId: input.projectId,
           id: { in: deletedIds },
+          targetType: { notIn: [...nonDeletableWorkflowAuditTargetTypes] },
         },
       });
     }

@@ -1,4 +1,8 @@
 import type { AuthUser } from "@/domains/auth/types";
+import {
+  assertKnowledgeCandidateReviewTransition,
+  knowledgeAuditEventTypes,
+} from "@/domains/admin/knowledge-workflow";
 import type {
   ApprovedKnowledgeItem,
   AssistantRecord,
@@ -608,6 +612,7 @@ export async function reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateIn
   }
 
   if (input.action === "approve") {
+    assertKnowledgeCandidateReviewTransition(record.candidateState, "approved");
     await assistantRepository.reviewKnowledgeCandidate({
       action: "approve",
       recordId: record.id,
@@ -618,12 +623,37 @@ export async function reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateIn
       tags: normalizeTags(input.tags),
       scope: normalizeScope(input.scope),
     });
+    await assistantRepository.createAuditEvent({
+      projectId: record.projectId,
+      profileId: input.reviewerId,
+      eventType: knowledgeAuditEventTypes.candidateApproved,
+      targetType: "knowledge_candidate_transition",
+      targetId: record.id,
+      metadata: {
+        fromState: record.candidateState,
+        toState: "approved",
+        source: record.metadata.knowledgeCandidateSource ?? null,
+      },
+    });
   } else {
+    assertKnowledgeCandidateReviewTransition(record.candidateState, "rejected");
     await assistantRepository.reviewKnowledgeCandidate({
       action: "reject",
       recordId: record.id,
       reviewerId: input.reviewerId,
       rejectionReason: normalizeRequiredText(input.rejectionReason, "rejectionReason"),
+    });
+    await assistantRepository.createAuditEvent({
+      projectId: record.projectId,
+      profileId: input.reviewerId,
+      eventType: knowledgeAuditEventTypes.candidateRejected,
+      targetType: "knowledge_candidate_transition",
+      targetId: record.id,
+      metadata: {
+        fromState: record.candidateState,
+        toState: "rejected",
+        source: record.metadata.knowledgeCandidateSource ?? null,
+      },
     });
   }
 

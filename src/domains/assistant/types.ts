@@ -1,3 +1,4 @@
+import type { KnowledgeCandidateSource } from "@/domains/admin/knowledge-workflow";
 import type { ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
 
 export type AssistantEvidenceKind =
@@ -127,6 +128,7 @@ export type ApprovedKnowledgeItem = {
 export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
+  knowledgeCandidateSource?: KnowledgeCandidateSource;
   externalEvidence?: ExternalEvidenceRecord;
   taskReview?: {
     source: "assistant-task-review";

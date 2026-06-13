@@ -4,6 +4,10 @@ import {
   externalEvidenceToAssistantEvidence,
   normalizeExternalEvidenceMetadata,
 } from "@/domains/assistant/external-evidence";
+import {
+  assertKnowledgeCandidateReviewTransition,
+  nonDeletableWorkflowAuditTargetTypes,
+} from "@/domains/admin/knowledge-workflow";
 import { normalizeThreadSummaryUpdate } from "@/domains/assistant/thread-memory";
 import type {
   ApprovedKnowledgeItem,
@@ -125,6 +129,7 @@ class LocalAssistantRepository implements AssistantRepository {
     const store = await readStore();
     return rankApprovedKnowledge(
       store.records
+        .filter((record) => record.candidateState === "approved")
         .filter((record) => record.projectId === input.projectId || record.metadata.approvedKnowledgeItem?.scope === "organization")
         .map((record) => record.metadata.approvedKnowledgeItem)
         .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
@@ -318,6 +323,8 @@ class LocalAssistantRepository implements AssistantRepository {
     if (!record) {
       throw new Error("Assistant record not found");
     }
+    const nextCandidateState = input.action === "approve" ? "approved" : "rejected";
+    assertKnowledgeCandidateReviewTransition(record.candidateState, nextCandidateState);
 
     const approvedKnowledgeItem =
       input.action === "approve"
@@ -353,7 +360,7 @@ class LocalAssistantRepository implements AssistantRepository {
 
     const nextRecord: AssistantRecord = {
       ...record,
-      candidateState: input.action === "approve" ? "approved" : "rejected",
+      candidateState: nextCandidateState,
       metadata: {
         ...record.metadata,
         knowledgeReview,
@@ -501,8 +508,10 @@ class LocalAssistantRepository implements AssistantRepository {
   async deleteAuditEventsByIds(input: { projectId: string; ids: string[] }) {
     const store = await readStore();
     const requestedIds = new Set(input.ids);
+    const protectedTargetTypes = new Set<string>(nonDeletableWorkflowAuditTargetTypes);
     const deletedIds = store.auditEvents
       .filter((event) => event.projectId === input.projectId && requestedIds.has(event.id))
+      .filter((event) => !protectedTargetTypes.has(event.targetType))
       .map((event) => event.id);
     const deletedIdSet = new Set(deletedIds);
     const skippedIds = input.ids.filter((id) => !deletedIdSet.has(id));

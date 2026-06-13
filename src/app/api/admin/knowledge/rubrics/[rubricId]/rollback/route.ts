@@ -2,24 +2,21 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { assertKnowledgeCapability, requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
-import { reviewKnowledgeCandidate } from "@/use-cases/admin/knowledge-service";
+import { rollbackKnowledgeImportRubric } from "@/use-cases/admin/knowledge-rubric-service";
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ recordId: string }> },
+  context: { params: Promise<{ rubricId: string }> },
 ) {
   try {
     assertRequestIntegrity(request);
     const user = await requireKnowledgeAdmin();
-    assertKnowledgeCapability(user, "knowledge.candidates.review");
-    const { recordId } = await context.params;
+    assertKnowledgeCapability(user, "knowledge.rubric.activate");
     const body = await request.json();
-    const data = await reviewKnowledgeCandidate({
-      action: "reject",
-      recordId,
-      reviewerId: user.id,
-      rejectionReason: isRecord(body) ? body.rejectionReason : "",
-    });
+    const { rubricId } = await context.params;
+    const data = await rollbackKnowledgeImportRubric(rubricId, {
+      reason: isRecord(body) ? body.reason : "",
+    }, user);
     return NextResponse.json({ data });
   } catch (error) {
     return handleRouteError(error);
