@@ -23,16 +23,28 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
+  const isPublicAuthPath = pathname === "/login" || pathname.startsWith("/auth/");
+  const authMode = isPreview ? "preview" : isPublicAuthPath ? "public" : "workspace";
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedAuthMode, setResolvedAuthMode] = useState<typeof authMode | null>(null);
 
   const refreshUser = useCallback(async () => {
     if (isPreview) {
       setUser(previewAuthUser);
       setLoading(false);
+      setResolvedAuthMode("preview");
       return;
     }
 
+    if (isPublicAuthPath) {
+      setUser(null);
+      setLoading(false);
+      setResolvedAuthMode("public");
+      return;
+    }
+
+    setLoading(true);
     try {
       const response = await fetch("/api/auth/me", { cache: "no-store" });
       if (!response.ok) {
@@ -46,24 +58,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     } finally {
       setLoading(false);
+      setResolvedAuthMode("workspace");
     }
-  }, [isPreview]);
+  }, [isPreview, isPublicAuthPath]);
 
   useEffect(() => {
     void refreshUser();
   }, [refreshUser]);
 
+  const effectiveLoading = authMode === "workspace" && resolvedAuthMode !== "workspace" ? true : loading;
+
   const value = useMemo(
     () => ({
       user,
-      loading,
+      loading: effectiveLoading,
       refreshUser,
       clearUser: () => {
         clearWorkspaceBootstrapCache();
         setUser(null);
       },
     }),
-    [loading, refreshUser, user],
+    [effectiveLoading, refreshUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
