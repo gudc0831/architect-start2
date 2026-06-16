@@ -20,6 +20,7 @@ type CookieJar = Map<string, string>;
 type SmokeBrowser = Awaited<ReturnType<typeof chromium.launch>>;
 
 const routes = ["/", "/auth/post-login", "/board", "/daily"] as const;
+const workspaceEntryPathnames = new Set(["/admin", "/board", "/calendar", "/daily", "/materials", "/trash"]);
 const magicLinkAdminEmail =
   process.env.ARCHITECT_ADMIN_EMAIL?.trim() || process.env.PREVIEW_ADMIN_EMAIL?.trim() || "gudc083111@gmail.com";
 
@@ -31,7 +32,7 @@ async function main() {
 
   try {
     for (const route of routes) {
-      results.push(await smokeRoute(context, options.baseUrl, route, options.timeoutMs));
+      results.push(await smokeRoute(context, options.baseUrl, route, options.timeoutMs, context.expectsAuthenticatedWorkspace));
     }
   } finally {
     await browser.close();
@@ -52,6 +53,7 @@ async function main() {
 
 async function createSmokeContext(browser: SmokeBrowser, baseUrl: URL) {
   const context = await browser.newContext(buildContextOptions(baseUrl));
+  let expectsAuthenticatedWorkspace = hasExplicitAuthState();
   if (!hasExplicitAuthState() && hasSupabaseSessionEnv()) {
     const jar = await createSupabaseSessionCookieJar(baseUrl);
     await context.addCookies([...jar.entries()].map(([name, value]) => ({
@@ -60,15 +62,17 @@ async function createSmokeContext(browser: SmokeBrowser, baseUrl: URL) {
       url: baseUrl.origin,
       sameSite: "Lax" as const,
     })));
+    expectsAuthenticatedWorkspace = true;
   }
-  return context;
+  return Object.assign(context, { expectsAuthenticatedWorkspace });
 }
 
 async function smokeRoute(
   context: BrowserContext,
   baseUrl: URL,
-  route: string,
+  route: (typeof routes)[number],
   timeoutMs: number,
+  expectsAuthenticatedWorkspace: boolean,
 ) {
   const page = await context.newPage();
   const diagnostics: string[] = [];
@@ -105,6 +109,7 @@ async function smokeRoute(
   if (route === "/") {
     assert.notEqual(new URL(finalUrl).pathname, "/", "/ must leave the root entry after server-side destination resolution");
   }
+  assertAuthenticatedWorkspaceDestination(route, finalUrl, expectsAuthenticatedWorkspace);
 
   await page.close();
 
@@ -114,6 +119,30 @@ async function smokeRoute(
     title,
     bodyPreview: bodyText.replace(/\s+/g, " ").slice(0, 160),
   } satisfies RouteResult;
+}
+
+function assertAuthenticatedWorkspaceDestination(
+  route: (typeof routes)[number],
+  finalUrl: string,
+  expectsAuthenticatedWorkspace: boolean,
+) {
+  if (!expectsAuthenticatedWorkspace) {
+    return;
+  }
+
+  const finalPathname = new URL(finalUrl).pathname;
+  assert.notEqual(finalPathname, "/login", `${route} must not fall back to login when smoke auth is configured`);
+
+  if (route === "/board" || route === "/daily") {
+    assert.equal(finalPathname, route, `${route} must stay on ${route} when smoke auth is configured`);
+    return;
+  }
+
+  assert.equal(
+    workspaceEntryPathnames.has(finalPathname),
+    true,
+    `${route} must resolve to a workspace destination when smoke auth is configured; got ${finalPathname}`,
+  );
 }
 
 function parseOptions(argv: string[]) {

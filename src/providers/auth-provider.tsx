@@ -23,7 +23,7 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPreview = pathname.startsWith("/preview");
-  const isPublicAuthPath = pathname === "/login" || pathname.startsWith("/auth/");
+  const isPublicAuthPath = pathname === "/" || pathname === "/login" || pathname.startsWith("/auth/");
   const authMode = isPreview ? "preview" : isPublicAuthPath ? "public" : "workspace";
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
