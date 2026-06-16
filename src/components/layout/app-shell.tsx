@@ -22,7 +22,7 @@ function WorkspaceAccessGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isPreview = pathname.startsWith("/preview");
-  const isPublicShellPath = pathname === "/login" || pathname.startsWith("/auth/");
+  const isPublicShellPath = pathname === "/" || pathname === "/login" || pathname.startsWith("/auth/");
   const isWorkspacePath =
     pathname === "/board" ||
     pathname === "/daily" ||
@@ -72,7 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const contentWidth = pathname === "/daily" || pathname === "/preview/daily" || pathname === "/ai-settings" ? "wide" : "default";
 
-  if (pathname === "/login" || pathname.startsWith("/auth/")) {
+  if (pathname === "/" || pathname === "/login" || pathname.startsWith("/auth/")) {
     return <>{children}</>;
   }
 

@@ -62,6 +62,7 @@
     "knowledge-discovery-scan:validate": "tsx scripts/knowledge-discovery-scan-validate.ts",
     "knowledge-wiki:preview-smoke": "tsx scripts/knowledge-wiki-simplification-preview-smoke.ts",
     "assistant-thread-memory:validate": "tsx scripts/assistant-thread-memory-validate.ts",
+    "root-entry:smoke": "tsx scripts/root-entry-smoke.ts",
     "task-review:smoke": "powershell -ExecutionPolicy Bypass -File scripts/task-review-service-smoke.ps1",
     "daily:editing:verify": "tsx scripts/daily-editing-responsiveness-verify.ts",
     "daily:cloud-latency:verify": "tsx scripts/daily-cloud-latency-verify.ts",

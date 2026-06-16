@@ -1229,14 +1229,6 @@ export function KnowledgeAdminShell({
       return sourceMatches && priorityMatches;
     });
   }, [detail?.evidence, evidencePriorityFilter, evidenceSourceFilter]);
-  const activeEvidenceFilterChips = useMemo(() => {
-    const total = detail?.evidence.length ?? 0;
-    return [
-      `출처: ${evidenceSourceFilterLabels[evidenceSourceFilter]}`,
-      `우선순위: ${evidencePriorityFilterLabels[evidencePriorityFilter]}`,
-      `표시: ${visibleEvidence.length}/${total}`,
-    ];
-  }, [detail?.evidence.length, evidencePriorityFilter, evidenceSourceFilter, visibleEvidence.length]);
   const visibleEvidenceSummary = useMemo(() => {
     const sourced = visibleEvidence.filter((item) => Boolean(item.sourceUrl)).length;
     const high = visibleEvidence.filter((item) => readEvidencePriorityFilter(item.priority) === "high").length;
@@ -1250,6 +1242,24 @@ export function KnowledgeAdminShell({
       low,
     };
   }, [visibleEvidence]);
+  const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
+  const evidenceResultChips = useMemo(
+    () => [
+      `결과 ${visibleEvidence.length}/${detail?.evidence.length ?? 0}`,
+      visibleEvidenceSummary.unsourced ? `출처 없음 ${visibleEvidenceSummary.unsourced}` : "",
+      visibleEvidenceSummary.high ? `높은 우선순위 ${visibleEvidenceSummary.high}` : "",
+      hasCustomEvidenceFilters ? `${evidenceSourceFilterLabels[evidenceSourceFilter]} / ${evidencePriorityFilterLabels[evidencePriorityFilter]}` : "",
+    ].filter(Boolean),
+    [
+      detail?.evidence.length,
+      evidencePriorityFilter,
+      evidenceSourceFilter,
+      hasCustomEvidenceFilters,
+      visibleEvidence.length,
+      visibleEvidenceSummary.high,
+      visibleEvidenceSummary.unsourced,
+    ],
+  );
   const approvalGuardrails = useMemo(
     () => buildApprovalGuardrails(
       draftReadiness,
@@ -1303,7 +1313,6 @@ export function KnowledgeAdminShell({
     () => buildRejectionReasonPresets(approvalGuardrails),
     [approvalGuardrails],
   );
-  const approvalPackageSections = 4;
   const approvalPackageQuality = useMemo(
     () => buildApprovalPackageQuality(
       detail,
@@ -1327,7 +1336,6 @@ export function KnowledgeAdminShell({
     ],
   );
   const approvalPackageQualityReadyCount = approvalPackageQuality.filter((item) => item.ready).length;
-  const approvalPackageQualityMissingCount = approvalPackageQuality.length - approvalPackageQualityReadyCount;
   const approvalPackageQualityStatus = useMemo(
     () => readChecklistStatus(
       approvalPackageQualityReadyCount,
@@ -1746,7 +1754,6 @@ export function KnowledgeAdminShell({
   }, [approvedProviderExecutionReviewReport]);
   const hasCustomCandidateFilters =
     filter !== "candidate" || riskFilter !== "all" || Boolean(candidateSearch.trim());
-  const hasCustomEvidenceFilters = evidenceSourceFilter !== "all" || evidencePriorityFilter !== "all";
   const regulationSourceReviewCoverageQuery = useMemo(() => {
     const params = new URLSearchParams();
     params.set("coveragePreset", regulationSourceReviewCoveragePreset);
@@ -3826,6 +3833,42 @@ export function KnowledgeAdminShell({
     });
   }
 
+  const activeCandidateStepIndex = Math.max(0, knowledgeCandidateTabs.indexOf(activeCandidateTab));
+  const activeCandidateStepNumber = activeCandidateStepIndex + 1;
+  const nextCandidateTab =
+    activeCandidateTab === "evidence" ? "draft" :
+    activeCandidateTab === "draft" ? "decision" :
+    null;
+  const candidateNextActionLabel = nextCandidateTab
+    ? nextCandidateTab === "decision"
+      ? "승인 결정으로 이동"
+      : `${knowledgeCandidateTabLabels[nextCandidateTab]}로 이동`
+    : detail?.approvedKnowledgeItem
+      ? "승인 WIKI에서 보기"
+      : "WIKI 지식 승인";
+  const candidateNextActionDetail = nextCandidateTab
+    ? `${knowledgeCandidateTabLabels[activeCandidateTab]} 확인 후 다음 단계로 진행합니다.`
+    : detail?.approvedKnowledgeItem
+      ? "승인된 항목을 WIKI 읽기 화면에서 확인합니다."
+      : guardrailWarningCount
+        ? `경고 ${guardrailWarningCount}개가 남아 있지만 기존 정책대로 승인할 수 있습니다.`
+        : "경고 없이 승인할 수 있습니다.";
+  const missingDraftReadiness = draftReadiness.filter((item) => !item.ready);
+  const passingDraftReadiness = draftReadiness.filter((item) => item.ready);
+  const markdownIssueChips = [
+    markdownOutline.length ? "" : "Markdown 제목 없음",
+    markdownStructureSummary.listItems ? "" : "목록 구조 없음",
+    markdownWikiLinks.length ? "" : "WIKI 링크 없음",
+  ].filter(Boolean);
+  const warningApprovalRiskGroups = sortedApprovalRiskGroups.filter((group) => group.warningCount > 0);
+  const passingApprovalRiskGroups = sortedApprovalRiskGroups.filter((group) => group.warningCount === 0);
+  const warningApprovalGuardrails = sortedApprovalGuardrails.filter((item) => item.tone === "warning");
+  const passingApprovalGuardrails = sortedApprovalGuardrails.filter((item) => item.tone === "ready");
+  const missingApprovalPackageQuality = sortedApprovalPackageQuality.filter((item) => !item.ready);
+  const passingApprovalPackageQuality = sortedApprovalPackageQuality.filter((item) => item.ready);
+  const missingFinalReviewChecklist = sortedFinalReviewChecklist.filter((item) => !item.ready);
+  const passingFinalReviewChecklist = sortedFinalReviewChecklist.filter((item) => item.ready);
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -4062,17 +4105,58 @@ export function KnowledgeAdminShell({
           {detail ? (
             <>
               <section className={styles.summaryBand}>
-                <div>
-                  <p>{detail.projectName} / {detail.taskIssueId}</p>
-                  <h2>{detail.taskTitle}</h2>
+                <div className={styles.reviewProgress}>
+                  <div>
+                    <p>{detail.projectName} / {detail.taskIssueId}</p>
+                    <h2>{detail.taskTitle}</h2>
+                  </div>
+                  <div className={styles.reviewProgressSteps} aria-label="후보 검토 진행 단계">
+                    {knowledgeCandidateTabs.map((tab, index) => {
+                      const isCurrent = tab === activeCandidateTab;
+                      const isDone = index < activeCandidateStepIndex;
+                      return (
+                        <button
+                          className={[
+                            styles.reviewStep,
+                            isCurrent ? styles.reviewStepActive : "",
+                            isDone ? styles.reviewStepDone : "",
+                          ].filter(Boolean).join(" ")}
+                          key={tab}
+                          onClick={() => setCandidateTab(tab)}
+                          type="button"
+                        >
+                          <span>{index + 1}</span>
+                          {knowledgeCandidateTabLabels[tab]}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <div className={styles.sourceChips} aria-label="후보 개요 고정 요약">
                     <span>출처 사용자 AI 검토</span>
                     <span>상태 {stateLabels[detail.state]}</span>
+                    <span>현재 단계 {activeCandidateStepNumber}/{knowledgeCandidateTabs.length}</span>
                     <span>경고 {guardrailWarningCount}</span>
-                    <span>{approvalReviewItems.length ? `다음 행동: ${approvalReviewItems[0]}` : "다음 행동: 승인 결정 확인"}</span>
+                    <span>{approvalReviewItems.length ? `검토 항목 ${approvalReviewItems.length}개` : "필수 검토 항목 없음"}</span>
                   </div>
                 </div>
-                <span>{detail.confidenceScore}%</span>
+                <aside className={styles.reviewNextAction} aria-label="다음 검토 행동">
+                  <span className={styles.candidateConfidence}>신뢰도 {detail.confidenceScore}%</span>
+                  <strong>{candidateNextActionLabel}</strong>
+                  <p>{candidateNextActionDetail}</p>
+                  {nextCandidateTab ? (
+                    <button onClick={() => setCandidateTab(nextCandidateTab)} type="button">
+                      {candidateNextActionLabel}
+                    </button>
+                  ) : detail.approvedKnowledgeItem ? (
+                    <button onClick={() => openCurrentApprovedKnowledge("readback")} type="button">
+                      승인 WIKI에서 보기
+                    </button>
+                  ) : (
+                    <button disabled={busy || Boolean(structuredDraftApprovalIssue)} onClick={approveCandidate} type="button">
+                      WIKI 지식 승인
+                    </button>
+                  )}
+                </aside>
               </section>
 
               <nav aria-label="후보 상세 검토 단계" className={styles.candidateDetailTabShell}>
@@ -4122,55 +4206,65 @@ export function KnowledgeAdminShell({
                   <p>{detail.question}</p>
                   <h4>답변</h4>
                   <p className={styles.answer}>{detail.answer}</p>
-                  <div className={styles.evidenceFilters} aria-label="Knowledge evidence source filters">
-                    {(["all", "sourced", "unsourced"] as EvidenceSourceFilter[]).map((value) => (
-                      <button
-                        className={evidenceSourceFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
-                        key={value}
-                        onClick={() => setEvidenceSourceFilter(value)}
-                        type="button"
-                      >
-                        {evidenceSourceFilterLabels[value]}
-                      </button>
-                    ))}
-                  </div>
-                  <div className={styles.evidenceFilters} aria-label="Knowledge evidence priority filters">
-                    {(["all", "high", "normal", "low"] as EvidencePriorityFilter[]).map((value) => (
-                      <button
-                        className={evidencePriorityFilter === value ? styles.queueQuickFilterActive : styles.queueQuickFilter}
-                        key={value}
-                        onClick={() => setEvidencePriorityFilter(value)}
-                        type="button"
-                      >
-                        {evidencePriorityFilterLabels[value]}
-                      </button>
-                    ))}
-                  </div>
-                  <div className={styles.sourceChips} aria-label="Knowledge active evidence filter chips">
-                    {activeEvidenceFilterChips.map((chip) => (
-                      <span key={chip}>{chip}</span>
-                    ))}
-                  </div>
-                  <div className={styles.sourceChips} aria-label="Knowledge visible evidence summary">
-                    <span>표시된 출처 있음 {visibleEvidenceSummary.sourced}</span>
-                    <span>표시된 출처 없음 {visibleEvidenceSummary.unsourced}</span>
-                    <span>표시된 높은 우선순위 {visibleEvidenceSummary.high}</span>
-                    <span>표시된 보통 우선순위 {visibleEvidenceSummary.normal}</span>
-                    <span>표시된 낮은 우선순위 {visibleEvidenceSummary.low}</span>
-                  </div>
-                  <div className={styles.evidenceFilters}>
-                    <button
-                      className={styles.queueQuickFilter}
-                      disabled={!hasCustomEvidenceFilters}
-                      onClick={clearEvidenceFilters}
-                      type="button"
-                    >
-                      근거 필터 지우기
-                    </button>
-                    <button className={styles.queueQuickFilter} onClick={copyEvidenceFilterHandoff} type="button">
-                      근거 필터 전달 자료 복사
-                    </button>
-                  </div>
+                  <section className={styles.evidenceFilterPanel} aria-label="근거 필터">
+                    <div className={styles.evidenceFilterGroup}>
+                      <span className={styles.evidenceFilterLabel}>출처</span>
+                      <div className={styles.evidenceSegmentedControl} aria-label="Knowledge evidence source filters">
+                        {(["all", "sourced", "unsourced"] as EvidenceSourceFilter[]).map((value) => (
+                          <button
+                            aria-pressed={evidenceSourceFilter === value}
+                            className={evidenceSourceFilter === value ? styles.evidenceSegmentActive : styles.evidenceSegment}
+                            key={value}
+                            onClick={() => setEvidenceSourceFilter(value)}
+                            type="button"
+                          >
+                            {evidenceSourceFilterLabels[value]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.evidenceFilterGroup}>
+                      <span className={styles.evidenceFilterLabel}>우선순위</span>
+                      <div className={styles.evidenceSegmentedControl} aria-label="Knowledge evidence priority filters">
+                        {(["all", "high", "normal", "low"] as EvidencePriorityFilter[]).map((value) => (
+                          <button
+                            aria-pressed={evidencePriorityFilter === value}
+                            className={evidencePriorityFilter === value ? styles.evidenceSegmentActive : styles.evidenceSegment}
+                            key={value}
+                            onClick={() => setEvidencePriorityFilter(value)}
+                            type="button"
+                          >
+                            {evidencePriorityFilterLabels[value]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.evidenceResultSummary} aria-label="Knowledge visible evidence summary">
+                      {evidenceResultChips.map((chip) => (
+                        <span
+                          className={chip.startsWith("출처 없음") ? styles.issueChipWarning : styles.issueChipNeutral}
+                          key={chip}
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                    <div className={styles.evidenceFilterActions}>
+                      {hasCustomEvidenceFilters ? (
+                        <button onClick={clearEvidenceFilters} type="button">
+                          필터 지우기
+                        </button>
+                      ) : null}
+                      <details className={styles.evidenceAuxiliaryActions}>
+                        <summary>보조 작업</summary>
+                        <div>
+                          <button onClick={copyEvidenceFilterHandoff} type="button">
+                            근거 필터 전달 자료 복사
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  </section>
                   <div className={styles.evidenceList}>
                     {visibleEvidence.length ? visibleEvidence.map((evidence) => (
                       <article className={styles.evidence} key={evidence.id}>
@@ -4203,6 +4297,20 @@ export function KnowledgeAdminShell({
                   </div>
                   <div className={styles.editorTools}>
                     <button onClick={resetDraft} type="button">초안 초기화</button>
+                    <select
+                      aria-label="공개 범위"
+                      value={draft.scope}
+                      onChange={(event) => setDraft((current) => ({ ...current, scope: event.target.value as Scope }))}
+                    >
+                      {Object.entries(scopeLabels).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <details className={styles.auxiliaryActions}>
+                  <summary>보조 작업</summary>
+                  <div className={styles.auxiliaryActionGrid}>
                     <button disabled={!draft.bodyMarkdown.trim()} onClick={copyDraftMarkdown} type="button">
                       Markdown 복사
                     </button>
@@ -4216,35 +4324,20 @@ export function KnowledgeAdminShell({
                     <button onClick={copyApprovalRiskSummary} type="button">리스크 요약 복사</button>
                     <button onClick={copyApprovalDecisionNote} type="button">결정 메모 복사</button>
                     <button onClick={copyDirtyDraftSummary} type="button">초안 변경 요약 복사</button>
-                    <select
-                      aria-label="공개 범위"
-                      value={draft.scope}
-                      onChange={(event) => setDraft((current) => ({ ...current, scope: event.target.value as Scope }))}
-                    >
-                      {Object.entries(scopeLabels).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </select>
                   </div>
-                </div>
-                <section
-                  className={dirtyDraftCount ? styles.reviewBannerWarning : styles.reviewBannerReady}
-                  aria-label="Knowledge dirty draft reset warning"
-                >
-                  <strong>{dirtyDraftCount ? "초안에 저장되지 않은 수정이 있습니다" : "초안이 선택된 후보와 일치합니다"}</strong>
-                  <p>
-                    {dirtyDraftCount
-                      ? `초안을 초기화하면 변경된 필드 ${dirtyDraftCount}개가 원래 값으로 돌아갑니다.`
-                      : "초안을 초기화해도 현재 값은 그대로 유지됩니다."}
-                  </p>
-                </section>
-                <section
-                  className={reviewStatus.tone === "ready" ? styles.reviewBannerReady : styles.reviewBannerWarning}
-                  aria-label="Knowledge review status banner"
-                >
-                  <strong>{reviewStatus.label}</strong>
-                  <p>{reviewStatus.detail}</p>
-                </section>
+                </details>
+                {dirtyDraftCount ? (
+                  <section className={styles.reviewBannerWarning} aria-label="Knowledge dirty draft reset warning">
+                    <strong>초안에 저장되지 않은 수정이 있습니다</strong>
+                    <p>초안을 초기화하면 변경된 필드 {dirtyDraftCount}개가 원래 값으로 돌아갑니다.</p>
+                  </section>
+                ) : null}
+                {reviewStatus.tone === "warning" ? (
+                  <section className={styles.reviewBannerWarning} aria-label="Knowledge review status banner">
+                    <strong>{reviewStatus.label}</strong>
+                    <p>{reviewStatus.detail}</p>
+                  </section>
+                ) : null}
                 <KnowledgeStructuredDraftPanel
                   sourceBuckets={sourceBuckets}
                   sourceBucketsLoading={sourceBucketsLoading}
@@ -4270,69 +4363,96 @@ export function KnowledgeAdminShell({
                     </div>
                     <span>본문 {draft.bodyMarkdown.trim().length}자</span>
                   </div>
-                  <div className={styles.sourceChips} aria-label="지식 초안 출처 참조">
+                  <div className={styles.contextChips} aria-label="지식 초안 출처 참조">
                     <span>작업 {detail.taskIssueId}</span>
                     <span>기록 {detail.id.slice(0, 8)}</span>
                     <span>근거 {detail.evidence.length}개</span>
                     <span>범위 {scopeLabels[draft.scope]}</span>
                   </div>
-                  <label>
-                    제목
+                  <div className={missingDraftReadiness.length ? styles.issueSummaryWarning : styles.issueSummaryReady} aria-label="초안 필수 입력 요약">
+                    <strong>초안 준비 {readyReadinessCount}/{draftReadiness.length}</strong>
+                    {missingDraftReadiness.length ? (
+                      <div className={styles.issueChips}>
+                        {missingDraftReadiness.map((item) => (
+                          <span className={styles.issueChipWarning} key={item.label}>누락 {item.label}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span>필수 입력과 근거가 준비됐습니다.</span>
+                    )}
+                  </div>
+                  <label className={[styles.fieldBlock, !draft.title.trim() ? styles.fieldBlockWarning : styles.fieldBlockRequired].join(" ")}>
+                    <span className={styles.fieldLabel}>
+                      제목
+                      <span className={styles.requiredBadge}>필수</span>
+                      {!draft.title.trim() ? <span className={styles.missingBadge}>누락</span> : null}
+                    </span>
                     <input
                       value={draft.title}
                       onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
                     />
                   </label>
-                  <div className={styles.readinessList} aria-label="Knowledge draft readiness">
-                    {draftReadiness.map((item) => (
-                      <span className={item.ready ? styles.readinessReady : styles.readinessMissing} key={item.label}>
-                        {item.ready ? "준비됨" : "누락"} {item.label}
-                      </span>
-                    ))}
-                  </div>
-                  <label>
-                    요약
+                  <label className={[styles.fieldBlock, !draft.summary.trim() ? styles.fieldBlockWarning : styles.fieldBlockRequired].join(" ")}>
+                    <span className={styles.fieldLabel}>
+                      요약
+                      <span className={styles.requiredBadge}>필수</span>
+                      {!draft.summary.trim() ? <span className={styles.missingBadge}>누락</span> : null}
+                    </span>
                     <textarea
                       rows={3}
                       value={draft.summary}
                       onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
                     />
                   </label>
-                  <label>
-                    태그
+                  <label className={[styles.fieldBlock, !draftTags.length ? styles.fieldBlockWarning : styles.fieldBlockRequired].join(" ")}>
+                    <span className={styles.fieldLabel}>
+                      태그
+                      <span className={styles.requiredBadge}>필수</span>
+                      {!draftTags.length ? <span className={styles.missingBadge}>누락</span> : null}
+                    </span>
                     <input
                       value={draft.tagsText}
                       onChange={(event) => setDraft((current) => ({ ...current, tagsText: event.target.value }))}
                     />
                   </label>
-                  <div className={styles.sourceChips} aria-label="Knowledge Markdown outline preview">
+                  {markdownIssueChips.length ? (
+                    <div className={styles.issueSummaryWarning} aria-label="Markdown 검토 필요 항목">
+                      <strong>Markdown 검토 필요</strong>
+                      <div className={styles.issueChips}>
+                        {markdownIssueChips.map((chip) => (
+                          <span className={styles.issueChipWarning} key={chip}>{chip}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <details className={styles.compactMetadata}>
+                    <summary>Markdown 진단</summary>
+                    <div className={styles.contextChips} aria-label="Knowledge Markdown structure summary">
+                      <span>제목 {markdownStructureSummary.headings}</span>
+                      <span>문단 {markdownStructureSummary.paragraphs}</span>
+                      <span>목록 항목 {markdownStructureSummary.listItems}</span>
+                      <span>줄 {markdownStructureSummary.lines}</span>
+                      <span>WIKI 링크 {markdownWikiLinks.length}</span>
+                    </div>
                     {markdownOutline.length ? (
-                      markdownOutline.map((heading) => (
-                        <span key={`${heading.line}-${heading.text}`}>
-                          H{heading.level} L{heading.line}: {heading.text}
-                        </span>
-                      ))
-                    ) : (
-                      <span>Markdown 제목 없음</span>
-                    )}
-                  </div>
-                  <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
-                    <span>제목 {markdownStructureSummary.headings}</span>
-                    <span>문단 {markdownStructureSummary.paragraphs}</span>
-                    <span>목록 항목 {markdownStructureSummary.listItems}</span>
-                    <span>줄 {markdownStructureSummary.lines}</span>
-                  </div>
-                  <div className={styles.sourceChips} aria-label="Knowledge Markdown WIKI link preview">
+                      <div className={styles.contextChips} aria-label="Knowledge Markdown outline preview">
+                        {markdownOutline.map((heading) => (
+                          <span key={`${heading.line}-${heading.text}`}>
+                            H{heading.level} L{heading.line}: {heading.text}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     {markdownWikiLinks.length ? (
-                      markdownWikiLinks.map((link) => (
-                        <span key={`${link.line}-${link.target}-${link.label}`}>
-                          L{link.line}: [[{link.target}]]
-                        </span>
-                      ))
-                    ) : (
-                      <span>Markdown WIKI 링크 없음</span>
-                    )}
-                  </div>
+                      <div className={styles.contextChips} aria-label="Knowledge Markdown WIKI link preview">
+                        {markdownWikiLinks.map((link) => (
+                          <span key={`${link.line}-${link.target}-${link.label}`}>
+                            L{link.line}: [[{link.target}]]
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </details>
                   <details className={styles.compactMetadata}>
                     <summary>초안 보조 메타데이터</summary>
                     <div className={styles.sourceChips} aria-label="지식 초안 보조 메타데이터">
@@ -4361,19 +4481,34 @@ export function KnowledgeAdminShell({
                     <p>품질 점검</p>
                     <h3>경고와 누락 우선 검토</h3>
                   </div>
-                  <div className={styles.editorTools}>
+                </div>
+                <details className={styles.auxiliaryActions}>
+                  <summary>보조 작업</summary>
+                  <div className={styles.auxiliaryActionGrid}>
                     <button onClick={copyApprovalChecklist} type="button">승인 체크리스트 복사</button>
                     <button onClick={copyApprovalRiskSummary} type="button">리스크 요약 복사</button>
                     <button onClick={copyApprovalRiskFilterHandoff} type="button">리스크 필터 복사</button>
                     <button onClick={copyApprovalPackageQuality} type="button">패키지 품질 복사</button>
                     <button onClick={copyFinalReviewCloseout} type="button">최종 검토 마감 복사</button>
                   </div>
-                </div>
-                <div className={styles.sourceChips} aria-label="지식 guardrail 요약">
-                  <span>Guardrail 경고 {guardrailWarningCount}개</span>
-                  <span>리스크 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
-                  <span>준비 상태 {readyReadinessCount}/{draftReadiness.length}</span>
-                  <span>신뢰도 {readConfidenceBand(detail.confidenceScore)}</span>
+                </details>
+                <div
+                  className={guardrailWarningCount || missingDraftReadiness.length ? styles.issueSummaryWarning : styles.issueSummaryReady}
+                  aria-label="지식 승인 필수 검토 요약"
+                >
+                  <strong>{guardrailWarningCount || missingDraftReadiness.length ? "필수 검토 필요" : "필수 검토 완료"}</strong>
+                  <div className={styles.issueChips}>
+                    <span className={guardrailWarningCount ? styles.issueChipWarning : styles.issueChipNeutral}>
+                      경고 {guardrailWarningCount}
+                    </span>
+                    <span className={missingDraftReadiness.length ? styles.issueChipWarning : styles.issueChipNeutral}>
+                      누락 {missingDraftReadiness.length}
+                    </span>
+                    <span className={approvalRiskWarningGroupCount ? styles.issueChipWarning : styles.issueChipNeutral}>
+                      경고 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}
+                    </span>
+                    <span className={styles.issueChipNeutral}>신뢰도 {readConfidenceBand(detail.confidenceScore)}</span>
+                  </div>
                 </div>
                 <div className={styles.queueQuickFilters} aria-label="지식 승인 리스크 필터 바로가기">
                   {(["all", "scope", "metadata", "structure", "evidence", "state"] as ApprovalRiskFilter[]).map((value) => (
@@ -4397,123 +4532,181 @@ export function KnowledgeAdminShell({
                 </div>
                 <section className={styles.guardrails} aria-label="Knowledge draft readiness">
                   <h4>초안 준비 상태</h4>
-                  <div>
-                    {sortedDraftReadiness.map((item) => (
+                  {missingDraftReadiness.length ? (
+                    <div>
+                    {missingDraftReadiness.map((item) => (
                       <article
-                        className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                        className={styles.guardrailWarning}
                         key={item.label}
                       >
-                        <strong>{item.ready ? "준비됨" : "누락"} {item.label}</strong>
-                        <p>{item.ready ? "필수 초안 필드가 채워졌습니다." : "승인 전 이 필드를 확인해야 합니다."}</p>
+                        <strong>누락 {item.label}</strong>
+                        <p>승인 전 이 필드를 확인해야 합니다.</p>
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className={styles.readyNote}>필수 초안 입력과 근거가 모두 준비됐습니다.</p>
+                  )}
+                  {passingDraftReadiness.length ? (
+                    <details className={styles.passingChecks}>
+                      <summary>통과한 초안 점검 {passingDraftReadiness.length}개</summary>
+                      <div>
+                        {passingDraftReadiness.map((item) => (
+                          <span key={item.label}>{item.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </section>
                 <section className={styles.guardrails} aria-label="지식 승인 리스크 그룹">
                   <h4>승인 리스크 그룹</h4>
-                  <div>
-                    {sortedApprovalRiskGroups.map((group) => (
+                  {warningApprovalRiskGroups.length ? (
+                    <div>
+                    {warningApprovalRiskGroups.map((group) => (
                       <article
-                        className={group.warningCount ? styles.guardrailWarning : styles.guardrailReady}
+                        className={styles.guardrailWarning}
                         key={group.key}
                       >
                         <strong>{group.label}</strong>
-                        <p>경고 {group.warningCount}개 / 준비 메모 {group.readyCount}개</p>
-                        {group.warningCount ? (
-                          <ul>
-                            {group.items.filter((item) => item.tone === "warning").map((item) => (
-                              <li key={item.label}>{item.label}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p>현재 초안에는 {group.label.toLowerCase()} 경고가 없습니다.</p>
-                        )}
+                        <p>경고 {group.warningCount}개</p>
+                        <ul>
+                          {group.items.filter((item) => item.tone === "warning").map((item) => (
+                            <li key={item.label}>{item.label}</li>
+                          ))}
+                        </ul>
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className={styles.readyNote}>활성 리스크 그룹 경고가 없습니다.</p>
+                  )}
+                  {passingApprovalRiskGroups.length ? (
+                    <details className={styles.passingChecks}>
+                      <summary>통과한 리스크 그룹 {passingApprovalRiskGroups.length}개</summary>
+                      <div>
+                        {passingApprovalRiskGroups.map((group) => (
+                          <span key={group.key}>{group.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </section>
                 <section className={styles.guardrails} aria-label="지식 승인 가드레일 메모">
                   <h4>승인 가드레일</h4>
-                  <div>
-                    {sortedApprovalGuardrails.map((item) => (
+                  {warningApprovalGuardrails.length ? (
+                    <div>
+                    {warningApprovalGuardrails.map((item) => (
                       <article
-                        className={item.tone === "ready" ? styles.guardrailReady : styles.guardrailWarning}
+                        className={styles.guardrailWarning}
                         key={item.label}
                       >
                         <strong>{item.label}</strong>
                         <p>{item.detail}</p>
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className={styles.readyNote}>활성 가드레일 경고가 없습니다.</p>
+                  )}
+                  {passingApprovalGuardrails.length ? (
+                    <details className={styles.passingChecks}>
+                      <summary>통과한 가드레일 {passingApprovalGuardrails.length}개</summary>
+                      <div>
+                        {passingApprovalGuardrails.map((item) => (
+                          <span key={item.label}>{item.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </section>
                 <section className={styles.guardrails} aria-label="지식 승인 패키지 품질 점검">
                   <h4>승인 패키지 품질</h4>
-                  <div>
-                    {sortedApprovalPackageQuality.map((item) => (
+                  {missingApprovalPackageQuality.length ? (
+                    <div>
+                    {missingApprovalPackageQuality.map((item) => (
                       <article
-                        className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                        className={styles.guardrailWarning}
                         key={item.label}
                       >
                         <strong>{item.label}</strong>
                         <p>{item.detail}</p>
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className={styles.readyNote}>승인 패키지 품질 점검이 통과했습니다.</p>
+                  )}
+                  {passingApprovalPackageQuality.length ? (
+                    <details className={styles.passingChecks}>
+                      <summary>통과한 패키지 점검 {passingApprovalPackageQuality.length}개</summary>
+                      <div>
+                        {passingApprovalPackageQuality.map((item) => (
+                          <span key={item.label}>{item.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </section>
                 <section className={styles.guardrails} aria-label="Knowledge final review closeout checklist">
                   <h4>최종 검토 마감</h4>
-                  <div>
-                    {sortedFinalReviewChecklist.map((item) => (
+                  {missingFinalReviewChecklist.length ? (
+                    <div>
+                    {missingFinalReviewChecklist.map((item) => (
                       <article
-                        className={item.ready ? styles.guardrailReady : styles.guardrailWarning}
+                        className={styles.guardrailWarning}
                         key={item.label}
                       >
                         <strong>{item.label}</strong>
                         <p>{item.detail}</p>
                       </article>
                     ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className={styles.readyNote}>최종 검토 마감 조건이 준비됐습니다.</p>
+                  )}
+                  {passingFinalReviewChecklist.length ? (
+                    <details className={styles.passingChecks}>
+                      <summary>통과한 마감 점검 {passingFinalReviewChecklist.length}개</summary>
+                      <div>
+                        {passingFinalReviewChecklist.map((item) => (
+                          <span key={item.label}>{item.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </section>
-                <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
-                  <span>제목 {markdownStructureSummary.headings}</span>
-                  <span>문단 {markdownStructureSummary.paragraphs}</span>
-                  <span>목록 항목 {markdownStructureSummary.listItems}</span>
-                  <span>WIKI 링크 {markdownWikiLinks.length}</span>
-                </div>
+                <details className={styles.compactMetadata}>
+                  <summary>Markdown 구조 요약</summary>
+                  <div className={styles.contextChips} aria-label="Knowledge Markdown structure summary">
+                    <span>제목 {markdownStructureSummary.headings}</span>
+                    <span>문단 {markdownStructureSummary.paragraphs}</span>
+                    <span>목록 항목 {markdownStructureSummary.listItems}</span>
+                    <span>WIKI 링크 {markdownWikiLinks.length}</span>
+                  </div>
+                </details>
               </section>
               <footer className={styles.footer}>
-                <p className={styles.decisionSummary}>
-                  {approvalReviewItems.length
-                    ? `남은 승인 전 검토 항목 ${approvalReviewItems.length}개`
-                    : guardrailWarningCount
-                      ? `가드레일 경고 ${guardrailWarningCount}개를 최종 확인하세요.`
-                      : "최종 승인 전 필수 검토 항목이 없습니다."}
-                </p>
-                <div className={styles.sourceChips} aria-label="Knowledge approval hard blockers">
-                  {approvalReviewItems.length
-                    ? approvalReviewItems.map((item) => <span key={item}>승인 전 검토 {item}</span>)
-                    : <span>필수 확인 항목 없음</span>}
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge approval submit guardrails">
-                  <span>승인 차단 조건 {guardrailWarningCount}</span>
-                  <span>{guardrailWarningCount ? "승인 전 해결 필요" : "승인 준비됨"}</span>
-                  <span>경고 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge approval package summary">
-                  <span>패키지 섹션 {approvalPackageSections}</span>
-                  <span>초안 {draft.bodyMarkdown.trim().length}자</span>
-                  <span>근거 {detail.evidence.length}</span>
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge approval package quality summary">
-                  <span>패키지 품질 {approvalPackageQualityReadyCount}/{approvalPackageQuality.length}</span>
-                  <span>{approvalPackageQualityStatus.label}</span>
-                  <span>누락 {approvalPackageQualityMissingCount}</span>
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge final review closeout summary">
-                  <span>최종 검토 마감 {finalReviewReadyCount}/{finalReviewChecklist.length}</span>
-                  <span>{finalReviewStatus.label}</span>
-                  <span>{finalReviewNextAction}</span>
-                </div>
+                <section className={styles.decisionPrimaryPanel} aria-label="승인 결정 요약">
+                  <p className={styles.decisionSummary}>
+                    {approvalReviewItems.length
+                      ? `남은 승인 전 검토 항목 ${approvalReviewItems.length}개`
+                      : guardrailWarningCount
+                        ? `가드레일 경고 ${guardrailWarningCount}개를 최종 확인하세요.`
+                        : "최종 승인 전 필수 검토 항목이 없습니다."}
+                  </p>
+                  <div className={styles.sourceChips} aria-label="Knowledge approval decision summary">
+                    <span>{approvalReviewItems.length ? `검토 항목 ${approvalReviewItems.length}` : "필수 확인 항목 없음"}</span>
+                    <span>경고 {guardrailWarningCount}</span>
+                    <span>경고 그룹 {approvalRiskWarningGroupCount}/{approvalRiskGroups.length}</span>
+                    <span>패키지 품질 {approvalPackageQualityReadyCount}/{approvalPackageQuality.length}</span>
+                    <span>최종 검토 {finalReviewReadyCount}/{finalReviewChecklist.length}</span>
+                  </div>
+                  <p className={styles.decisionCaution}>
+                    {guardrailWarningCount
+                      ? "경고가 남아 있어도 기존 운영 정책대로 승인할 수 있습니다. 승인 전 반려 사유나 보완 필요 여부를 확인하세요."
+                      : "승인 준비 상태입니다. 필요하면 반려 사유를 남기거나 바로 승인하세요."}
+                  </p>
+                </section>
                 <div className={styles.queueQuickFilters} aria-label="Knowledge rejection reason presets">
                   {rejectionReasonPresets.map((preset) => (
                     <button
@@ -4526,19 +4719,43 @@ export function KnowledgeAdminShell({
                     </button>
                   ))}
                 </div>
-                <div className={styles.sourceChips} aria-label="Knowledge rejection reason draft status">
-                  <span>사유 프리셋 {rejectionReasonPresets.length}</span>
-                  <span>사유 {draft.rejectionReason.trim() ? "입력됨" : "비어 있음"}</span>
-                  <span>{draft.rejectionReason.trim().length}자</span>
-                </div>
-                <label>
-                  반려 사유
+                <label className={[styles.fieldBlock, draft.rejectionReason.trim() ? styles.fieldBlockRequired : styles.fieldBlockOptional].join(" ")}>
+                  <span className={styles.fieldLabel}>
+                    반려 사유
+                    <span className={styles.optionalBadge}>반려 시 필수</span>
+                    {draft.rejectionReason.trim() ? <span className={styles.contextBadge}>{draft.rejectionReason.trim().length}자</span> : null}
+                  </span>
                   <input
                     value={draft.rejectionReason}
                     onChange={(event) => setDraft((current) => ({ ...current, rejectionReason: event.target.value }))}
                     placeholder="반려할 때 필요한 사유"
                   />
                 </label>
+                <details className={styles.auxiliaryActions}>
+                  <summary>보조 작업</summary>
+                  <div className={styles.auxiliaryActionGrid}>
+                    {detail.approvedKnowledgeItem ? (
+                      <button onClick={copyCurrentApprovedKnowledgeMarkdown} type="button">
+                        승인 WIKI Markdown 복사
+                      </button>
+                    ) : null}
+                    <button onClick={copyApprovalPackage} type="button">
+                      승인 패키지 복사
+                    </button>
+                    <button onClick={copyApprovalPackageQuality} type="button">
+                      패키지 품질 복사
+                    </button>
+                    <button onClick={copyFinalReviewCloseout} type="button">
+                      최종 검토 마감 복사
+                    </button>
+                    <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
+                      승인 차단 조건 복사
+                    </button>
+                    <button disabled={!draft.rejectionReason.trim()} onClick={copyRejectionReason} type="button">
+                      반려 사유 복사
+                    </button>
+                  </div>
+                </details>
                 <div className={styles.actions}>
                   {detail.approvedKnowledgeItem ? (
                     <>
@@ -4548,26 +4765,8 @@ export function KnowledgeAdminShell({
                       <button onClick={() => openCurrentApprovedKnowledge("export_sync")} type="button">
                         내보내기
                       </button>
-                      <button onClick={copyCurrentApprovedKnowledgeMarkdown} type="button">
-                        복사
-                      </button>
                     </>
                   ) : null}
-                  <button onClick={copyApprovalPackage} type="button">
-                    승인 패키지 복사
-                  </button>
-                  <button onClick={copyApprovalPackageQuality} type="button">
-                    패키지 품질 복사
-                  </button>
-                  <button onClick={copyFinalReviewCloseout} type="button">
-                    최종 검토 마감 복사
-                  </button>
-                  <button disabled={!guardrailWarningCount} onClick={copyApprovalBlockers} type="button">
-                    승인 차단 조건 복사
-                  </button>
-                  <button disabled={!draft.rejectionReason.trim()} onClick={copyRejectionReason} type="button">
-                    반려 사유 복사
-                  </button>
                   <button disabled={busy} onClick={rejectCandidate} type="button">반려</button>
                   <button
                     disabled={busy || Boolean(structuredDraftApprovalIssue)}
