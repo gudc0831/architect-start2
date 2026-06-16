@@ -525,6 +525,136 @@ model KnowledgeImportRubric {
   @@map("knowledge_import_rubrics")
 }
 
+/// DB invariant: migration creates partial unique index knowledge_generation_profiles_one_active
+/// on (name) where state = 'active'. Prisma schema cannot express this partial index.
+model KnowledgeGenerationProfile {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String
+  version           Int
+  state             String   @default("draft")
+  sourceBucketRules Json     @default("{}") @map("source_bucket_rules")
+  tocTemplate       Json     @default("[]") @map("toc_template")
+  ontologySchema    Json     @default("{}") @map("ontology_schema")
+  citationRules     Json     @default("[]") @map("citation_rules")
+  sectionRules      Json     @default("[]") @map("section_rules")
+  createdBy         String   @map("created_by") @db.Uuid
+  updatedBy         String   @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt        DateTime? @map("archived_at") @db.Timestamptz(6)
+  runs              KnowledgeGenerationRun[]
+
+  @@unique([name, version])
+  @@index([state, updatedAt])
+  @@map("knowledge_generation_profiles")
+}
+
+model KnowledgeGenerationRun {
+  id                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordId                   String   @map("record_id") @db.Uuid
+  profileId                  String   @map("profile_id") @db.Uuid
+  profileVersion             Int      @map("profile_version")
+  sourceBundleDigest         String   @map("source_bundle_digest")
+  promptDigest               String   @map("prompt_digest")
+  legalVerificationStatus    String   @default("not_required") @map("legal_verification_status")
+  legalVerificationDigest    String   @default("") @map("legal_verification_digest")
+  projectContextTraceDigest  String   @default("") @map("project_context_trace_digest")
+  provider                   String   @default("mock")
+  model                      String   @default("mock")
+  structuredDraft            Json     @default("{}") @map("structured_draft")
+  warnings                   Json     @default("[]")
+  createdBy                  String   @map("created_by") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  profile                    KnowledgeGenerationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+
+  @@index([recordId, createdAt])
+  @@index([profileId, createdAt])
+  @@map("knowledge_generation_runs")
+}
+
+model KnowledgeItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publicId    String   @unique @map("public_id")
+  projectId   String?  @map("project_id") @db.Uuid
+  state       String   @default("draft")
+  title       String
+  slug        String
+  scope       String
+  tags        Json     @default("[]")
+  ontology    Json     @default("{}")
+  createdBy   String   @map("created_by") @db.Uuid
+  updatedBy   String   @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  versions    KnowledgeItemVersion[]
+  sourceRefs  KnowledgeSourceReference[]
+
+  @@unique([projectId, slug])
+  @@index([state, updatedAt])
+  @@index([projectId, state, updatedAt])
+  @@map("knowledge_items")
+}
+
+model KnowledgeItemVersion {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemId          String   @map("item_id") @db.Uuid
+  version         Int
+  state           String   @default("draft")
+  title           String
+  summary         String
+  bodyMarkdown    String   @map("body_markdown")
+  structuredDraft Json     @default("{}") @map("structured_draft")
+  toc             Json     @default("[]")
+  sectionBlocks   Json     @default("[]") @map("section_blocks")
+  contentDigest   String   @map("content_digest")
+  sourceDigest    String   @map("source_digest")
+  sourceRecordId  String?  @unique @map("source_record_id") @db.Uuid
+  sourceTaskId    String?  @map("source_task_id") @db.Uuid
+  sourceProjectId String?  @map("source_project_id") @db.Uuid
+  generationRunId String?  @map("generation_run_id") @db.Uuid
+  approvedBy      String?  @map("approved_by") @db.Uuid
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz(6)
+  supersedesId    String?  @map("supersedes_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  item            KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  sourceRefs      KnowledgeSourceReference[]
+
+  @@unique([itemId, version])
+  @@unique([itemId, id])
+  @@index([itemId, state, createdAt])
+  @@index([sourceProjectId, state, approvedAt])
+  @@index([generationRunId])
+  @@map("knowledge_item_versions")
+}
+
+model KnowledgeSourceReference {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceRefId         String   @map("source_ref_id")
+  itemId              String   @map("item_id") @db.Uuid
+  versionId           String   @map("version_id") @db.Uuid
+  sourceKind          String   @map("source_kind")
+  sourceId            String   @map("source_id")
+  title               String
+  locator             String   @default("")
+  excerpt             String   @default("")
+  sourceUrl           String?  @map("source_url")
+  digest              String
+  authorityRank       Int      @default(0) @map("authority_rank")
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(6)
+  stale               Boolean  @default(false)
+  legalChangeWarnings Json     @default("[]") @map("legal_change_warnings")
+  allowedUse          String   @default("context") @map("allowed_use")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  item                KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  version             KnowledgeItemVersion @relation(fields: [itemId, versionId], references: [itemId, id], onDelete: Cascade)
+
+  @@index([itemId, sourceKind])
+  @@index([versionId, sourceKind])
+  @@index([sourceKind, sourceId])
+  @@unique([versionId, sourceRefId])
+  @@map("knowledge_source_references")
+}
+
 model AssistantWorkSummaryDraft {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId      String   @map("project_id") @db.Uuid

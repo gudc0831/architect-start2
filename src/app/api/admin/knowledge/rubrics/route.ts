@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { assertKnowledgeCapability, requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { backendMode } from "@/lib/backend-mode";
 import {
   createKnowledgeImportRubricDraft,
   listKnowledgeImportRubrics,
@@ -10,6 +11,9 @@ import {
 export async function GET() {
   try {
     await requireKnowledgeAdmin();
+    if (backendMode !== "cloud") {
+      return NextResponse.json({ data: [] });
+    }
     const data = await listKnowledgeImportRubrics();
     return NextResponse.json({ data });
   } catch (error) {

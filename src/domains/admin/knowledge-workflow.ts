@@ -43,6 +43,9 @@ export const knowledgeAuditEventTypes = {
   rubricActivated: "knowledge.rubric.activated",
   rubricArchived: "knowledge.rubric.archived",
   rubricRolledBack: "knowledge.rubric.rolled_back",
+  generationProfileCreated: "knowledge.generation_profile.created",
+  generationProfileActivated: "knowledge.generation_profile.activated",
+  generationProfileRolledBack: "knowledge.generation_profile.rolled_back",
 } as const;
 
 export type KnowledgeWorkflowAuditEventType =
@@ -52,5 +55,6 @@ export const nonDeletableWorkflowAuditTargetTypes = [
   "knowledge_discovery_request",
   "knowledge_import_preview",
   "knowledge_import_rubric",
+  "knowledge_generation_profile",
   "knowledge_candidate_transition",
 ] as const;

@@ -30,6 +30,12 @@ import type {
 } from "@/domains/assistant/saas-api-mode";
 import { normalizeAllowedEvidenceKinds } from "@/domains/assistant/saas-api-mode";
 import { prisma } from "@/lib/prisma";
+import { structuredKnowledgeRepository } from "@/repositories/knowledge";
+import {
+  isStructuredKnowledgeSchemaUnavailable,
+  shouldUseLegacyApprovedKnowledgeFallback,
+} from "@/repositories/knowledge/schema-errors";
+import { publishStructuredKnowledgeFromCandidate } from "@/use-cases/admin/structured-knowledge-service";
 import type {
   AssistantRepository,
   AppendAssistantThreadMessageInput,
@@ -352,10 +358,34 @@ class PostgresAssistantRepository implements AssistantRepository {
       .filter((record) => record !== null);
   }
 
-  async listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }) {
+  async listKnowledgeCandidateRecords(input?: {
+    states?: AssistantCandidateState[];
+    projectId?: string;
+    includeOrganizationApproved?: boolean;
+  }) {
     const states = input?.states ?? ["candidate", "pending_review", "approved", "rejected"];
+    const includeOrganizationApproved = Boolean(
+      input?.includeOrganizationApproved && states.every((state) => state === "approved"),
+    );
     const records = await prisma.assistantTaskRecord.findMany({
-      where: { candidateState: { in: states } },
+      where: {
+        candidateState: { in: states },
+        ...(input?.projectId
+          ? includeOrganizationApproved
+            ? {
+              OR: [
+                { projectId: input.projectId },
+                {
+                  metadata: {
+                    path: ["approvedKnowledgeItem", "scope"],
+                    equals: "organization",
+                  },
+                },
+              ],
+            }
+            : { projectId: input.projectId }
+          : {}),
+      },
       orderBy: { updatedAt: "desc" },
       take: 100,
     });
@@ -368,6 +398,23 @@ class PostgresAssistantRepository implements AssistantRepository {
       return [];
     }
 
+    let schemaUnavailable = false;
+    const structuredItems = await structuredKnowledgeRepository
+      .searchApprovedKnowledge({ projectId: input.projectId, query: input.query, limit })
+      .catch((error: unknown) => {
+        if (!isStructuredKnowledgeSchemaUnavailable(error)) {
+          throw error;
+        }
+        schemaUnavailable = true;
+        return [];
+      });
+    const legacyItems = shouldUseLegacyApprovedKnowledgeFallback({ schemaUnavailable })
+      ? await this.searchLegacyApprovedKnowledge(input)
+      : [];
+    return dedupeApprovedKnowledgeItems([...structuredItems, ...legacyItems]).slice(0, limit);
+  }
+
+  private async searchLegacyApprovedKnowledge(input: { projectId: string; query: string }) {
     try {
       const rows = await prisma.$queryRaw<PrismaApprovedKnowledgeSearchRow[]>(Prisma.sql`
         with approved_knowledge as (
@@ -410,7 +457,7 @@ class PostgresAssistantRepository implements AssistantRepository {
         .filter((entry): entry is { item: ApprovedKnowledgeItem; score: number } => entry !== null && entry.score > 0)
         .sort((left, right) => right.score - left.score || right.item.approvedAt.localeCompare(left.item.approvedAt))
         .map((entry) => entry.item)
-        .slice(0, limit);
+        .slice(0, 100);
     } catch {
       const records = await prisma.assistantTaskRecord.findMany({
         where: {
@@ -434,7 +481,7 @@ class PostgresAssistantRepository implements AssistantRepository {
           .map((record) => toRecord(record).metadata.approvedKnowledgeItem)
           .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
         input.query,
-      ).slice(0, limit);
+      ).slice(0, 100);
     }
   }
 
@@ -601,67 +648,67 @@ class PostgresAssistantRepository implements AssistantRepository {
   }
 
   async reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateInput) {
-    const current = await prisma.assistantTaskRecord.findUnique({ where: { id: input.recordId } });
-    if (!current) {
-      throw new Error("Assistant record not found");
-    }
+    return prisma.$transaction(async (tx) => {
+      const current = await tx.assistantTaskRecord.findUnique({ where: { id: input.recordId } });
+      if (!current) {
+        throw new Error("Assistant record not found");
+      }
 
-    const currentRecord = toRecord(current);
-    const nextCandidateState = input.action === "approve" ? "approved" : "rejected";
-    assertKnowledgeCandidateReviewTransition(currentRecord.candidateState, nextCandidateState);
-    const timestamp = new Date().toISOString();
-    const approvedKnowledgeItem =
-      input.action === "approve"
-        ? ({
-            id: randomUUID(),
-            title: input.title,
-            summary: input.summary,
-            bodyMarkdown: input.bodyMarkdown,
-            tags: input.tags,
-            scope: input.scope,
-            sourceRecordId: currentRecord.id,
-            sourceTaskId: currentRecord.taskId,
-            sourceProjectId: currentRecord.projectId,
-            sourceReferences: currentRecord.evidence,
-            approvedBy: input.reviewerId,
-            approvedAt: timestamp,
-          } satisfies ApprovedKnowledgeItem)
-        : null;
-    const knowledgeReview =
-      input.action === "reject"
-        ? {
-            status: "rejected" as const,
-            reviewerId: input.reviewerId,
-            reviewedAt: timestamp,
-            rejectionReason: input.rejectionReason,
-          }
-        : {
-            status: "approved" as const,
-            reviewerId: input.reviewerId,
-            reviewedAt: timestamp,
-          };
-    const nextMetadata: AssistantRecordMetadata = {
-      ...currentRecord.metadata,
-      knowledgeReview,
-      approvedKnowledgeItem: approvedKnowledgeItem ?? currentRecord.metadata.approvedKnowledgeItem,
-    };
+      const currentRecord = toRecord(current);
+      if (currentRecord.projectId !== input.projectId) {
+        throw new Error("Assistant record not found in project");
+      }
+      const nextCandidateState = input.action === "approve" ? "approved" : "rejected";
+      assertKnowledgeCandidateReviewTransition(currentRecord.candidateState, nextCandidateState);
+      const approvedKnowledgeItem =
+        input.action === "approve"
+          ? await publishStructuredKnowledgeFromCandidate({
+              tx,
+              recordId: currentRecord.id,
+              legacyPublicId: currentRecord.metadata.approvedKnowledgeItem?.id ?? null,
+              draft: input.structuredDraft,
+              generationRunId: input.generationRunId ?? null,
+              approvedBy: input.reviewerId,
+            })
+          : null;
+      const timestamp = approvedKnowledgeItem?.approvedAt ?? new Date().toISOString();
+      const knowledgeReview =
+        input.action === "reject"
+          ? {
+              status: "rejected" as const,
+              reviewerId: input.reviewerId,
+              reviewedAt: timestamp,
+              rejectionReason: input.rejectionReason,
+            }
+          : {
+              status: "approved" as const,
+              reviewerId: input.reviewerId,
+              reviewedAt: timestamp,
+            };
+      const nextMetadata: AssistantRecordMetadata = {
+        ...currentRecord.metadata,
+        knowledgeReview,
+        approvedKnowledgeItem: approvedKnowledgeItem ?? currentRecord.metadata.approvedKnowledgeItem,
+      };
 
-    const updateResult = await prisma.assistantTaskRecord.updateMany({
-      where: {
-        id: input.recordId,
-        candidateState: { in: ["candidate", "pending_review"] },
-      },
-      data: {
-        candidateState: nextCandidateState,
-        metadata: nextMetadata as Prisma.InputJsonValue,
-      },
+      const updateResult = await tx.assistantTaskRecord.updateMany({
+        where: {
+          id: input.recordId,
+          projectId: input.projectId,
+          candidateState: { in: ["candidate", "pending_review"] },
+        },
+        data: {
+          candidateState: nextCandidateState,
+          metadata: nextMetadata as Prisma.InputJsonValue,
+        },
+      });
+      if (updateResult.count !== 1) {
+        throw new Error(`Invalid knowledge candidate transition: ${currentRecord.candidateState} -> ${nextCandidateState}`);
+      }
+      const record = await tx.assistantTaskRecord.findUniqueOrThrow({ where: { id: input.recordId } });
+
+      return { record: toRecord(record), approvedKnowledgeItem };
     });
-    if (updateResult.count !== 1) {
-      throw new Error(`Invalid knowledge candidate transition: ${currentRecord.candidateState} -> ${nextCandidateState}`);
-    }
-    const record = await prisma.assistantTaskRecord.findUniqueOrThrow({ where: { id: input.recordId } });
-
-    return { record: toRecord(record), approvedKnowledgeItem };
   }
 
   async getRunPolicy(projectId: string) {
@@ -820,6 +867,19 @@ class PostgresAssistantRepository implements AssistantRepository {
 }
 
 export const postgresAssistantRepository = new PostgresAssistantRepository();
+
+function dedupeApprovedKnowledgeItems(items: ApprovedKnowledgeItem[]) {
+  const seenPublicIds = new Set<string>();
+  const seenSourceRecordIds = new Set<string>();
+  return items.filter((item) => {
+    if (seenPublicIds.has(item.id) || seenSourceRecordIds.has(item.sourceRecordId)) {
+      return false;
+    }
+    seenPublicIds.add(item.id);
+    seenSourceRecordIds.add(item.sourceRecordId);
+    return true;
+  });
+}
 
 function buildMonthRange(month?: string) {
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {

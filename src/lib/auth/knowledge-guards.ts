@@ -14,7 +14,9 @@ export type KnowledgeAdminCapability =
   | "knowledge.import.preview"
   | "knowledge.import.confirm"
   | "knowledge.rubric.manage"
-  | "knowledge.rubric.activate";
+  | "knowledge.rubric.activate"
+  | "knowledge.generation.manage"
+  | "knowledge.generation.activate";
 
 export type KnowledgeAdminAccess = {
   allowed: boolean;
@@ -42,6 +44,8 @@ const allKnowledgeAdminCapabilities: KnowledgeAdminCapability[] = [
   "knowledge.import.confirm",
   "knowledge.rubric.manage",
   "knowledge.rubric.activate",
+  "knowledge.generation.manage",
+  "knowledge.generation.activate",
 ];
 
 export function canManageKnowledge(user: Pick<AuthUser, "role" | "accessStatus">) {

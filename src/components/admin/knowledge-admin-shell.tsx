@@ -4,10 +4,17 @@ import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, us
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LegalBatchAuditStatusPanel } from "@/components/admin/legal-batch-audit-status-panel";
 import { LegalChangeMonitorPanel } from "@/components/admin/legal-change-monitor-panel";
+import { KnowledgeGenerationProfilePanel } from "@/components/admin/knowledge-generation-profile-panel";
 import { KnowledgeLocalImportPlaceholderPanel } from "@/components/admin/knowledge-local-import-placeholder-panel";
+import {
+  KnowledgeStructuredDraftPanel,
+  type StructuredDraftGenerationMetadata,
+} from "@/components/admin/knowledge-structured-draft-panel";
+import type { KnowledgeSourceBucketView } from "@/components/admin/knowledge-source-bucket-panel";
 import {
   type KnowledgeAdminNavigation,
   type KnowledgeCandidateTab,
+  type KnowledgeDraftSubview,
   type KnowledgeWorkTab,
   defaultKnowledgeAdminNavigation,
   knowledgeCandidatePanelDomId,
@@ -22,8 +29,10 @@ import {
   knowledgeWorkTabs,
   parseKnowledgeAdminNavigation,
 } from "@/components/admin/knowledge-admin-tabs";
+import type { KnowledgeGenerationProfile, StructuredKnowledgeDraft } from "@/domains/knowledge/structured-knowledge";
 import styles from "@/components/admin/knowledge-admin-shell.module.css";
 import { createKnowledgeAdminNavigationHref } from "@/components/admin/use-knowledge-admin-navigation";
+import { useProjectMeta } from "@/providers/project-provider";
 
 type CandidateState = "candidate" | "pending_review" | "approved" | "rejected" | "not_candidate";
 type Scope = "admin_only" | "organization" | "project_members" | "project";
@@ -88,6 +97,10 @@ type CandidateDetail = CandidateListItem & {
     rejectionReason?: string;
   } | null;
   approvedKnowledgeItem: ApprovedKnowledgeItem | null;
+};
+
+type GenerateStructuredKnowledgeDraftResult = StructuredDraftGenerationMetadata & {
+  draft: StructuredKnowledgeDraft;
 };
 
 type KnowledgeAdminShellProps = {
@@ -903,8 +916,14 @@ export function KnowledgeAdminShell({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { currentProjectId } = useProjectMeta();
+  const approvedItemsUrl = useMemo(
+    () => currentProjectId ? `/api/admin/knowledge/items?projectId=${encodeURIComponent(currentProjectId)}` : null,
+    [currentProjectId],
+  );
   const [activeWorkTab, setActiveWorkTab] = useState<KnowledgeWorkTab>(initialNavigation.work);
   const [activeCandidateTab, setActiveCandidateTab] = useState<KnowledgeCandidateTab>(initialNavigation.candidateTab);
+  const [activeDraftSubview, setActiveDraftSubview] = useState<KnowledgeDraftSubview>(initialNavigation.draftSubview);
   const [candidates, setCandidates] = useState(initialCandidates);
   const [selectedId, setSelectedId] = useState(
     initialCandidates.some((candidate) => candidate.id === initialNavigation.candidateId)
@@ -915,6 +934,14 @@ export function KnowledgeAdminShell({
   const [status, setStatus] = useState("후보를 선택하세요.");
   const [navigationStatus, setNavigationStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sourceBuckets, setSourceBuckets] = useState<KnowledgeSourceBucketView[]>([]);
+  const [sourceBucketsLoading, setSourceBucketsLoading] = useState(false);
+  const [sourceBucketsError, setSourceBucketsError] = useState("");
+  const [structuredDraftResult, setStructuredDraftResult] = useState<GenerateStructuredKnowledgeDraftResult | null>(null);
+  const [structuredDraftGenerating, setStructuredDraftGenerating] = useState(false);
+  const [generationProfiles, setGenerationProfiles] = useState<KnowledgeGenerationProfile[]>([]);
+  const [generationProfilesLoading, setGenerationProfilesLoading] = useState(false);
+  const [generationProfilesError, setGenerationProfilesError] = useState("");
   const [filter, setFilter] = useState<CandidateState | "all">("candidate");
   const [riskFilter, setRiskFilter] = useState<CandidateRiskFilter>("all");
   const [candidateSort, setCandidateSort] = useState<CandidateSort>("newest");
@@ -1104,6 +1131,19 @@ export function KnowledgeAdminShell({
     ? `${activeImportRubric.name} v${activeImportRubric.version}`
     : "wiki-import-rubric v1";
   const localImportDefaultTaskValue = localImportDefaultTaskId.trim() || selectedCandidate?.taskId || detail?.taskId || "";
+  const structuredGenerationMetadata = useMemo<StructuredDraftGenerationMetadata | null>(
+    () => structuredDraftResult
+      ? {
+          generationRunId: structuredDraftResult.generationRunId,
+          profileId: structuredDraftResult.profileId,
+          profileVersion: structuredDraftResult.profileVersion,
+          sourceBundleDigest: structuredDraftResult.sourceBundleDigest,
+          promptDigest: structuredDraftResult.promptDigest,
+          warnings: structuredDraftResult.warnings,
+        }
+      : null,
+    [structuredDraftResult],
+  );
   const originalDraft = useMemo(() => (detail ? createDraftFromDetail(detail) : null), [detail]);
   const draftTags = useMemo(() => splitTags(draft.tagsText), [draft.tagsText]);
   const duplicateDraftTags = useMemo(() => readDuplicateTags(draftTags), [draftTags]);
@@ -1136,6 +1176,10 @@ export function KnowledgeAdminShell({
     ];
   }, [draft.bodyMarkdown, draft.rejectionReason, draft.scope, draft.summary, draft.title, draftTags, originalDraft]);
   const dirtyDraftCount = draftDirtyStates.filter((item) => item.dirty).length;
+  const structuredDraftApprovalIssue = useMemo(
+    () => readStructuredDraftApprovalIssue(structuredDraftResult?.draft ?? null, draft, draftTags),
+    [draft, draftTags, structuredDraftResult?.draft],
+  );
   const markdownOutline = useMemo(
     () => readMarkdownOutline(draft.bodyMarkdown),
     [draft.bodyMarkdown],
@@ -1750,12 +1794,13 @@ export function KnowledgeAdminShell({
   );
   const approvalReviewItems = useMemo(
     () => [
+      structuredDraftApprovalIssue,
       ...draftReadiness.filter((item) => !item.ready).map((item) => `${item.label} 누락`),
       detail && detail.state !== "candidate" && detail.state !== "pending_review"
         ? `현재 상태 ${stateLabels[detail.state]}`
         : "",
-    ].filter(Boolean),
-    [detail, draftReadiness],
+    ].filter((item): item is string => Boolean(item)),
+    [detail, draftReadiness, structuredDraftApprovalIssue],
   );
 
   const updateNavigationQuery = useCallback(
@@ -1774,6 +1819,7 @@ export function KnowledgeAdminShell({
     const navigation = parseKnowledgeAdminNavigation(new URLSearchParams(searchParams.toString()));
     setActiveWorkTab((current) => current === navigation.work ? current : navigation.work);
     setActiveCandidateTab((current) => current === navigation.candidateTab ? current : navigation.candidateTab);
+    setActiveDraftSubview((current) => current === navigation.draftSubview ? current : navigation.draftSubview);
     setApprovedSyncTarget((current) => current === navigation.approvedSyncTarget ? current : navigation.approvedSyncTarget);
     setLocalImportPreviewId((current) => current === navigation.importPreviewId ? current : navigation.importPreviewId);
     setSelectedRubricId((current) => current === navigation.rubricId ? current : navigation.rubricId);
@@ -1793,6 +1839,17 @@ export function KnowledgeAdminShell({
       setNavigationStatus("");
       setActiveCandidateTab(nextTab);
       updateNavigationQuery({ work: "candidates", candidateTab: nextTab });
+    },
+    [updateNavigationQuery],
+  );
+
+  const setDraftSubview = useCallback(
+    (nextSubview: KnowledgeDraftSubview) => {
+      setNavigationStatus("");
+      setActiveWorkTab("candidates");
+      setActiveCandidateTab("draft");
+      setActiveDraftSubview(nextSubview);
+      updateNavigationQuery({ work: "candidates", candidateTab: "draft", draftSubview: nextSubview });
     },
     [updateNavigationQuery],
   );
@@ -2039,6 +2096,22 @@ export function KnowledgeAdminShell({
     return data;
   }, []);
 
+  const refreshGenerationProfiles = useCallback(async () => {
+    setGenerationProfilesLoading(true);
+    setGenerationProfilesError("");
+    try {
+      const data = await readJson<KnowledgeGenerationProfile[]>("/api/admin/knowledge/generation-profiles");
+      setGenerationProfiles(data);
+      return data;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Generation profiles could not be loaded.";
+      setGenerationProfilesError(message);
+      throw error;
+    } finally {
+      setGenerationProfilesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     refreshDiscoveryRequests().catch((error: unknown) => {
       setStatus(error instanceof Error ? error.message : "자동 발굴 요청을 불러오지 못했습니다.");
@@ -2053,6 +2126,12 @@ export function KnowledgeAdminShell({
       setStatus(error instanceof Error ? error.message : "로컬 WIKI 가져오기 기준을 불러오지 못했습니다.");
     });
   }, [refreshImportPreviews, refreshImportRubrics]);
+
+  useEffect(() => {
+    refreshGenerationProfiles().catch((error: unknown) => {
+      setStatus(error instanceof Error ? error.message : "생성 프로필을 불러오지 못했습니다.");
+    });
+  }, [refreshGenerationProfiles]);
 
   useEffect(() => {
     let active = true;
@@ -2239,8 +2318,15 @@ export function KnowledgeAdminShell({
   }, [selectedApprovedSyncTargetConfig]);
 
   useEffect(() => {
+    if (!approvedItemsUrl) {
+      setApprovedItems([]);
+      setApprovedItemsLoaded(true);
+      return;
+    }
     let active = true;
-    readJson<ApprovedKnowledgeItem[]>("/api/admin/knowledge/items")
+    setApprovedItems([]);
+    setApprovedItemsLoaded(false);
+    readJson<ApprovedKnowledgeItem[]>(approvedItemsUrl)
       .then((data) => {
         if (!active) {
           return;
@@ -2259,17 +2345,20 @@ export function KnowledgeAdminShell({
     return () => {
       active = false;
     };
-  }, []);
+  }, [approvedItemsUrl]);
 
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
+      setSourceBuckets([]);
+      setStructuredDraftResult(null);
       return;
     }
 
     let active = true;
     setBusy(true);
     setStatus("후보 상세를 불러오는 중입니다.");
+    setStructuredDraftResult(null);
     readJson<CandidateDetail>(`/api/admin/knowledge/candidates/${selectedId}`)
       .then((data) => {
         if (!active) {
@@ -2297,6 +2386,42 @@ export function KnowledgeAdminShell({
     };
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!detail) {
+      setSourceBuckets([]);
+      setSourceBucketsError("");
+      setSourceBucketsLoading(false);
+      return;
+    }
+
+    let active = true;
+    setSourceBucketsLoading(true);
+    setSourceBucketsError("");
+    readJson<KnowledgeSourceBucketView[]>(`/api/admin/knowledge/candidates/${detail.id}/source-buckets`)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setSourceBuckets(data);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setSourceBuckets([]);
+        setSourceBucketsError(error instanceof Error ? error.message : "출처 버킷을 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (active) {
+          setSourceBucketsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [detail]);
+
   async function refreshCandidates(nextSelectedId = selectedId) {
     const data = await readJson<CandidateListItem[]>("/api/admin/knowledge/candidates");
     setCandidates(data);
@@ -2304,8 +2429,14 @@ export function KnowledgeAdminShell({
   }
 
   async function refreshApprovedItems() {
+    if (!approvedItemsUrl) {
+      setApprovedItems([]);
+      setApprovedItemsLoaded(true);
+      setStatus("현재 프로젝트가 선택되지 않아 승인된 WIKI 항목을 불러오지 않았습니다.");
+      return;
+    }
     try {
-      const data = await readJson<ApprovedKnowledgeItem[]>("/api/admin/knowledge/items");
+      const data = await readJson<ApprovedKnowledgeItem[]>(approvedItemsUrl);
       setApprovedItems(data);
       setApprovedItemsLoaded(true);
       if (!selectedApprovedId && data[0]) {
@@ -2443,6 +2574,59 @@ export function KnowledgeAdminShell({
 
     setDraft(createDraftFromDetail(detail));
     setStatus("선택한 후보에서 초안을 복원했습니다.");
+  }
+
+  async function generateStructuredDraft() {
+    if (!detail) {
+      setStatus("구조화 초안을 만들 후보가 없습니다.");
+      return;
+    }
+
+    setStructuredDraftGenerating(true);
+    setStatus("구조화 WIKI 초안을 생성하는 중입니다.");
+    try {
+      const data = await writeJson<GenerateStructuredKnowledgeDraftResult>(
+        `/api/admin/knowledge/candidates/${detail.id}/structured-draft`,
+        {},
+      );
+      setStructuredDraftResult(data);
+      applyStructuredDraftToLegacy(data.draft);
+      setDraftSubview("sources");
+      setStatus(
+        data.draft.approvalReadiness.status === "blocked"
+          ? "구조화 초안을 생성했지만 차단 항목이 있습니다. 출처 버킷과 TOC를 먼저 확인하세요."
+          : "구조화 초안을 생성하고 현재 승인 초안에 반영했습니다.",
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "구조화 초안 생성에 실패했습니다.");
+    } finally {
+      setStructuredDraftGenerating(false);
+    }
+  }
+
+  function updateStructuredDraft(nextDraft: StructuredKnowledgeDraft) {
+    setStructuredDraftResult((current) => current ? { ...current, draft: nextDraft } : current);
+    applyStructuredDraftToLegacy(nextDraft);
+  }
+
+  function applyCurrentStructuredDraft() {
+    if (!structuredDraftResult) {
+      setStatus("반영할 구조화 초안이 없습니다.");
+      return;
+    }
+    applyStructuredDraftToLegacy(structuredDraftResult.draft);
+    setStatus("구조화 초안을 현재 Markdown 본문과 기본 필드에 반영했습니다.");
+  }
+
+  function applyStructuredDraftToLegacy(nextDraft: StructuredKnowledgeDraft) {
+    setDraft((current) => ({
+      ...current,
+      title: nextDraft.title || current.title,
+      summary: nextDraft.summary || current.summary,
+      bodyMarkdown: nextDraft.markdown || current.bodyMarkdown,
+      tagsText: nextDraft.tags.join(", "),
+      scope: nextDraft.ontology.scope as Scope,
+    }));
   }
 
   function applyRejectionReasonPreset(preset: RejectionReasonPreset) {
@@ -2891,16 +3075,23 @@ export function KnowledgeAdminShell({
     if (!detail) {
       return;
     }
+    if (structuredDraftApprovalIssue) {
+      setStatus(structuredDraftApprovalIssue);
+      setDraftSubview("sources");
+      return;
+    }
+    if (!structuredDraftResult) {
+      setStatus("구조화 WIKI 초안을 먼저 생성해야 승인할 수 있습니다.");
+      setDraftSubview("sources");
+      return;
+    }
 
     setBusy(true);
     setStatus("WIKI 지식으로 승인하는 중입니다.");
     try {
       const data = await writeJson<CandidateDetail>(`/api/admin/knowledge/candidates/${detail.id}/approve`, {
-        title: draft.title,
-        summary: draft.summary,
-        bodyMarkdown: draft.bodyMarkdown,
-        tags: draftTags,
-        scope: draft.scope,
+        structuredDraft: structuredDraftResult.draft,
+        generationRunId: structuredDraftResult.generationRunId,
       });
       setDetail(data);
       await refreshCandidates(data.id);
@@ -3277,10 +3468,15 @@ export function KnowledgeAdminShell({
   }
 
   async function recordApprovedSyncDryRun() {
+    if (!currentProjectId) {
+      setStatus("현재 프로젝트가 선택되지 않아 승인된 WIKI 동기화 사전 실행을 저장하지 않았습니다.");
+      return;
+    }
     try {
       const run = await writeJson<ApprovedSyncRun>(
         "/api/admin/knowledge/export-audits",
         createApprovedSyncAuditPayload(
+          currentProjectId,
           "dry_run",
           approvedSyncTarget,
           approvedExportFormat,
@@ -3299,10 +3495,15 @@ export function KnowledgeAdminShell({
   }
 
   async function runGuardedApprovedSync() {
+    if (!currentProjectId) {
+      setStatus("현재 프로젝트가 선택되지 않아 승인된 WIKI 보호 동기화를 저장하지 않았습니다.");
+      return;
+    }
     try {
       const run = await writeJson<ApprovedSyncRun>(
         "/api/admin/knowledge/export-audits",
         createApprovedSyncAuditPayload(
+          currentProjectId,
           "execute",
           approvedSyncTarget,
           approvedExportFormat,
@@ -3998,7 +4199,7 @@ export function KnowledgeAdminShell({
                 <div className={styles.editorHeader}>
                   <div>
                     <p>WIKI 초안</p>
-                    <h3>승인 전 편집</h3>
+                    <h3>구조화 초안 검토</h3>
                   </div>
                   <div className={styles.editorTools}>
                     <button onClick={resetDraft} type="button">초안 초기화</button>
@@ -4044,110 +4245,112 @@ export function KnowledgeAdminShell({
                   <strong>{reviewStatus.label}</strong>
                   <p>{reviewStatus.detail}</p>
                 </section>
-                <div className={styles.sourceChips} aria-label="지식 초안 출처 참조">
-                  <span>작업 {detail.taskIssueId}</span>
-                  <span>기록 {detail.id.slice(0, 8)}</span>
-                  <span>근거 {detail.evidence.length}개</span>
-                  <span>범위 {scopeLabels[draft.scope]}</span>
-                </div>
-                <details className={styles.compactMetadata}>
-                  <summary>초안 보조 메타데이터</summary>
-                  <div className={styles.sourceChips} aria-label="지식 초안 보조 메타데이터">
-                    <span>생성 {formatDate(detail.createdAt)}</span>
-                    <span>수정 {formatDate(detail.updatedAt)}</span>
-                    <span>검토 {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
-                    <span>상태 {stateLabels[detail.state]}</span>
-                    <span>정리 {cleanupStateLabels[detail.cleanupState]}</span>
-                    <span>{scopeReview.label}</span>
-                    <span>출처 있음 {evidenceSourceCoverage.sourced}</span>
-                    <span>출처 없음 {evidenceSourceCoverage.unsourced}</span>
-                    <span>제목 {draft.title.trim().length}자</span>
-                    <span>요약 {draft.summary.trim().length}자</span>
+                <KnowledgeStructuredDraftPanel
+                  sourceBuckets={sourceBuckets}
+                  sourceBucketsLoading={sourceBucketsLoading}
+                  sourceBucketsError={sourceBucketsError}
+                  structuredDraft={structuredDraftResult?.draft ?? null}
+                  generationMetadata={structuredGenerationMetadata}
+                  generating={structuredDraftGenerating}
+                  selectedSubview={activeDraftSubview}
+                  onSubviewChange={setDraftSubview}
+                  onGenerate={generateStructuredDraft}
+                  onApplyDraft={applyCurrentStructuredDraft}
+                  onDraftChange={updateStructuredDraft}
+                  legacyMarkdown={draft.bodyMarkdown}
+                  previewCompact={previewCompact}
+                  onPreviewCompactChange={() => setPreviewCompact((current) => !current)}
+                  disabled={busy}
+                />
+                <section className={styles.structuredPanel} aria-label="기본 승인 필드">
+                  <div className={styles.structuredPanelHeader}>
+                    <div>
+                      <p>Approval fields</p>
+                      <h4>기본 승인 필드</h4>
+                    </div>
                     <span>본문 {draft.bodyMarkdown.trim().length}자</span>
-                    <span>태그 {draftTags.length}</span>
-                    <span>변경 {dirtyDraftCount}/{draftDirtyStates.length}</span>
                   </div>
-                </details>
-                <label>
-                  제목
-                  <input
-                    value={draft.title}
-                    onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                  />
-                </label>
-                <div className={styles.readinessList} aria-label="Knowledge draft readiness">
-                  {draftReadiness.map((item) => (
-                    <span className={item.ready ? styles.readinessReady : styles.readinessMissing} key={item.label}>
-                      {item.ready ? "준비됨" : "누락"} {item.label}
-                    </span>
-                  ))}
-                </div>
-                <label>
-                  요약
-                  <textarea
-                    rows={3}
-                    value={draft.summary}
-                    onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  태그
-                  <input
-                    value={draft.tagsText}
-                    onChange={(event) => setDraft((current) => ({ ...current, tagsText: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  Markdown 본문
-                  <textarea
-                    rows={10}
-                    value={draft.bodyMarkdown}
-                    onChange={(event) => setDraft((current) => ({ ...current, bodyMarkdown: event.target.value }))}
-                  />
-                </label>
-                <section
-                  className={[
-                    styles.markdownPreview,
-                    previewCompact ? styles.markdownPreviewCompact : "",
-                  ].filter(Boolean).join(" ")}
-                  aria-label="Knowledge draft Markdown preview"
-                >
-                  <div className={styles.markdownPreviewHeader}>
-                    <h4>Markdown 미리보기</h4>
-                    <button onClick={() => setPreviewCompact((current) => !current)} type="button">
-                      {previewCompact ? "넓게 보기" : "압축 보기"}
-                    </button>
+                  <div className={styles.sourceChips} aria-label="지식 초안 출처 참조">
+                    <span>작업 {detail.taskIssueId}</span>
+                    <span>기록 {detail.id.slice(0, 8)}</span>
+                    <span>근거 {detail.evidence.length}개</span>
+                    <span>범위 {scopeLabels[draft.scope]}</span>
                   </div>
-                  <pre>{draft.bodyMarkdown.trim() || "아직 Markdown 본문이 없습니다."}</pre>
+                  <label>
+                    제목
+                    <input
+                      value={draft.title}
+                      onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                    />
+                  </label>
+                  <div className={styles.readinessList} aria-label="Knowledge draft readiness">
+                    {draftReadiness.map((item) => (
+                      <span className={item.ready ? styles.readinessReady : styles.readinessMissing} key={item.label}>
+                        {item.ready ? "준비됨" : "누락"} {item.label}
+                      </span>
+                    ))}
+                  </div>
+                  <label>
+                    요약
+                    <textarea
+                      rows={3}
+                      value={draft.summary}
+                      onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    태그
+                    <input
+                      value={draft.tagsText}
+                      onChange={(event) => setDraft((current) => ({ ...current, tagsText: event.target.value }))}
+                    />
+                  </label>
+                  <div className={styles.sourceChips} aria-label="Knowledge Markdown outline preview">
+                    {markdownOutline.length ? (
+                      markdownOutline.map((heading) => (
+                        <span key={`${heading.line}-${heading.text}`}>
+                          H{heading.level} L{heading.line}: {heading.text}
+                        </span>
+                      ))
+                    ) : (
+                      <span>Markdown 제목 없음</span>
+                    )}
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
+                    <span>제목 {markdownStructureSummary.headings}</span>
+                    <span>문단 {markdownStructureSummary.paragraphs}</span>
+                    <span>목록 항목 {markdownStructureSummary.listItems}</span>
+                    <span>줄 {markdownStructureSummary.lines}</span>
+                  </div>
+                  <div className={styles.sourceChips} aria-label="Knowledge Markdown WIKI link preview">
+                    {markdownWikiLinks.length ? (
+                      markdownWikiLinks.map((link) => (
+                        <span key={`${link.line}-${link.target}-${link.label}`}>
+                          L{link.line}: [[{link.target}]]
+                        </span>
+                      ))
+                    ) : (
+                      <span>Markdown WIKI 링크 없음</span>
+                    )}
+                  </div>
+                  <details className={styles.compactMetadata}>
+                    <summary>초안 보조 메타데이터</summary>
+                    <div className={styles.sourceChips} aria-label="지식 초안 보조 메타데이터">
+                      <span>생성 {formatDate(detail.createdAt)}</span>
+                      <span>수정 {formatDate(detail.updatedAt)}</span>
+                      <span>검토 {detail.reviewedAt ? formatDate(detail.reviewedAt) : "-"}</span>
+                      <span>상태 {stateLabels[detail.state]}</span>
+                      <span>정리 {cleanupStateLabels[detail.cleanupState]}</span>
+                      <span>{scopeReview.label}</span>
+                      <span>출처 있음 {evidenceSourceCoverage.sourced}</span>
+                      <span>출처 없음 {evidenceSourceCoverage.unsourced}</span>
+                      <span>제목 {draft.title.trim().length}자</span>
+                      <span>요약 {draft.summary.trim().length}자</span>
+                      <span>태그 {draftTags.length}</span>
+                      <span>변경 {dirtyDraftCount}/{draftDirtyStates.length}</span>
+                    </div>
+                  </details>
                 </section>
-                <div className={styles.sourceChips} aria-label="Knowledge Markdown outline preview">
-                  {markdownOutline.length ? (
-                    markdownOutline.map((heading) => (
-                      <span key={`${heading.line}-${heading.text}`}>
-                        H{heading.level} L{heading.line}: {heading.text}
-                      </span>
-                    ))
-                  ) : (
-                    <span>Markdown 제목 없음</span>
-                  )}
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge Markdown structure summary">
-                  <span>제목 {markdownStructureSummary.headings}</span>
-                  <span>문단 {markdownStructureSummary.paragraphs}</span>
-                  <span>목록 항목 {markdownStructureSummary.listItems}</span>
-                  <span>줄 {markdownStructureSummary.lines}</span>
-                </div>
-                <div className={styles.sourceChips} aria-label="Knowledge Markdown WIKI link preview">
-                  {markdownWikiLinks.length ? (
-                    markdownWikiLinks.map((link) => (
-                      <span key={`${link.line}-${link.target}-${link.label}`}>
-                        L{link.line}: [[{link.target}]]
-                      </span>
-                    ))
-                  ) : (
-                    <span>Markdown WIKI 링크 없음</span>
-                  )}
-                </div>
               </section>
               </KnowledgeCandidateTabPanel>
 
@@ -4367,10 +4570,12 @@ export function KnowledgeAdminShell({
                   </button>
                   <button disabled={busy} onClick={rejectCandidate} type="button">반려</button>
                   <button
-                    disabled={busy}
+                    disabled={busy || Boolean(structuredDraftApprovalIssue)}
                     onClick={approveCandidate}
                     title={
-                      approvalReviewItems.length
+                      structuredDraftApprovalIssue
+                        ? structuredDraftApprovalIssue
+                        : approvalReviewItems.length
                         ? `승인 전 검토 항목 ${approvalReviewItems.length}개가 남아 있습니다.`
                         : guardrailWarningCount
                           ? `활성 가드레일 경고 ${guardrailWarningCount}개가 남아 있습니다.`
@@ -5682,6 +5887,14 @@ export function KnowledgeAdminShell({
               </div>
               <span>{regulationGovernance?.sourceCount ?? 0} 출처</span>
             </section>
+            <KnowledgeGenerationProfilePanel
+              profiles={generationProfiles}
+              loading={generationProfilesLoading}
+              error={generationProfilesError}
+              selectedCandidateId={detail?.id ?? selectedCandidate?.id ?? ""}
+              selectedCandidateTitle={detail?.title ?? selectedCandidate?.title ?? ""}
+              onRefresh={refreshGenerationProfiles}
+            />
             <LegalBatchAuditStatusPanel />
             <LegalChangeMonitorPanel />
             <section className={styles.exportPanel} aria-label="Knowledge 운영 검증">
@@ -6189,6 +6402,51 @@ function createDraftFromDetail(detail: CandidateDetail) {
     scope: detail.wikiDraft.scope,
     rejectionReason: detail.review?.rejectionReason ?? "",
   };
+}
+
+function readStructuredDraftApprovalIssue(
+  structuredDraft: StructuredKnowledgeDraft | null,
+  draft: {
+    title: string;
+    summary: string;
+    bodyMarkdown: string;
+    scope: Scope;
+  },
+  draftTags: string[],
+) {
+  if (!structuredDraft) {
+    return "구조화 WIKI 초안을 생성해야 승인할 수 있습니다.";
+  }
+  if (structuredDraft.approvalReadiness.status === "blocked") {
+    return "구조화 초안의 차단 항목을 해결해야 승인할 수 있습니다.";
+  }
+  const mismatches: string[] = [];
+  if (normalizeComparableText(draft.title) !== normalizeComparableText(structuredDraft.title)) {
+    mismatches.push("제목");
+  }
+  if (normalizeComparableText(draft.summary) !== normalizeComparableText(structuredDraft.summary)) {
+    mismatches.push("요약");
+  }
+  if (normalizeComparableMarkdown(draft.bodyMarkdown) !== normalizeComparableMarkdown(structuredDraft.markdown)) {
+    mismatches.push("본문");
+  }
+  if (draft.scope !== structuredDraft.ontology.scope) {
+    mismatches.push("범위");
+  }
+  if (draftTags.join("|") !== structuredDraft.tags.join("|")) {
+    mismatches.push("태그");
+  }
+  return mismatches.length
+    ? `구조화 초안과 기본 승인 필드가 다릅니다: ${mismatches.join(", ")}. 구조화 초안을 다시 반영하세요.`
+    : null;
+}
+
+function normalizeComparableText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function normalizeComparableMarkdown(value: string) {
+  return value.trim().replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "");
 }
 
 function createSourceHandoff(
@@ -6931,6 +7189,7 @@ function createApprovedSyncRun({
 }
 
 function createApprovedSyncAuditPayload(
+  projectId: string,
   action: ApprovedSyncAction,
   target: ApprovedSyncTarget,
   format: ApprovedExportFormat,
@@ -6941,6 +7200,7 @@ function createApprovedSyncAuditPayload(
   dryRunWarnings: string[],
 ) {
   return {
+    projectId,
     action,
     target,
     format,

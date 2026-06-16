@@ -10,6 +10,7 @@ import type {
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
 import type { AssistantAuditEvent } from "@/domains/assistant/saas-api-mode";
+import type { StructuredKnowledgeDraft } from "@/domains/knowledge/structured-knowledge";
 import governanceManifestJson from "@/domains/regulation/governance/foundation.kr.json";
 import {
   validateRegulationGovernanceManifest,
@@ -22,7 +23,17 @@ import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
 import { adminRepository } from "@/repositories/admin";
 import { taskRepository } from "@/repositories";
+import { structuredKnowledgeRepository } from "@/repositories/knowledge";
+import {
+  isStructuredKnowledgeSchemaUnavailable,
+  shouldUseLegacyApprovedKnowledgeFallback,
+} from "@/repositories/knowledge/schema-errors";
 import { createHash } from "node:crypto";
+import {
+  assertStructuredKnowledgeDraftPublishable,
+  canonicalizeStructuredKnowledgeDraftForApproval,
+} from "@/use-cases/admin/structured-knowledge-service";
+import { getKnowledgeSourceBuckets } from "@/use-cases/admin/knowledge-source-bucket-service";
 
 export type KnowledgeCandidateListItem = {
   id: string;
@@ -64,16 +75,20 @@ type ReviewKnowledgeCandidateInput =
   | {
       action: "approve";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       title: unknown;
       summary: unknown;
       bodyMarkdown: unknown;
       tags: unknown;
       scope: unknown;
+      structuredDraft?: unknown;
+      generationRunId?: unknown;
     }
   | {
       action: "reject";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       rejectionReason: unknown;
     };
@@ -501,6 +516,7 @@ export type RegulationGovernanceReport = {
 };
 
 type KnowledgeExportSyncAuditInput = {
+  projectId?: unknown;
   action?: unknown;
   target?: unknown;
   format?: unknown;
@@ -591,14 +607,19 @@ const knowledgeCredentialEnvByTarget: Partial<Record<KnowledgeExportSyncTarget, 
   assistant_retrieval: "KNOWLEDGE_SYNC_RETRIEVAL_CREDENTIAL_REF",
 };
 
-export async function listKnowledgeCandidates(): Promise<KnowledgeCandidateListItem[]> {
-  const records = await assistantRepository.listKnowledgeCandidateRecords();
+export async function listKnowledgeCandidates(input?: { projectId?: string }): Promise<KnowledgeCandidateListItem[]> {
+  const projectId = input?.projectId ? normalizeRequiredText(input.projectId, "projectId") : undefined;
+  const records = await assistantRepository.listKnowledgeCandidateRecords(projectId ? { projectId } : undefined);
   return Promise.all(records.map(async (record) => toCandidateListItem(record)));
 }
 
-export async function getKnowledgeCandidate(recordId: string): Promise<KnowledgeCandidateDetail> {
+export async function getKnowledgeCandidate(
+  recordId: string,
+  input?: { projectId?: string },
+): Promise<KnowledgeCandidateDetail> {
   const record = await assistantRepository.findRecordById(normalizeRequiredText(recordId, "recordId"));
-  if (!record || record.candidateState === "not_candidate") {
+  const projectId = input?.projectId ? normalizeRequiredText(input.projectId, "projectId") : "";
+  if (!record || record.candidateState === "not_candidate" || (projectId && record.projectId !== projectId)) {
     throw notFound("Knowledge candidate not found", "KNOWLEDGE_CANDIDATE_NOT_FOUND");
   }
 
@@ -606,22 +627,46 @@ export async function getKnowledgeCandidate(recordId: string): Promise<Knowledge
 }
 
 export async function reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateInput): Promise<KnowledgeCandidateDetail> {
+  const projectId = normalizeRequiredText(input.projectId, "projectId");
   const record = await assistantRepository.findRecordById(normalizeRequiredText(input.recordId, "recordId"));
-  if (!record || record.candidateState === "not_candidate") {
+  if (!record || record.projectId !== projectId || record.candidateState === "not_candidate") {
     throw notFound("Knowledge candidate not found", "KNOWLEDGE_CANDIDATE_NOT_FOUND");
   }
 
   if (input.action === "approve") {
     assertKnowledgeCandidateReviewTransition(record.candidateState, "approved");
+    const inputStructuredDraft = normalizeStructuredKnowledgeDraftInput(input.structuredDraft);
+    if (!inputStructuredDraft) {
+      throw badRequest("Structured WIKI draft is required before approval.", "STRUCTURED_WIKI_DRAFT_REQUIRED");
+    }
+    const generationRunId = normalizeRequiredText(input.generationRunId, "generationRunId");
+    const sourceBuckets = await getKnowledgeSourceBuckets({ recordId: record.id, projectId });
+    const structuredDraft = canonicalizeStructuredKnowledgeDraftForApproval({
+      draft: inputStructuredDraft,
+      sourceBuckets,
+    });
+    assertStructuredKnowledgeDraftPublishable({
+      draft: structuredDraft,
+      sourceBuckets,
+      requestedScope: structuredDraft.ontology.scope,
+    });
+    const title = normalizeRequiredText(structuredDraft.title, "title");
+    const summary = normalizeRequiredText(structuredDraft.summary, "summary");
+    const bodyMarkdown = structuredDraft.markdown || title;
+    const tags = normalizeTags(structuredDraft.tags);
+    const scope = normalizeScope(structuredDraft.ontology.scope);
     await assistantRepository.reviewKnowledgeCandidate({
       action: "approve",
       recordId: record.id,
+      projectId,
       reviewerId: input.reviewerId,
-      title: normalizeRequiredText(input.title, "title"),
-      summary: normalizeRequiredText(input.summary, "summary"),
-      bodyMarkdown: normalizeRequiredText(input.bodyMarkdown, "bodyMarkdown"),
-      tags: normalizeTags(input.tags),
-      scope: normalizeScope(input.scope),
+      title,
+      summary,
+      bodyMarkdown,
+      tags,
+      scope,
+      structuredDraft,
+      generationRunId,
     });
     await assistantRepository.createAuditEvent({
       projectId: record.projectId,
@@ -640,6 +685,7 @@ export async function reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateIn
     await assistantRepository.reviewKnowledgeCandidate({
       action: "reject",
       recordId: record.id,
+      projectId,
       reviewerId: input.reviewerId,
       rejectionReason: normalizeRequiredText(input.rejectionReason, "rejectionReason"),
     });
@@ -657,14 +703,51 @@ export async function reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateIn
     });
   }
 
-  return getKnowledgeCandidate(record.id);
+  return getKnowledgeCandidate(record.id, { projectId });
 }
 
-export async function listApprovedKnowledgeItems(): Promise<ApprovedKnowledgeItem[]> {
-  const records = await assistantRepository.listKnowledgeCandidateRecords({ states: ["approved"] });
-  return records
-    .map((record) => record.metadata.approvedKnowledgeItem)
-    .filter((item): item is ApprovedKnowledgeItem => Boolean(item));
+export async function listApprovedKnowledgeItems(input: { projectId: string }): Promise<ApprovedKnowledgeItem[]> {
+  const projectId = normalizeRequiredText(input.projectId, "projectId");
+  let structuredItems: ApprovedKnowledgeItem[] = [];
+  let schemaUnavailable = false;
+  try {
+    structuredItems = await structuredKnowledgeRepository.listApprovedKnowledgeItems({ projectId });
+  } catch (error) {
+    if (!isStructuredKnowledgeSchemaUnavailable(error)) {
+      throw error;
+    }
+    schemaUnavailable = true;
+    console.warn("Structured approved WIKI readback skipped because the structured schema is not ready.");
+  }
+  const useLegacyFallback = shouldUseLegacyApprovedKnowledgeFallback({ schemaUnavailable });
+  const records = useLegacyFallback
+    ? await assistantRepository.listKnowledgeCandidateRecords({
+      states: ["approved"],
+      projectId,
+      includeOrganizationApproved: true,
+    })
+    : [];
+  const legacyItems = useLegacyFallback
+    ? records
+      .map((record) => record.metadata.approvedKnowledgeItem)
+      .filter((item): item is ApprovedKnowledgeItem => Boolean(item))
+      .filter((item) => item.sourceProjectId === projectId || item.scope === "organization")
+    : [];
+  const items = [...structuredItems, ...legacyItems];
+  return dedupeApprovedKnowledgeItems(items);
+}
+
+function dedupeApprovedKnowledgeItems(items: ApprovedKnowledgeItem[]) {
+  const seenPublicIds = new Set<string>();
+  const seenSourceRecordIds = new Set<string>();
+  return items.filter((item) => {
+    if (seenPublicIds.has(item.id) || seenSourceRecordIds.has(item.sourceRecordId)) {
+      return false;
+    }
+    seenPublicIds.add(item.id);
+    seenSourceRecordIds.add(item.sourceRecordId);
+    return true;
+  });
 }
 
 export async function listKnowledgeExportSyncAudits(): Promise<KnowledgeExportSyncAudit[]> {
@@ -680,6 +763,7 @@ export async function createKnowledgeExportSyncAudit(
   input: KnowledgeExportSyncAuditInput,
   user: AuthUser,
 ): Promise<KnowledgeExportSyncAudit> {
+  const projectId = normalizeRequiredText(input.projectId, "projectId");
   const action = normalizeKnowledgeExportSyncAction(input.action);
   const target = normalizeKnowledgeExportSyncTarget(input.target);
   const format = normalizeKnowledgeExportSyncFormat(input.format);
@@ -689,7 +773,7 @@ export async function createKnowledgeExportSyncAudit(
   const requestedWarnings = normalizeStringArray(input.dryRunWarnings, 12);
   const confirmation = normalizeOptionalText(input.confirmation);
   const confirmationState = confirmation === knowledgeExportSyncConfirmationText ? "matched" : "missing_or_mismatch";
-  const approvedItems = await listApprovedKnowledgeItems();
+  const approvedItems = await listApprovedKnowledgeItems({ projectId });
   const approvedItemsById = new Map(approvedItems.map((item) => [item.id, item]));
   const items = itemIds.map((id) => approvedItemsById.get(id));
   if (items.some((item) => !item)) {
@@ -710,7 +794,6 @@ export async function createKnowledgeExportSyncAudit(
     providerConfigured: provider.configured,
     providerExecutionEnabled: provider.executionEnabled,
   });
-  const projectId = resolveKnowledgeExportAuditProjectId(includedItems);
   const event = await assistantRepository.createAuditEvent({
     projectId,
     profileId: user.id,
@@ -818,7 +901,10 @@ export async function createKnowledgeProviderPreview(
     throw badRequest("Knowledge sync target is not enabled.", "KNOWLEDGE_SYNC_TARGET_DISABLED");
   }
 
-  const approvedItems = await listApprovedKnowledgeItems();
+  if (!audit.projectId) {
+    throw badRequest("Provider preview requires a project-scoped export audit.", "KNOWLEDGE_PROVIDER_PREVIEW_PROJECT_REQUIRED");
+  }
+  const approvedItems = await listApprovedKnowledgeItems({ projectId: audit.projectId });
   const preview = buildKnowledgeProviderPreview(audit, config, approvedItems, user.id);
   const event = await assistantRepository.createAuditEvent({
     projectId: audit.projectId,
@@ -1575,6 +1661,32 @@ function normalizeTags(value: unknown) {
   }
 
   return value.map((tag) => normalizeText(tag)).filter(Boolean).slice(0, 12);
+}
+
+function normalizeStructuredKnowledgeDraftInput(value: unknown): StructuredKnowledgeDraft | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw badRequest("Invalid structured WIKI draft.", "STRUCTURED_WIKI_DRAFT_INVALID");
+  }
+  const draft = value as Partial<StructuredKnowledgeDraft>;
+  if (
+    typeof draft.title !== "string" ||
+    typeof draft.slug !== "string" ||
+    typeof draft.summary !== "string" ||
+    !Array.isArray(draft.tags) ||
+    !draft.ontology ||
+    typeof draft.ontology !== "object" ||
+    !Array.isArray(draft.toc) ||
+    !Array.isArray(draft.sections) ||
+    !draft.approvalReadiness ||
+    typeof draft.approvalReadiness !== "object" ||
+    !Array.isArray(draft.sourceRefs)
+  ) {
+    throw badRequest("Invalid structured WIKI draft.", "STRUCTURED_WIKI_DRAFT_INVALID");
+  }
+  return draft as StructuredKnowledgeDraft;
 }
 
 function normalizeScope(value: unknown): KnowledgePublicationScope {

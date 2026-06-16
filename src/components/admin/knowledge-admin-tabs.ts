@@ -1,11 +1,13 @@
 export type KnowledgeWorkTab = "candidates" | "approved" | "local_import" | "operations";
 export type KnowledgeCandidateTab = "evidence" | "draft" | "decision";
+export type KnowledgeDraftSubview = "sources" | "reasoning" | "ontology" | "toc" | "sections" | "preview" | "metadata";
 export type KnowledgeApprovedFocus = "readback" | "export_sync";
 export type KnowledgeApprovedSyncTarget = "portable_archive" | "obsidian" | "notion" | "assistant_retrieval";
 
 export type KnowledgeAdminNavigation = {
   work: KnowledgeWorkTab;
   candidateTab: KnowledgeCandidateTab;
+  draftSubview: KnowledgeDraftSubview;
   candidateId: string;
   approvedId: string;
   approvedFocus: KnowledgeApprovedFocus;
@@ -43,6 +45,15 @@ export const knowledgeCandidateTabDescriptions: Record<KnowledgeCandidateTab, st
 
 export const knowledgeWorkTabs = Object.keys(knowledgeWorkTabLabels) as KnowledgeWorkTab[];
 export const knowledgeCandidateTabs = Object.keys(knowledgeCandidateTabLabels) as KnowledgeCandidateTab[];
+export const knowledgeDraftSubviews: KnowledgeDraftSubview[] = [
+  "sources",
+  "reasoning",
+  "ontology",
+  "toc",
+  "sections",
+  "preview",
+  "metadata",
+];
 export const knowledgeApprovedFocusValues: KnowledgeApprovedFocus[] = ["readback", "export_sync"];
 export const knowledgeApprovedSyncTargets: KnowledgeApprovedSyncTarget[] = [
   "portable_archive",
@@ -54,6 +65,7 @@ export const knowledgeApprovedSyncTargets: KnowledgeApprovedSyncTarget[] = [
 export const defaultKnowledgeAdminNavigation: KnowledgeAdminNavigation = {
   work: "candidates",
   candidateTab: "evidence",
+  draftSubview: "sources",
   candidateId: "",
   approvedId: "",
   approvedFocus: "readback",
@@ -67,6 +79,7 @@ export function parseKnowledgeAdminNavigation(searchParams: URLSearchParams): Kn
   return {
     work: parseEnum(searchParams.get("work"), knowledgeWorkTabs, defaultKnowledgeAdminNavigation.work),
     candidateTab: parseEnum(searchParams.get("candidateTab"), knowledgeCandidateTabs, defaultKnowledgeAdminNavigation.candidateTab),
+    draftSubview: parseEnum(searchParams.get("draftSubview"), knowledgeDraftSubviews, defaultKnowledgeAdminNavigation.draftSubview),
     candidateId: searchParams.get("candidateId")?.trim() ?? "",
     approvedId: searchParams.get("approvedId")?.trim() ?? "",
     approvedFocus: parseEnum(searchParams.get("approvedFocus"), knowledgeApprovedFocusValues, defaultKnowledgeAdminNavigation.approvedFocus),
@@ -93,6 +106,7 @@ export function serializeKnowledgeAdminNavigation(
 
   writeParam(params, "work", merged.work, defaultKnowledgeAdminNavigation.work);
   writeParam(params, "candidateTab", merged.candidateTab, defaultKnowledgeAdminNavigation.candidateTab);
+  writeParam(params, "draftSubview", merged.draftSubview, defaultKnowledgeAdminNavigation.draftSubview);
   writeParam(params, "candidateId", merged.candidateId, "");
   writeParam(params, "approvedId", merged.approvedId, "");
   writeParam(params, "approvedFocus", merged.approvedFocus, defaultKnowledgeAdminNavigation.approvedFocus);

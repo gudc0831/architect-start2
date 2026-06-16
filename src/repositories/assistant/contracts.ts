@@ -14,6 +14,7 @@ import type {
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
 import type { CreateExternalEvidenceInput, ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
+import type { StructuredKnowledgeDraft } from "@/domains/knowledge/structured-knowledge";
 import type {
   AssistantAuditEvent,
   AssistantPolicyDecision,
@@ -75,16 +76,20 @@ export type ReviewKnowledgeCandidateInput =
   | {
       action: "approve";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       title: string;
       summary: string;
       bodyMarkdown: string;
       tags: string[];
       scope: KnowledgePublicationScope;
+      structuredDraft: StructuredKnowledgeDraft;
+      generationRunId?: string | null;
     }
   | {
       action: "reject";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       rejectionReason: string;
     };
@@ -170,7 +175,11 @@ export type SearchApprovedKnowledgeInput = {
 export interface AssistantRepository {
   listRecordsByTask(taskId: string): Promise<AssistantRecord[]>;
   listExternalEvidenceByTask(taskId: string): Promise<ExternalEvidenceRecord[]>;
-  listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }): Promise<AssistantRecord[]>;
+  listKnowledgeCandidateRecords(input?: {
+    states?: AssistantCandidateState[];
+    projectId?: string;
+    includeOrganizationApproved?: boolean;
+  }): Promise<AssistantRecord[]>;
   searchApprovedKnowledge(input: SearchApprovedKnowledgeInput): Promise<ApprovedKnowledgeItem[]>;
   findRecordById(recordId: string): Promise<AssistantRecord | null>;
   findWorkSummaryDraftByRecordId(recordId: string): Promise<AssistantWorkSummaryDraft | null>;

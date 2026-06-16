@@ -134,7 +134,7 @@ async function proveApiAuthAndProject(context: BrowserContext) {
 async function proveKnowledgeApiReads(context: BrowserContext) {
   for (const path of [
     "/api/admin/knowledge/candidates",
-    "/api/admin/knowledge/items",
+    `/api/admin/knowledge/items?projectId=${encodeURIComponent(projectId)}`,
     "/api/admin/knowledge/import-previews",
     "/api/admin/knowledge/rubrics",
     "/api/admin/knowledge/discovery-requests",

@@ -3,6 +3,7 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { assertKnowledgeCapability, requireKnowledgeAdmin } from "@/lib/auth/knowledge-guards";
 import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { backendMode } from "@/lib/backend-mode";
 import {
   createKnowledgeDiscoveryRequest,
   listKnowledgeDiscoveryRequests,
@@ -12,6 +13,9 @@ export async function GET() {
   try {
     const user = await requireKnowledgeAdmin();
     const context = await requireCurrentProjectAccess(user);
+    if (backendMode !== "cloud") {
+      return NextResponse.json({ data: [] });
+    }
     const data = await listKnowledgeDiscoveryRequests(context.project.id);
     return NextResponse.json({ data });
   } catch (error) {

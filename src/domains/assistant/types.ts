@@ -121,6 +121,9 @@ export type ApprovedKnowledgeItem = {
   sourceTaskId: string;
   sourceProjectId: string;
   sourceReferences: AssistantEvidence[];
+  structuredKnowledgeItemId?: string;
+  structuredKnowledgeVersionId?: string;
+  generationRunId?: string;
   approvedBy: string;
   approvedAt: string;
 };

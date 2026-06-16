@@ -12,8 +12,14 @@ const routeCapabilities: Array<[string, string, boolean]> = [
   ["src/app/api/admin/knowledge/rubrics/route.ts", "knowledge.rubric.manage", false],
   ["src/app/api/admin/knowledge/rubrics/[rubricId]/activate/route.ts", "knowledge.rubric.activate", false],
   ["src/app/api/admin/knowledge/rubrics/[rubricId]/rollback/route.ts", "knowledge.rubric.activate", false],
-  ["src/app/api/admin/knowledge/candidates/[recordId]/approve/route.ts", "knowledge.candidates.review", false],
-  ["src/app/api/admin/knowledge/candidates/[recordId]/reject/route.ts", "knowledge.candidates.review", false],
+  ["src/app/api/admin/knowledge/generation-profiles/route.ts", "knowledge.generation.manage", false],
+  ["src/app/api/admin/knowledge/generation-profiles/[profileId]/activate/route.ts", "knowledge.generation.activate", false],
+  ["src/app/api/admin/knowledge/generation-profiles/[profileId]/rollback/route.ts", "knowledge.generation.activate", false],
+  ["src/app/api/admin/knowledge/candidates/[recordId]/route.ts", "knowledge.candidates.review", true],
+  ["src/app/api/admin/knowledge/candidates/[recordId]/approve/route.ts", "knowledge.candidates.review", true],
+  ["src/app/api/admin/knowledge/candidates/[recordId]/reject/route.ts", "knowledge.candidates.review", true],
+  ["src/app/api/admin/knowledge/candidates/[recordId]/source-buckets/route.ts", "knowledge.candidates.review", true],
+  ["src/app/api/admin/knowledge/candidates/[recordId]/structured-draft/route.ts", "knowledge.candidates.review", true],
 ];
 
 for (const [path, capability, projectScoped] of routeCapabilities) {
@@ -25,6 +31,18 @@ for (const [path, capability, projectScoped] of routeCapabilities) {
     assert.match(source, /requireCurrentProjectAccess\(user\)/, `${path} missing current project access`);
   }
 }
+
+const candidateListRoute = readFileSync("src/app/api/admin/knowledge/candidates/route.ts", "utf8");
+assert.match(candidateListRoute, /requireKnowledgeAdmin\(\)/, "candidate list route missing admin auth");
+assert.match(candidateListRoute, /assertKnowledgeCapability\(user, "knowledge\.candidates\.review"\)/, "candidate list route missing review capability");
+assert.match(candidateListRoute, /requireCurrentProjectAccess\(user\)/, "candidate list route missing current project access");
+assert.match(candidateListRoute, /listKnowledgeCandidates\(\{ projectId: projectContext\.project\.id \}\)/, "candidate list route must scope to current project");
+
+const approvedItemsRoute = readFileSync("src/app/api/admin/knowledge/items/route.ts", "utf8");
+assert.match(approvedItemsRoute, /requireKnowledgeAdmin\(\)/, "approved items route missing admin auth");
+assert.match(approvedItemsRoute, /assertKnowledgeCapability\(user, "knowledge\.approved_wiki\.export"\)/, "approved items route missing export capability");
+assert.match(approvedItemsRoute, /requireCurrentProjectAccess\(user\)/, "approved items route missing current project access");
+assert.match(approvedItemsRoute, /projectId !== projectContext\.project\.id/, "approved items route must block cross-project reads");
 
 const discoveryService = readFileSync("src/use-cases/admin/knowledge-discovery-service.ts", "utf8");
 const importService = readFileSync("src/use-cases/admin/knowledge-import-preview-service.ts", "utf8");
@@ -49,7 +67,9 @@ assert.match(importService, /createWorkspaceFingerprint/);
 assert.match(importService, /excludedItems\.push/);
 assert.match(rubricService, /prisma\.\$transaction/);
 assert.match(knowledgeService, /assertKnowledgeCandidateReviewTransition/);
+assert.match(knowledgeService, /record\.projectId !== projectId/);
 assert.match(postgresStore, /candidateState:\s*\{\s*in:\s*\["candidate", "pending_review"\]/s);
+assert.match(postgresStore, /projectId: input\.projectId/);
 assert.match(postgresStore, /targetType:\s*\{\s*notIn:\s*\[\.\.\.nonDeletableWorkflowAuditTargetTypes\]/);
 assert.match(localStore, /protectedTargetTypes\.has\(event\.targetType\)/);
 assert.doesNotMatch(importService, /console\.log|console\.error/);

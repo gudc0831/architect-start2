@@ -25,6 +25,7 @@ const schemaArgs = ["--schema", "prisma/schema.prisma"];
 if (isTruthy(process.env.ARCHITECT_DEPLOY_MIGRATIONS)) {
   console.log("deploy:migration-gate applying pending Prisma migrations because ARCHITECT_DEPLOY_MIGRATIONS is enabled.");
   runCheckedNpmExec(["prisma", "migrate", "deploy", ...schemaArgs]);
+  runCheckedNpmExec(["tsx", "scripts/structured-knowledge-schema-preflight.ts"]);
   process.exit(0);
 }
 
@@ -48,3 +49,4 @@ if ((result.status ?? 1) !== 0) {
 }
 
 console.log(output || "Cloud database migrations are clean.");
+runCheckedNpmExec(["tsx", "scripts/structured-knowledge-schema-preflight.ts"]);

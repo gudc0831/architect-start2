@@ -20,6 +20,17 @@ import type {
 } from "@/domains/assistant/types";
 import type { AssistantAuditEvent, AssistantRunPolicy, AssistantUsageEvent } from "@/domains/assistant/saas-api-mode";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
+import { structuredKnowledgeRepository } from "@/repositories/knowledge";
+import {
+  isStructuredKnowledgeSchemaUnavailable,
+  shouldUseLegacyApprovedKnowledgeFallback,
+} from "@/repositories/knowledge/schema-errors";
+import {
+  assertStructuredKnowledgeDraftPublishable,
+  createApprovedKnowledgeSnapshotFromStructuredDraft,
+  createStableKnowledgePublicId,
+  createStableStructuredKnowledgeSyntheticId,
+} from "@/use-cases/admin/structured-knowledge-service";
 import type {
   AssistantRepository,
   AppendAssistantThreadMessageInput,
@@ -117,24 +128,56 @@ class LocalAssistantRepository implements AssistantRepository {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  async listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }) {
+  async listKnowledgeCandidateRecords(input?: {
+    states?: AssistantCandidateState[];
+    projectId?: string;
+    includeOrganizationApproved?: boolean;
+  }) {
     const store = await readStore();
     const states = new Set(input?.states ?? ["candidate", "pending_review", "approved", "rejected"]);
+    const includeOrganizationApproved = Boolean(
+      input?.includeOrganizationApproved && [...states].every((state) => state === "approved"),
+    );
     return store.records
       .filter((record) => states.has(record.candidateState))
+      .filter(
+        (record) =>
+          !input?.projectId ||
+          record.projectId === input.projectId ||
+          (includeOrganizationApproved && record.metadata.approvedKnowledgeItem?.scope === "organization"),
+      )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   async searchApprovedKnowledge(input: { projectId: string; query: string; limit?: number }) {
+    const limit = Math.max(0, input.limit ?? 4);
+    if (limit === 0) {
+      return [];
+    }
+
+    let schemaUnavailable = false;
+    const structuredItems = await structuredKnowledgeRepository
+      .searchApprovedKnowledge({ projectId: input.projectId, query: input.query, limit })
+      .catch((error: unknown) => {
+        if (!isStructuredKnowledgeSchemaUnavailable(error)) {
+          throw error;
+        }
+        schemaUnavailable = true;
+        return [];
+      });
     const store = await readStore();
-    return rankApprovedKnowledge(
-      store.records
-        .filter((record) => record.candidateState === "approved")
-        .filter((record) => record.projectId === input.projectId || record.metadata.approvedKnowledgeItem?.scope === "organization")
-        .map((record) => record.metadata.approvedKnowledgeItem)
-        .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
-      input.query,
-    ).slice(0, input.limit ?? 4);
+    const legacyItems = shouldUseLegacyApprovedKnowledgeFallback({ schemaUnavailable })
+      ? rankApprovedKnowledge(
+        store.records
+          .filter((record) => record.candidateState === "approved")
+          .filter((record) => record.projectId === input.projectId || record.metadata.approvedKnowledgeItem?.scope === "organization")
+          .map((record) => record.metadata.approvedKnowledgeItem)
+          .filter((item): item is ApprovedKnowledgeItem => Boolean(item)),
+        input.query,
+      )
+      : [];
+
+    return dedupeApprovedKnowledgeItems([...structuredItems, ...legacyItems]).slice(0, limit);
   }
 
   async findRecordById(recordId: string) {
@@ -323,25 +366,36 @@ class LocalAssistantRepository implements AssistantRepository {
     if (!record) {
       throw new Error("Assistant record not found");
     }
+    if (record.projectId !== input.projectId) {
+      throw new Error("Assistant record not found in project");
+    }
     const nextCandidateState = input.action === "approve" ? "approved" : "rejected";
     assertKnowledgeCandidateReviewTransition(record.candidateState, nextCandidateState);
 
+    const structuredDraft = input.action === "approve" ? input.structuredDraft : null;
+    if (structuredDraft) {
+      assertStructuredKnowledgeDraftPublishable(structuredDraft);
+    }
+
     const approvedKnowledgeItem =
-      input.action === "approve"
-        ? ({
-            id: randomUUID(),
-            title: input.title,
-            summary: input.summary,
-            bodyMarkdown: input.bodyMarkdown,
-            tags: input.tags,
-            scope: input.scope,
-            sourceRecordId: record.id,
-            sourceTaskId: record.taskId,
-            sourceProjectId: record.projectId,
-            sourceReferences: record.evidence,
+      input.action === "approve" && structuredDraft
+        ? createApprovedKnowledgeSnapshotFromStructuredDraft({
+            publicId: record.metadata.approvedKnowledgeItem?.id ?? createStableKnowledgePublicId(record.id),
+            record: {
+              id: record.id,
+              taskId: record.taskId,
+              projectId: record.projectId,
+            },
+            draft: structuredDraft,
+            generationRunId: input.generationRunId ?? null,
             approvedBy: input.reviewerId,
             approvedAt: timestamp,
-          } satisfies ApprovedKnowledgeItem)
+            structuredKnowledgeItemId: createStableStructuredKnowledgeSyntheticId("item", record.id),
+            structuredKnowledgeVersionId: createStableStructuredKnowledgeSyntheticId(
+              "version",
+              `${record.id}:${input.generationRunId ?? "legacy"}`,
+            ),
+          })
         : null;
 
     const knowledgeReview =
@@ -527,6 +581,19 @@ class LocalAssistantRepository implements AssistantRepository {
 }
 
 export const localAssistantRepository = new LocalAssistantRepository();
+
+function dedupeApprovedKnowledgeItems(items: ApprovedKnowledgeItem[]) {
+  const seenPublicIds = new Set<string>();
+  const seenSourceRecordIds = new Set<string>();
+  return items.filter((item) => {
+    if (seenPublicIds.has(item.id) || seenSourceRecordIds.has(item.sourceRecordId)) {
+      return false;
+    }
+    seenPublicIds.add(item.id);
+    seenSourceRecordIds.add(item.sourceRecordId);
+    return true;
+  });
+}
 
 function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {
   const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length >= 2);
