@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { loadEnvConfig } from "@next/env";
 import { chromium, type BrowserContext, type BrowserContextOptions } from "playwright";
+import { createClient } from "@supabase/supabase-js";
+
+loadEnvConfig(process.cwd());
+loadPreviewEnvFile();
 
 type RouteResult = {
   route: string;
@@ -11,12 +16,17 @@ type RouteResult = {
   bodyPreview: string;
 };
 
+type CookieJar = Map<string, string>;
+type SmokeBrowser = Awaited<ReturnType<typeof chromium.launch>>;
+
 const routes = ["/", "/auth/post-login", "/board", "/daily"] as const;
+const magicLinkAdminEmail =
+  process.env.ARCHITECT_ADMIN_EMAIL?.trim() || process.env.PREVIEW_ADMIN_EMAIL?.trim() || "gudc083111@gmail.com";
 
 async function main() {
   const options = parseOptions(process.argv.slice(2));
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext(buildContextOptions(options.baseUrl));
+  const context = await createSmokeContext(browser, options.baseUrl);
   const results: RouteResult[] = [];
 
   try {
@@ -38,6 +48,20 @@ async function main() {
       2,
     ),
   );
+}
+
+async function createSmokeContext(browser: SmokeBrowser, baseUrl: URL) {
+  const context = await browser.newContext(buildContextOptions(baseUrl));
+  if (!hasExplicitAuthState() && hasSupabaseSessionEnv()) {
+    const jar = await createSupabaseSessionCookieJar(baseUrl);
+    await context.addCookies([...jar.entries()].map(([name, value]) => ({
+      name,
+      value,
+      url: baseUrl.origin,
+      sameSite: "Lax" as const,
+    })));
+  }
+  return context;
 }
 
 async function smokeRoute(
@@ -156,6 +180,118 @@ function buildContextOptions(baseUrl: URL): BrowserContextOptions {
 
   options.baseURL = baseUrl.origin;
   return options;
+}
+
+function hasExplicitAuthState() {
+  return Boolean(process.env.ARCHITECT_SMOKE_STORAGE_STATE?.trim() || process.env.ARCHITECT_SMOKE_COOKIE?.trim());
+}
+
+function hasSupabaseSessionEnv() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  );
+}
+
+async function createSupabaseSessionCookieJar(baseUrl: URL) {
+  const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseAnonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const supabaseServiceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseProjectRef = new URL(supabaseUrl).hostname.split(".")[0];
+  const cookieName = `sb-${supabaseProjectRef}-auth-token`;
+  const admin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const anon = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const linkResult = await admin.auth.admin.generateLink({ type: "magiclink", email: magicLinkAdminEmail });
+  if (linkResult.error) {
+    throw linkResult.error;
+  }
+  const tokenHash = linkResult.data.properties?.hashed_token;
+  if (!tokenHash) {
+    throw new Error("Supabase magic link token hash missing");
+  }
+  const verifyResult = await anon.auth.verifyOtp({ type: "magiclink", token_hash: tokenHash });
+  if (verifyResult.error) {
+    throw verifyResult.error;
+  }
+  const session = verifyResult.data.session;
+  if (!session) {
+    throw new Error("Supabase smoke session missing");
+  }
+  const jar: CookieJar = new Map();
+  for (const chunk of createCookieChunks(cookieName, JSON.stringify(session))) {
+    jar.set(chunk.name, encodeURIComponent(chunk.value));
+  }
+  return jar;
+}
+
+function createCookieChunks(key: string, value: string, chunkSize = 3180) {
+  let encodedValue = encodeURIComponent(value);
+  if (encodedValue.length <= chunkSize) {
+    return [{ name: key, value }];
+  }
+  const chunks: Array<{ name: string; value: string }> = [];
+  while (encodedValue.length > 0) {
+    let encodedChunkHead = encodedValue.slice(0, chunkSize);
+    const lastEscapePos = encodedChunkHead.lastIndexOf("%");
+    if (lastEscapePos > chunkSize - 3) {
+      encodedChunkHead = encodedChunkHead.slice(0, lastEscapePos);
+    }
+    let valueHead = "";
+    while (encodedChunkHead.length > 0) {
+      try {
+        valueHead = decodeURIComponent(encodedChunkHead);
+        break;
+      } catch (error) {
+        if (error instanceof URIError && encodedChunkHead.at(-3) === "%" && encodedChunkHead.length > 3) {
+          encodedChunkHead = encodedChunkHead.slice(0, encodedChunkHead.length - 3);
+          continue;
+        }
+        throw error;
+      }
+    }
+    chunks.push({ name: `${key}.${chunks.length}`, value: valueHead });
+    encodedValue = encodedValue.slice(encodedChunkHead.length);
+  }
+  return chunks;
+}
+
+function loadPreviewEnvFile() {
+  const envPath = resolve(process.cwd(), ".env.preview.local");
+  if (!existsSync(envPath)) {
+    return;
+  }
+  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) {
+      continue;
+    }
+    const key = match[1];
+    if (process.env[key]) {
+      continue;
+    }
+    let value = match[2].trim();
+    if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value.replace(/\\n$/, "").trim();
+  }
+}
+
+function requireEnv(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
 }
 
 main().catch((error) => {
