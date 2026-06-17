@@ -1,25 +1,36 @@
 # Architect Start Plan Index
 
-- Updated: 2026-06-11
+- Updated: 2026-06-16
 - Purpose: keep this file as the high-level operating plan only.
 - Rule: implementation details belong in linked plan documents, not in this file.
 
+## Workspace-Level Legal Corpus And WIKI Plan
+
+Before changing verified legal integration, approved WIKI, legal corpus metadata, R2 storage, or active legal search, read:
+
+- [../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md](../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md)
+
+That workspace plan is canonical for cross-repo legal corpus/WIKI storage boundaries.
+
+Architect SaaS may store approved WIKI and small legal corpus metadata such as snapshot id, manifest key, active-index key, digest, and active/stale flags. It must not store full legal corpus bodies or full active-index artifacts.
+
 ## Read Order
 
-1. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
-2. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
-3. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
-4. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
-5. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
-6. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
-7. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
-8. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
-9. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
-10. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
-11. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
-12. [docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
-13. [docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
-14. [docs/worklogs/2026-06-11-production-deferral-closeout.md](docs/worklogs/2026-06-11-production-deferral-closeout.md)
+1. [../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md](../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md)
+2. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
+3. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
+4. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
+5. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
+6. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+7. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+8. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
+9. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+10. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
+11. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+12. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+13. [docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
+14. [docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
+15. [docs/worklogs/2026-06-11-production-deferral-closeout.md](docs/worklogs/2026-06-11-production-deferral-closeout.md)
 
 ## Current Direction
 
