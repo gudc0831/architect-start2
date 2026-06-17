@@ -27,3 +27,11 @@ Diff: No restore or rollback was performed. R2 recovery was verified read-only f
 Why: The legal corpus source of truth lives in R2 while approved WIKI and operational SaaS rows live in the SaaS DB; one rollback path must not be reported as the other.
 Verify: `node --env-file=.env --import tsx scripts/r2-recovery-report.ts` in `verified-legal-evidence-api` -> passed for current snapshot `2026-06-17-r2-upload-fixed-20260617003300Z`, with manifest/sources/chunks/active-index digest and size verification; `node --env-file=.env --import tsx scripts/r2-runtime-gate.ts` -> passed with 3 simulated cold-start instances and no additional R2 reads during warm searches; `node --env-file=.env --import tsx scripts/r2-security-gate.ts` -> passed, public access denied and read-token write denied, deletion not requested; `npm run backup:recovery:validate` -> passed.
 Residual: No R2 pointer rollback was executed because no alternate known-good target was requested. No SaaS DB restore was executed because `data:restore` is local-snapshot only and no restore snapshot target was requested.
+
+2026-06-17 Preview Deploy Retry:
+Req: Deploy the committed `architect-saas` Preview after explicit approval for Vercel upload.
+Failure: The first `npx --yes vercel@latest deploy --yes` failed before deploy because the local Korean user/host string was rejected as an HTTP header value by Vercel CLI. The retry with ASCII hostname preload reached upload but failed with `File size limit exceeded (100 MB)`.
+Cause: The repo had no `.vercelignore`, so local-only artifacts such as `.next-build/cache/webpack/server-production/0.pack` and `node_modules/@next/swc-win32-x64-msvc/next-swc.win32-x64-msvc.node` were eligible for upload despite being ignored by Git.
+Fix: Added `.vercelignore` mirroring the repo's local build/dependency/output/env exclusions so Preview deploy uploads source inputs, not local caches or secret env files.
+Evidence: `Get-ChildItem -Recurse -File | Where-Object Length -gt 90000000` identified `.next-build/cache/webpack/server-production/0.pack` at 281505566 bytes and the local Next SWC binary at 136858624 bytes; `.gitignore` already ignored those paths, but `.vercelignore` did not exist.
+Prevention: Keep `.vercelignore` aligned with local-only `.gitignore` exclusions whenever adding large local build/cache/output directories.
