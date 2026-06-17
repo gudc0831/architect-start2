@@ -632,8 +632,13 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const question = normalizeRequiredText(input.question, "question");
   const answer = normalizeRequiredText(input.answer, "answer");
-  const evidence = normalizeAssistantEvidenceForStorage(input.evidence);
+  const { evidence, removedLegalVerificationClaim } = sanitizeClientSubmittedAssistantEvidenceForStorage(input.evidence);
   const confidence = normalizeLegalChangeConfidence(normalizeConfidence(input.confidenceScore, evidence), evidence);
+  const confidenceReason = removedLegalVerificationClaim
+    ? "Client-submitted legal verification metadata was removed. Use /api/assistant/task-review for server-verified legal records before WIKI candidate review."
+    : hasLegalChangeEvidenceImpact(evidence)
+      ? buildConfidenceReason(confidence, evidence)
+      : normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence);
 
   return assistantRepository.createRecord({
     projectId: task.projectId,
@@ -643,12 +648,11 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
     answer,
     evidence,
     confidenceScore: confidence,
-    confidenceReason: hasLegalChangeEvidenceImpact(evidence)
-      ? buildConfidenceReason(confidence, evidence)
-      : normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence),
+    confidenceReason,
     executionMode: normalizeExecutionMode(input.executionMode),
     runtimeMode: normalizeText(input.runtimeMode) || "mock",
     draftSummary: normalizeDraftSummary(input.draftSummary),
+    candidateState: removedLegalVerificationClaim ? "not_candidate" : undefined,
   });
 }
 
@@ -1058,6 +1062,50 @@ export function normalizeAssistantEvidenceForStorage(value: unknown): AssistantE
     });
 
   return evidence;
+}
+
+export function sanitizeClientSubmittedAssistantEvidenceForStorage(value: unknown): {
+  evidence: AssistantEvidence[];
+  removedLegalVerificationClaim: boolean;
+} {
+  const normalized = normalizeAssistantEvidenceForStorage(value);
+  let removedLegalVerificationClaim = false;
+
+  const evidence = normalized.map((item) => {
+    if (!hasClientSubmittedLegalVerificationClaim(item)) {
+      return item;
+    }
+
+    removedLegalVerificationClaim = true;
+
+    return {
+      id: item.id,
+      kind: item.kind,
+      priority: item.priority,
+      title: item.title,
+      excerpt: item.excerpt,
+      ...(item.sourceUrl ? { sourceUrl: item.sourceUrl } : {}),
+      ...(item.recordId ? { recordId: item.recordId } : {}),
+      ...(item.confidenceWeight !== undefined ? { confidenceWeight: Math.min(item.confidenceWeight, 0.45) } : {}),
+    } satisfies AssistantEvidence;
+  });
+
+  return { evidence, removedLegalVerificationClaim };
+}
+
+function hasClientSubmittedLegalVerificationClaim(item: AssistantEvidence) {
+  return (
+    item.kind === "regulation" ||
+    Boolean(item.legal) ||
+    Boolean(item.verificationStatus) ||
+    Boolean(item.officialSourceName) ||
+    Boolean(item.lawName) ||
+    Boolean(item.articleLabel) ||
+    Boolean(item.articleNumber) ||
+    Boolean(item.effectiveDate) ||
+    Boolean(item.checkedAt) ||
+    Boolean(item.apiSourceUrl)
+  );
 }
 
 function normalizeLegalEvidenceMetadata(value: unknown): AssistantLegalEvidenceMetadata | undefined {

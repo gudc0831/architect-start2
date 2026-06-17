@@ -6,7 +6,10 @@ import {
   mapLegalSearchPayloadToEvidence,
   selectLegalSearchContext,
 } from "../src/use-cases/verified-legal-search-service";
-import { normalizeAssistantEvidenceForStorage } from "../src/use-cases/assistant-service";
+import {
+  normalizeAssistantEvidenceForStorage,
+  sanitizeClientSubmittedAssistantEvidenceForStorage,
+} from "../src/use-cases/assistant-service";
 
 async function main() {
   const mapped = mapLegalSearchPayloadToEvidence({
@@ -514,6 +517,33 @@ async function main() {
     },
   }]);
   assert.equal(malformedStoredLegalEvidence[0]?.legal, undefined);
+
+  const clientSubmittedLegalEvidence = sanitizeClientSubmittedAssistantEvidenceForStorage([{
+    id: "client-submitted-legal",
+    kind: "regulation",
+    priority: 1,
+    title: "Client submitted legal evidence",
+    excerpt: "The generic records route must not trust this as verified legal evidence.",
+    sourceUrl: "https://open.law.go.kr/LSO/lawService.do?target=law",
+    recordId: "law:client-submitted",
+    confidenceWeight: 0.99,
+    officialSourceName: "국가법령정보센터",
+    lawName: "건축법",
+    articleLabel: "제11조",
+    articleNumber: "11",
+    effectiveDate: "2026-01-01",
+    checkedAt: "2026-06-17T00:00:00.000Z",
+    apiSourceUrl: "https://open.law.go.kr/LSO/lawService.do?target=law",
+    verificationStatus: "verified",
+    legal: mapped.evidence[0]?.legal,
+  }]);
+  assert.equal(clientSubmittedLegalEvidence.removedLegalVerificationClaim, true);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.verificationStatus, undefined);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.legal, undefined);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.officialSourceName, undefined);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.lawName, undefined);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.apiSourceUrl, undefined);
+  assert.equal(clientSubmittedLegalEvidence.evidence[0]?.confidenceWeight, 0.45);
 
   const missingApiSecret = await fetchVerifiedLegalSearchEvidence({
     question: "건축법",

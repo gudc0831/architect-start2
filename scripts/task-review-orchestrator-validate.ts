@@ -159,12 +159,15 @@ async function assertSourceBoundaries(checks: string[]) {
 
   assert.match(assistantService, /VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING/);
   assert.match(assistantService, /withVerifiedLegalServiceHeaders/);
+  assert.match(assistantService, /sanitizeClientSubmittedAssistantEvidenceForStorage/);
+  assert.match(assistantService, /candidateState:\s*removedLegalVerificationClaim \? "not_candidate" : undefined/);
   assert.match(legalSearchService, /withVerifiedLegalServiceHeaders/);
   assert.match(assistantService, /legalEvidence:\s*evidence\.filter/);
   assert.match(assistantService, /projectContextChunks:\s*projectContextRetrieval\.chunks/);
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
   checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
+  checks.push("generic assistant records strip client-submitted legal verification claims and skip WIKI candidacy");
 
   assert.match(taskAssistantPanel, /postTaskReviewJson/);
   assert.match(taskAssistantPanel, /legalEvidence:\s*review\.evidence\.filter/);
