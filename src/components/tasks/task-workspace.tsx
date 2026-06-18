@@ -1052,7 +1052,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const dailyMutationStatusLabel = useMemo(() => {
-    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+    if (mode !== "daily") {
       return null;
     }
 
@@ -1060,14 +1060,25 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return "동기화 실패";
     }
 
-    if (dailyMutationSummary.syncing > 0) {
+    if (dailyMutationSummary.syncing > 0 || isReorderingTasks) {
       return "서버 동기화 중";
     }
 
-    return dailyMutationSummary.pending > 0 ? "서버 동기화 대기" : "로컬 반영됨";
-  }, [dailyMutationSummary.failed, dailyMutationSummary.pending, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
+    if (dailyMutationSummary.pending > 0) {
+      return "서버 동기화 대기";
+    }
+
+    return dailyMutationSummary.totalActive > 0 ? "로컬 반영됨" : null;
+  }, [
+    dailyMutationSummary.failed,
+    dailyMutationSummary.pending,
+    dailyMutationSummary.syncing,
+    dailyMutationSummary.totalActive,
+    isReorderingTasks,
+    mode,
+  ]);
   const dailyMutationStatusDebug = useMemo(() => {
-    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+    if (mode !== "daily") {
       return null;
     }
 
@@ -1077,18 +1088,34 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       dailyMutationOperations.find((candidate) => candidate.status === "pending") ??
       null;
 
-    return operation
-      ? {
-          failureKind: operation.failureKind ?? "",
-          lastError: operation.lastError ?? "",
-          lastErrorCode: operation.lastErrorCode ?? "",
-          lastHttpStatus: operation.lastHttpStatus === null || operation.lastHttpStatus === undefined ? "" : String(operation.lastHttpStatus),
-          retryCount: String(operation.retryCount),
-          status: operation.status,
-          type: operation.type,
-        }
-      : null;
-  }, [dailyMutationOperations, dailyMutationSummary.totalActive, mode]);
+    if (operation) {
+      return {
+        failureKind: operation.failureKind ?? "",
+        lastError: operation.lastError ?? "",
+        lastErrorCode: operation.lastErrorCode ?? "",
+        lastHttpStatus: operation.lastHttpStatus === null || operation.lastHttpStatus === undefined ? "" : String(operation.lastHttpStatus),
+        retryCount: String(operation.retryCount),
+        status: operation.status,
+        type: operation.type,
+      };
+    }
+
+    if (isReorderingTasks) {
+      return {
+        failureKind: "",
+        lastError: "",
+        lastErrorCode: "",
+        lastHttpStatus: "",
+        retryCount: "",
+        status: "syncing",
+        type: "reorder",
+      };
+    }
+
+    return null;
+  }, [dailyMutationOperations, isReorderingTasks, mode]);
+  const dailyMutationStatusState =
+    dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 || isReorderingTasks ? "syncing" : "pending";
   const canEditWorkspace =
     !isPreview &&
     Boolean(authUser) &&
@@ -5680,17 +5707,17 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     upsertFilesIntoDashboardScope("active", [tempFile]);
 
     try {
-      const intent = await uploadFileWithIntent({ taskId, file });
-      if (!intent) {
-        const body = new FormData();
-        body.append("file", file);
-        body.append("taskId", taskId);
-        const response = await fetch("/api/upload", { method: "POST", body });
-        if (!response.ok) {
-          removeFileIdsFromDashboardScope("active", [tempFile.id]);
-          setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
-          return;
+      try {
+        const intent = await uploadFileWithIntent({ taskId, file });
+        if (!intent) {
+          await uploadFileViaRelay(taskId, file);
         }
+      } catch (error) {
+        if (!shouldFallbackToRelayUpload(error)) {
+          throw error;
+        }
+
+        await uploadFileViaRelay(taskId, file);
       }
       await refreshTaskFiles(taskId, { force: true });
       removeFileIdsFromDashboardScope("active", [tempFile.id]);
@@ -5731,25 +5758,22 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     upsertFilesIntoDashboardScope("active", [optimisticVersionFile]);
 
     try {
-      const intent = await uploadFileWithIntent({
-        taskId: targetFile.taskId,
-        file: uploadFile,
-        replaceFileId: versionTargetId,
-      });
-
-      if (!intent) {
-        const body = new FormData();
-        body.append("file", uploadFile);
-        const response = await fetch(`/api/files/${encodeURIComponent(versionTargetId)}/version`, {
-          method: "POST",
-          body,
+      try {
+        const intent = await uploadFileWithIntent({
+          taskId: targetFile.taskId,
+          file: uploadFile,
+          replaceFileId: versionTargetId,
         });
 
-        if (!response.ok) {
-          setDashboardScopeFiles("active", () => previousActiveFiles);
-          setErrorMessage(await readErrorMessage(response, "uploadNextVersionFailed"));
-          return;
+        if (!intent) {
+          await uploadFileVersionViaRelay(versionTargetId, uploadFile);
         }
+      } catch (error) {
+        if (!shouldFallbackToRelayUpload(error)) {
+          throw error;
+        }
+
+        await uploadFileVersionViaRelay(versionTargetId, uploadFile);
       }
 
       await refreshTaskFiles(targetFile.taskId, { force: true });
@@ -6691,7 +6715,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
           data-http-status={dailyMutationStatusDebug?.lastHttpStatus || undefined}
           data-operation-type={dailyMutationStatusDebug?.type || undefined}
           data-retry-count={dailyMutationStatusDebug?.retryCount || undefined}
-          data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}
+          data-state={dailyMutationStatusState}
           title={dailyMutationStatusDebug?.lastError || undefined}
         >
           <span>{dailyMutationStatusLabel}</span>
@@ -11415,6 +11439,41 @@ async function uploadFileWithIntent(input: {
   }
 
   return intent;
+}
+
+async function uploadFileViaRelay(taskId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("taskId", taskId);
+  const response = await fetch("/api/upload", { method: "POST", body });
+  if (!response.ok) {
+    throw await readApiError(response, "uploadFileFailed");
+  }
+}
+
+async function uploadFileVersionViaRelay(fileId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/version`, {
+    method: "POST",
+    body,
+  });
+
+  if (!response.ok) {
+    throw await readApiError(response, "uploadNextVersionFailed");
+  }
+}
+
+function shouldFallbackToRelayUpload(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (error instanceof ApiResponseError) {
+    return false;
+  }
+
+  return isFetchNetworkFailure(error) || /Supabase 환경|row-level security|storage|bucket|permission|cors/i.test(error.message);
 }
 
 async function downloadFileAttachment(file: Pick<FileRecord, "id" | "originalName" | "deletedAt">) {

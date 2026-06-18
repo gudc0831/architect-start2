@@ -114,6 +114,20 @@ function requireEnv(name: string) {
   return value;
 }
 
+function assertPreviewMutationTarget(url: URL, projectId: string) {
+  if (process.env.ALLOW_PREVIEW_MUTATION_PROBE !== "1") {
+    throw new Error("ALLOW_PREVIEW_MUTATION_PROBE=1 is required for this live Preview mutation probe.");
+  }
+
+  if (!url.hostname.endsWith(".vercel.app") || !url.hostname.includes("-git-")) {
+    throw new Error(`Refusing live Preview mutation probe against non-branch-preview host: ${url.hostname}`);
+  }
+
+  if (!projectId.trim()) {
+    throw new Error("PREVIEW_PROJECT_B_ID must be set explicitly for this live Preview mutation probe.");
+  }
+}
+
 function setCookieFromHeader(jar: CookieJar, setCookieHeader: string) {
   const [pair] = setCookieHeader.split(";");
   const separatorIndex = pair.indexOf("=");
@@ -590,7 +604,8 @@ async function main() {
   const baseUrl = new URL(options.url);
   assert.equal(baseUrl.pathname, "/daily", "remaining acceptance proof must target the DB-backed /daily route");
 
-  const projectId = process.env.PREVIEW_PROJECT_B_ID?.trim() || "2150d595-0570-4309-9198-031e90668af4";
+  const projectId = requireEnv("PREVIEW_PROJECT_B_ID");
+  assertPreviewMutationTarget(baseUrl, projectId);
   const editorEmail = process.env.PREVIEW_EDITOR_EMAIL?.trim() || "preview-step11-editor@architect-start.test";
   const viewerEmail = process.env.PREVIEW_VIEWER_EMAIL?.trim() || "preview-step11-viewer@architect-start.test";
   const noAccessEmail = process.env.PREVIEW_NO_ACCESS_EMAIL?.trim() || "gudc0831111@gmail.com";

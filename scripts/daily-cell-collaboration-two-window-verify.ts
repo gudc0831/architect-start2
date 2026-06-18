@@ -96,6 +96,20 @@ function requireEnv(name: string) {
   return value;
 }
 
+function assertPreviewMutationTarget(url: URL, projectId: string) {
+  if (process.env.ALLOW_PREVIEW_MUTATION_PROBE !== "1") {
+    throw new Error("ALLOW_PREVIEW_MUTATION_PROBE=1 is required for this live Preview mutation probe.");
+  }
+
+  if (!url.hostname.endsWith(".vercel.app") || !url.hostname.includes("-git-")) {
+    throw new Error(`Refusing live Preview mutation probe against non-branch-preview host: ${url.hostname}`);
+  }
+
+  if (!projectId.trim()) {
+    throw new Error("PREVIEW_PROJECT_B_ID must be set explicitly for this live Preview mutation probe.");
+  }
+}
+
 function setCookieFromHeader(jar: CookieJar, setCookieHeader: string) {
   const [pair] = setCookieHeader.split(";");
   const separatorIndex = pair.indexOf("=");
@@ -271,6 +285,15 @@ function dataOf<T = unknown>(body: unknown): T | null {
   }
 
   return (body as { data: T }).data;
+}
+
+function summarizeCellPostBody(body: string) {
+  try {
+    const parsed = JSON.parse(body) as { data?: { plainText?: unknown } };
+    return typeof parsed.data?.plainText === "string" ? parsed.data.plainText.slice(0, 240) : body.slice(0, 240);
+  } catch {
+    return body.slice(0, 240);
+  }
 }
 
 function record(label: string, ok: boolean, detail?: string) {
@@ -498,7 +521,8 @@ async function main() {
   const url = new URL(options.url);
   assert.equal(url.pathname, "/daily", "two-window proof must target the DB-backed /daily route");
 
-  const projectId = process.env.PREVIEW_PROJECT_B_ID?.trim() || "2150d595-0570-4309-9198-031e90668af4";
+  const projectId = requireEnv("PREVIEW_PROJECT_B_ID");
+  assertPreviewMutationTarget(url, projectId);
   const editorEmail = process.env.PREVIEW_EDITOR_EMAIL?.trim() || "preview-step11-editor@architect-start.test";
   const marker = `codex-ui-cell-${Date.now()}`;
   const editA = `${marker}-A`;
@@ -623,7 +647,11 @@ async function main() {
       postCellUpdateFromPage(pageA, taskId, projectId, profileId, `${marker}-update-a`, updateA),
       postCellUpdateFromPage(pageB, taskId, projectId, profileId, `${marker}-update-b`, updateB),
     ]);
-    record("both browser windows posted CRDT cell updates", postA.ok && postB.ok, `A=${postA.status}; B=${postB.status}`);
+    record(
+      "both browser windows posted CRDT cell updates",
+      postA.ok && postB.ok,
+      `A=${postA.status}:${summarizeCellPostBody(postA.body)}; B=${postB.status}:${summarizeCellPostBody(postB.body)}`,
+    );
 
     const apiMergedTitle = await waitForTaskTitleParts(url, jar, taskId, [editA, editB], 20000);
     record("server projection contains merged CRDT text", true, apiMergedTitle);
@@ -668,5 +696,15 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
+  console.log(
+    JSON.stringify(
+      {
+        ok: false,
+        partialResults: results,
+      },
+      null,
+      2,
+    ),
+  );
   process.exitCode = 1;
 });

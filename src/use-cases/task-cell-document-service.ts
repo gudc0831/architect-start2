@@ -15,6 +15,10 @@ import { badRequest, notFound } from "@/lib/api/errors";
 import { prisma } from "@/lib/prisma";
 
 const MAX_RETAINED_CELL_UPDATES = 100;
+const MAX_CELL_DOCUMENT_UPDATE_ATTEMPTS = 4;
+const CELL_DOCUMENT_TRANSACTION_MAX_WAIT_MS = 10_000;
+const CELL_DOCUMENT_TRANSACTION_TIMEOUT_MS = 20_000;
+const CELL_DOCUMENT_RETRY_BASE_DELAY_MS = 75;
 
 type TaskCellDocumentCatchUpUpdate = {
   id: string;
@@ -101,7 +105,7 @@ export async function applyTaskCellDocumentUpdate(input: {
     throw badRequest("Cell document update size is invalid.", "TASK_CELL_DOCUMENT_UPDATE_SIZE_INVALID");
   }
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_CELL_DOCUMENT_UPDATE_ATTEMPTS; attempt += 1) {
     try {
       const result = await prisma.$transaction(async (tx) => {
     const task = await tx.task.findFirst({
@@ -211,11 +215,15 @@ export async function applyTaskCellDocumentUpdate(input: {
     });
 
     return updatedDocument;
+      }, {
+        maxWait: CELL_DOCUMENT_TRANSACTION_MAX_WAIT_MS,
+        timeout: CELL_DOCUMENT_TRANSACTION_TIMEOUT_MS,
       });
 
       return toTaskCellDocumentSnapshot(result);
     } catch (error) {
-      if (error instanceof TaskCellDocumentConcurrentUpdateError && attempt < 3) {
+      if (isRetryableTaskCellDocumentUpdateError(error) && attempt < MAX_CELL_DOCUMENT_UPDATE_ATTEMPTS - 1) {
+        await sleep(CELL_DOCUMENT_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
       throw error;
@@ -470,6 +478,25 @@ function decodeBase64Bytes(value: string, code: string) {
 
 function toPrismaBytes(bytes: Uint8Array) {
   return Uint8Array.from(bytes);
+}
+
+function isRetryableTaskCellDocumentUpdateError(error: unknown) {
+  if (error instanceof TaskCellDocumentConcurrentUpdateError) {
+    return true;
+  }
+
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  return (
+    (error.code === "P2028" && /Unable to start a transaction/i.test(error.message)) ||
+    error.code === "P2034"
+  );
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isUniqueConstraintError(error: unknown) {
