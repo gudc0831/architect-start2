@@ -14,10 +14,11 @@ const fileEnv = readEnvFiles([".env", ".env.local", ".env.preview.local"]);
 
 const checks: Check[] = [
   checkEnv("DATABASE_URL", true, "AI review persistence and project_context retrieval require the database."),
-  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", true, "Centralized verified legal evidence API URL is required for legal/regulation AI review."),
+  checkEnv("VERIFIED_LEGAL_SEARCH_API_URL", true, "Centralized verified legal search API URL is required for legal/regulation AI review."),
   checkEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", true, "Server-to-server secret is required for centralized verified legal evidence API calls."),
-  checkEnv("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS", false, "Optional source-id policy for latest bundle retrieval."),
-  checkEnv("VERIFIED_LEGAL_SEARCH_API_URL", false, "Optional explicit verified legal search URL."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", false, "Optional legacy verified legal evidence bundle URL."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS", false, "Optional source-id policy for legacy bundle retrieval."),
+  checkEnv("VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED", false, "Set to 1 only when intentionally using legacy evidence bundle retrieval."),
   checkEnv("VERIFIED_LEGAL_SEARCH_ENABLED", false, "Set to 1 only when the server-to-server legal search API is reachable."),
 ];
 
@@ -29,10 +30,27 @@ const hasSearchEnabled = configuredEnvValue("VERIFIED_LEGAL_SEARCH_ENABLED") ===
 const hasSearchUrl = hasExplicitSearchUrl || (hasSearchEnabled && hasBundleUrl);
 const hasVerifiedLegalSecret = hasConfiguredEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET");
 const hasBundleSourceIds = hasConfiguredEnv("VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS");
+const hasBundleEnabled = configuredEnvValue("VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED") === "1";
 const configuredLegalApiUrl = verifiedLegalSearchApiUrl || verifiedLegalEvidenceApiUrl;
 const isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL === "true";
 
-if (hasBundleUrl && !hasVerifiedLegalSecret) {
+if (hasBundleUrl && !hasBundleEnabled) {
+  checks.push({
+    id: "verified-legal-bundle:disabled",
+    status: "warn",
+    detail: "VERIFIED_LEGAL_EVIDENCE_API_URL is ignored unless VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED=1; use VERIFIED_LEGAL_SEARCH_API_URL for R2-backed Preview verification.",
+  });
+}
+
+if (hasBundleEnabled && !hasBundleUrl) {
+  checks.push({
+    id: "verified-legal-bundle:url",
+    status: "fail",
+    detail: "VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED=1 requires VERIFIED_LEGAL_EVIDENCE_API_URL.",
+  });
+}
+
+if (hasBundleEnabled && hasBundleUrl && !hasVerifiedLegalSecret) {
   checks.push({
     id: "verified-legal-bundle:secret",
     status: "fail",
@@ -40,11 +58,11 @@ if (hasBundleUrl && !hasVerifiedLegalSecret) {
   });
 }
 
-if (hasBundleUrl && !hasBundleSourceIds) {
+if (hasBundleEnabled && hasBundleUrl && !hasBundleSourceIds) {
   checks.push({
     id: "verified-legal-bundle:source-ids",
-    status: "pass",
-    detail: "VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS is optional; when absent, SaaS should rely on verified legal search or unfiltered bundle policy.",
+    status: "warn",
+    detail: "VERIFIED_LEGAL_EVIDENCE_SOURCE_IDS is recommended when legacy bundle retrieval is enabled.",
   });
 }
 

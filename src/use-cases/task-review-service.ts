@@ -275,7 +275,7 @@ function buildCentralizedLegalVerificationReport(input: {
   const checkedAt = new Date().toISOString();
   const provider = {
     name: "Verified Legal Evidence API",
-    docsUrl: "/api/evidence/bundle",
+    docsUrl: "/api/legal/search",
   };
   if (!input.legalVerificationRequired) {
     return {
@@ -334,7 +334,7 @@ function buildCentralizedLegalVerificationReport(input: {
     sources: [],
     failures,
     retry: [
-      "Configure VERIFIED_LEGAL_EVIDENCE_API_URL and VERIFIED_LEGAL_EVIDENCE_API_SECRET on the SaaS server if centralized legal verification should run here.",
+      "Configure VERIFIED_LEGAL_SEARCH_API_URL and VERIFIED_LEGAL_EVIDENCE_API_SECRET on the SaaS server if centralized legal verification should run here.",
       "Run verified-legal-evidence-api smoke/search validators and confirm the API returns answer-ready legal evidence for the requested task.",
       "Do not add LAW_OPEN_DATA_OC to architect-saas; keep the official law credential inside verified-legal-evidence-api.",
     ],
@@ -347,8 +347,8 @@ function buildCentralizedLegalVerificationFailures(warnings: Array<{ code: strin
     return legalWarnings.map((warning) => `${warning.code}: ${warning.message}`);
   }
 
-  if (!process.env.VERIFIED_LEGAL_EVIDENCE_API_URL?.trim() && !process.env.VERIFIED_LEGAL_SEARCH_API_URL?.trim()) {
-    return ["VERIFIED_LEGAL_EVIDENCE_API_URL is missing; legal/regulation task-review cannot be treated as verified."];
+  if (!process.env.VERIFIED_LEGAL_SEARCH_API_URL?.trim() && !process.env.VERIFIED_LEGAL_EVIDENCE_API_URL?.trim()) {
+    return ["VERIFIED_LEGAL_SEARCH_API_URL is missing; legal/regulation task-review cannot be treated as verified."];
   }
 
   if (!process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET?.trim()) {

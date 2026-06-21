@@ -126,10 +126,12 @@ async function assertSourceBoundaries(checks: string[]) {
   );
 
   assert.doesNotMatch(envExample, /^LAW_OPEN_DATA_OC=/m);
+  assert.match(envExample, /^VERIFIED_LEGAL_SEARCH_API_URL=/m);
+  assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED=/m);
   assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_URL=/m);
   assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_API_SECRET=/m);
   assert.match(envExample, /^VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET=/m);
-  checks.push("SaaS env example documents verified legal API settings and not LAW_OPEN_DATA_OC");
+  checks.push("SaaS env example documents R2-backed verified legal search settings and not LAW_OPEN_DATA_OC");
 
   assert.match(taskReviewRoute, /requireCurrentProjectEditor/);
   assert.match(taskReviewRoute, /mode === "generate"/);
@@ -159,6 +161,9 @@ async function assertSourceBoundaries(checks: string[]) {
 
   assert.match(assistantService, /VERIFIED_LEGAL_EVIDENCE_API_SECRET_MISSING/);
   assert.match(assistantService, /withVerifiedLegalServiceHeaders/);
+  assert.match(assistantService, /isVerifiedLegalEvidenceBundleEnabled/);
+  assert.match(assistantService, /VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED/);
+  assert.match(assistantService, /fetchVerifiedLegalEvidenceBundle/);
   assert.match(assistantService, /sanitizeClientSubmittedAssistantEvidenceForStorage/);
   assert.match(assistantService, /candidateState:\s*removedLegalVerificationClaim \? "not_candidate" : undefined/);
   assert.match(legalSearchService, /withVerifiedLegalServiceHeaders/);
@@ -166,6 +171,7 @@ async function assertSourceBoundaries(checks: string[]) {
   assert.match(assistantService, /projectContextChunks:\s*projectContextRetrieval\.chunks/);
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
+  checks.push("verified legal search is the default path and legacy bundle retrieval is explicit opt-in");
   checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
   checks.push("generic assistant records strip client-submitted legal verification claims and skip WIKI candidacy");
 

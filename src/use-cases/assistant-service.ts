@@ -147,10 +147,12 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   const regulationResults = searchFoundationRegulations(retrievalQuery, 4);
   const legalSearchContext = selectLegalSearchContext({ task, projectName: project.name });
   const [verifiedLegalEvidence, verifiedLegalSearchEvidence, projectContextRetrieval] = await Promise.all([
-    fetchVerifiedLegalEvidenceBundle({
-      question: retrievalQuery,
-      sourceIds: selectVerifiedLegalEvidenceSourceIds(),
-    }),
+    isVerifiedLegalEvidenceBundleEnabled()
+      ? fetchVerifiedLegalEvidenceBundle({
+          question: retrievalQuery,
+          sourceIds: selectVerifiedLegalEvidenceSourceIds(),
+        })
+      : Promise.resolve({ evidence: [], warnings: [] }),
     fetchVerifiedLegalSearchEvidence({ question: retrievalQuery, ...legalSearchContext }),
     input.user
       ? retrieveProjectContextForTaskReview({
@@ -475,6 +477,10 @@ function selectVerifiedLegalEvidenceSourceIds(): string[] {
     .split(",")
     .map((sourceId) => sourceId.trim())
     .filter(Boolean);
+}
+
+function isVerifiedLegalEvidenceBundleEnabled(): boolean {
+  return process.env.VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED === "1";
 }
 
 function mapVerifiedLegalEvidenceItem(
