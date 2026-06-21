@@ -9,9 +9,13 @@ function read(path: string) {
 }
 
 function modelBody(source: string, name: string) {
-  const match = source.match(new RegExp(`model\\s+${name}\\s+\\{([\\s\\S]*?)\\n\\}`));
-  assert.ok(match, `${name} model missing`);
-  return match[1];
+  const prefix = `model ${name} {`;
+  const start = source.indexOf(prefix);
+  assert.notEqual(start, -1, `${name} model missing`);
+  const bodyStart = start + prefix.length;
+  const end = source.indexOf("\n}", bodyStart);
+  assert.notEqual(end, -1, `${name} model body end missing`);
+  return source.slice(bodyStart, end);
 }
 
 const migrationPath = "prisma/migrations/20260615090000_structured_approved_wiki/migration.sql";
@@ -27,8 +31,8 @@ for (const [model, table] of [
   ["KnowledgeGenerationRun", "knowledge_generation_runs"],
 ] as const) {
   const body = modelBody(schema, model);
-  assert.match(body, new RegExp(`@@map\\("${table}"\\)`), `${model} table map missing`);
-  assert.match(migration, new RegExp(`create table "${table}"`), `${table} migration table missing`);
+  assert.ok(body.includes(`@@map("${table}")`), `${model} table map missing`);
+  assert.ok(migration.includes(`create table "${table}"`), `${table} migration table missing`);
 }
 
 const item = modelBody(schema, "KnowledgeItem");
@@ -78,19 +82,19 @@ for (const constraint of [
   "knowledge_source_references_allowed_use_check",
   "knowledge_generation_profiles_state_check",
 ]) {
-  assert.match(migration, new RegExp(constraint), `${constraint} missing`);
+  assert.ok(migration.includes(constraint), `${constraint} missing`);
 }
 
 for (const state of ["draft", "active", "archived"]) {
-  assert.match(migration, new RegExp(`'${state}'`), `knowledge item/profile state ${state} missing`);
+  assert.ok(migration.includes(`'${state}'`), `knowledge item/profile state ${state} missing`);
 }
 
 for (const state of ["approved", "superseded"]) {
-  assert.match(migration, new RegExp(`'${state}'`), `knowledge version state ${state} missing`);
+  assert.ok(migration.includes(`'${state}'`), `knowledge version state ${state} missing`);
 }
 
 for (const scope of ["admin_only", "organization", "project_members", "project"]) {
-  assert.match(migration, new RegExp(`'${scope}'`), `scope ${scope} missing`);
+  assert.ok(migration.includes(`'${scope}'`), `scope ${scope} missing`);
 }
 
 for (const sourceKind of [
@@ -101,11 +105,11 @@ for (const sourceKind of [
   "local_wiki",
   "external_evidence",
 ]) {
-  assert.match(migration, new RegExp(`'${sourceKind}'`), `source kind ${sourceKind} missing`);
+  assert.ok(migration.includes(`'${sourceKind}'`), `source kind ${sourceKind} missing`);
 }
 
 for (const allowedUse of ["legal_basis", "context", "comparison", "citation", "do_not_publish"]) {
-  assert.match(migration, new RegExp(`'${allowedUse}'`), `allowed use ${allowedUse} missing`);
+  assert.ok(migration.includes(`'${allowedUse}'`), `allowed use ${allowedUse} missing`);
 }
 
 assert.match(migration, /create unique index "knowledge_generation_profiles_one_active"[\s\S]*where "state" = 'active'/);

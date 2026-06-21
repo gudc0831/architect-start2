@@ -9,9 +9,13 @@ function read(path: string) {
 }
 
 function exportedTypeBody(source: string, name: string) {
-  const match = source.match(new RegExp(`export type ${name} = \\{([\\s\\S]*?)\\n\\};`));
-  assert.ok(match, `${name} type body missing`);
-  return match[1];
+  const prefix = `export type ${name} = {`;
+  const start = source.indexOf(prefix);
+  assert.notEqual(start, -1, `${name} type body missing`);
+  const bodyStart = start + prefix.length;
+  const end = source.indexOf("\n};", bodyStart);
+  assert.notEqual(end, -1, `${name} type body end missing`);
+  return source.slice(bodyStart, end);
 }
 
 function methodBody(source: string, name: string) {
@@ -71,13 +75,12 @@ for (const field of [
   "approvedBy",
   "approvedAt",
 ]) {
-  assert.match(approvedKnowledgeItem, new RegExp(`\\b${field}:`), `ApprovedKnowledgeItem legacy field ${field} missing`);
+  assert.ok(approvedKnowledgeItem.includes(`${field}:`), `ApprovedKnowledgeItem legacy field ${field} missing`);
 }
 
 for (const optionalField of ["structuredKnowledgeItemId", "structuredKnowledgeVersionId", "generationRunId"]) {
-  assert.match(
-    approvedKnowledgeItem,
-    new RegExp(`\\b${optionalField}\\?: string`),
+  assert.ok(
+    approvedKnowledgeItem.includes(`${optionalField}?: string`),
     `ApprovedKnowledgeItem optional lineage field ${optionalField} missing`,
   );
 }

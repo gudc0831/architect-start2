@@ -208,7 +208,7 @@ async function clickDraftSubview(page: Page, subview: keyof typeof draftSubviewL
     await page.waitForURL(/candidateTab=draft/, { timeout: 10000 });
     return;
   }
-  await page.waitForURL(new RegExp(`draftSubview=${subview}`), { timeout: 10000 });
+  await page.waitForURL((url) => url.searchParams.get("draftSubview") === subview, { timeout: 10000 });
 }
 
 async function assertGenerationProfilePanel(page: Page) {
