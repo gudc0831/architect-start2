@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
 import type { AssistantActionAuditRecord, AssistantActionAuditSummary } from "@/domains/assistant/saas-api-mode";
+import type { AiSettingsPreference } from "@/domains/preferences/types";
+import { DEFAULT_AI_SETTINGS_PREFERENCE, sanitizeAiSettingsPreference } from "@/domains/preferences/types";
 
 type AssistantEvidence = {
   id: string;
@@ -16,6 +18,14 @@ type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  officialSourceName?: string;
+  lawName?: string;
+  articleLabel?: string;
+  articleNumber?: string;
+  effectiveDate?: string;
+  checkedAt?: string;
+  apiSourceUrl?: string;
+  verificationStatus?: "verified" | "needs_review" | "failed";
   legal?: {
     sourceId?: string;
     sourceKind?: string;
@@ -88,6 +98,17 @@ type AssistantOutput = {
   answer: string;
   draftSummary: DraftSummary;
   retrieval?: RetrieveResponse;
+  localCodexUsage?: LocalCodexUsageMetadata;
+  localCodexBridgeSchemaVersion?: number;
+};
+
+type LocalCodexUsageMetadata = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  usageAvailable: boolean;
+  model?: string;
+  bridgeSchemaVersion?: number;
 };
 
 type EvidenceReadinessWarning = { code: string; message: string };
@@ -252,6 +273,8 @@ type LocalCodexStatus = {
   available: boolean;
   mode: "local-chatgpt-codex" | "mock";
   reason?: string;
+  bridgeSchemaVersion?: number;
+  codexCliVersion?: string;
 };
 
 type BrowserRegionCapture = {
@@ -295,10 +318,25 @@ type LocalCodexBridgeResponse<T> =
       error: string;
     };
 
+type LocalCodexBridgeRequestOptions = {
+  codexOptions?: {
+    model?: string;
+    reasoningEffort?: string;
+    serviceTier?: string;
+    timeoutMs?: number;
+    noHistory?: boolean;
+  };
+};
+
 type LocalCodexHealthStep = {
   id: string;
   label: string;
   status: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+type LocalCodexLawPreflight = {
+  status: "not_required" | "verified" | "failed";
   detail: string;
 };
 
@@ -484,6 +522,7 @@ export function TaskAssistantPanel({
     }
     return "검토 흐름이 처리되었습니다.";
   }, [output, question, retrieveResult, selectedTask, summarySaveState]);
+  const showLocalCodexConnectionHelp = Boolean(localCodexHealth?.steps.some((step) => step.status === "fail"));
 
   useEffect(() => {
     reviewRequestSeqRef.current += 1;
@@ -704,23 +743,37 @@ export function TaskAssistantPanel({
       }
       setRetrieveResult(retrieved);
 
+      const verifiedRetrieval =
+        requestedExecutionMode === "local-codex"
+          ? await getVerifiedLocalCodexRetrieval({
+              retrieved,
+              taskId: requestedTaskId,
+              question: requestedQuestion,
+              instruction: requestedInstruction,
+            })
+          : retrieved;
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+      if (requestedExecutionMode === "local-codex") {
+        setRetrieveResult(verifiedRetrieval);
+      }
+
       const generated =
         requestedExecutionMode === "local-codex"
           ? await generateLocalCodexReview({
-              evidence: retrieved.evidence,
-              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskContext: retrieved.taskContext,
+              retrieval: verifiedRetrieval,
             })
           : generateArchitectReview({
-              evidence: retrieved.evidence,
-              evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+              evidence: verifiedRetrieval.evidence,
+              evidenceReadinessWarnings: verifiedRetrieval.evidenceReadinessWarnings,
               instruction: requestedInstruction,
               question: requestedQuestion,
-              taskContext: retrieved.taskContext,
+              taskContext: verifiedRetrieval.taskContext,
             });
-      const retrieveForRecord = generated.retrieval ?? retrieved;
+      const retrieveForRecord = generated.retrieval ?? verifiedRetrieval;
       if (retrieveForRecord.taskContext.taskId !== requestedTaskId) {
         throw new Error("Assistant generated retrieval task mismatch. Please rerun the review for the selected task.");
       }
@@ -750,6 +803,13 @@ export function TaskAssistantPanel({
         return;
       }
       setRecord(savedRecord);
+      if (requestedExecutionMode === "local-codex") {
+        void recordLocalCodexUsage({
+          generated,
+          savedRecord,
+          taskId: retrieveForRecord.taskContext.taskId,
+        });
+      }
       await refreshAssistantRecords(retrieveForRecord.taskContext.taskId, reviewRequestId);
       if (reviewRequestSeqRef.current !== reviewRequestId) {
         return;
@@ -772,7 +832,8 @@ export function TaskAssistantPanel({
 
     try {
       const bridgeStatus = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
-      const report = buildLocalCodexHealthReport(bridgeStatus);
+      const lawPreflight = bridgeStatus.available ? await checkOfficialLawPreflight() : null;
+      const report = buildLocalCodexHealthReport(bridgeStatus, lawPreflight);
       setLocalCodexHealth(report);
       setStatus(report.summary);
     } catch (error) {
@@ -781,6 +842,45 @@ export function TaskAssistantPanel({
       setStatus(report.summary);
     } finally {
       setHealthLoading(false);
+    }
+  }
+
+  async function checkOfficialLawPreflight(): Promise<LocalCodexLawPreflight | null> {
+    if (!selectedTask || !question.trim()) {
+      return null;
+    }
+
+    try {
+      const review = await postTaskReviewJson({
+        taskId: selectedTask.id,
+        question,
+        instruction,
+        mode: "preview",
+      });
+      const verification = review.officialLawVerification;
+      const failed = verification.status === "failed" || review.status === "blocked";
+      const failureText = [...verification.failures, ...verification.retry].filter(Boolean).join(" / ");
+
+      if (failed) {
+        return {
+          status: "failed",
+          detail: failureText || review.reason,
+        };
+      }
+
+      return {
+        status: verification.status,
+        detail:
+          failureText ||
+          (verification.status === "verified"
+            ? "서버 중앙 verified legal evidence 검증이 통과했습니다."
+            : "이 질문과 근거는 중앙 verified legal evidence 검증이 필요하지 않습니다."),
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        detail: errorMessage(error),
+      };
     }
   }
 
@@ -1640,10 +1740,12 @@ export function TaskAssistantPanel({
                     {localCodexDiagnostic(localCodexHealth)}
                   </p>
                 ) : null}
-                <p className="task-assistant__hint">
-                  사용자 PC의 Codex CLI 로그인 상태로 응답을 생성하며, SaaS는 Codex/OpenAI 인증 정보를 저장하지 않습니다.
-                  Chrome extension native host가 등록되어 있어야 합니다.
-                </p>
+                {showLocalCodexConnectionHelp ? (
+                  <p className="task-assistant__hint">
+                    사용자 PC의 Codex CLI 로그인 상태로 응답을 생성하며, SaaS는 Codex/OpenAI 인증 정보를 저장하지 않습니다.
+                    Chrome extension native host가 등록되어 있어야 합니다.
+                  </p>
+                ) : null}
               </section>
             ) : null}
             <label className="task-assistant__field">
@@ -2201,40 +2303,119 @@ function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
+async function getServerVerifiedLocalCodexRetrieval(input: {
+  retrieved: RetrieveResponse;
+  taskId: string;
+  question: string;
+  instruction: string;
+}): Promise<RetrieveResponse> {
+  const review = await postTaskReviewJson({
+    taskId: input.taskId,
+    question: input.question,
+    instruction: input.instruction,
+    mode: "preview",
+  });
+
+  if (review.taskContext.taskId !== input.taskId) {
+    throw new Error("Assistant task-review task mismatch. Please rerun the review for the selected task.");
+  }
+
+  if (review.status === "blocked" || review.officialLawVerification.status === "failed") {
+    throw new Error(formatTaskReviewBlockedReason(review));
+  }
+
+  return {
+    ...input.retrieved,
+    taskContext: review.taskContext,
+    evidence: review.evidence,
+    legalEvidence: review.evidence.filter((item) => item.kind === "regulation" || Boolean(item.legal)),
+    unavailableEvidenceKinds: review.retrievedEvidence.unavailableEvidenceKinds,
+  };
+}
+
+async function getVerifiedLocalCodexRetrieval(input: {
+  retrieved: RetrieveResponse;
+  taskId: string;
+  question: string;
+  instruction: string;
+}): Promise<RetrieveResponse> {
+  return getServerVerifiedLocalCodexRetrieval(input);
+}
+
+function formatTaskReviewBlockedReason(review: TaskReviewResponse) {
+  const failures = review.officialLawVerification.failures.join(" / ");
+  const retry = review.officialLawVerification.retry.join(" / ");
+  const readiness = review.evidenceReadiness
+    .filter((item) => item.status === "missing")
+    .map((item) => `${item.kind}: ${item.action}`)
+    .join(" / ");
+
+  return [failures || review.reason, retry, readiness].filter(Boolean).join(" / ");
+}
+
 async function generateLocalCodexReview(input: {
-  taskContext: AssistantTaskContext;
-  evidence: AssistantEvidence[];
-  evidenceReadinessWarnings?: EvidenceReadinessWarning[];
   instruction: string;
   question: string;
+  retrieval: RetrieveResponse;
 }): Promise<AssistantOutput> {
-  const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
+  const [status, preference] = await Promise.all([
+    requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000),
+    fetchAiSettingsPreference(),
+  ]);
   if (!status.available) {
     throw new Error(status.reason ?? "로컬 Codex 로그인을 사용할 수 없습니다.");
   }
 
+  const codexOptions = {
+    model: preference.aiDefaultModel,
+    reasoningEffort: preference.aiReasoningEffort,
+    serviceTier: preference.aiServiceTier,
+    timeoutMs: preference.aiRequestTimeoutMs,
+    noHistory: preference.aiLocalCodexNoHistory,
+  };
+  const retrieval = input.retrieval;
   const generated = await requestLocalCodexBridge<Partial<AssistantOutput>>(
     "generate",
     {
       instruction: input.instruction,
       question: input.question,
-      taskContext: input.taskContext,
-      evidence: input.evidence,
-      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+      taskContext: retrieval.taskContext,
+      evidence: retrieval.evidence,
+      legalEvidence: retrieval.legalEvidence ?? [],
+      projectContextChunks: retrieval.projectContextChunks ?? [],
+      projectContextTrace: retrieval.projectContextTrace,
+      evidenceReadinessWarnings: retrieval.evidenceReadinessWarnings ?? [],
     },
-    120000,
+    preference.aiRequestTimeoutMs,
+    { codexOptions },
   );
 
-  const output = normalizeLocalCodexOutput(generated, input.taskContext);
+  const output = normalizeLocalCodexOutput(generated, retrieval.taskContext);
   return {
     ...output,
+    retrieval,
     answer: appendLegalChangeReviewNotice(output.answer, {
-      taskContext: input.taskContext,
-      evidence: input.evidence,
-      unavailableEvidenceKinds: [],
-      evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
+      taskContext: retrieval.taskContext,
+      evidence: retrieval.evidence,
+      unavailableEvidenceKinds: retrieval.unavailableEvidenceKinds,
+      evidenceReadinessWarnings: retrieval.evidenceReadinessWarnings ?? [],
     }),
+    localCodexUsage: normalizeLocalCodexUsageMetadata(generated, preference, status),
+    localCodexBridgeSchemaVersion: status.bridgeSchemaVersion,
   };
+}
+
+async function fetchAiSettingsPreference(): Promise<AiSettingsPreference> {
+  try {
+    const response = await fetch("/api/preferences/ai-settings", { cache: "no-store" });
+    const payload = (await response.json()) as { data?: unknown };
+    if (!response.ok) {
+      return DEFAULT_AI_SETTINGS_PREFERENCE;
+    }
+    return sanitizeAiSettingsPreference(payload.data);
+  } catch {
+    return DEFAULT_AI_SETTINGS_PREFERENCE;
+  }
 }
 
 function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext: AssistantTaskContext): AssistantOutput {
@@ -2261,7 +2442,64 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
           ? draftSummary.followUpAction
           : "Task 기록을 업데이트하기 전에 인용 근거를 확인하세요.",
     },
+    localCodexUsage: output.localCodexUsage,
+    localCodexBridgeSchemaVersion: output.localCodexBridgeSchemaVersion,
   };
+}
+
+function normalizeLocalCodexUsageMetadata(
+  output: unknown,
+  preference: AiSettingsPreference,
+  status: LocalCodexStatus,
+): LocalCodexUsageMetadata {
+  const outputRecord = isRecord(output) ? output : {};
+  const usageRecord = isRecord(outputRecord.localCodexUsage)
+    ? outputRecord.localCodexUsage
+    : isRecord(outputRecord.usage)
+      ? outputRecord.usage
+      : {};
+  const inputTokens = normalizeUsageTokenCount(usageRecord.inputTokens ?? usageRecord.input_tokens);
+  const outputTokens = normalizeUsageTokenCount(usageRecord.outputTokens ?? usageRecord.output_tokens);
+  const totalTokens = normalizeUsageTokenCount(usageRecord.totalTokens ?? usageRecord.total_tokens) || inputTokens + outputTokens;
+  const usageAvailable =
+    typeof usageRecord.usageAvailable === "boolean" ? usageRecord.usageAvailable : inputTokens > 0 || outputTokens > 0 || totalTokens > 0;
+  const model = typeof usageRecord.model === "string" && usageRecord.model.trim() ? usageRecord.model.trim() : preference.aiDefaultModel;
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    usageAvailable,
+    model,
+    bridgeSchemaVersion: status.bridgeSchemaVersion,
+  };
+}
+
+function normalizeUsageTokenCount(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+async function recordLocalCodexUsage(input: {
+  generated: AssistantOutput;
+  savedRecord: SavedAssistantRecord;
+  taskId: string;
+}) {
+  const usage = input.generated.localCodexUsage;
+  await postJson("/api/assistant/usage/me", {
+    taskId: input.taskId,
+    assistantRecordId: input.savedRecord.id,
+    runtimeMode: "extension-native-bridge-in-page",
+    model: usage?.model ?? DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel,
+    inputTokens: usage?.usageAvailable ? usage.inputTokens : 0,
+    outputTokens: usage?.usageAvailable ? usage.outputTokens : 0,
+    status: "success",
+    metadata: {
+      workflow: "daily-task-panel",
+      architectRunId: input.savedRecord.id,
+      usageAvailable: Boolean(usage?.usageAvailable),
+      bridgeSchemaVersion: usage?.bridgeSchemaVersion ?? input.generated.localCodexBridgeSchemaVersion,
+    },
+  });
 }
 
 function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefined {
@@ -2444,14 +2682,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealthReport {
+function buildLocalCodexHealthReport(status: LocalCodexStatus, lawPreflight: LocalCodexLawPreflight | null): LocalCodexHealthReport {
   const ready = status.available;
+  const lawBlocked = lawPreflight?.status === "failed";
 
   return {
     checkedAt: formatHealthCheckTime(),
-    summary: ready
-      ? "이 페이지에서 로컬 Codex 로그인을 사용할 수 있습니다."
-      : "확장은 응답했지만 로컬 Codex 로그인 실행 환경은 아직 준비되지 않았습니다.",
+    summary: lawBlocked
+      ? "로컬 Codex 연결은 준비됐지만 공식 법규 검증이 차단됐습니다."
+      : ready
+        ? "이 페이지에서 로컬 Codex 로그인을 사용할 수 있습니다."
+        : "확장은 응답했지만 로컬 Codex 로그인 실행 환경은 아직 준비되지 않았습니다.",
     steps: [
       {
         id: "content-script",
@@ -2471,13 +2712,25 @@ function buildLocalCodexHealthReport(status: LocalCodexStatus): LocalCodexHealth
         status: "pass",
         detail: "Codex/OpenAI 인증 정보는 SaaS 또는 브라우저 확장 저장소에 저장되지 않습니다.",
       },
+      ...(lawPreflight
+        ? [
+            {
+              id: "official-law",
+              label: "공식 법규 검증",
+              status: lawBlocked ? ("fail" as const) : ("pass" as const),
+              detail: lawPreflight.detail,
+            },
+          ]
+        : []),
       {
         id: "generation",
         label: "답변 생성",
-        status: ready ? "pass" : "warn",
-        detail: ready
-          ? "선택한 task에 대해 로컬 Codex 로그인 기반 답변 생성을 실행할 수 있습니다."
-          : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
+        status: lawBlocked ? "fail" : ready ? "pass" : "warn",
+        detail: lawBlocked
+          ? "공식 법규 검증이 해결될 때까지 법규 근거가 포함된 답변 생성을 실행할 수 없습니다."
+          : ready
+            ? "선택한 task에 대해 로컬 Codex 로그인 기반 답변 생성을 실행할 수 있습니다."
+            : "생성 전에 native host 등록, Codex CLI 설치, Codex 로그인을 확인하세요.",
       },
     ],
   };
@@ -2535,6 +2788,7 @@ function requestLocalCodexBridge<T>(
   command: "status" | "generate" | "select-region",
   input?: unknown,
   timeoutMs = 30000,
+  options?: LocalCodexBridgeRequestOptions,
 ): Promise<T> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("로컬 Codex 로그인 연결은 브라우저에서만 사용할 수 있습니다."));
@@ -2584,6 +2838,7 @@ function requestLocalCodexBridge<T>(
         requestId,
         command,
         input,
+        ...(options?.codexOptions ? { codexOptions: options.codexOptions } : {}),
       },
       window.location.origin,
     );
@@ -2804,7 +3059,7 @@ async function postTaskReviewJson(body: {
   taskId: string;
   question: string;
   instruction: string;
-  mode: "generate";
+  mode: "preview" | "generate";
 }): Promise<TaskReviewResponse> {
   const response = await fetch("/api/assistant/task-review", {
     method: "POST",

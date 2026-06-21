@@ -71,6 +71,9 @@ export const assistantRepository: AssistantRepository = {
   listUsageEvents(input) {
     return getAssistantRepository().listUsageEvents(input);
   },
+  listUsageEventsForProfile(input) {
+    return getAssistantRepository().listUsageEventsForProfile(input);
+  },
   createAuditEvent(input) {
     return getAssistantRepository().createAuditEvent(input);
   },

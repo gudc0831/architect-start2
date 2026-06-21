@@ -1275,16 +1275,19 @@ export function AssistantAdminShell() {
             </label>
           </div>
 
-          <div className={styles.metricGrid}>
-            <Metric label="요청" value={usage?.requestCount ?? 0} />
-            <Metric label="성공" value={usage?.successCount ?? 0} />
-            <Metric label="차단" value={usage?.blockedCount ?? 0} />
-            <Metric label="실패" value={usage?.failedCount ?? 0} />
-            <Metric label="입력 토큰" value={usage?.inputTokens ?? 0} />
-            <Metric label="출력 토큰" value={usage?.outputTokens ?? 0} />
-            <Metric label="예상 비용" value={`${usage?.estimatedCostCents ?? 0}c`} />
-            <Metric label="예산 사용" value={`${budgetRatio}%`} />
-          </div>
+          <section className={styles.reportSection} aria-labelledby="assistant-report-summary-title">
+            <h3 id="assistant-report-summary-title">요약 지표</h3>
+            <div className={styles.metricGrid}>
+              <Metric label="요청" value={usage?.requestCount ?? 0} />
+              <Metric label="성공" value={usage?.successCount ?? 0} />
+              <Metric label="차단" value={usage?.blockedCount ?? 0} />
+              <Metric label="실패" value={usage?.failedCount ?? 0} />
+              <Metric label="입력 토큰" value={usage?.inputTokens ?? 0} />
+              <Metric label="출력 토큰" value={usage?.outputTokens ?? 0} />
+              <Metric label="예상 비용" value={`${usage?.estimatedCostCents ?? 0}c`} />
+              <Metric label="예산 사용" value={`${budgetRatio}%`} />
+            </div>
+          </section>
 
           <div className={styles.tableBlock}>
             <h3>최근 사용 이벤트</h3>

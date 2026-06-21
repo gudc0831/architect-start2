@@ -64,6 +64,91 @@
   overflow-wrap: anywhere;
 }
 
+.foundationTabShell {
+  min-width: 0;
+  margin: -0.1rem 0 -0.85rem;
+  padding: 0 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.foundationTabList {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-width: max-content;
+  padding: 0 0.25rem;
+  border-bottom: 1px solid var(--theme-border-subtle);
+}
+
+.foundationTab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 13rem;
+  min-height: 44px;
+  padding: 0.72rem 0.95rem 0.68rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: var(--theme-surface-secondary-button);
+  color: var(--theme-text-subtle);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.foundationTab:hover {
+  background: var(--theme-surface-secondary-button-hover);
+  color: var(--text);
+}
+
+.foundationTab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--theme-accent-focus-ring);
+}
+
+.foundationTabActive {
+  min-height: 48px;
+  background: linear-gradient(180deg, var(--theme-surface-panel-strong), var(--panel));
+  border-color: var(--theme-border-subtle);
+  color: var(--text);
+  transform: translateY(1px);
+  box-shadow: 0 -6px 16px rgba(31, 41, 35, 0.08);
+}
+
+.foundationTabActive::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--panel);
+  content: "";
+}
+
+.foundationTabLabel {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabPanel[hidden] {
+  display: none;
+}
+
 .sectionHeader {
   display: flex;
   align-items: flex-start;
@@ -377,6 +462,15 @@
   flex-wrap: wrap;
 }
 
+.definitionHelp {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .codeChip,
 .metaBadge,
 .stateBadge {
@@ -516,6 +610,26 @@
   .categoryPane,
   .membersGroup {
     padding: 1rem;
+  }
+
+  .foundationTabShell {
+    margin: -0.1rem -0.25rem -0.75rem;
+    padding: 0 0.25rem;
+  }
+
+  .foundationTabList {
+    gap: 0.25rem;
+  }
+
+  .foundationTab {
+    max-width: none;
+    min-height: 42px;
+    padding: 0.65rem 0.8rem 0.62rem;
+    font-size: 0.84rem;
+  }
+
+  .foundationTabActive {
+    min-height: 46px;
   }
 
   .sectionHeader,

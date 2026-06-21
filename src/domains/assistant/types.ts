@@ -1,3 +1,4 @@
+import type { KnowledgeCandidateSource } from "@/domains/admin/knowledge-workflow";
 import type { ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
 
 export type AssistantEvidenceKind =
@@ -65,6 +66,14 @@ export type AssistantEvidence = {
   sourceUrl?: string;
   recordId?: string;
   confidenceWeight?: number;
+  officialSourceName?: string;
+  lawName?: string;
+  articleLabel?: string;
+  articleNumber?: string;
+  effectiveDate?: string;
+  checkedAt?: string;
+  apiSourceUrl?: string;
+  verificationStatus?: "verified" | "needs_review" | "failed";
   legal?: AssistantLegalEvidenceMetadata;
 };
 
@@ -112,6 +121,9 @@ export type ApprovedKnowledgeItem = {
   sourceTaskId: string;
   sourceProjectId: string;
   sourceReferences: AssistantEvidence[];
+  structuredKnowledgeItemId?: string;
+  structuredKnowledgeVersionId?: string;
+  generationRunId?: string;
   approvedBy: string;
   approvedAt: string;
 };
@@ -119,6 +131,7 @@ export type ApprovedKnowledgeItem = {
 export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
+  knowledgeCandidateSource?: KnowledgeCandidateSource;
   externalEvidence?: ExternalEvidenceRecord;
   taskReview?: {
     source: "assistant-task-review";

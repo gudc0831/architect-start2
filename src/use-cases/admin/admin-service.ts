@@ -3,11 +3,14 @@ import type { AuthUser } from "@/domains/auth/types";
 import {
   assertCreatableTaskCategoryCode,
   isTaskCategoryFieldKey,
+  requireStoredTaskCategoryCode,
   resolveEffectiveTaskCategoryDefinitions,
   taskCategoryFieldKeys,
+  type TaskCategoryDefinition,
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
 import { assertCreatableWorkTypeCode } from "@/domains/admin/work-type-policy";
+import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import { badRequest, forbidden, serviceUnavailable } from "@/lib/api/errors";
 import type { RequestedProjectRole } from "@/lib/auth/project-capabilities";
 import { requireUser } from "@/lib/auth/require-user";
@@ -45,6 +48,10 @@ function uniqueById<T extends { id: string }>(items: T[]) {
   });
 }
 
+export type ProjectTaskCategoryDefinition = TaskCategoryDefinition & {
+  isLegacyProjectDefinition?: boolean;
+};
+
 async function resolveSessionUser(user?: AuthUser) {
   return user ?? (await requireUser());
 }
@@ -58,16 +65,15 @@ async function listAvailableProjectsForUser(user: AuthUser) {
 }
 
 async function buildEffectiveTaskCategoriesByField(currentProjectId: string | null) {
-  const definitions = await Promise.all(
-    taskCategoryFieldKeys.map(async (fieldKey) => {
-      const [globalDefinitions, projectDefinitions] = await Promise.all([
-        adminRepository.listGlobalTaskCategoryDefinitions(fieldKey),
-        currentProjectId ? adminRepository.listProjectTaskCategoryDefinitions(currentProjectId, fieldKey) : Promise.resolve([]),
-      ]);
-      const resolved = resolveEffectiveTaskCategoryDefinitions([...globalDefinitions, ...projectDefinitions], fieldKey, currentProjectId);
-      return [fieldKey, resolved] as const;
-    }),
-  );
+  const [globalDefinitions, projectDefinitions] = await Promise.all([
+    adminRepository.listGlobalTaskCategoryDefinitions(),
+    currentProjectId ? adminRepository.listProjectTaskCategoryDefinitions(currentProjectId) : Promise.resolve([]),
+  ]);
+  const allDefinitions = [...globalDefinitions, ...projectDefinitions];
+  const definitions = taskCategoryFieldKeys.map((fieldKey) => {
+    const resolved = resolveEffectiveTaskCategoryDefinitions(allDefinitions, fieldKey, currentProjectId);
+    return [fieldKey, resolved] as const;
+  });
 
   return Object.fromEntries(
     definitions.map(([fieldKey, resolved]) => [
@@ -356,35 +362,31 @@ export async function listProjectTaskCategories(projectId: string, fieldKey: Tas
     throw badRequest("fieldKey is invalid", "TASK_CATEGORY_FIELD_INVALID");
   }
 
-  return adminRepository.listProjectTaskCategoryDefinitions(projectId.trim(), fieldKey);
+  const normalizedProjectId = projectId.trim();
+  const [globalDefinitions, projectDefinitions] = await Promise.all([
+    adminRepository.listGlobalTaskCategoryDefinitions(fieldKey),
+    adminRepository.listProjectTaskCategoryDefinitions(normalizedProjectId, fieldKey),
+  ]);
+  const globalCodes = new Set(globalDefinitions.map((definition) => definition.code));
+
+  return projectDefinitions.map<ProjectTaskCategoryDefinition>((definition) => ({
+    ...definition,
+    isLegacyProjectDefinition: globalCodes.has(definition.code) ? undefined : true,
+  }));
 }
 
 export async function createProjectWorkType(
   projectId: string,
-  input: { code: string; labelKo: string; labelEn: string; sortOrder?: number },
+  input: { code: string; labelKo?: string; labelEn?: string; sortOrder?: number; isActive?: boolean },
   userId: string | null,
 ) {
-  const normalizedProjectId = projectId.trim();
-  const existingDefinitions = [
-    ...(await adminRepository.listGlobalWorkTypeDefinitions()),
-    ...(await adminRepository.listProjectWorkTypeDefinitions(normalizedProjectId)),
-  ];
-
-  return adminRepository.createWorkTypeDefinition({
-    projectId: normalizedProjectId,
-    code: assertCreatableWorkTypeCode(existingDefinitions, normalizedProjectId, input.code),
-    labelKo: input.labelKo.trim(),
-    labelEn: input.labelEn.trim(),
-    sortOrder: normalizeSortOrder(input.sortOrder, 0),
-    isSystem: false,
-    actorId: userId,
-  });
+  return (await createProjectTaskCategory(projectId, "workType", input, userId)) as WorkTypeDefinition;
 }
 
 export async function createProjectTaskCategory(
   projectId: string,
   fieldKey: TaskCategoryFieldKey,
-  input: { code: string; labelKo: string; labelEn: string; sortOrder?: number },
+  input: { code: string; labelKo?: string; labelEn?: string; sortOrder?: number; isActive?: boolean },
   userId: string | null,
 ) {
   if (!isTaskCategoryFieldKey(fieldKey)) {
@@ -392,21 +394,58 @@ export async function createProjectTaskCategory(
   }
 
   const normalizedProjectId = projectId.trim();
-  const existingDefinitions = [
-    ...(await adminRepository.listGlobalTaskCategoryDefinitions(fieldKey)),
-    ...(await adminRepository.listProjectTaskCategoryDefinitions(normalizedProjectId, fieldKey)),
-  ];
+  const code = requireStoredTaskCategoryCode(input.code, "code");
+  const [globalDefinitions, projectDefinitions] = await Promise.all([
+    adminRepository.listGlobalTaskCategoryDefinitions(fieldKey),
+    adminRepository.listProjectTaskCategoryDefinitions(normalizedProjectId, fieldKey),
+  ]);
+  const globalDefinition = globalDefinitions.find((definition) => definition.code === code);
+
+  if (!globalDefinition) {
+    throw badRequest("Project category code must exist as a global definition", "TASK_CATEGORY_GLOBAL_CODE_REQUIRED");
+  }
+
+  const existingProjectDefinition = projectDefinitions.find((definition) => definition.code === code);
+  const labelKo = input.labelKo?.trim() || globalDefinition.labelKo;
+  const labelEn = input.labelEn?.trim() || globalDefinition.labelEn;
+  const sortOrder = normalizeSortOrder(input.sortOrder, globalDefinition.sortOrder);
+  const isActive = input.isActive ?? globalDefinition.isActive;
+
+  if (existingProjectDefinition) {
+    return adminRepository.updateTaskCategoryDefinition(existingProjectDefinition.id, {
+      labelKo,
+      labelEn,
+      sortOrder,
+      isActive,
+      updatedBy: userId,
+    });
+  }
 
   return adminRepository.createTaskCategoryDefinition({
     fieldKey,
     projectId: normalizedProjectId,
-    code: assertCreatableTaskCategoryCode(existingDefinitions, fieldKey, normalizedProjectId, input.code),
-    labelKo: input.labelKo.trim(),
-    labelEn: input.labelEn.trim(),
-    sortOrder: normalizeSortOrder(input.sortOrder, 0),
-    isSystem: false,
+    code,
+    labelKo,
+    labelEn,
+    sortOrder,
+    isActive,
     actorId: userId,
   });
+}
+
+export async function getAdminTaskCategoryDefinition(id: string) {
+  return adminRepository.getTaskCategoryDefinition(id.trim());
+}
+
+export async function assertProjectTaskCategoryHasGlobalCode(definition: TaskCategoryDefinition) {
+  if (!definition.projectId) {
+    return;
+  }
+
+  const globalDefinitions = await adminRepository.listGlobalTaskCategoryDefinitions(definition.fieldKey);
+  if (!globalDefinitions.some((globalDefinition) => globalDefinition.code === definition.code)) {
+    throw badRequest("Project category code must exist as a global definition", "TASK_CATEGORY_GLOBAL_CODE_REQUIRED");
+  }
 }
 
 export async function updateAdminWorkType(

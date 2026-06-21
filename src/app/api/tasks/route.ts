@@ -4,6 +4,8 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
+import { publishDailyRowRealtimeInvalidation } from "@/lib/tasks/daily-row-realtime-server";
+import { createStageTimingCollector, formatServerTimingHeader, timeStage, timeStageSync } from "@/lib/timing/stage-timing";
 import { createTask, listTasks } from "@/use-cases/task-service";
 
 export const maxDuration = 30;
@@ -24,12 +26,14 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const timing = createStageTimingCollector();
   try {
-    assertRequestIntegrity(request);
-    const user = await requireUser();
-    const context = await requireCurrentProjectEditor(user);
-    const body = await request.json();
-    const task = await createTask(
+    timeStageSync(timing.record, "route.integrity", () => assertRequestIntegrity(request));
+    const user = await timeStage(timing.record, "route.requireUser", () => requireUser());
+    const context = await timeStage(timing.record, "route.projectEditorGuard", () => requireCurrentProjectEditor(user));
+    const body = await timeStage(timing.record, "route.bodyParse", () => request.json());
+    const task = await timeStage(timing.record, "route.createTask", () =>
+      createTask(
       {
         dueDate: body.dueDate ?? body.due_date ?? "",
         workType: body.workType ?? body.work_type ?? "",
@@ -55,9 +59,27 @@ export async function POST(request: Request) {
       },
       user.id,
       context.project,
+      { recordTiming: timing.record },
+      ),
     );
+    if (task.isDaily) {
+      await timeStage(timing.record, "route.publishDailyRealtime", () =>
+        publishDailyRowRealtimeInvalidation({
+          actorProfileId: user.id,
+          clientMutationId: readOptionalClientMutationId(body),
+          name: "task-created",
+          operationType: "create",
+          projectId: context.project.id,
+          task,
+          taskId: task.id,
+        }),
+      );
+    }
 
-    return NextResponse.json({ data: task }, { status: 201 });
+    return NextResponse.json(
+      { data: task, meta: { timings: timing.timings } },
+      { headers: { "Server-Timing": formatServerTimingHeader(timing.timings) }, status: 201 },
+    );
   } catch (error) {
     return handleRouteError(error);
   }

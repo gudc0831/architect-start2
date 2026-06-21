@@ -1,8 +1,15 @@
-import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
+import type {
+  AiSettingsPreference,
+  QuickCreateWidthMap,
+  TaskListLayoutPreference,
+  ThemeId,
+  ThemePreference,
+} from "@/domains/preferences/types";
 import type { ProjectRecord } from "@/domains/project/types";
 import type { FileMetadata } from "@/domains/file/analysis";
 import type { FileAnalysisSearchResult } from "@/domains/file/search";
 import type { FileRecord, TaskFileSummary, TaskRecord, TaskStatus } from "@/domains/task/types";
+import type { StageTimingRecorder } from "@/lib/timing/stage-timing";
 
 export type TaskOrderUpdateInput = {
   id: string;
@@ -66,6 +73,10 @@ export type CreateTaskInput = {
   siblingOrder?: number;
   createdBy?: string | null;
   updatedBy?: string | null;
+};
+
+export type TaskRepositoryCreateOptions = {
+  recordTiming?: StageTimingRecorder;
 };
 
 export type UpdateTaskInput = Partial<
@@ -138,7 +149,7 @@ export interface TaskRepository {
   listActiveTasks(projectId?: string): Promise<TaskRecord[]>;
   listTrashTasks(projectId?: string): Promise<TaskRecord[]>;
   findTaskById(taskId: string): Promise<TaskRecord | null>;
-  createTask(input: CreateTaskInput): Promise<TaskRecord>;
+  createTask(input: CreateTaskInput, options?: TaskRepositoryCreateOptions): Promise<TaskRecord>;
   updateTask(taskId: string, input: UpdateTaskInput): Promise<TaskRecord>;
   updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput): Promise<TaskRecord | null>;
   setTaskSiblingOrder?(input: SetTaskSiblingOrderInput): Promise<TaskRecord[]>;
@@ -181,6 +192,8 @@ export interface PreferenceRepository {
   saveTaskListLayout(profileId: string, layout: TaskListLayoutPreference): Promise<TaskListLayoutPreference>;
   getThemePreference(profileId: string): Promise<ThemePreference>;
   saveThemePreference(profileId: string, themeId: ThemeId): Promise<ThemePreference>;
+  getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference>;
+  saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): Promise<AiSettingsPreference>;
 }
 
 export type TaskFileSummaryMap = Record<string, TaskFileSummary>;

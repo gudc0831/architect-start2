@@ -8,10 +8,17 @@ import {
   DEFAULT_TASK_STATUS,
   normalizeTaskStatus,
 } from "@/domains/task/status";
-import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemeId, ThemePreference } from "@/domains/preferences/types";
+import type {
+  AiSettingsPreference,
+  QuickCreateWidthMap,
+  TaskListLayoutPreference,
+  ThemeId,
+  ThemePreference,
+} from "@/domains/preferences/types";
 import {
   DEFAULT_THEME_ID,
   sanitizeQuickCreateWidths,
+  sanitizeAiSettingsPreference,
   sanitizeTaskListLayoutPreference,
   sanitizeThemeId,
 } from "@/domains/preferences/types";
@@ -29,6 +36,7 @@ import type {
   TaskFileSummaryMap,
   TaskOrderUpdateInput,
   TaskRepository,
+  TaskRepositoryCreateOptions,
   TaskUserOrderRecord,
   UpdateProjectInput,
   UpdateTaskInput,
@@ -409,23 +417,33 @@ class PostgresTaskRepository implements TaskRepository {
     return (last?.taskNumber ?? 0) + 1;
   }
 
-  async createTask(input: CreateTaskInput) {
+  async createTask(input: CreateTaskInput, options: TaskRepositoryCreateOptions = {}) {
+    const recordTiming = options.recordTiming;
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ? new Date(input.createdAt) : new Date();
     const record = await prisma.$transaction(async (tx) => {
-      const existing = await tx.task.findUnique({ where: { id } });
-      if (existing && !existing.purgedAt) {
-        return existing;
+      if (input.id) {
+        const existingStart = performance.now();
+        const existing = await tx.task.findUnique({ where: { id } });
+        recordTiming?.("repository.existingIdLookup", performance.now() - existingStart);
+        if (existing && !existing.purgedAt) {
+          return existing;
+        }
       }
 
-      await tx.$executeRaw(Prisma.sql`select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))`);
-      const last = await tx.task.findFirst({
-        where: { projectId: input.projectId },
-        orderBy: { taskNumber: "desc" },
-        select: { taskNumber: true },
-      });
-      const taskNumber = (last?.taskNumber ?? 0) + 1;
+      const taskNumberStart = performance.now();
+      const [taskNumberRow] = await tx.$queryRaw<{ taskNumber: number }[]>(Prisma.sql`
+        with lock as (
+          select pg_advisory_xact_lock(104729, hashtext(${input.projectId}))
+        )
+        select coalesce(max(t.task_number), 0) + 1 as "taskNumber"
+        from lock
+        left join tasks t on t.project_id = ${input.projectId}::uuid
+      `);
+      recordTiming?.("repository.lockAndTaskNumberLookup", performance.now() - taskNumberStart);
+      const taskNumber = Number(taskNumberRow?.taskNumber ?? 1);
       const parentTaskId = input.parentTaskId ?? null;
+      const siblingOrderStart = performance.now();
       const siblingOrder =
         input.siblingOrder ??
         ((await tx.task.aggregate({
@@ -437,8 +455,10 @@ class PostgresTaskRepository implements TaskRepository {
           },
           _max: { siblingOrder: true },
         }))._max.siblingOrder ?? -1) + 1;
+      recordTiming?.("repository.siblingOrderAggregate", performance.now() - siblingOrderStart);
 
-      return tx.task.create({
+      const insertStart = performance.now();
+      const created = await tx.task.create({
         data: {
           id,
           projectId: input.projectId,
@@ -458,6 +478,8 @@ class PostgresTaskRepository implements TaskRepository {
           purgedAt: null,
         },
       });
+      recordTiming?.("repository.insert", performance.now() - insertStart);
+      return created;
     });
 
     return toTaskRecord(record);
@@ -1327,6 +1349,44 @@ class PostgresPreferenceRepository implements PreferenceRepository {
     return {
       themeId: sanitizeThemeId(record.themeId),
     };
+  }
+
+  async getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference> {
+    const record = await prisma.profilePreference.findUnique({
+      where: { profileId },
+      select: {
+        aiDefaultModel: true,
+        aiReasoningEffort: true,
+        aiServiceTier: true,
+        aiRequestTimeoutMs: true,
+        aiLocalUsageDefaultRangeDays: true,
+        aiLocalCodexNoHistory: true,
+      },
+    });
+
+    return sanitizeAiSettingsPreference(record ?? {});
+  }
+
+  async saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): Promise<AiSettingsPreference> {
+    const sanitized = sanitizeAiSettingsPreference(preference);
+    const record = await prisma.profilePreference.upsert({
+      where: { profileId },
+      update: sanitized,
+      create: {
+        profileId,
+        ...sanitized,
+      },
+      select: {
+        aiDefaultModel: true,
+        aiReasoningEffort: true,
+        aiServiceTier: true,
+        aiRequestTimeoutMs: true,
+        aiLocalUsageDefaultRangeDays: true,
+        aiLocalCodexNoHistory: true,
+      },
+    });
+
+    return sanitizeAiSettingsPreference(record);
   }
 }
 export const postgresProjectRepository = new PostgresProjectRepository();

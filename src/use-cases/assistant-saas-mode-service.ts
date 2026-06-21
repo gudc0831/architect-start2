@@ -27,7 +27,7 @@ import { assistantRepository } from "@/repositories/assistant";
 import { taskRepository } from "@/repositories";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
-import { requiresOfficialLawVerification } from "@/domains/legal/official-law-api";
+import { requiresCentralizedLegalVerification } from "@/domains/legal/legal-verification-intent";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
 
 type UpdateAssistantRunPolicyInput = {
@@ -1291,10 +1291,10 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
   const retrieved = await retrieveAssistantEvidence({ taskId, question, user });
   if (
     retrieved.evidence.some((item) => item.kind === "regulation") ||
-    requiresOfficialLawVerification(question, retrieved.evidence)
+    requiresCentralizedLegalVerification(question, retrieved.evidence)
   ) {
     throw conflict(
-      "Legal/regulation SaaS generation must use /api/assistant/task-review so official-law verification runs server-side.",
+      "Legal/regulation SaaS generation must use /api/assistant/task-review so centralized verified legal evidence runs server-side.",
       "ASSISTANT_LEGAL_GENERATION_REQUIRES_TASK_REVIEW",
     );
   }

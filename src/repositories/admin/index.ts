@@ -32,6 +32,9 @@ export const adminRepository: AdminRepository = {
   getProjectMembership(projectId, profileId) {
     return getAdminRepository().getProjectMembership(projectId, profileId);
   },
+  getProjectAccess(projectId, profileId) {
+    return getAdminRepository().getProjectAccess(projectId, profileId);
+  },
   createProject(input) {
     return getAdminRepository().createProject(input);
   },
@@ -61,6 +64,9 @@ export const adminRepository: AdminRepository = {
   },
   listEffectiveTaskCategoryDefinitions(projectId, fieldKey) {
     return getAdminRepository().listEffectiveTaskCategoryDefinitions(projectId, fieldKey);
+  },
+  getTaskCategoryDefinition(id) {
+    return getAdminRepository().getTaskCategoryDefinition(id);
   },
   createTaskCategoryDefinition(input) {
     return getAdminRepository().createTaskCategoryDefinition(input);

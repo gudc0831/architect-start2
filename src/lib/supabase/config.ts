@@ -7,11 +7,19 @@ function getMissingEnv(keys: readonly string[]) {
   return keys.filter((key) => !process.env[key]?.trim());
 }
 
+function getSupabasePublicEnv() {
+  return {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "",
+  } satisfies Record<(typeof supabaseClientEnvKeys)[number], string>;
+}
+
 function formatMissingEnvMessage(missing: readonly string[]) {
   return `Supabase 환경 변수가 필요합니다: ${missing.join(", ")}`;
 }
 
 function getSupabaseClientConfig() {
+  const env = getSupabasePublicEnv();
   const missing = getMissingSupabaseClientEnv();
 
   if (missing.length > 0) {
@@ -19,8 +27,8 @@ function getSupabaseClientConfig() {
   }
 
   return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL!.trim(),
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!.trim(),
+    url: env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   };
 }
 
@@ -38,7 +46,8 @@ function getSupabaseAdminConfig() {
 }
 
 export function getMissingSupabaseClientEnv() {
-  return getMissingEnv(supabaseClientEnvKeys);
+  const env = getSupabasePublicEnv();
+  return supabaseClientEnvKeys.filter((key) => !env[key]);
 }
 
 export function getMissingSupabaseAdminEnv() {

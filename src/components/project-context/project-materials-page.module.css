@@ -21,6 +21,7 @@
   align-items: end;
   border: 1px solid var(--theme-border-subtle);
   border-radius: 8px;
+  background: #f1f3f1;
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 1fr) minmax(14rem, 22rem);
@@ -53,6 +54,7 @@
 .fileInput input {
   border: 1px solid var(--theme-border-subtle);
   border-radius: 8px;
+  background: #f7f7f7;
   font: inherit;
   padding: 0.65rem;
 }
@@ -78,6 +80,10 @@
 .sectionHeader h2 {
   font-size: 1rem;
   margin: 0;
+}
+
+.listSection .sectionHeader > :global(.secondary-button) {
+  background: #dbe1dd;
 }
 
 .empty {

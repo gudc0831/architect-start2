@@ -1,22 +1,36 @@
 # Architect Start Plan Index
 
-- Updated: 2026-04-24
+- Updated: 2026-06-16
 - Purpose: keep this file as the high-level operating plan only.
 - Rule: implementation details belong in linked plan documents, not in this file.
 
+## Workspace-Level Legal Corpus And WIKI Plan
+
+Before changing verified legal integration, approved WIKI, legal corpus metadata, R2 storage, or active legal search, read:
+
+- [../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md](../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md)
+
+That workspace plan is canonical for cross-repo legal corpus/WIKI storage boundaries.
+
+Architect SaaS may store approved WIKI and small legal corpus metadata such as snapshot id, manifest key, active-index key, digest, and active/stale flags. It must not store full legal corpus bodies or full active-index artifacts.
+
 ## Read Order
 
-1. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
-2. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
-3. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
-4. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
-5. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
-6. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
-7. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
-8. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
-9. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
-10. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
-11. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+1. [../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md](../docs/operating-plans/legal-corpus-and-wiki-integrated-operations.md)
+2. [docs/2026-04-10-auth-rbac-contract.md](docs/2026-04-10-auth-rbac-contract.md)
+3. [docs/2026-04-07-multi-user-transition-plan.md](docs/2026-04-07-multi-user-transition-plan.md)
+4. [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
+5. [docs/2026-04-29-collaboration-expansion-implementation-instructions.md](docs/2026-04-29-collaboration-expansion-implementation-instructions.md)
+6. [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+7. [docs/2026-04-20-post-preview-execution-plan.md](docs/2026-04-20-post-preview-execution-plan.md)
+8. [docs/2026-04-10-deployment-protection-contract.md](docs/2026-04-10-deployment-protection-contract.md)
+9. [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
+10. [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
+11. [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+12. [docs/PLAN_MEETING_LOG.md](docs/PLAN_MEETING_LOG.md)
+13. [docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
+14. [docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
+15. [docs/worklogs/2026-06-11-production-deferral-closeout.md](docs/worklogs/2026-06-11-production-deferral-closeout.md)
 
 ## Current Direction
 
@@ -35,6 +49,10 @@
   - [docs/2026-04-10-security-deployment-review.md](docs/2026-04-10-security-deployment-review.md)
 - Current active deployment-readiness work is tracked in:
   - [docs/2026-04-24-deployment-readiness-plan.md](docs/2026-04-24-deployment-readiness-plan.md)
+- Current AI review / verified legal Preview closeout is tracked in:
+  - [docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
+  - [docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
+  - [docs/worklogs/2026-06-11-production-deferral-closeout.md](docs/worklogs/2026-06-11-production-deferral-closeout.md)
 - Post-Phase 1 collaboration expansion planning is tracked in:
   - [docs/2026-04-28-collaboration-expansion-plan.md](docs/2026-04-28-collaboration-expansion-plan.md)
 - `SUPABASE_SERVICE_ROLE_KEY` is reserved for bootstrap, admin provisioning, maintenance, and other trusted server-only flows.
@@ -42,6 +60,7 @@
 - Branch flow: code changes happen locally first, then reach Preview only after push and Vercel deployment from the working/PR branch; Production should deploy from the protected production branch, currently expected to be `main` unless a documented release branch replaces it.
 - Deployment and DB changes remain separate operational steps.
 - Completed preview setup and verification should not be repeated unless a regression appears.
+- Production release execution is deferred after the June 2026 Preview closeout. Do not run production env, deploy, alias, OAuth, production DB, Web Store, or native-host signing steps until the Production resume gate in the verified legal centralization plan is explicitly opened.
 
 ## Big Flow
 
@@ -105,6 +124,8 @@
 - Keep preview and production Supabase projects separate.
 - Keep preview and production Vercel environment variables separate.
 - Do not use `SUPABASE_SERVICE_ROLE_KEY` in browser code or normal user-scoped request paths.
+- Keep `LAW_OPEN_DATA_OC` out of `architect-saas`; centralized legal evidence uses `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` server-side.
+- If a Preview alias, auth canonical host, verified legal API URL, or Browser Assistant build origin changes, rerun the Preview drift guard before treating AI review as still connected.
 
 ## Detailed Plan Documents
 
@@ -128,6 +149,10 @@
   - [docs/2026-04-07-predeploy-implementation-plan.md](docs/2026-04-07-predeploy-implementation-plan.md)
 - Supabase migration and setup:
   - [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md)
+- Cross-project AI review / verified legal boundary:
+  - [docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](docs/superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
+- Verified legal centralization and Production resume gate:
+  - [docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
 
 ## Notes
 

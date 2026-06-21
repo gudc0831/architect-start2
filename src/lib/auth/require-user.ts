@@ -28,28 +28,48 @@ export async function getOptionalUser(): Promise<AuthUser | null> {
   }
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const claimsResult = await supabase.auth.getClaims();
+  let authIdentity: { id: string; email?: string | null; userMetadata?: Record<string, unknown> | null } | null = null;
 
-  if (error || !user) {
-    return null;
+  if (claimsResult.data?.claims.sub) {
+    const claims = claimsResult.data.claims;
+    authIdentity = {
+      id: claims.sub,
+      email: typeof claims.email === "string" ? claims.email : null,
+      userMetadata: isRecord(claims.user_metadata) ? claims.user_metadata : null,
+    };
+  }
+
+  if (!authIdentity) {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error || !user) {
+      return null;
+    }
+
+    authIdentity = {
+      id: user.id,
+      email: user.email,
+      userMetadata: user.user_metadata,
+    };
   }
 
   const profile = await prisma.profile.findUnique({
-    where: { id: user.id },
+    where: { id: authIdentity.id },
   });
 
   const resolvedProfile =
     profile ??
     (await prisma.profile.create({
       data: {
-        id: user.id,
-        email: user.email?.trim().toLowerCase() ?? "",
+        id: authIdentity.id,
+        email: authIdentity.email?.trim().toLowerCase() ?? "",
         displayName: displayNameFromSupabaseUser({
-          email: user.email,
-          userMetadata: user.user_metadata,
+          email: authIdentity.email,
+          userMetadata: authIdentity.userMetadata,
         }),
         role: "member",
         accessStatus: "pending",
@@ -98,4 +118,8 @@ function displayNameFromSupabaseUser(input: { email?: string | null; userMetadat
   }
 
   return input.email?.trim().split("@")[0] || "User";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

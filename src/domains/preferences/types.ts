@@ -311,3 +311,101 @@ export function sanitizeTaskListLayoutPreference(input: unknown): TaskListLayout
 export function resolveDetailPanelWidth(input?: unknown) {
   return coerceDetailPanelWidthValue(input) ?? DETAIL_PANEL_DEFAULT_WIDTH;
 }
+
+export const aiReasoningEfforts = ["minimal", "low", "medium", "high"] as const;
+export const aiServiceTiers = ["auto", "default", "priority"] as const;
+export const aiLocalUsageRangeDays = [30, 90, 0] as const;
+export const WINDOWS_CODEX_MODEL_OPTIONS = [
+  { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
+  { value: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
+] as const;
+export const CODEX_DEFAULT_MODEL = WINDOWS_CODEX_MODEL_OPTIONS[0].value;
+
+export type AiReasoningEffort = (typeof aiReasoningEfforts)[number];
+export type AiServiceTier = (typeof aiServiceTiers)[number];
+export type AiLocalUsageRangeDays = (typeof aiLocalUsageRangeDays)[number];
+
+export type AiSettingsPreference = {
+  aiDefaultModel: string;
+  aiReasoningEffort: AiReasoningEffort;
+  aiServiceTier: AiServiceTier;
+  aiRequestTimeoutMs: number;
+  aiLocalUsageDefaultRangeDays: AiLocalUsageRangeDays;
+  aiLocalCodexNoHistory: boolean;
+};
+
+export const AI_REQUEST_TIMEOUT_MIN_MS = 30000;
+export const AI_REQUEST_TIMEOUT_MAX_MS = 120000;
+export const DEFAULT_AI_SETTINGS_PREFERENCE: AiSettingsPreference = {
+  aiDefaultModel: CODEX_DEFAULT_MODEL,
+  aiReasoningEffort: "medium",
+  aiServiceTier: "auto",
+  aiRequestTimeoutMs: AI_REQUEST_TIMEOUT_MAX_MS,
+  aiLocalUsageDefaultRangeDays: 30,
+  aiLocalCodexNoHistory: false,
+};
+
+const AI_MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
+const legacyAiModelAliases = new Map([
+  ["codex-default", CODEX_DEFAULT_MODEL],
+  ["gpt-5-codex", CODEX_DEFAULT_MODEL],
+]);
+
+export function isAiReasoningEffort(value: unknown): value is AiReasoningEffort {
+  return typeof value === "string" && aiReasoningEfforts.includes(value as AiReasoningEffort);
+}
+
+export function isAiServiceTier(value: unknown): value is AiServiceTier {
+  return typeof value === "string" && aiServiceTiers.includes(value as AiServiceTier);
+}
+
+export function isAiLocalUsageRangeDays(value: unknown): value is AiLocalUsageRangeDays {
+  return typeof value === "number" && aiLocalUsageRangeDays.includes(value as AiLocalUsageRangeDays);
+}
+
+function sanitizeAiModel(value: unknown) {
+  if (typeof value !== "string") {
+    return DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
+  }
+
+  const normalized = value.trim();
+  const aliased = legacyAiModelAliases.get(normalized.toLowerCase()) ?? normalized;
+  return AI_MODEL_PATTERN.test(aliased) ? aliased : DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel;
+}
+
+function sanitizeAiRequestTimeoutMs(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_AI_SETTINGS_PREFERENCE.aiRequestTimeoutMs;
+  }
+
+  return Math.max(AI_REQUEST_TIMEOUT_MIN_MS, Math.min(AI_REQUEST_TIMEOUT_MAX_MS, Math.round(numeric)));
+}
+
+function sanitizeAiLocalUsageRangeDays(value: unknown) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return isAiLocalUsageRangeDays(numeric) ? numeric : DEFAULT_AI_SETTINGS_PREFERENCE.aiLocalUsageDefaultRangeDays;
+}
+
+export function sanitizeAiSettingsPreference(input: unknown): AiSettingsPreference {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ...DEFAULT_AI_SETTINGS_PREFERENCE };
+  }
+
+  const preference = input as Partial<Record<keyof AiSettingsPreference, unknown>>;
+  return {
+    aiDefaultModel: sanitizeAiModel(preference.aiDefaultModel),
+    aiReasoningEffort: isAiReasoningEffort(preference.aiReasoningEffort)
+      ? preference.aiReasoningEffort
+      : DEFAULT_AI_SETTINGS_PREFERENCE.aiReasoningEffort,
+    aiServiceTier: DEFAULT_AI_SETTINGS_PREFERENCE.aiServiceTier,
+    aiRequestTimeoutMs: sanitizeAiRequestTimeoutMs(preference.aiRequestTimeoutMs),
+    aiLocalUsageDefaultRangeDays: sanitizeAiLocalUsageRangeDays(preference.aiLocalUsageDefaultRangeDays),
+    aiLocalCodexNoHistory:
+      typeof preference.aiLocalCodexNoHistory === "boolean"
+        ? preference.aiLocalCodexNoHistory
+        : DEFAULT_AI_SETTINGS_PREFERENCE.aiLocalCodexNoHistory,
+  };
+}

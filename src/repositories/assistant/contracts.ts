@@ -14,12 +14,15 @@ import type {
   KnowledgePublicationScope,
 } from "@/domains/assistant/types";
 import type { CreateExternalEvidenceInput, ExternalEvidenceRecord } from "@/domains/assistant/external-evidence";
+import type { StructuredKnowledgeDraft } from "@/domains/knowledge/structured-knowledge";
 import type {
   AssistantAuditEvent,
   AssistantPolicyDecision,
   AssistantPolicyProvider,
   AssistantRunPolicy,
   AssistantUsageEvent,
+  AssistantUsageExecutionMode,
+  AssistantUsageProvider,
   AssistantUsageStatus,
 } from "@/domains/assistant/saas-api-mode";
 
@@ -73,16 +76,20 @@ export type ReviewKnowledgeCandidateInput =
   | {
       action: "approve";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       title: string;
       summary: string;
       bodyMarkdown: string;
       tags: string[];
       scope: KnowledgePublicationScope;
+      structuredDraft: StructuredKnowledgeDraft;
+      generationRunId?: string | null;
     }
   | {
       action: "reject";
       recordId: string;
+      projectId: string;
       reviewerId: string;
       rejectionReason: string;
     };
@@ -106,9 +113,9 @@ export type CreateAssistantUsageEventInput = {
   taskId?: string | null;
   profileId: string;
   assistantRecordId?: string | null;
-  executionMode: "saas-api";
+  executionMode: AssistantUsageExecutionMode;
   runtimeMode: string;
-  provider: AssistantPolicyProvider;
+  provider: AssistantUsageProvider;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -123,6 +130,13 @@ export type CreateAssistantUsageEventInput = {
 export type ListAssistantUsageEventsInput = {
   projectId: string;
   month?: string;
+};
+
+export type ListAssistantUsageEventsForProfileInput = {
+  profileId: string;
+  from: string;
+  to: string;
+  limit?: number;
 };
 
 export type ListAssistantAuditEventsInput = {
@@ -161,7 +175,11 @@ export type SearchApprovedKnowledgeInput = {
 export interface AssistantRepository {
   listRecordsByTask(taskId: string): Promise<AssistantRecord[]>;
   listExternalEvidenceByTask(taskId: string): Promise<ExternalEvidenceRecord[]>;
-  listKnowledgeCandidateRecords(input?: { states?: AssistantCandidateState[] }): Promise<AssistantRecord[]>;
+  listKnowledgeCandidateRecords(input?: {
+    states?: AssistantCandidateState[];
+    projectId?: string;
+    includeOrganizationApproved?: boolean;
+  }): Promise<AssistantRecord[]>;
   searchApprovedKnowledge(input: SearchApprovedKnowledgeInput): Promise<ApprovedKnowledgeItem[]>;
   findRecordById(recordId: string): Promise<AssistantRecord | null>;
   findWorkSummaryDraftByRecordId(recordId: string): Promise<AssistantWorkSummaryDraft | null>;
@@ -181,6 +199,7 @@ export interface AssistantRepository {
   upsertRunPolicy(input: UpsertAssistantRunPolicyInput): Promise<AssistantRunPolicy>;
   createUsageEvent(input: CreateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
   listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
+  listUsageEventsForProfile(input: ListAssistantUsageEventsForProfileInput): Promise<AssistantUsageEvent[]>;
   createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;
   listAuditEvents(input: ListAssistantAuditEventsInput): Promise<AssistantAuditEvent[]>;
   deleteAuditEventsByIds(input: DeleteAssistantAuditEventsByIdsInput): Promise<DeleteAssistantAuditEventsByIdsResult>;

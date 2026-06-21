@@ -73,6 +73,11 @@ model Profile {
   createdProjectUploadSources ProjectUploadSource[] @relation("ProjectUploadSourceCreatedBy")
   activatedProjectUploadVersions ProjectUploadVersion[] @relation("ProjectUploadVersionActivatedBy")
   uploadedProjectReferences UploadReference[] @relation("UploadReferenceUploadedBy")
+  reviewedKnowledgeDiscoveryRequests KnowledgeDiscoveryRequest[] @relation("KnowledgeDiscoveryReviewedBy")
+  createdKnowledgeImportPreviews KnowledgeImportPreview[] @relation("KnowledgeImportPreviewCreatedBy")
+  confirmedKnowledgeImportPreviews KnowledgeImportPreview[] @relation("KnowledgeImportPreviewConfirmedBy")
+  createdKnowledgeImportRubrics KnowledgeImportRubric[] @relation("KnowledgeImportRubricCreatedBy")
+  updatedKnowledgeImportRubrics KnowledgeImportRubric[] @relation("KnowledgeImportRubricUpdatedBy")
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -103,6 +108,10 @@ model Project {
   uploadReferences UploadReference[]
   projectUploadChunks ProjectUploadChunk[]
   reviewCorpusTraces ReviewCorpusTrace[]
+  taskCellDocuments TaskCellDocument[]
+  taskCellUpdates TaskCellUpdate[]
+  knowledgeDiscoveryRequests KnowledgeDiscoveryRequest[]
+  knowledgeImportPreviews KnowledgeImportPreview[]
 
   @@map("projects")
 }
@@ -157,6 +166,9 @@ model Task {
   assistantThreads AssistantThread[]
   uploadReferences UploadReference[] @relation("UploadReferenceUploadedTask")
   reviewCorpusTraces ReviewCorpusTrace[]
+  cellDocuments TaskCellDocument[]
+  knowledgeDiscoveryRequests KnowledgeDiscoveryRequest[] @relation("KnowledgeDiscoveryTask")
+  defaultKnowledgeImportPreviews KnowledgeImportPreview[] @relation("KnowledgeImportPreviewDefaultTask")
 
   @@unique([projectId, taskNumber])
   @@unique([projectId, id])
@@ -183,6 +195,46 @@ model TaskUserOrder {
   @@index([projectId, profileId, parentTaskId, siblingOrder])
   @@index([profileId])
   @@map("task_user_orders")
+}
+
+model TaskCellDocument {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String   @map("project_id") @db.Uuid
+  taskId          String   @map("task_id") @db.Uuid
+  fieldKey        String   @map("field_key")
+  docType         String   @default("text") @map("doc_type")
+  yState          Bytes?   @map("y_state")
+  plainText       String   @default("") @map("plain_text")
+  scalarValueJson Json?    @map("scalar_value_json")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task            Task     @relation(fields: [projectId, taskId], references: [projectId, id], onDelete: Cascade)
+  updates         TaskCellUpdate[]
+
+  @@unique([projectId, taskId, fieldKey])
+  @@index([projectId, updatedAt])
+  @@map("task_cell_documents")
+}
+
+model TaskCellUpdate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  cellDocumentId String   @map("cell_document_id") @db.Uuid
+  clientUpdateId String   @map("client_update_id")
+  actorProfileId String   @map("actor_profile_id") @db.Uuid
+  documentVersion Int     @default(1) @map("document_version")
+  updatePayload  Bytes    @map("update_payload")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cellDocument   TaskCellDocument @relation(fields: [cellDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([cellDocumentId, clientUpdateId])
+  @@index([cellDocumentId, documentVersion])
+  @@index([projectId, createdAt])
+  @@map("task_cell_updates")
 }
 
 model File {
@@ -242,6 +294,12 @@ model ProfilePreference {
   taskListColumnWidths Json     @default("{}") @map("task_list_column_widths")
   taskListRowHeights   Json     @default("{}") @map("task_list_row_heights")
   taskListDetailPanelWidth Int  @default(340) @map("task_list_detail_panel_width")
+  aiDefaultModel       String   @default("gpt-5.5") @map("ai_default_model")
+  aiReasoningEffort    String   @default("medium") @map("ai_reasoning_effort")
+  aiServiceTier        String   @default("auto") @map("ai_service_tier")
+  aiRequestTimeoutMs   Int      @default(120000) @map("ai_request_timeout_ms")
+  aiLocalUsageDefaultRangeDays Int @default(30) @map("ai_local_usage_default_range_days")
+  aiLocalCodexNoHistory Boolean @default(false) @map("ai_local_codex_no_history")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -387,10 +445,214 @@ model AssistantTaskRecord {
   profile          Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   workSummaryDraft AssistantWorkSummaryDraft?
   threadMessages   AssistantThreadMessage[]
+  promotedFromKnowledgeDiscoveryRequests KnowledgeDiscoveryRequest[] @relation("KnowledgeDiscoveryPromotedCandidate")
 
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
   @@map("assistant_task_records")
+}
+
+model KnowledgeDiscoveryRequest {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId            String   @map("project_id") @db.Uuid
+  taskId               String   @map("task_id") @db.Uuid
+  scanId               String   @map("scan_id") @db.Uuid
+  state                String   @default("new")
+  recommendationScore  Int      @default(0) @map("recommendation_score")
+  recommendationReason String   @default("") @map("recommendation_reason")
+  evidenceSummary      Json     @default("{}") @map("evidence_summary")
+  promotedCandidateId  String?  @map("promoted_candidate_id") @db.Uuid
+  reviewedBy           String?  @map("reviewed_by") @db.Uuid
+  reviewedAt           DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task                 Task     @relation("KnowledgeDiscoveryTask", fields: [projectId, taskId], references: [projectId, id], onDelete: Cascade)
+  reviewer             Profile? @relation("KnowledgeDiscoveryReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  promotedCandidate    AssistantTaskRecord? @relation("KnowledgeDiscoveryPromotedCandidate", fields: [promotedCandidateId], references: [id], onDelete: SetNull)
+
+  @@unique([scanId, taskId])
+  @@index([projectId, state, createdAt])
+  @@index([taskId, createdAt])
+  @@map("knowledge_discovery_requests")
+}
+
+model KnowledgeImportPreview {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId             String   @map("project_id") @db.Uuid
+  defaultTaskId         String?  @map("default_task_id") @db.Uuid
+  rubricId              String   @map("rubric_id") @db.Uuid
+  rubricVersion         Int      @map("rubric_version")
+  state                 String   @default("draft")
+  workspaceFingerprint  String   @map("workspace_fingerprint")
+  includedItems         Json     @default("[]") @map("included_items")
+  excludedItems         Json     @default("[]") @map("excluded_items")
+  createdBy             String   @map("created_by") @db.Uuid
+  confirmedBy           String?  @map("confirmed_by") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  confirmedAt           DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  defaultTask           Task?    @relation("KnowledgeImportPreviewDefaultTask", fields: [projectId, defaultTaskId], references: [projectId, id], onDelete: NoAction)
+  rubric                KnowledgeImportRubric @relation(fields: [rubricId], references: [id], onDelete: Restrict)
+  creator               Profile @relation("KnowledgeImportPreviewCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  confirmer             Profile? @relation("KnowledgeImportPreviewConfirmedBy", fields: [confirmedBy], references: [id], onDelete: SetNull)
+
+  @@index([projectId, state, createdAt])
+  @@index([rubricId, state, createdAt])
+  @@index([createdBy, createdAt])
+  @@map("knowledge_import_previews")
+}
+
+model KnowledgeImportRubric {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String
+  version         Int
+  state           String   @default("draft")
+  hardBlockers    Json     @default("[]") @map("hard_blockers")
+  scoringCriteria Json     @default("[]") @map("scoring_criteria")
+  weights         Json     @default("{}")
+  createdBy       String   @map("created_by") @db.Uuid
+  updatedBy       String   @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(6)
+  creator         Profile @relation("KnowledgeImportRubricCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater         Profile @relation("KnowledgeImportRubricUpdatedBy", fields: [updatedBy], references: [id], onDelete: Restrict)
+  previews        KnowledgeImportPreview[]
+
+  @@unique([name, version])
+  @@index([state, updatedAt])
+  @@map("knowledge_import_rubrics")
+}
+
+/// DB invariant: migration creates partial unique index knowledge_generation_profiles_one_active
+/// on (name) where state = 'active'. Prisma schema cannot express this partial index.
+model KnowledgeGenerationProfile {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String
+  version           Int
+  state             String   @default("draft")
+  sourceBucketRules Json     @default("{}") @map("source_bucket_rules")
+  tocTemplate       Json     @default("[]") @map("toc_template")
+  ontologySchema    Json     @default("{}") @map("ontology_schema")
+  citationRules     Json     @default("[]") @map("citation_rules")
+  sectionRules      Json     @default("[]") @map("section_rules")
+  createdBy         String   @map("created_by") @db.Uuid
+  updatedBy         String   @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt        DateTime? @map("archived_at") @db.Timestamptz(6)
+  runs              KnowledgeGenerationRun[]
+
+  @@unique([name, version])
+  @@index([state, updatedAt])
+  @@map("knowledge_generation_profiles")
+}
+
+model KnowledgeGenerationRun {
+  id                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordId                   String   @map("record_id") @db.Uuid
+  profileId                  String   @map("profile_id") @db.Uuid
+  profileVersion             Int      @map("profile_version")
+  sourceBundleDigest         String   @map("source_bundle_digest")
+  promptDigest               String   @map("prompt_digest")
+  legalVerificationStatus    String   @default("not_required") @map("legal_verification_status")
+  legalVerificationDigest    String   @default("") @map("legal_verification_digest")
+  projectContextTraceDigest  String   @default("") @map("project_context_trace_digest")
+  provider                   String   @default("mock")
+  model                      String   @default("mock")
+  structuredDraft            Json     @default("{}") @map("structured_draft")
+  warnings                   Json     @default("[]")
+  createdBy                  String   @map("created_by") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  profile                    KnowledgeGenerationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+
+  @@index([recordId, createdAt])
+  @@index([profileId, createdAt])
+  @@map("knowledge_generation_runs")
+}
+
+model KnowledgeItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publicId    String   @unique @map("public_id")
+  projectId   String?  @map("project_id") @db.Uuid
+  state       String   @default("draft")
+  title       String
+  slug        String
+  scope       String
+  tags        Json     @default("[]")
+  ontology    Json     @default("{}")
+  createdBy   String   @map("created_by") @db.Uuid
+  updatedBy   String   @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  versions    KnowledgeItemVersion[]
+  sourceRefs  KnowledgeSourceReference[]
+
+  @@unique([projectId, slug])
+  @@index([state, updatedAt])
+  @@index([projectId, state, updatedAt])
+  @@map("knowledge_items")
+}
+
+model KnowledgeItemVersion {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemId          String   @map("item_id") @db.Uuid
+  version         Int
+  state           String   @default("draft")
+  title           String
+  summary         String
+  bodyMarkdown    String   @map("body_markdown")
+  structuredDraft Json     @default("{}") @map("structured_draft")
+  toc             Json     @default("[]")
+  sectionBlocks   Json     @default("[]") @map("section_blocks")
+  contentDigest   String   @map("content_digest")
+  sourceDigest    String   @map("source_digest")
+  sourceRecordId  String?  @unique @map("source_record_id") @db.Uuid
+  sourceTaskId    String?  @map("source_task_id") @db.Uuid
+  sourceProjectId String?  @map("source_project_id") @db.Uuid
+  generationRunId String?  @map("generation_run_id") @db.Uuid
+  approvedBy      String?  @map("approved_by") @db.Uuid
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz(6)
+  supersedesId    String?  @map("supersedes_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  item            KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  sourceRefs      KnowledgeSourceReference[]
+
+  @@unique([itemId, version])
+  @@unique([itemId, id])
+  @@index([itemId, state, createdAt])
+  @@index([sourceProjectId, state, approvedAt])
+  @@index([generationRunId])
+  @@map("knowledge_item_versions")
+}
+
+model KnowledgeSourceReference {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceRefId         String   @map("source_ref_id")
+  itemId              String   @map("item_id") @db.Uuid
+  versionId           String   @map("version_id") @db.Uuid
+  sourceKind          String   @map("source_kind")
+  sourceId            String   @map("source_id")
+  title               String
+  locator             String   @default("")
+  excerpt             String   @default("")
+  sourceUrl           String?  @map("source_url")
+  digest              String
+  authorityRank       Int      @default(0) @map("authority_rank")
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(6)
+  stale               Boolean  @default(false)
+  legalChangeWarnings Json     @default("[]") @map("legal_change_warnings")
+  allowedUse          String   @default("context") @map("allowed_use")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  item                KnowledgeItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  version             KnowledgeItemVersion @relation(fields: [itemId, versionId], references: [itemId, id], onDelete: Cascade)
+
+  @@index([itemId, sourceKind])
+  @@index([versionId, sourceKind])
+  @@index([sourceKind, sourceId])
+  @@unique([versionId, sourceRefId])
+  @@map("knowledge_source_references")
 }
 
 model AssistantWorkSummaryDraft {

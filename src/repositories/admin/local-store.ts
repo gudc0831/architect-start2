@@ -265,6 +265,19 @@ export class LocalAdminRepository implements AdminRepository {
     );
   }
 
+  async getProjectAccess(projectId: string, profileId: string) {
+    const store = await readStore();
+    const project = store.projects.find((entry) => entry.id === projectId);
+    if (!project) {
+      return null;
+    }
+
+    const membership =
+      store.memberships.find((entry) => entry.projectId === projectId && entry.profileId === profileId) ?? null;
+
+    return { project, membership };
+  }
+
   async createProject(input: CreateAdminProjectInput) {
     const store = await readStore();
     const name = sanitizeText(input.name);
@@ -456,6 +469,10 @@ export class LocalAdminRepository implements AdminRepository {
   async listEffectiveTaskCategoryDefinitions(projectId: string | null, fieldKey: TaskCategoryFieldKey) {
     const resolved = resolveEffectiveTaskCategoryDefinitions((await readStore()).categoryDefinitions, fieldKey, projectId);
     return resolved.selectableDefinitions.sort(compareBySortOrder);
+  }
+
+  async getTaskCategoryDefinition(id: string) {
+    return (await readStore()).categoryDefinitions.find((definition) => definition.id === id) ?? null;
   }
 
   async createTaskCategoryDefinition(input: CreateTaskCategoryDefinitionInput) {

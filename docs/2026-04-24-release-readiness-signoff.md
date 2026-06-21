@@ -1,9 +1,22 @@
 # Release Readiness Sign-Off
 
-- Updated: 2026-04-24
-- Status: non-production readiness complete; production promotion deferred
+- Updated: 2026-06-11
+- Status: non-production readiness complete; production promotion deferred; June 2026 AI review / verified legal Preview closeout is separate from production release execution
 - Active plan: [2026-04-24-deployment-readiness-plan.md](2026-04-24-deployment-readiness-plan.md)
 - Deployment contract: [2026-04-10-deployment-protection-contract.md](2026-04-10-deployment-protection-contract.md)
+- June 2026 closeout: [worklogs/2026-06-11-production-deferral-closeout.md](worklogs/2026-06-11-production-deferral-closeout.md)
+
+## 2026-06-11 Addendum
+
+This sign-off remains the April deployment baseline. It must not be read as production approval for the June 2026 AI review / verified legal / Browser Assistant path.
+
+The current June state is:
+
+- Preview-only AI review / verified legal integration is recorded in the cross-project and centralization plans.
+- Production release execution is intentionally deferred.
+- No production Vercel env changes, production deployment, production alias promotion, production DB write, production OAuth callback change, Chrome Web Store upload, or native-host signing is authorized by this document.
+
+Before Production release resumes, the Production resume gate in `docs/superpowers/plans/2026-06-09-verified-legal-centralization-plan.md` must be completed.
 
 ## Verified Preview Evidence
 
@@ -81,7 +94,11 @@ Current production status confirmed by user on 2026-04-24:
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` belongs to the production Supabase project.
    - `SUPABASE_SERVICE_ROLE_KEY` belongs to the production Supabase project and remains server-only.
    - `SUPABASE_STORAGE_BUCKET` is the production bucket name.
+   - `VERIFIED_LEGAL_EVIDENCE_API_URL` points to the production verified legal API target, not a Preview URL.
+   - `VERIFIED_LEGAL_EVIDENCE_API_SECRET` matches the production verified legal API server secret and is never exposed to the browser.
+   - `LAW_OPEN_DATA_OC` remains absent from `architect-saas`; official legal-source credentials stay in `verified-legal-evidence-api`.
    - No Preview Supabase host, database password, anon key, or service-role key is assigned to Production.
+   - No Preview verified legal API URL, Preview bypass secret, or Preview Browser Assistant origin is assigned to Production.
 3. Supabase production Auth URL configuration
    - Site URL equals the exact production root URL.
    - Additional redirect URL includes the exact production callback:
@@ -91,6 +108,14 @@ Current production status confirmed by user on 2026-04-24:
    - Google authorized redirect URI includes the production Supabase provider callback:
      - `https://<production-supabase-project-ref>.supabase.co/auth/v1/callback`
    - The production Supabase project uses the intended Google OAuth client credentials.
+5. Verified legal production target
+   - Production `verified-legal-evidence-api` target is selected or deployed.
+   - The SaaS server can call protected legal evidence/search endpoints with the production app secret and any approved Vercel protection bypass policy.
+   - Direct browser access to protected legal evidence routes remains blocked.
+6. Browser Assistant production release path
+   - Production SaaS origin is in the extension allowlist.
+   - Web Store publisher metadata, release owner, extension id, signed native-host installer, and production install root are finalized.
+   - The readiness path passes without relying on the unsigned interim waiver unless that waiver is explicitly approved for the release.
 
 ## Production Promotion Checklist
 
@@ -113,7 +138,12 @@ After production deploy:
    - `Permissions-Policy`
    - HSTS
 5. Verify admin/member/no-access outcomes if production accounts are provisioned for smoke testing.
+6. Verify `/daily` AI review on the production host:
+   - centralized verified legal evidence retrieval
+   - Local Codex/native bridge availability
+   - assistant saved record persistence
+   - WIKI candidate state remains `candidate` and no admin approval is bypassed
 
 ## Current Blocker
 
-Production promotion is blocked on the exact production URL and production-only Vercel env vars. Supabase Auth URLs and Google OAuth redirect URI should be configured only after the production URL and production Supabase project are chosen.
+Production promotion is blocked on the exact production URL, production-only Vercel env vars, production verified legal API target/secret parity, Vercel protection/bypass policy, Browser Assistant production release path, and authenticated production smoke. Supabase Auth URLs and Google OAuth redirect URI should be configured only after the production URL and production Supabase project are chosen.

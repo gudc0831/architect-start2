@@ -1,5 +1,15 @@
-import type { QuickCreateWidthMap, TaskListLayoutPreference, ThemePreference } from "@/domains/preferences/types";
-import { sanitizeQuickCreateWidths, sanitizeTaskListLayoutPreference, sanitizeThemeId } from "@/domains/preferences/types";
+import type {
+  AiSettingsPreference,
+  QuickCreateWidthMap,
+  TaskListLayoutPreference,
+  ThemePreference,
+} from "@/domains/preferences/types";
+import {
+  sanitizeAiSettingsPreference,
+  sanitizeQuickCreateWidths,
+  sanitizeTaskListLayoutPreference,
+  sanitizeThemeId,
+} from "@/domains/preferences/types";
 import { preferenceRepository } from "@/repositories";
 
 export async function getQuickCreateWidths(profileId: string) {
@@ -24,4 +34,12 @@ export async function getThemePreference(profileId: string): Promise<ThemePrefer
 
 export async function updateThemePreference(profileId: string, themeId: unknown): Promise<ThemePreference> {
   return preferenceRepository.saveThemePreference(profileId, sanitizeThemeId(themeId));
+}
+
+export async function getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference> {
+  return preferenceRepository.getAiSettingsPreference(profileId);
+}
+
+export async function updateAiSettingsPreference(profileId: string, preference: unknown): Promise<AiSettingsPreference> {
+  return preferenceRepository.saveAiSettingsPreference(profileId, sanitizeAiSettingsPreference(preference));
 }

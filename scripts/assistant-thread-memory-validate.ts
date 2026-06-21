@@ -98,12 +98,12 @@ async function main() {
   assert.equal(typeof shouldRefreshThreadSummary, "function");
 
   const previousOpenAiKey = process.env.OPENAI_API_KEY;
-  const previousLawCredential = process.env["LAW_OPEN_DATA_OC"];
+  const previousVerifiedLegalSecret = process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET;
   try {
     const openAiLikeSecret = ["sk", "thread", "secret"].join("-");
-    const lawCredential = ["law", "thread", "secret"].join("-");
+    const verifiedLegalSecret = ["verified", "legal", "thread", "secret"].join("-");
     process.env.OPENAI_API_KEY = openAiLikeSecret;
-    process.env["LAW_OPEN_DATA_OC"] = lawCredential;
+    process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET = verifiedLegalSecret;
 
     const recentMessages = [
       { role: "system" as const, content: "system kickoff" },
@@ -118,7 +118,7 @@ async function main() {
 
     const defaultMemory = buildThreadMemory({
       currentQuestion: `How should this setback issue proceed with ${openAiLikeSecret}?`,
-      threadSummary: `Prior summary with ${lawCredential} and active decision context.`,
+      threadSummary: `Prior summary with ${verifiedLegalSecret} and active decision context.`,
       recentMessages,
       maxRecentMessages: 0,
     });
@@ -127,7 +127,7 @@ async function main() {
     assert.match(defaultMemory, /Thread summary:/);
     assert.match(defaultMemory, /active decision context/);
     assert.equal(defaultMemory.includes(openAiLikeSecret), false);
-    assert.equal(defaultMemory.includes(lawCredential), false);
+    assert.equal(defaultMemory.includes(verifiedLegalSecret), false);
     assert.doesNotMatch(defaultMemory, /system kickoff|message 1/);
     assert.match(defaultMemory, /Assistant: message 2/);
     assert.match(defaultMemory, /User: message 7/);
@@ -234,7 +234,7 @@ async function main() {
     assert.equal(summaryUpdate.provenance.generatedAt, "2026-05-31T00:00:00.000Z");
   } finally {
     restoreEnv("OPENAI_API_KEY", previousOpenAiKey);
-    restoreEnv("LAW_OPEN_DATA_OC", previousLawCredential);
+    restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_SECRET", previousVerifiedLegalSecret);
   }
 
   const assistantPromptModule = await import("../src/domains/assistant/saas-api-mode");
@@ -248,7 +248,9 @@ async function main() {
   });
   assert.match(promptText, /Conversation memory:/);
   assert.match(promptText, /Thread summary and last user follow-up/);
-  assert.match(promptText, /Evidence:/);
+  assert.match(promptText, /Legal evidence:/);
+  assert.match(promptText, /Project upload context:/);
+  assert.match(promptText, /Other evidence:/);
   assert.match(promptText, /Evidence readiness warnings:/);
 
   const assistantServiceSource = await readFile(join(process.cwd(), "src", "use-cases", "assistant-service.ts"), "utf8");

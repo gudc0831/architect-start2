@@ -37,6 +37,7 @@ import { fileRepository, taskRepository } from "@/repositories";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { fetchVerifiedLegalSearchEvidence, selectLegalSearchContext } from "@/use-cases/verified-legal-search-service";
+import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
 import { retrieveProjectContextForTaskReview } from "@/use-cases/project-context-retrieval-service";
 import { randomUUID } from "node:crypto";
 
@@ -146,10 +147,12 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
   const regulationResults = searchFoundationRegulations(retrievalQuery, 4);
   const legalSearchContext = selectLegalSearchContext({ task, projectName: project.name });
   const [verifiedLegalEvidence, verifiedLegalSearchEvidence, projectContextRetrieval] = await Promise.all([
-    fetchVerifiedLegalEvidenceBundle({
-      question: retrievalQuery,
-      sourceIds: selectVerifiedLegalEvidenceSourceIds(),
-    }),
+    isVerifiedLegalEvidenceBundleEnabled()
+      ? fetchVerifiedLegalEvidenceBundle({
+          question: retrievalQuery,
+          sourceIds: selectVerifiedLegalEvidenceSourceIds(),
+        })
+      : Promise.resolve({ evidence: [], warnings: [] }),
     fetchVerifiedLegalSearchEvidence({ question: retrievalQuery, ...legalSearchContext }),
     input.user
       ? retrieveProjectContextForTaskReview({
@@ -349,12 +352,7 @@ function normalizeEvidenceReadinessWarnings(warnings: EvidenceReadinessWarning[]
 }
 
 function redactEvidenceReadinessWarningText(value: string): string {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
-  if (officialLawCredential) {
-    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
-  }
-  return redacted;
+  return redactOfficialLawCredential(value);
 }
 
 async function fetchVerifiedLegalEvidenceBundle(input: {
@@ -409,10 +407,10 @@ async function fetchVerifiedLegalEvidenceBundle(input: {
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
+      headers: withVerifiedLegalServiceHeaders({
         "Content-Type": "application/json",
         "x-verified-legal-evidence-api-secret": apiSecret,
-      },
+      }),
       body: JSON.stringify({
         question: input.question,
         sourceIds: input.sourceIds,
@@ -479,6 +477,10 @@ function selectVerifiedLegalEvidenceSourceIds(): string[] {
     .split(",")
     .map((sourceId) => sourceId.trim())
     .filter(Boolean);
+}
+
+function isVerifiedLegalEvidenceBundleEnabled(): boolean {
+  return process.env.VERIFIED_LEGAL_EVIDENCE_BUNDLE_ENABLED === "1";
 }
 
 function mapVerifiedLegalEvidenceItem(
@@ -568,8 +570,7 @@ function normalizeOptionalHttpUrl(value: unknown) {
       }
     }
     const sanitized = url.toString();
-    const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-    if (/[?&]oc=/i.test(sanitized) || (officialLawCredential && sanitized.includes(officialLawCredential))) {
+    if (/[?&]oc=/i.test(sanitized)) {
       return undefined;
     }
 
@@ -580,17 +581,13 @@ function normalizeOptionalHttpUrl(value: unknown) {
 }
 
 function containsOfficialLawCredential(values: string[]) {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  return values.some((value) => value.includes(`OC${"="}`) || Boolean(officialLawCredential && value.includes(officialLawCredential)));
+  return values.some((value) => /(?:^|[?&\s])oc\s*=/i.test(value));
 }
 
 function redactOfficialLawCredential(value: string) {
-  const officialLawCredential = process.env.LAW_OPEN_DATA_OC?.trim();
-  let redacted = value.replace(/\bOC\s*=\s*[^&\s]+/gi, "[redacted-credential]");
-  if (officialLawCredential) {
-    redacted = redacted.split(officialLawCredential).join("[redacted-credential]");
-  }
-  return redacted;
+  return value
+    .replace(/\bOC\s*=\s*[^&\s"]+/gi, "[redacted-credential]")
+    .replace(/([?&])OC=[^&#\s"]*/gi, "$1OC=[redacted-credential]");
 }
 
 function normalizeConfidenceWeight(value: unknown, kind: AssistantEvidence["kind"]) {
@@ -641,8 +638,13 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
   const task = await requireTaskInSelectedProject(normalizeRequiredId(input.taskId, "taskId"));
   const question = normalizeRequiredText(input.question, "question");
   const answer = normalizeRequiredText(input.answer, "answer");
-  const evidence = normalizeAssistantEvidenceForStorage(input.evidence);
+  const { evidence, removedLegalVerificationClaim } = sanitizeClientSubmittedAssistantEvidenceForStorage(input.evidence);
   const confidence = normalizeLegalChangeConfidence(normalizeConfidence(input.confidenceScore, evidence), evidence);
+  const confidenceReason = removedLegalVerificationClaim
+    ? "Client-submitted legal verification metadata was removed. Use /api/assistant/task-review for server-verified legal records before WIKI candidate review."
+    : hasLegalChangeEvidenceImpact(evidence)
+      ? buildConfidenceReason(confidence, evidence)
+      : normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence);
 
   return assistantRepository.createRecord({
     projectId: task.projectId,
@@ -652,12 +654,11 @@ export async function saveAssistantRecord(input: SaveAssistantRecordInput, user:
     answer,
     evidence,
     confidenceScore: confidence,
-    confidenceReason: hasLegalChangeEvidenceImpact(evidence)
-      ? buildConfidenceReason(confidence, evidence)
-      : normalizeText(input.confidenceReason) || buildConfidenceReason(confidence, evidence),
+    confidenceReason,
     executionMode: normalizeExecutionMode(input.executionMode),
     runtimeMode: normalizeText(input.runtimeMode) || "mock",
     draftSummary: normalizeDraftSummary(input.draftSummary),
+    candidateState: removedLegalVerificationClaim ? "not_candidate" : undefined,
   });
 }
 
@@ -1051,6 +1052,14 @@ export function normalizeAssistantEvidenceForStorage(value: unknown): AssistantE
         sourceUrl: normalizeOptionalHttpUrl(record.sourceUrl),
         recordId: normalizeOptionalText(record.recordId),
         confidenceWeight: Number.isFinite(record.confidenceWeight) ? Number(record.confidenceWeight) : undefined,
+        officialSourceName: normalizeOptionalText(record.officialSourceName),
+        lawName: normalizeOptionalText(record.lawName),
+        articleLabel: normalizeOptionalText(record.articleLabel),
+        articleNumber: normalizeOptionalText(record.articleNumber),
+        effectiveDate: normalizeOptionalText(record.effectiveDate),
+        checkedAt: normalizeOptionalText(record.checkedAt),
+        apiSourceUrl: normalizeOptionalHttpUrl(record.apiSourceUrl),
+        verificationStatus: normalizeVerificationStatus(record.verificationStatus),
         legal: normalizeLegalEvidenceMetadata(record.legal),
       } satisfies AssistantEvidence;
       if (normalized.excerpt) {
@@ -1059,6 +1068,50 @@ export function normalizeAssistantEvidenceForStorage(value: unknown): AssistantE
     });
 
   return evidence;
+}
+
+export function sanitizeClientSubmittedAssistantEvidenceForStorage(value: unknown): {
+  evidence: AssistantEvidence[];
+  removedLegalVerificationClaim: boolean;
+} {
+  const normalized = normalizeAssistantEvidenceForStorage(value);
+  let removedLegalVerificationClaim = false;
+
+  const evidence = normalized.map((item) => {
+    if (!hasClientSubmittedLegalVerificationClaim(item)) {
+      return item;
+    }
+
+    removedLegalVerificationClaim = true;
+
+    return {
+      id: item.id,
+      kind: item.kind,
+      priority: item.priority,
+      title: item.title,
+      excerpt: item.excerpt,
+      ...(item.sourceUrl ? { sourceUrl: item.sourceUrl } : {}),
+      ...(item.recordId ? { recordId: item.recordId } : {}),
+      ...(item.confidenceWeight !== undefined ? { confidenceWeight: Math.min(item.confidenceWeight, 0.45) } : {}),
+    } satisfies AssistantEvidence;
+  });
+
+  return { evidence, removedLegalVerificationClaim };
+}
+
+function hasClientSubmittedLegalVerificationClaim(item: AssistantEvidence) {
+  return (
+    item.kind === "regulation" ||
+    Boolean(item.legal) ||
+    Boolean(item.verificationStatus) ||
+    Boolean(item.officialSourceName) ||
+    Boolean(item.lawName) ||
+    Boolean(item.articleLabel) ||
+    Boolean(item.articleNumber) ||
+    Boolean(item.effectiveDate) ||
+    Boolean(item.checkedAt) ||
+    Boolean(item.apiSourceUrl)
+  );
 }
 
 function normalizeLegalEvidenceMetadata(value: unknown): AssistantLegalEvidenceMetadata | undefined {
@@ -1088,6 +1141,10 @@ function normalizeLegalEvidenceMetadata(value: unknown): AssistantLegalEvidenceM
       : [],
     confidenceReason: normalizeOptionalRedactedText(value.confidenceReason),
   };
+}
+
+function normalizeVerificationStatus(value: unknown): AssistantEvidence["verificationStatus"] | undefined {
+  return value === "verified" || value === "needs_review" || value === "failed" ? value : undefined;
 }
 
 function isLegalSourceAuthorityPair(sourceKind: string, authorityRank: string): boolean {

@@ -22,7 +22,9 @@ const previewMaterialsPageSource = source("src/app/preview/materials/page.tsx");
 assert.match(previewMaterialsPageSource, /ProjectMaterialsPage/);
 
 const adminPageSource = source("src/app/admin/page.tsx");
-assert.doesNotMatch(adminPageSource, /requirePageUser|listProjectsForSession|redirect/);
+assert.match(adminPageSource, /requirePageUser\("\/admin"\)/);
+assert.match(adminPageSource, /listProjectsForSession\(user\)/);
+assert.match(adminPageSource, /redirect\("\/auth\/no-access" as Route\)/);
 assert.match(adminPageSource, /<AdminFoundationShell \/>/);
 
 const appShellSource = source("src/components/layout/app-shell.tsx");
@@ -64,15 +66,23 @@ assert.match(themeRouteSource, /response\.cookies\.set\(themePreferenceCookieNam
 
 const sidebarSource = source("src/components/layout/sidebar.tsx");
 assert.match(sidebarSource, /href: "\/materials", mode: "materials"/);
+assert.match(sidebarSource, /const WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS = 150/);
 assert.match(sidebarSource, /function scheduleSidebarIdleWork\(callback: \(\) => void, timeout = 500\)/);
 assert.match(sidebarSource, /const warmAdminNavigation = useCallback/);
+assert.match(sidebarSource, /const prefetchWorkspaceRoute = useCallback/);
+assert.match(sidebarSource, /const navigateWorkspaceRoute = useCallback/);
 assert.match(sidebarSource, /router\.prefetch\(adminHref\)/);
+assert.match(sidebarSource, /router\.push\(href\)/);
+assert.match(sidebarSource, /window\.location\.assign\(targetUrl\.href\)/);
+assert.match(sidebarSource, /WORKSPACE_NAVIGATION_FALLBACK_DELAY_MS/);
 assert.match(sidebarSource, /data-workspace-navigation="true"/);
 assert.match(sidebarSource, /className="sidebar__handle"/);
 assert.match(sidebarSource, /!isExpanded \? \(/);
 assert.match(sidebarSource, /className=\{clsx\("sidebar__pin-button"/);
 assert.match(sidebarSource, /aria-pressed=\{isPinned\}/);
-assert.match(sidebarSource, /onPointerDownCapture=\{\(\) => warmWorkspaceNavigation\(item\.href, item\.mode\)\}/);
+assert.match(sidebarSource, /onClickCapture=\{\(event\) => navigateWorkspaceRoute\(event, item\.mode, item\.href\)\}/);
+assert.match(sidebarSource, /onPointerDownCapture=\{\(\) => prefetchWorkspaceRoute\(item\.href\)\}/);
+assert.doesNotMatch(sidebarSource, /onPointerDownCapture=\{\(\) => warmWorkspaceNavigation\(item\.href, item\.mode\)\}/);
 assert.match(sidebarSource, /onClickCapture=\{\(\) => markWorkspaceRouteTransition\("admin", adminHref\)\}/);
 
 const globalCssSource = source("src/app/globals.css");
@@ -92,7 +102,7 @@ assert.match(routeTimingSource, /export type WorkspaceRouteMode = DashboardMode 
 
 const taskWorkspaceSource = source("src/components/tasks/task-workspace.tsx");
 assert.match(taskWorkspaceSource, /function isWorkspaceNavigationTarget\(target: HTMLElement\)/);
-assert.match(taskWorkspaceSource, /target\.closest\('\[data-workspace-navigation="true"\]'\)/);
+assert.match(taskWorkspaceSource, /target\.closest\('\[data-workspace-navigation="true"\], a\[href\], \.daily-sheet__view-mode-toggle'\)/);
 
 const adminShellSource = source("src/components/admin/admin-foundation-shell.tsx");
 assert.match(adminShellSource, /recordWorkspaceRouteReady\(\{/);

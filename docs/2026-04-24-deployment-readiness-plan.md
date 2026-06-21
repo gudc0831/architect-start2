@@ -1,7 +1,7 @@
 # Deployment Readiness Plan
 
-- Updated: 2026-04-24
-- Status: non-production readiness complete; production promotion deferred
+- Updated: 2026-06-11
+- Status: non-production readiness complete; production promotion deferred; June 2026 AI review / verified legal Preview closeout is tracked separately
 - Parent index: [../PLAN.md](../PLAN.md)
 - Previous execution record: [2026-04-20-post-preview-execution-plan.md](2026-04-20-post-preview-execution-plan.md)
 - Preview verification record: [2026-04-20-preview-verification-expansion-matrix.md](2026-04-20-preview-verification-expansion-matrix.md)
@@ -19,6 +19,18 @@ This is the active work order from 2026-04-24 forward. It replaces the older pos
 Do not repeat completed preview setup, branch protection setup, or manager/origin verification unless a regression appears.
 
 As of 2026-04-24, all non-production readiness work in this plan is complete or intentionally deferred as optional manual sign-off. Production promotion is out of scope until a production root URL and production-only cloud environment values are provided.
+
+## 2026-06-11 Supersession Note
+
+This file remains the April 2026 cloud deployment baseline for auth, RBAC, Preview Supabase/Postgres, RLS, Storage policy, and release protection. It is not the current source of truth for the June 2026 AI review / verified legal / Browser Assistant Preview closeout.
+
+Use these newer records for the June 2026 state:
+
+- [superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md](superpowers/plans/2026-06-09-cross-project-boundary-and-integration-plan.md)
+- [superpowers/plans/2026-06-09-verified-legal-centralization-plan.md](superpowers/plans/2026-06-09-verified-legal-centralization-plan.md)
+- [worklogs/2026-06-11-production-deferral-closeout.md](worklogs/2026-06-11-production-deferral-closeout.md)
+
+Production release execution remains deferred. The deferral now includes more than the April Supabase/Postgres gap: production verified legal API target and secret parity, Vercel protection/bypass policy, OAuth/canonical auth host, Browser Assistant Web Store/native-host release path, and authenticated production smoke must all pass before production users are served.
 
 ## Conversation Corrections Locked
 
@@ -56,15 +68,15 @@ These items are done and should not be reworked:
 | Latest PR required checks | `dabb052` passed GitHub checks and Vercel status |
 | Final app-visible preview runtime header smoke | `3199f00` / `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY` `/login` returned `200` with the expected header baseline |
 | Production promotion | deferred by user; no production root URL yet |
-| Vercel Production env readiness | not ready for production deploy; `APP_BACKEND_MODE=cloud` exists, Supabase/Postgres production variables are not configured |
+| Vercel Production env readiness | not ready for production deploy; `APP_BACKEND_MODE=cloud` exists, Supabase/Postgres production variables are not configured, and the June 2026 verified-legal/Browser Assistant production gates have not been opened |
 
 ## Current Known Risks
 
 | Risk | Why it matters | Next action |
 | --- | --- | --- |
 | Remote protected preview file-flow session is not automated | the upload intent, direct Storage upload, commit, signed download, failed-commit cleanup, and final data cleanup passed through the local app server against Preview DB/Storage; Vercel Preview Authentication still blocks custom-cookie API automation on the remote URL | optional only; perform a manual protected-preview browser session if exact deployed-browser UI sign-off is later required |
-| production dashboard checks remain | production URL, Vercel Production env vars, Supabase Auth URLs, and Google OAuth redirect URI require dashboard access or exact user-provided values | complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md) before production promotion |
-| production runtime smoke is not verified | production has not been promoted and exact production URL is not confirmed | verify `/login`, `/api/system/status`, OAuth callback, and runtime headers after production deploy |
+| production dashboard checks remain | production URL, Vercel Production env vars, Supabase Auth URLs, Google OAuth redirect URI, verified legal production API target, and Browser Assistant release metadata require dashboard access or exact user-provided values | complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md) plus the June Production resume gate before production promotion |
+| production runtime smoke is not verified | production has not been promoted and exact production URL is not confirmed | verify `/login`, `/api/system/status`, OAuth callback, runtime headers, `/daily`, centralized verified legal task review, Local Codex/native bridge saved records, and WIKI candidate boundary after production deploy |
 
 ## Non-Production Completion Snapshot
 
@@ -266,7 +278,8 @@ Status:
 - final app-visible preview runtime header smoke passed on `3199f00` / `dpl_6EzQmCbdjRdMw1J3ghGBzFNbU4UY`
 - production promotion is deferred because the production root URL is not set
 - Vercel Production env is not ready for production deploy: user confirmed `APP_BACKEND_MODE=cloud` exists, but Production Project/Shared env vars do not include the required Supabase/Postgres values
-- production Supabase Auth URLs, Google OAuth callback, and production runtime smoke still require external sign-off when production resumes
+- June 2026 production gates are also deferred: verified legal production target/secret parity, Vercel protection/bypass policy, OAuth/canonical auth host, Browser Assistant Web Store/native-host release path, and authenticated production smoke
+- production Supabase Auth URLs, Google OAuth callback, verified legal API boundary, Browser Assistant release path, and production runtime smoke still require external sign-off when production resumes
 
 Owner:
 
@@ -295,6 +308,8 @@ The user should only be asked for these external actions:
 
 - provide or verify production URL and OAuth callback values
 - verify Vercel Production env vars point only to the production Supabase project
+- verify production verified legal API URL/secret parity and Vercel protection/bypass policy without exposing values
+- verify Browser Assistant production origin, Web Store metadata, signed native-host installer, and production extension/native-host install root
 - perform browser-only preview or production checks when account/session access is required
 - approve any production DB migration, seed, bootstrap, or backup action
 

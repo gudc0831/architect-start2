@@ -26,6 +26,7 @@ import { memo, startTransition, useCallback, useDeferredValue, useEffect, useLay
 import clsx from "clsx";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ProjectMaterialsPage } from "@/components/project-context/project-materials-page";
 import {
   getTaskCategoricalFieldOptions,
   labelForTaskCategoricalFieldValue,
@@ -42,6 +43,7 @@ import { createTaskEditorDraftStore, useTaskEditorDraftStoreSnapshot, type TaskE
 import { createTaskGridDomRegistry, createTaskGridCellKey } from "@/components/tasks/task-grid-dom-registry";
 import { createTaskListRowMetricsStore } from "@/components/tasks/task-grid-metrics-store";
 import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-overlay";
+import { TaskCellEditor } from "@/components/tasks/cell-documents/task-cell-editor";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import {
@@ -50,6 +52,7 @@ import {
   buildDailyMutationScopeKey,
   buildDailyOptimisticTaskId,
   classifyDailyMutationFlushFailure,
+  cleanupSyncedDailyMutationOperations,
   computeDailyMutationRetryDelayMs,
   createDailyMutationId,
   deleteDailyMutationOperation,
@@ -74,6 +77,7 @@ import {
   type DailyMutationScope,
   type DailyMutationSummary,
 } from "@/components/tasks/daily-mutation-journal";
+import { publishDailyRowSyncEvent, publishDailyRowSyncOperationEvent, subscribeDailyRowSyncEvents } from "@/components/tasks/daily-row-sync-bus";
 import {
   applyPendingTaskPatchValues,
   clearMatchingPendingTaskPatchValues,
@@ -96,6 +100,7 @@ import { canEditProjectWorkspace, canReadProject } from "@/lib/auth/project-capa
 import type { CalendarHolidayRangeData } from "@/lib/tasks/calendar-holiday-types";
 import { hasSupabaseClientConfig } from "@/lib/supabase/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { isDailyCellDocumentsEnabled } from "@/lib/features/daily-cell-documents";
 import koreanPublicHolidays from "@/lib/tasks/korean-public-holidays";
 import { recordWorkspaceRouteReady } from "@/lib/workspace/route-timing";
 import {
@@ -107,6 +112,7 @@ import {
   type TaskCategoryFieldKey,
 } from "@/domains/admin/task-category-definitions";
 import { DEFAULT_TASK_STATUS, isTaskStatus, TASK_STATUS_ORDER } from "@/domains/task/status";
+import { isTextCellDocumentField, type TextCellDocumentFieldKey } from "@/domains/task/cell-documents";
 import type { WorkTypeDefinition } from "@/domains/task/work-types";
 import type { DashboardMode, FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { buildSiblingOrderUpdates, buildStoredOrderTaskTree } from "@/domains/task/ordering";
@@ -165,6 +171,11 @@ import {
 } from "@/lib/ui-copy";
 
 type TaskWorkspaceProps = { mode: DashboardMode };
+type TaskWorkspaceContentMode = Exclude<DashboardMode, "materials">;
+type TaskWorkspaceContentProps = {
+  mode: DashboardMode;
+  pathnameMode: TaskWorkspaceContentMode | null;
+};
 type DetailPanelState = "collapsed" | "expanded";
 type TaskFormLayoutVariant = "detail" | "composer";
 type ComposerLayoutMode = "strip" | "wrapped" | "stacked";
@@ -806,19 +817,49 @@ function buildEditLeasePayload(cell: PendingTaskListFocusCell) {
 }
 
 function isWorkspaceNavigationTarget(target: HTMLElement) {
-  return Boolean(target.closest('[data-workspace-navigation="true"]'));
+  return Boolean(target.closest('[data-workspace-navigation="true"], a[href], .daily-sheet__view-mode-toggle'));
 }
 
-export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
+function dashboardModeFromPathname(pathname: string): DashboardMode | null {
+  const workspacePathname = pathname.startsWith("/preview/") ? pathname.slice("/preview".length) : pathname;
+  switch (workspacePathname) {
+    case "/board":
+      return "board";
+    case "/calendar":
+      return "calendar";
+    case "/daily":
+      return "daily";
+    case "/materials":
+      return "materials";
+    case "/trash":
+      return "trash";
+    default:
+      return null;
+  }
+}
+
+export function TaskWorkspace(props: TaskWorkspaceProps) {
+  const pathname = usePathname();
+  const pathnameMode = dashboardModeFromPathname(pathname);
+  if (pathnameMode === "materials") {
+    return <ProjectMaterialsPage preview={pathname.startsWith("/preview")} />;
+  }
+
+  return <TaskWorkspaceContent {...props} pathnameMode={pathnameMode} />;
+}
+
+function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceContentProps) {
   const authUser = useAuthUser();
   const router = useRouter();
   const pathname = usePathname();
+  const mode = pathnameMode ?? routeMode;
   const isPreview = pathname.startsWith("/preview");
   const taskReorderOrderScope = !isPreview && mode === "daily" ? "daily" : null;
   const { themeId } = useTheme();
   const isWarmStudio = themeId === "posthog";
   const isAppleWorkbench = themeId === "apple-workbench";
   const isPreviewDaily = isPreview && mode === "daily";
+  const dailyCellDocumentsEnabled = isDailyCellDocumentsEnabled();
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
@@ -935,6 +976,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const localFirstActiveTasksRef = useRef<TaskRecord[]>([]);
   const dailyMutationFlushTimerRef = useRef<number | null>(null);
   const dailyMutationFlushRunningRef = useRef(false);
+  const dailyMutationRemoteRefreshSuppressFlushUntilRef = useRef(0);
   const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
   const settleDailyFailedReorderIfServerSatisfiedRef = useRef<
     (operation: DailyMutationOperation, now: number) => Promise<boolean>
@@ -1010,7 +1052,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const dailyMutationStatusLabel = useMemo(() => {
-    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+    if (mode !== "daily") {
       return null;
     }
 
@@ -1018,14 +1060,25 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return "동기화 실패";
     }
 
-    if (dailyMutationSummary.syncing > 0) {
+    if (dailyMutationSummary.syncing > 0 || isReorderingTasks) {
       return "서버 동기화 중";
     }
 
-    return dailyMutationSummary.pending > 0 ? "서버 동기화 대기" : "로컬 반영됨";
-  }, [dailyMutationSummary.failed, dailyMutationSummary.pending, dailyMutationSummary.syncing, dailyMutationSummary.totalActive, mode]);
+    if (dailyMutationSummary.pending > 0) {
+      return "서버 동기화 대기";
+    }
+
+    return dailyMutationSummary.totalActive > 0 ? "로컬 반영됨" : null;
+  }, [
+    dailyMutationSummary.failed,
+    dailyMutationSummary.pending,
+    dailyMutationSummary.syncing,
+    dailyMutationSummary.totalActive,
+    isReorderingTasks,
+    mode,
+  ]);
   const dailyMutationStatusDebug = useMemo(() => {
-    if (mode !== "daily" || dailyMutationSummary.totalActive === 0) {
+    if (mode !== "daily") {
       return null;
     }
 
@@ -1035,18 +1088,34 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       dailyMutationOperations.find((candidate) => candidate.status === "pending") ??
       null;
 
-    return operation
-      ? {
-          failureKind: operation.failureKind ?? "",
-          lastError: operation.lastError ?? "",
-          lastErrorCode: operation.lastErrorCode ?? "",
-          lastHttpStatus: operation.lastHttpStatus === null || operation.lastHttpStatus === undefined ? "" : String(operation.lastHttpStatus),
-          retryCount: String(operation.retryCount),
-          status: operation.status,
-          type: operation.type,
-        }
-      : null;
-  }, [dailyMutationOperations, dailyMutationSummary.totalActive, mode]);
+    if (operation) {
+      return {
+        failureKind: operation.failureKind ?? "",
+        lastError: operation.lastError ?? "",
+        lastErrorCode: operation.lastErrorCode ?? "",
+        lastHttpStatus: operation.lastHttpStatus === null || operation.lastHttpStatus === undefined ? "" : String(operation.lastHttpStatus),
+        retryCount: String(operation.retryCount),
+        status: operation.status,
+        type: operation.type,
+      };
+    }
+
+    if (isReorderingTasks) {
+      return {
+        failureKind: "",
+        lastError: "",
+        lastErrorCode: "",
+        lastHttpStatus: "",
+        retryCount: "",
+        status: "syncing",
+        type: "reorder",
+      };
+    }
+
+    return null;
+  }, [dailyMutationOperations, isReorderingTasks, mode]);
+  const dailyMutationStatusState =
+    dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 || isReorderingTasks ? "syncing" : "pending";
   const canEditWorkspace =
     !isPreview &&
     Boolean(authUser) &&
@@ -1375,6 +1444,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return [] as DailyMutationOperation[];
     }
 
+    await cleanupSyncedDailyMutationOperations(dailyMutationScope);
     let operations = await listDailyMutationOperations(dailyMutationScope);
     const staleSyncingOperations = operations.filter((operation) => shouldResetDailyMutationSyncingOperation(operation));
     const legacyFailedOperations = operations.filter((operation) => shouldRecoverLegacyFailedDailyMutation(operation));
@@ -1424,8 +1494,11 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     async (operation: DailyMutationOperation) => {
       await putDailyMutationOperation(operation);
       await refreshDailyMutationJournal();
+      if (dailyMutationScope) {
+        publishDailyRowSyncOperationEvent(dailyMutationScope, "daily-journal-updated", operation);
+      }
     },
-    [refreshDailyMutationJournal],
+    [dailyMutationScope, refreshDailyMutationJournal],
   );
 
   useEffect(() => {
@@ -2737,6 +2810,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   );
   const taskById = useMemo(() => new Map(sortedTasks.map((task) => [task.id, task])), [sortedTasks]);
   const selectedTask = useMemo(() => (selectedTaskId ? taskById.get(selectedTaskId) ?? null : null), [selectedTaskId, taskById]);
+  const selectedTaskIsOptimistic = Boolean(selectedTask?.id && isOptimisticTaskId(selectedTask.id));
 
   useEffect(() => {
     if (mode !== "daily") {
@@ -2820,7 +2894,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
   }, [selectedTask, taskById]);
 
   useEffect(() => {
-    if (isPreview || mode !== "daily" || !selectedTask?.id) {
+    if (isPreview || mode !== "daily" || !selectedTask?.id || selectedTaskIsOptimistic) {
       setAssistantActionAudits([]);
       return;
     }
@@ -2868,7 +2942,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       abortController.abort();
       window.removeEventListener("architect:assistant-action-audit-saved", handleAssistantActionAuditSaved);
     };
-  }, [isPreview, mode, selectedTask?.id]);
+  }, [isPreview, mode, selectedTask?.id, selectedTaskIsOptimistic]);
 
   const selectedTaskAssistantAudit = useMemo(
     () => (selectedTask ? buildAssistantAuditIndicator(selectedTask, sortedTasks, selectedParentTask, assistantActionAudits) : null),
@@ -2889,12 +2963,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       return;
     }
 
-    if (!selectedTask?.id || selectedTaskFilesLoaded) {
+    if (!selectedTask?.id || selectedTaskIsOptimistic || selectedTaskFilesLoaded) {
       return;
     }
 
     void ensureTaskFilesLoaded(selectedTask.id);
-  }, [ensureTaskFilesLoaded, isTrashMode, selectedTask?.id, selectedTaskFilesLoaded, tasks]);
+  }, [ensureTaskFilesLoaded, isTrashMode, selectedTask?.id, selectedTaskFilesLoaded, selectedTaskIsOptimistic, tasks]);
   const filesByTaskId = useMemo(() => {
     return files.reduce<Record<string, FileRecord[]>>((acc, file) => {
       if (!acc[file.taskId]) acc[file.taskId] = [];
@@ -3825,6 +3899,9 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
               failureKind: failure.kind,
               lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
             }));
+            if (dailyMutationScopeRef.current) {
+              publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-failed", operation);
+            }
           }
         }
       } finally {
@@ -3841,6 +3918,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     }
 
     const flushSoon = () => {
+      if (Date.now() < dailyMutationRemoteRefreshSuppressFlushUntilRef.current) {
+        return;
+      }
+
       if (dailyMutationFlushTimerRef.current !== null) {
         return;
       }
@@ -3874,6 +3955,10 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
   useEffect(() => {
     if (!dailyMutationScope || dailyMutationSummary.totalActive === 0) {
+      return;
+    }
+
+    if (Date.now() < dailyMutationRemoteRefreshSuppressFlushUntilRef.current) {
       return;
     }
 
@@ -3920,6 +4005,67 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     },
     [fetchDailySyncTasks, setDashboardScopeTasks],
   );
+
+  useEffect(() => {
+    if (!dailyMutationScope || mode !== "daily") {
+      return;
+    }
+
+    return subscribeDailyRowSyncEvents(dailyMutationScope, (event) => {
+      dailyMutationRemoteRefreshSuppressFlushUntilRef.current = Date.now() + 1_500;
+      if (
+        event.task &&
+        (event.sourceId.startsWith("server:") || event.sourceId.startsWith("db:")) &&
+        event.task.projectId === dailyMutationScope.projectId &&
+        !event.task.deletedAt &&
+        !event.task.purgedAt
+      ) {
+        const syncedTask = withEmptyTaskFileSummary(event.task);
+        setDashboardScopeTasks("active", (previous) => {
+          const existingIndex = previous.findIndex((task) => task.id === syncedTask.id);
+          if (existingIndex < 0) {
+            return mergeDailyMutationOperationsIntoActiveTasks([...previous, syncedTask], dailyMutationOperationsRef.current);
+          }
+
+          const next = previous.slice();
+          next[existingIndex] = syncedTask;
+          return mergeDailyMutationOperationsIntoActiveTasks(next, dailyMutationOperationsRef.current);
+        });
+      }
+      void (async () => {
+        await refreshDailyMutationJournal();
+        await refreshDailyServerTaskStateForSync({
+          includeTrash: event.operationType === "delete" || event.operationType === "trash",
+        });
+      })();
+    });
+  }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync, setDashboardScopeTasks]);
+
+  useEffect(() => {
+    if (isPreview || mode !== "daily" || !currentProjectId || !hasSupabaseClientConfig()) {
+      return;
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase
+      .channel(`project:${currentProjectId}:tasks`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tasks", filter: `project_id=eq.${currentProjectId}` },
+        () => {
+          void (async () => {
+            await refreshDailyMutationJournal();
+            await refreshDailyServerTaskStateForSync({ includeTrash: true });
+          })();
+        },
+      );
+
+    channel.subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [currentProjectId, isPreview, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
 
   async function settleDailyFailedReorderIfServerSatisfied(operation: DailyMutationOperation, now: number) {
     const nextRetryAt = new Date(now + DAILY_REORDER_FAILED_SETTLEMENT_CHECK_MS).toISOString();
@@ -4012,6 +4158,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setDashboardScopeTasks("active", (previous) =>
         reconcileDailyMutationCreateSuccess(previous, payload.tempTask.id, taskWithFileSummary),
       );
+      if (dailyMutationScopeRef.current) {
+        publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-created", {
+          ...operation,
+          serverTaskId: json.data.id,
+        });
+      }
       if (taskListRowInteractionStore.getState().selectedTaskId === payload.tempTask.id) {
         setTaskListSelection(json.data.id);
       }
@@ -4187,6 +4339,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       nextRetryAt: null,
     }));
     await refreshDailyMutationJournal();
+    if (dailyMutationScopeRef.current) {
+      publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-synced", {
+        ...operation,
+        serverTaskId: values.serverTaskId ?? operation.serverTaskId,
+      });
+    }
   }
 
   async function markDailyMutationPending(operation: DailyMutationOperation) {
@@ -4260,6 +4418,13 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
 
       setTasks((previous) => [...previous, tempTask]);
       setTaskListSelection(tempTask.id);
+      publishDailyRowSyncEvent(dailyMutationScope, {
+        name: "task-created",
+        operationType: "create",
+        taskId: tempTask.id,
+        tempTaskId: tempTask.id,
+        clientMutationId,
+      });
       void flushDailyMutationJournal();
 
       if (canCollapseCreateForm) {
@@ -5314,6 +5479,33 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
       setTaskListActiveInlineEditCell,
     ],
   );
+
+  const commitInlineTaskCellDocumentField = useCallback(
+    (fieldKey: TextCellDocumentFieldKey, value: string) => {
+      const activeCell = activeTaskListInlineEditCellRef.current;
+      const currentTask = selectedTaskRef.current;
+      if (!activeCell || !currentTask || activeCell.taskId !== currentTask.id) {
+        return;
+      }
+
+      const patch = { [fieldKey]: value } as Partial<TaskRecord>;
+      clearDraftDirtyFields([fieldKey]);
+      applyTaskClientUpdate(withEmptyTaskFileSummary({ ...currentTask, ...patch }), [fieldKey]);
+      if (dailyMutationScopeRef.current) {
+        publishDailyRowSyncEvent(dailyMutationScopeRef.current, {
+          name: "task-synced",
+          operationType: "update",
+          taskId: currentTask.id,
+          serverTaskId: currentTask.id,
+        });
+      }
+      releaseActiveTaskListEditLease();
+      activeTaskListInlineEditCellRef.current = null;
+      setTaskListActiveInlineEditCell(null);
+      setPendingTaskListFocusCell(null);
+    },
+    [applyTaskClientUpdate, clearDraftDirtyFields, releaseActiveTaskListEditLease, setTaskListActiveInlineEditCell],
+  );
   const commitActiveTaskListInlineEdit = useCallback(() => {
     const activeCell = activeTaskListInlineEditCellRef.current;
     if (!activeCell) {
@@ -5515,17 +5707,17 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     upsertFilesIntoDashboardScope("active", [tempFile]);
 
     try {
-      const intent = await uploadFileWithIntent({ taskId, file });
-      if (!intent) {
-        const body = new FormData();
-        body.append("file", file);
-        body.append("taskId", taskId);
-        const response = await fetch("/api/upload", { method: "POST", body });
-        if (!response.ok) {
-          removeFileIdsFromDashboardScope("active", [tempFile.id]);
-          setErrorMessage(await readErrorMessage(response, "uploadFileFailed"));
-          return;
+      try {
+        const intent = await uploadFileWithIntent({ taskId, file });
+        if (!intent) {
+          await uploadFileViaRelay(taskId, file);
         }
+      } catch (error) {
+        if (!shouldFallbackToRelayUpload(error)) {
+          throw error;
+        }
+
+        await uploadFileViaRelay(taskId, file);
       }
       await refreshTaskFiles(taskId, { force: true });
       removeFileIdsFromDashboardScope("active", [tempFile.id]);
@@ -5566,25 +5758,22 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
     upsertFilesIntoDashboardScope("active", [optimisticVersionFile]);
 
     try {
-      const intent = await uploadFileWithIntent({
-        taskId: targetFile.taskId,
-        file: uploadFile,
-        replaceFileId: versionTargetId,
-      });
-
-      if (!intent) {
-        const body = new FormData();
-        body.append("file", uploadFile);
-        const response = await fetch(`/api/files/${encodeURIComponent(versionTargetId)}/version`, {
-          method: "POST",
-          body,
+      try {
+        const intent = await uploadFileWithIntent({
+          taskId: targetFile.taskId,
+          file: uploadFile,
+          replaceFileId: versionTargetId,
         });
 
-        if (!response.ok) {
-          setDashboardScopeFiles("active", () => previousActiveFiles);
-          setErrorMessage(await readErrorMessage(response, "uploadNextVersionFailed"));
-          return;
+        if (!intent) {
+          await uploadFileVersionViaRelay(versionTargetId, uploadFile);
         }
+      } catch (error) {
+        if (!shouldFallbackToRelayUpload(error)) {
+          throw error;
+        }
+
+        await uploadFileVersionViaRelay(versionTargetId, uploadFile);
       }
 
       await refreshTaskFiles(targetFile.taskId, { force: true });
@@ -6526,7 +6715,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
           data-http-status={dailyMutationStatusDebug?.lastHttpStatus || undefined}
           data-operation-type={dailyMutationStatusDebug?.type || undefined}
           data-retry-count={dailyMutationStatusDebug?.retryCount || undefined}
-          data-state={dailyMutationSummary.failed > 0 ? "failed" : dailyMutationSummary.syncing > 0 ? "syncing" : "pending"}
+          data-state={dailyMutationStatusState}
           title={dailyMutationStatusDebug?.lastError || undefined}
         >
           <span>{dailyMutationStatusLabel}</span>
@@ -6963,10 +7152,12 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
                     activeCell={activeTaskListInlineEditCell}
                     assigneeOptions={assigneeOptions}
                     categoryDefinitionsByField={categoryDefinitionsByField}
+                    cellDocumentsEnabled={dailyCellDocumentsEnabled}
                     draftStore={taskEditorDraftStore}
                     draft={draft}
                     getCellNode={getTaskListRowCellNode}
                     inlineSavingFields={inlineSavingFields}
+                    onCellDocumentCommitted={commitInlineTaskCellDocumentField}
                     onCancel={cancelInlineTaskListField}
                     onChange={updateInlineTaskListEditorDraft}
                     onCommit={saveInlineTaskListField}
@@ -7649,7 +7840,7 @@ export function TaskWorkspace({ mode }: TaskWorkspaceProps) {
             </aside>
           ) : null}
 
-          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTask} /> : null}
+          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTaskIsOptimistic ? null : selectedTask} /> : null}
         </div>
       )}
     </section>
@@ -8591,12 +8782,14 @@ function TaskListInlineEditor({
 function TaskListInlineEditorOverlay({
   activeCell,
   assigneeOptions,
+  cellDocumentsEnabled,
   draft,
   inlineSavingFields,
   workTypeDefinitions,
   categoryDefinitionsByField,
   getCellNode,
   onChange,
+  onCellDocumentCommitted,
   onCommit,
   onCancel,
   pendingFocusCell,
@@ -8605,12 +8798,14 @@ function TaskListInlineEditorOverlay({
 }: {
   activeCell: PendingTaskListFocusCell | null;
   assigneeOptions: readonly AssigneeOption[];
+  cellDocumentsEnabled: boolean;
   draft: TaskRecord | null;
   inlineSavingFields: Partial<Record<TaskListColumnKey, boolean>>;
   workTypeDefinitions?: readonly WorkTypeDefinition[];
   categoryDefinitionsByField?: Partial<Record<TaskCategoryFieldKey, readonly TaskCategoryDefinition[]>>;
   getCellNode: (taskId: string, columnKey: TaskListColumnKey) => HTMLDivElement | null;
   onChange: TaskFormChangeHandler;
+  onCellDocumentCommitted: (fieldKey: TextCellDocumentFieldKey, value: string) => void;
   onCommit: (columnKey: TaskListColumnKey, valueOverride?: Partial<TaskRecord>) => Promise<void> | void;
   onCancel: (columnKey: TaskListColumnKey) => void;
   pendingFocusCell: PendingTaskListFocusCell | null;
@@ -8647,6 +8842,19 @@ function TaskListInlineEditorOverlay({
 
         if (!fieldKey || !overlayDraft || overlayDraft.id !== overlayCell.taskId) {
           return null;
+        }
+
+        if (cellDocumentsEnabled && isTextCellDocumentField(fieldKey) && !isOptimisticTaskId(overlayDraft.id)) {
+          const columnKey = overlayCell.columnKey as TaskListColumnKey;
+          return (
+            <TaskCellEditor
+              fieldKey={fieldKey}
+              onCancel={() => onCancel(columnKey)}
+              onChange={onChange}
+              onCommitted={onCellDocumentCommitted}
+              task={overlayDraft}
+            />
+          );
         }
 
         return (
@@ -11231,6 +11439,41 @@ async function uploadFileWithIntent(input: {
   }
 
   return intent;
+}
+
+async function uploadFileViaRelay(taskId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("taskId", taskId);
+  const response = await fetch("/api/upload", { method: "POST", body });
+  if (!response.ok) {
+    throw await readApiError(response, "uploadFileFailed");
+  }
+}
+
+async function uploadFileVersionViaRelay(fileId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/version`, {
+    method: "POST",
+    body,
+  });
+
+  if (!response.ok) {
+    throw await readApiError(response, "uploadNextVersionFailed");
+  }
+}
+
+function shouldFallbackToRelayUpload(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (error instanceof ApiResponseError) {
+    return false;
+  }
+
+  return isFetchNetworkFailure(error) || /Supabase 환경|row-level security|storage|bucket|permission|cors/i.test(error.message);
 }
 
 async function downloadFileAttachment(file: Pick<FileRecord, "id" | "originalName" | "deletedAt">) {

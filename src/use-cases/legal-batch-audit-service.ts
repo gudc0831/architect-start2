@@ -1,3 +1,5 @@
+import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
+
 type FetchImpl = typeof fetch;
 
 type FetchLegalBatchAuditStatusInput = {
@@ -119,10 +121,10 @@ export async function fetchLegalBatchAuditStatus(
   try {
     response = await (input.fetchImpl ?? fetch)(endpoint, {
       method: "POST",
-      headers: {
+      headers: withVerifiedLegalServiceHeaders({
         "Content-Type": "application/json",
         "x-legal-change-monitor-secret": secret,
-      },
+      }),
       body: JSON.stringify({ reportPath }),
       signal: controller.signal,
     });
@@ -341,7 +343,6 @@ function resolveVerifiedLegalEvidenceServiceUrl(inputServiceUrl: string | undefi
 function redactLegalBatchAuditText(value: string): string {
   const secrets = [
     process.env.LEGAL_CHANGE_MONITOR_SECRET,
-    process.env.LAW_OPEN_DATA_OC,
   ].map(normalizeText).filter(Boolean);
   let redacted = value
     .replace(/\bOC\s*=\s*[^&\s"]+/gi, "[redacted-credential]")

@@ -15,6 +15,10 @@
   box-shadow: var(--shadow-soft);
 }
 
+.reportPanel {
+  gap: 1.15rem;
+}
+
 .header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
@@ -25,6 +29,7 @@
 .header span,
 .sectionHeader h2,
 .sectionHeader p,
+.reportSection h3,
 .tableBlock h3,
 .empty {
   margin: 0;
@@ -113,6 +118,11 @@
   line-height: 1.2;
 }
 
+.reportPanel > .sectionHeader {
+  padding-bottom: 0.95rem;
+  border-bottom: 1px solid var(--theme-border-field-soft);
+}
+
 .badgeOn,
 .badgeOff {
   display: inline-flex;
@@ -139,6 +149,11 @@
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.reportSection {
+  display: grid;
   gap: 0.75rem;
 }
 
@@ -243,8 +258,17 @@
   gap: 0.65rem;
 }
 
+.reportSection h3,
 .tableBlock h3 {
   font-size: 1rem;
+  padding-left: 0.7rem;
+  border-left: 3px solid var(--theme-accent-border-strong);
+  line-height: 1.25;
+}
+
+.reportPanel > .tableBlock {
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-field-soft);
 }
 
 .actionAuditHeader {

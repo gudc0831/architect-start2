@@ -1,0 +1,293 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import * as Y from "yjs";
+import type { TextCellDocumentFieldKey } from "@/domains/task/cell-documents";
+import {
+  applyTaskCellYUpdate,
+  createTaskCellYDocument,
+  replaceTaskCellYText,
+  uint8ArrayToBase64,
+  type TaskCellYDocument,
+} from "@/components/tasks/cell-documents/cell-document-store";
+import {
+  createCellDocumentUpdateId,
+  deleteCellDocumentJournalOperation,
+  listCellDocumentJournalOperations,
+  putCellDocumentJournalOperation,
+  updateCellDocumentJournalOperation,
+} from "@/components/tasks/cell-documents/cell-document-journal";
+import {
+  publishCellDocumentUpdateEvent,
+  subscribeCellDocumentUpdateEvents,
+} from "@/components/tasks/cell-documents/cell-document-transport";
+
+type CellDocumentSnapshot = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  fieldKey: TextCellDocumentFieldKey;
+  version: number;
+  plainText: string;
+  yStateBase64: string | null;
+  catchUpMode: "current" | "snapshot" | "updates";
+  diffUpdateBase64: string | null;
+  updates: Array<{
+    id: string;
+    clientUpdateId: string;
+    actorProfileId: string;
+    documentVersion: number;
+    updateBase64: string;
+    createdAt: string;
+  }>;
+};
+
+export function useTaskCellDocument(input: {
+  projectId: string;
+  taskId: string;
+  fieldKey: TextCellDocumentFieldKey;
+  initialText: string;
+}) {
+  const [text, setTextState] = useState(input.initialText);
+  const [status, setStatus] = useState<"idle" | "loading" | "local" | "syncing" | "failed">("idle");
+  const documentRef = useRef<TaskCellYDocument | null>(null);
+  const pendingUpdatesRef = useRef<Uint8Array[]>([]);
+  const versionRef = useRef<number | null>(null);
+
+  const applySnapshot = useCallback((snapshot: CellDocumentSnapshot) => {
+    if (pendingUpdatesRef.current.length > 0) {
+      return;
+    }
+
+    const document = createTaskCellYDocument({
+      plainText: snapshot.plainText,
+      yStateBase64: snapshot.yStateBase64,
+    });
+    documentRef.current = document;
+    pendingUpdatesRef.current = [];
+    versionRef.current = snapshot.version;
+    setTextState(document.text.toString());
+    setStatus("idle");
+  }, []);
+
+  const catchUp = useCallback(async () => {
+    if (pendingUpdatesRef.current.length > 0) {
+      return;
+    }
+
+    setStatus((current) => (current === "syncing" || current === "local" ? current : "loading"));
+    const params = new URLSearchParams();
+    if (versionRef.current) {
+      params.set("knownVersion", String(versionRef.current));
+    }
+    const query = params.toString();
+    const response = await fetch(
+      `/api/task-cell-documents/${encodeURIComponent(input.taskId)}/${encodeURIComponent(input.fieldKey)}${query ? `?${query}` : ""}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      setStatus("failed");
+      return;
+    }
+
+    const json = (await response.json()) as { data: CellDocumentSnapshot };
+    applySnapshot(json.data);
+  }, [applySnapshot, input.fieldKey, input.taskId]);
+
+  const drainOutbox = useCallback(async () => {
+    const operations = await listCellDocumentJournalOperations({
+      projectId: input.projectId,
+      taskId: input.taskId,
+      fieldKey: input.fieldKey,
+    });
+    if (operations.length === 0) {
+      return false;
+    }
+
+    setStatus("syncing");
+    for (const operation of operations) {
+      await updateCellDocumentJournalOperation(operation.operationId, (current) => ({
+        ...current,
+        status: "syncing",
+        updatedAt: new Date().toISOString(),
+      }));
+
+      try {
+        const response = await fetch(
+          `/api/task-cell-documents/${encodeURIComponent(input.taskId)}/${encodeURIComponent(input.fieldKey)}/updates`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientUpdateId: operation.clientUpdateId,
+              updateBase64: operation.updateBase64,
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(`Cell document update failed with ${response.status}`);
+        }
+
+        await deleteCellDocumentJournalOperation(operation.operationId);
+      } catch (error) {
+        await updateCellDocumentJournalOperation(operation.operationId, (current) => ({
+          ...current,
+          status: "failed",
+          updatedAt: new Date().toISOString(),
+          lastError: error instanceof Error ? error.message : "Cell document update failed.",
+        }));
+        setStatus("failed");
+        return true;
+      }
+    }
+
+    pendingUpdatesRef.current = [];
+    return true;
+  }, [input.fieldKey, input.projectId, input.taskId]);
+
+  const drainOutboxThenCatchUp = useCallback(async () => {
+    await drainOutbox();
+    await catchUp();
+  }, [catchUp, drainOutbox]);
+
+  useEffect(() => {
+    documentRef.current = createTaskCellYDocument({ plainText: input.initialText });
+    versionRef.current = null;
+    setTextState(input.initialText);
+    void drainOutboxThenCatchUp();
+  }, [drainOutboxThenCatchUp, input.initialText]);
+
+  useEffect(() => {
+    return subscribeCellDocumentUpdateEvents(
+      {
+        projectId: input.projectId,
+        taskId: input.taskId,
+        fieldKey: input.fieldKey,
+      },
+      (event) => {
+        const current = documentRef.current;
+        if (!current) {
+          void catchUp();
+          return;
+        }
+
+        try {
+          const nextText = applyTaskCellYUpdate(current, event.updateBase64);
+          setTextState(nextText);
+        } catch {
+          void catchUp();
+        }
+      },
+    );
+  }, [catchUp, input.fieldKey, input.projectId, input.taskId]);
+
+  useEffect(() => {
+    const handleCatchUp = () => void drainOutboxThenCatchUp();
+    window.addEventListener("focus", handleCatchUp);
+    window.addEventListener("online", handleCatchUp);
+    return () => {
+      window.removeEventListener("focus", handleCatchUp);
+      window.removeEventListener("online", handleCatchUp);
+    };
+  }, [drainOutboxThenCatchUp]);
+
+  const setText = useCallback((nextText: string) => {
+    let current = documentRef.current;
+    if (!current) {
+      current = createTaskCellYDocument({ plainText: "" });
+      documentRef.current = current;
+    }
+
+    const update = replaceTaskCellYText(current, nextText);
+    if (update.byteLength > 0) {
+      pendingUpdatesRef.current.push(update);
+    }
+
+    setTextState(nextText);
+    setStatus("local");
+  }, []);
+
+  const commit = useCallback(async () => {
+    const pendingUpdates = pendingUpdatesRef.current;
+    if (pendingUpdates.length === 0) {
+      setStatus("idle");
+      return text;
+    }
+
+    const mergedUpdate = Y.mergeUpdates(pendingUpdates);
+    const updateBase64 = uint8ArrayToBase64(mergedUpdate);
+    const clientUpdateId = createCellDocumentUpdateId();
+    const operationId = `${input.projectId}:${input.taskId}:${input.fieldKey}:${clientUpdateId}`;
+    const now = new Date().toISOString();
+    setStatus("syncing");
+
+    await putCellDocumentJournalOperation({
+      operationId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      fieldKey: input.fieldKey,
+      clientUpdateId,
+      updateBase64,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      lastError: null,
+    });
+
+    try {
+      await updateCellDocumentJournalOperation(operationId, (operation) => ({
+        ...operation,
+        status: "syncing",
+        updatedAt: new Date().toISOString(),
+      }));
+      const response = await fetch(
+        `/api/task-cell-documents/${encodeURIComponent(input.taskId)}/${encodeURIComponent(input.fieldKey)}/updates`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientUpdateId, updateBase64 }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Cell document update failed with ${response.status}`);
+      }
+
+      const json = (await response.json()) as { data: CellDocumentSnapshot };
+      pendingUpdatesRef.current = [];
+      applySnapshot(json.data);
+      await deleteCellDocumentJournalOperation(operationId);
+      publishCellDocumentUpdateEvent({
+        projectId: input.projectId,
+        taskId: input.taskId,
+        fieldKey: input.fieldKey,
+        clientUpdateId,
+        updateBase64,
+      });
+      return json.data.plainText;
+    } catch (error) {
+      setStatus("failed");
+      await putCellDocumentJournalOperation({
+        operationId,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        fieldKey: input.fieldKey,
+        clientUpdateId,
+        updateBase64,
+        status: "failed",
+        createdAt: now,
+        updatedAt: new Date().toISOString(),
+        lastError: error instanceof Error ? error.message : "Cell document update failed.",
+      });
+      throw error;
+    }
+  }, [applySnapshot, input.fieldKey, input.projectId, input.taskId, text]);
+
+  return {
+    text,
+    status,
+    setText,
+    commit,
+  };
+}

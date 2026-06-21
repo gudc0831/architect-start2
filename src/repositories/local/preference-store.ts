@@ -1,4 +1,5 @@
 import type {
+  AiSettingsPreference,
   QuickCreateWidthMap,
   TaskListColumnWidthMap,
   TaskListLayoutPreference,
@@ -8,6 +9,8 @@ import type {
 } from "@/domains/preferences/types";
 import {
   DEFAULT_THEME_ID,
+  DEFAULT_AI_SETTINGS_PREFERENCE,
+  sanitizeAiSettingsPreference,
   sanitizeQuickCreateWidths,
   sanitizeTaskListColumnWidths,
   sanitizeTaskListLayoutPreference,
@@ -23,6 +26,7 @@ type PreferenceStoreRecord = {
   taskListRowHeights?: TaskListRowHeightMap;
   taskListDetailPanelWidth?: number;
   themeId?: ThemeId;
+  aiSettings?: AiSettingsPreference;
   createdAt: string;
   updatedAt: string;
 };
@@ -56,6 +60,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
         detailPanelWidth: current?.taskListDetailPanelWidth,
       }).detailPanelWidth,
       themeId: sanitizeThemeId(current?.themeId ?? DEFAULT_THEME_ID),
+      aiSettings: sanitizeAiSettingsPreference(current?.aiSettings ?? DEFAULT_AI_SETTINGS_PREFERENCE),
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
@@ -83,6 +88,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
       taskListRowHeights: sanitizedLayout.rowHeights,
       taskListDetailPanelWidth: sanitizedLayout.detailPanelWidth,
       themeId: sanitizeThemeId(current?.themeId ?? DEFAULT_THEME_ID),
+      aiSettings: sanitizeAiSettingsPreference(current?.aiSettings ?? DEFAULT_AI_SETTINGS_PREFERENCE),
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
@@ -115,6 +121,7 @@ class LocalPreferenceRepository implements PreferenceRepository {
         detailPanelWidth: current?.taskListDetailPanelWidth,
       }).detailPanelWidth,
       themeId: nextThemeId,
+      aiSettings: sanitizeAiSettingsPreference(current?.aiSettings ?? DEFAULT_AI_SETTINGS_PREFERENCE),
       createdAt: current?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
@@ -123,6 +130,34 @@ class LocalPreferenceRepository implements PreferenceRepository {
     return {
       themeId: sanitizeThemeId(store[profileId].themeId ?? DEFAULT_THEME_ID),
     };
+  }
+
+  async getAiSettingsPreference(profileId: string): Promise<AiSettingsPreference> {
+    const store = await readStore();
+    return sanitizeAiSettingsPreference(store[profileId]?.aiSettings ?? DEFAULT_AI_SETTINGS_PREFERENCE);
+  }
+
+  async saveAiSettingsPreference(profileId: string, preference: AiSettingsPreference): Promise<AiSettingsPreference> {
+    const store = await readStore();
+    const timestamp = new Date().toISOString();
+    const current = store[profileId];
+    const sanitized = sanitizeAiSettingsPreference(preference);
+
+    store[profileId] = {
+      quickCreateWidths: sanitizeQuickCreateWidths(current?.quickCreateWidths ?? {}),
+      taskListColumnWidths: sanitizeTaskListColumnWidths(current?.taskListColumnWidths ?? {}),
+      taskListRowHeights: sanitizeTaskListRowHeights(current?.taskListRowHeights ?? {}),
+      taskListDetailPanelWidth: sanitizeTaskListLayoutPreference({
+        detailPanelWidth: current?.taskListDetailPanelWidth,
+      }).detailPanelWidth,
+      themeId: sanitizeThemeId(current?.themeId ?? DEFAULT_THEME_ID),
+      aiSettings: sanitized,
+      createdAt: current?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+
+    await writeStore(store);
+    return sanitizeAiSettingsPreference(store[profileId].aiSettings ?? DEFAULT_AI_SETTINGS_PREFERENCE);
   }
 }
 

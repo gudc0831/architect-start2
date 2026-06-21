@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useProjectMeta } from "@/providers/project-provider";
 import { t } from "@/lib/ui-copy";
@@ -79,16 +79,7 @@ export function ProjectMaterialsPage({ preview = false }: ProjectMaterialsPagePr
     });
   }, [pathname, uploads.length]);
 
-  useEffect(() => {
-    if (!currentProjectId || preview) {
-      setUploads([]);
-      setCanApprove(false);
-      return;
-    }
-    void refreshUploads(currentProjectId);
-  }, [currentProjectId, preview]);
-
-  async function refreshUploads(projectId = currentProjectId) {
+  const refreshUploads = useCallback(async (projectId = currentProjectId) => {
     if (!projectId || preview) {
       return;
     }
@@ -109,7 +100,16 @@ export function ProjectMaterialsPage({ preview = false }: ProjectMaterialsPagePr
     } finally {
       setListBusy(false);
     }
-  }
+  }, [currentProjectId, preview]);
+
+  useEffect(() => {
+    if (!currentProjectId || preview) {
+      setUploads([]);
+      setCanApprove(false);
+      return;
+    }
+    void refreshUploads(currentProjectId);
+  }, [currentProjectId, preview, refreshUploads]);
 
   async function uploadMaterial() {
     if (!file || !currentProjectId || preview) {

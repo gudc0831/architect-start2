@@ -5,7 +5,6 @@ import type {
   AssistantTaskContext,
 } from "@/domains/assistant/types";
 import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode";
-import type { OfficialLawVerificationReport } from "@/domains/legal/official-law-api";
 
 export type TaskReviewMode = "preview" | "generate";
 
@@ -79,6 +78,35 @@ export type StructuredTaskReviewSchema = {
   } | null;
 };
 
+export type TaskReviewLegalVerificationReport = {
+  status: "not_required" | "verified" | "failed";
+  checkedAt: string;
+  provider: {
+    name: string;
+    docsUrl: string;
+  };
+  locators: Array<{
+    lawName: string;
+    articleLabel?: string;
+    articleNumber?: string;
+    evidenceId?: string;
+    sourceUrl?: string;
+  }>;
+  sources: Array<{
+    status: "verified" | "not_found" | "api_error" | "missing_query";
+    lawName: string;
+    articleLabel?: string;
+    articleNumber?: string;
+    apiUrl: string;
+    searchApiUrl?: string;
+    checkedAt: string;
+    evidenceId?: string;
+    reason: string;
+  }>;
+  failures: string[];
+  retry: string[];
+};
+
 export type TaskReviewBaseResponse = {
   taskContext: AssistantTaskContext;
   retrievedEvidence: {
@@ -86,7 +114,7 @@ export type TaskReviewBaseResponse = {
     regulationCount: number;
     unavailableEvidenceKinds: string[];
   };
-  officialLawVerification: OfficialLawVerificationReport;
+  officialLawVerification: TaskReviewLegalVerificationReport;
   evidence: AssistantEvidence[];
   evidenceReadiness: EvidenceReadinessItem[];
   savedRecord: TaskReviewSavedRecord | null;

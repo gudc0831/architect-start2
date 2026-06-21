@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo } from "react";
-import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ import { useAuthState, useAuthUser } from "@/providers/auth-provider";
 import { useDashboardData, type DashboardScope } from "@/providers/dashboard-provider";
 import { useProjectMeta } from "@/providers/project-provider";
 import { useTheme } from "@/providers/theme-provider";
+import { canManageProjectMembers } from "@/lib/auth/project-capabilities";
 import { labelForMode, labelForProjectSource, labelForRole, t } from "@/lib/ui-copy";
 import { fetchWorkspaceDailyTaskUserOrders } from "@/lib/workspace/bootstrap-client";
 import { markWorkspaceRouteTransition } from "@/lib/workspace/route-timing";
@@ -22,6 +23,8 @@ const items = [
   { href: "/materials", mode: "materials" },
   { href: "/trash", mode: "trash" },
 ] as const;
+
+type WorkspaceNavMode = (typeof items)[number]["mode"];
 
 type SidebarIdleHandle =
   | {
@@ -103,7 +106,7 @@ export function Sidebar({
   const isAppleWorkbench = themeId === "apple-workbench";
   const { clearUser } = useAuthState();
   const { ensureDashboardScopeLoaded } = useDashboardData();
-  const { currentProjectId, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
+  const { currentProjectId, currentProjectRole, availableProjects, switchProject, projectName, projectLoaded, projectSource, isSyncing } = useProjectMeta();
   const navItems = useMemo(
     () =>
       items.map((item) => ({
@@ -114,14 +117,22 @@ export function Sidebar({
     [isPreview],
   );
   const adminHref = (isPreview ? "/preview/board" : "/admin") as Route;
-  const canShowProjectAdminLink = !isPreview && authUser?.role === "admin";
+  const aiSettingsHref = "/ai-settings" as Route;
+  const canShowProjectAdminLink =
+    !isPreview &&
+    Boolean(authUser) &&
+    authUser?.accessStatus === "active" &&
+    canManageProjectMembers({
+      globalRole: authUser?.role ?? "member",
+      projectRole: currentProjectRole,
+    });
   const selectedProject = availableProjects.find((project) => project.id === currentProjectId) ?? null;
   const showProjectSwitcher = availableProjects.length > 1;
   const navSectionLabel = isPreview ? "미리보기 경로" : "작업공간 경로";
   const sessionSectionLabel = isPreview ? "안전 미리보기" : "세션";
 
   const warmWorkspaceNavigation = useCallback(
-    (href: Route, mode: (typeof items)[number]["mode"]) => {
+    (href: Route, mode: WorkspaceNavMode) => {
       router.prefetch(href);
 
       if (isPreview || !projectLoaded || !currentProjectId) {
@@ -144,12 +155,51 @@ export function Sidebar({
     },
     [currentProjectId, ensureDashboardScopeLoaded, isPreview, projectLoaded, router],
   );
+  const prefetchWorkspaceRoute = useCallback(
+    (href: Route) => {
+      router.prefetch(href);
+    },
+    [router],
+  );
+  const navigateWorkspaceRoute = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>, mode: WorkspaceNavMode, href: Route) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+
+      const targetHref = String(href);
+      markWorkspaceRouteTransition(mode, targetHref);
+
+      event.preventDefault();
+      const targetUrl = new URL(targetHref, window.location.href);
+      const targetPath = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentPath !== targetPath) {
+        window.history.pushState(window.history.state, "", targetPath);
+        window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      }
+    },
+    [],
+  );
 
   const warmAdminNavigation = useCallback(() => {
     if (!isPreview) {
       router.prefetch(adminHref);
     }
   }, [adminHref, isPreview, router]);
+
+  const warmAiSettingsNavigation = useCallback(() => {
+    if (!isPreview) {
+      router.prefetch(aiSettingsHref);
+    }
+  }, [aiSettingsHref, isPreview, router]);
 
   useEffect(() => {
     if (isPreview || !projectLoaded || !currentProjectId) {
@@ -161,6 +211,7 @@ export function Sidebar({
         router.prefetch(item.href);
       });
       warmAdminNavigation();
+      warmAiSettingsNavigation();
       void ensureDashboardScopeLoaded("active")
         .then(() => fetchWorkspaceDailyTaskUserOrders())
         .catch(() => undefined);
@@ -168,7 +219,7 @@ export function Sidebar({
     });
 
     return () => cancelSidebarIdleWork(handle);
-  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router, warmAdminNavigation]);
+  }, [currentProjectId, ensureDashboardScopeLoaded, isPreview, navItems, projectLoaded, router, warmAdminNavigation, warmAiSettingsNavigation]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -295,16 +346,28 @@ export function Sidebar({
                   className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                   key={item.href}
                   href={item.href}
-                  onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
+                  onClick={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                   onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                   onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
-                  onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
+                  onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
                 >
                   <span aria-hidden="true" className="sidebar__link-index">{String(index + 1).padStart(2, "0")}</span>
                   <span className="sidebar__link-label">{item.label}</span>
                 </Link>
               ))}
-              {!isPreview && authUser?.role === "admin" ? (
+              {!isPreview && authUser?.accessStatus === "active" ? (
+                <Link
+                  className={clsx("sidebar__link", pathname === aiSettingsHref && "sidebar__link--active")}
+                  href={aiSettingsHref}
+                  onFocus={warmAiSettingsNavigation}
+                  onMouseEnter={warmAiSettingsNavigation}
+                  onPointerDownCapture={warmAiSettingsNavigation}
+                >
+                  <span aria-hidden="true" className="sidebar__link-index">06</span>
+                  <span className="sidebar__link-label">AI 설정</span>
+                </Link>
+              ) : null}
+              {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
                 <Link
                   className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
                   href={adminHref}
@@ -326,15 +389,26 @@ export function Sidebar({
                 className={clsx("sidebar__link", pathname === item.href && "sidebar__link--active")}
                 key={item.href}
                 href={item.href}
-                onClickCapture={() => markWorkspaceRouteTransition(item.mode, item.href)}
+                onClick={(event) => navigateWorkspaceRoute(event, item.mode, item.href)}
                 onFocus={() => warmWorkspaceNavigation(item.href, item.mode)}
                 onMouseEnter={() => warmWorkspaceNavigation(item.href, item.mode)}
-                onPointerDownCapture={() => warmWorkspaceNavigation(item.href, item.mode)}
+                onPointerDownCapture={() => prefetchWorkspaceRoute(item.href)}
               >
                 {item.label}
               </Link>
             ))}
-            {!isPreview && authUser?.role === "admin" ? (
+            {!isPreview && authUser?.accessStatus === "active" ? (
+              <Link
+                className={clsx("sidebar__link", pathname === aiSettingsHref && "sidebar__link--active")}
+                href={aiSettingsHref}
+                onFocus={warmAiSettingsNavigation}
+                onMouseEnter={warmAiSettingsNavigation}
+                onPointerDownCapture={warmAiSettingsNavigation}
+              >
+                AI 설정
+              </Link>
+            ) : null}
+            {!isPreview && authUser?.accessStatus === "active" && authUser.role === "admin" ? (
               <Link
                 className={clsx("sidebar__link", pathname === adminHref && "sidebar__link--active")}
                 href={adminHref}

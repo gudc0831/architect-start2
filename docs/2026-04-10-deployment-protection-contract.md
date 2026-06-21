@@ -1,6 +1,6 @@
 # Deployment And Release Protection Contract
 
-- Updated: 2026-04-24
+- Updated: 2026-06-11
 - Parent index: [../PLAN.md](../PLAN.md)
 - Auth and RBAC contract: [2026-04-10-auth-rbac-contract.md](2026-04-10-auth-rbac-contract.md)
 - Execution plan: [2026-04-07-multi-user-transition-plan.md](2026-04-07-multi-user-transition-plan.md)
@@ -44,6 +44,14 @@ Still required before merge or production deployment:
 - production OAuth callback and Google redirect URLs must be verified exactly
 - runtime headers and `/api/system/status` behavior must be rechecked on production
 - complete [2026-04-24-release-readiness-signoff.md](2026-04-24-release-readiness-signoff.md)
+
+June 2026 AI review / verified legal additions before production release:
+
+- `LAW_OPEN_DATA_OC` must remain outside `architect-saas`; SaaS may use only `VERIFIED_LEGAL_EVIDENCE_API_URL` and `VERIFIED_LEGAL_EVIDENCE_API_SECRET` for the centralized legal evidence boundary.
+- Production `verified-legal-evidence-api` target, app secret parity, and Vercel protection/bypass policy must be proven from server-side SaaS calls without exposing values.
+- Browser Assistant production origin, extension id, Web Store metadata, signed native-host installer, and production install root must pass release readiness before serving production users.
+- Production `/daily` smoke must prove centralized verified legal retrieval, Local Codex/native bridge saved records, and WIKI candidate boundary.
+- Production release execution is deferred until the Production resume gate in [2026-06-09-verified-legal-centralization-plan.md](superpowers/plans/2026-06-09-verified-legal-centralization-plan.md) is explicitly opened.
 
 Current active work order:
 
@@ -232,6 +240,9 @@ Before treating the release path as ready:
 8. Redirect allow lists match preview and production URL strategy.
 9. Runtime production responses show the expected header baseline.
 10. A failing preview auth, policy, or dependency-security check prevents merge or release sign-off.
+11. Production verified legal API URL/secret parity and protection/bypass policy are proven server-side.
+12. Browser Assistant production release readiness passes for the exact production SaaS origin and native-host install root.
+13. Production `/daily` AI review smoke proves saved assistant records without WIKI auto-approval.
 
 ## Change Control
 
@@ -242,3 +253,5 @@ Revise this document before implementation if any of the following change:
 - GitHub plan level and environment protection capabilities
 - Vercel environment model
 - preview or production Supabase isolation rules
+- verified legal API protection/bypass policy
+- Browser Assistant production extension/native-host release policy

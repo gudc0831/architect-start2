@@ -1,5 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { createClient } from "@supabase/supabase-js";
+import { prisma } from "../src/lib/prisma";
 
 loadEnvConfig(process.cwd());
 
@@ -8,6 +9,7 @@ type CookieJar = Map<string, string>;
 type ProbeUser = {
   email: string;
   jar: CookieJar;
+  userId?: string;
 };
 
 type ProbeResponse = {
@@ -23,11 +25,12 @@ type ProbeResult = {
   detail?: string;
 };
 
-const projectBId = process.env.PREVIEW_PROJECT_B_ID?.trim() || "2150d595-0570-4309-9198-031e90668af4";
+const projectBId = requireEnv("PREVIEW_PROJECT_B_ID");
 const previewBaseUrl = requireEnv("PREVIEW_BASE_URL").replace(/\/$/, "");
 const vercelShareUrl = process.env.VERCEL_SHARE_URL?.trim() || null;
 const previewOrigin = new URL(previewBaseUrl).origin;
 const previewHost = new URL(previewBaseUrl).hostname;
+assertPreviewMutationTarget(new URL(previewBaseUrl), projectBId);
 const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
 const supabaseAnonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -45,6 +48,8 @@ const accounts = {
 
 const results: ProbeResult[] = [];
 const createdTaskIds: string[] = [];
+const disposableEmails = new Set<string>();
+const disposableSupabaseUserIds = new Set<string>();
 
 function requireEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -52,6 +57,20 @@ function requireEnv(name: string) {
     throw new Error(`${name} is required`);
   }
   return value;
+}
+
+function assertPreviewMutationTarget(url: URL, projectId: string) {
+  if (process.env.ALLOW_PREVIEW_MUTATION_PROBE !== "1") {
+    throw new Error("ALLOW_PREVIEW_MUTATION_PROBE=1 is required for this live Preview mutation probe.");
+  }
+
+  if (!url.hostname.endsWith(".vercel.app") || !url.hostname.includes("-git-")) {
+    throw new Error(`Refusing live Preview mutation probe against non-branch-preview host: ${url.hostname}`);
+  }
+
+  if (!projectId.trim()) {
+    throw new Error("PREVIEW_PROJECT_B_ID must be set explicitly for this live Preview mutation probe.");
+  }
 }
 
 function setCookieFromHeader(jar: CookieJar, setCookieHeader: string) {
@@ -191,13 +210,73 @@ async function addSupabaseSession(jar: CookieJar, email: string) {
   for (const chunk of createCookieChunks(supabaseAuthCookieName, value)) {
     jar.set(chunk.name, encodeURIComponent(chunk.value));
   }
+
+  return session.user.id;
 }
 
 async function createProbeUser(email: string): Promise<ProbeUser> {
   const jar = new Map<string, string>();
   await applyVercelPreviewBypass(jar);
-  await addSupabaseSession(jar, email);
-  return { email, jar };
+  const userId = await addSupabaseSession(jar, email);
+  return { email, jar, userId };
+}
+
+async function createDisposableProbeUser(email: string): Promise<ProbeUser> {
+  disposableEmails.add(email);
+  const admin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const created = await admin.auth.admin.createUser({ email, email_confirm: true });
+  if (created.error && !created.error.message.toLowerCase().includes("already")) {
+    throw created.error;
+  }
+  if (created.data.user?.id) {
+    disposableSupabaseUserIds.add(created.data.user.id);
+  }
+
+  const user = await createProbeUser(email);
+  trackDisposableUser(user);
+  return user;
+}
+
+function createDisposableEmail(label: string) {
+  const email = `preview-step11-disposable-${label}-${Date.now()}@architect-start.test`;
+  disposableEmails.add(email);
+  return email;
+}
+
+function trackDisposableUser(user: ProbeUser) {
+  disposableEmails.add(user.email);
+  if (user.userId) {
+    disposableSupabaseUserIds.add(user.userId);
+  }
+}
+
+async function cleanupDisposableArtifacts() {
+  const emails = [...disposableEmails];
+  if (emails.length === 0) {
+    return;
+  }
+
+  const profiles = await prisma.profile.findMany({
+    where: { email: { in: emails } },
+    select: { id: true },
+  });
+  const profileIds = profiles.map((profile) => profile.id);
+
+  await prisma.$transaction([
+    prisma.accessRequest.deleteMany({ where: { email: { in: emails } } }),
+    prisma.projectInvitation.deleteMany({ where: { email: { in: emails } } }),
+    prisma.projectMembership.deleteMany({ where: { profileId: { in: profileIds } } }),
+    prisma.profile.deleteMany({ where: { id: { in: profileIds } } }),
+  ]);
+
+  const admin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  for (const userId of disposableSupabaseUserIds) {
+    await admin.auth.admin.deleteUser(userId).catch(() => undefined);
+  }
 }
 
 async function request(user: ProbeUser, method: string, path: string, body?: unknown): Promise<ProbeResponse> {
@@ -363,6 +442,70 @@ async function releaseLease(user: ProbeUser, taskId: string, fieldKey: string) {
   });
 }
 
+async function verifyInvitationAcceptance(manager: ProbeUser) {
+  const email = createDisposableEmail("invited-viewer");
+  const invitation = await request(manager, "POST", "/api/invitations", {
+    projectId: projectBId,
+    email,
+    role: "viewer",
+  });
+  expectStatus("manager can invite viewer", invitation, 201);
+
+  const invitationData = dataOf<{ token?: unknown; acceptUrl?: unknown; role?: unknown }>(invitation.body);
+  const token = typeof invitationData?.token === "string" ? invitationData.token : "";
+  record("viewer invitation exposes acceptance token", Boolean(token), invitation, `role=${String(invitationData?.role ?? "")}`);
+  if (!token) {
+    return;
+  }
+
+  const invited = await createDisposableProbeUser(email);
+  const accept = await request(invited, "GET", `/invitations/accept?token=${encodeURIComponent(token)}`);
+  record(
+    "invited viewer can accept invitation",
+    accept.status >= 300 && accept.status < 400,
+    accept,
+    "redirects after acceptance",
+  );
+
+  const invitedSelect = await selectProject(invited);
+  expectStatus("accepted invited viewer can select Project B", invitedSelect, 200);
+  const invitedMe = await request(invited, "GET", "/api/auth/me");
+  const invitedMeData = dataOf<{ accessStatus?: unknown }>(invitedMe.body);
+  record("accepted invited viewer is active", invitedMeData?.accessStatus === "active", invitedMe, "accessStatus=active");
+}
+
+async function verifyAccessApproval(input: {
+  approver: ProbeUser;
+  requestedRole: "viewer" | "editor";
+  approvedRole: "viewer" | "editor" | "manager";
+  label: string;
+}) {
+  const email = createDisposableEmail(`request-${input.approvedRole}`);
+  const requester = await createDisposableProbeUser(email);
+  const requested = await request(requester, "POST", "/api/access-requests", {
+    requestedRole: input.requestedRole,
+    message: `${input.label} positive probe`,
+  });
+  expectStatus(`${input.label} can submit access request`, requested, 201);
+
+  const requestData = dataOf<{ id?: unknown }>(requested.body);
+  const requestId = typeof requestData?.id === "string" ? requestData.id : "";
+  record(`${input.label} access request id returned`, Boolean(requestId), requested);
+  if (!requestId) {
+    return;
+  }
+
+  const approved = await request(input.approver, "PATCH", `/api/access-requests/${requestId}`, {
+    action: "approve",
+    projectId: projectBId,
+    role: input.approvedRole,
+  });
+  expectStatus(`${input.label} approval succeeds`, approved, 200);
+
+  const requesterSelect = await selectProject(requester);
+  expectStatus(`${input.label} approved user can select Project B`, requesterSelect, 200);
+}
+
 async function main() {
   console.log("Preview collaboration API probe");
   console.log(`Target: ${previewBaseUrl}`);
@@ -465,6 +608,7 @@ async function main() {
     role: "manager",
   });
   expectStatus("manager cannot invite manager", managerInviteManager, 403, "INVITATION_ROLE_FORBIDDEN");
+  await verifyInvitationAcceptance(manager);
 
   const managerAccessRequests = await request(manager, "GET", `/api/access-requests?projectId=${encodeURIComponent(projectBId)}`);
   expectStatus("manager can list access requests", managerAccessRequests, 200);
@@ -481,6 +625,18 @@ async function main() {
   } else {
     record("manager-request fixture is available", false, managerAccessRequests, "pending fixture not found");
   }
+  await verifyAccessApproval({
+    approver: manager,
+    requestedRole: "viewer",
+    approvedRole: "viewer",
+    label: "manager viewer",
+  });
+  await verifyAccessApproval({
+    approver: manager,
+    requestedRole: "editor",
+    approvedRole: "editor",
+    label: "manager editor",
+  });
 
   const pendingMe = await request(pending, "GET", "/api/auth/me");
   expectStatus("pending /api/auth/me", pendingMe, 200);
@@ -522,6 +678,12 @@ async function main() {
 
   const adminAccessRequests = await request(admin, "GET", "/api/access-requests");
   expectStatus("admin can list global access requests", adminAccessRequests, 200);
+  await verifyAccessApproval({
+    approver: admin,
+    requestedRole: "viewer",
+    approvedRole: "manager",
+    label: "admin manager",
+  });
 
   const failed = results.filter((result) => !result.ok);
   for (const result of results) {
@@ -537,6 +699,9 @@ async function main() {
   } else {
     console.log("Probe passed.");
   }
+
+  await cleanupDisposableArtifacts();
+  await prisma.$disconnect();
 }
 
 main().catch(async (error: unknown) => {
@@ -544,6 +709,10 @@ main().catch(async (error: unknown) => {
     console.error("Probe aborted after creating task fixture; cleanup may be needed.");
   }
 
+  await cleanupDisposableArtifacts().catch((cleanupError: unknown) => {
+    console.error(`Disposable fixture cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+  });
+  await prisma.$disconnect().catch(() => undefined);
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
