@@ -14,6 +14,7 @@ type LocalCodexUsageBody = {
   inputTokens?: number | null;
   outputTokens?: number | null;
   status?: "success" | "failed" | "cancelled";
+  requestHash?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       inputTokens: typeof body.inputTokens === "number" ? body.inputTokens : null,
       outputTokens: typeof body.outputTokens === "number" ? body.outputTokens : null,
       status: body.status,
+      requestHash: typeof body.requestHash === "string" ? body.requestHash : null,
       metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
     });
     return NextResponse.json({ data }, { status: 201 });

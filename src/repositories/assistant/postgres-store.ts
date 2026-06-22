@@ -180,6 +180,7 @@ const assistantPrisma = prisma as typeof prisma & {
   };
   assistantUsageEvent: {
     create: (...args: unknown[]) => Promise<PrismaAssistantUsageEvent>;
+    findFirst: (...args: unknown[]) => Promise<PrismaAssistantUsageEvent | null>;
     findMany: (...args: unknown[]) => Promise<PrismaAssistantUsageEvent[]>;
   };
   assistantAuditEvent: {
@@ -754,26 +755,48 @@ class PostgresAssistantRepository implements AssistantRepository {
   }
 
   async createUsageEvent(input: CreateAssistantUsageEventInput) {
-    const event = await assistantPrisma.assistantUsageEvent.create({
-      data: {
-        projectId: input.projectId,
-        taskId: input.taskId ?? null,
-        profileId: input.profileId,
-        assistantRecordId: input.assistantRecordId ?? null,
-        executionMode: input.executionMode,
-        runtimeMode: input.runtimeMode,
-        provider: input.provider,
-        model: input.model,
-        inputTokens: input.inputTokens,
-        outputTokens: input.outputTokens,
-        estimatedCostCents: input.estimatedCostCents,
-        status: input.status,
-        policyDecision: input.policyDecision,
-        requestHash: input.requestHash ?? null,
-        errorCode: input.errorCode ?? null,
-        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
-      },
-    });
+    if (isLocalCodexUsageInput(input) && input.requestHash) {
+      const existing = await assistantPrisma.assistantUsageEvent.findFirst({
+        where: { executionMode: "local-chatgpt-codex", requestHash: input.requestHash },
+      });
+      if (existing) {
+        return toUsageEvent(existing);
+      }
+    }
+
+    let event: PrismaAssistantUsageEvent;
+    try {
+      event = await assistantPrisma.assistantUsageEvent.create({
+        data: {
+          projectId: input.projectId,
+          taskId: input.taskId ?? null,
+          profileId: input.profileId,
+          assistantRecordId: input.assistantRecordId ?? null,
+          executionMode: input.executionMode,
+          runtimeMode: input.runtimeMode,
+          provider: input.provider,
+          model: input.model,
+          inputTokens: input.inputTokens,
+          outputTokens: input.outputTokens,
+          estimatedCostCents: input.estimatedCostCents,
+          status: input.status,
+          policyDecision: input.policyDecision,
+          requestHash: input.requestHash ?? null,
+          errorCode: input.errorCode ?? null,
+          metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      if (isLocalCodexUsageInput(input) && input.requestHash && isUniqueConstraintError(error)) {
+        const existing = await assistantPrisma.assistantUsageEvent.findFirst({
+          where: { executionMode: "local-chatgpt-codex", requestHash: input.requestHash },
+        });
+        if (existing) {
+          return toUsageEvent(existing);
+        }
+      }
+      throw error;
+    }
 
     return toUsageEvent(event);
   }
@@ -890,6 +913,14 @@ function buildMonthRange(month?: string) {
   const start = new Date(Date.UTC(yearValue, monthValue - 1, 1));
   const end = new Date(Date.UTC(yearValue, monthValue, 1));
   return { gte: start, lt: end };
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isLocalCodexUsageInput(input: CreateAssistantUsageEventInput) {
+  return input.executionMode === "local-chatgpt-codex" || input.provider === "local-codex";
 }
 
 function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {

@@ -71,6 +71,13 @@ async function main() {
   assert.equal(mapped.evidence.length, 2);
   assert.equal(mapped.evidence[0]?.kind, "regulation");
   assert.equal(mapped.evidence[0]?.sourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(mapped.evidence[0]?.officialSourceName, "Verified Legal Evidence API");
+  assert.equal(mapped.evidence[0]?.lawName, "건축법");
+  assert.equal(mapped.evidence[0]?.articleLabel, "제11조");
+  assert.equal(mapped.evidence[0]?.articleNumber, "11");
+  assert.match(mapped.evidence[0]?.checkedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(mapped.evidence[0]?.apiSourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(mapped.evidence[0]?.verificationStatus, "verified");
   assert.equal(mapped.evidence[0]?.recordId, "law:building-act");
   assert.deepEqual(mapped.evidence[0]?.legal, {
     sourceId: "law:building-act",
@@ -226,6 +233,77 @@ async function main() {
       },
     });
     assert.equal(explicitSearchUrl.evidence.length, 1);
+
+    let transientNetworkCalls = 0;
+    const transientNetworkRecovery = await fetchVerifiedLegalSearchEvidence({
+      question: "transient legal search network failure",
+      fetchImpl: async (input) => {
+        transientNetworkCalls += 1;
+        assert.equal(String(input), "http://legal-search.local/api/legal/search");
+        if (transientNetworkCalls === 1) {
+          throw new Error("cold start connection reset");
+        }
+        return Response.json({
+          queryId: "legal_query:transient-network-recovery",
+          hits: [{
+            chunkId: "chunk:transient-network",
+            sourceId: "law:transient-network",
+            sourceKind: "statute",
+            authorityRank: "statute",
+            title: "Recovered legal source",
+            excerpt: "Recovered legal source excerpt",
+            effective: { effectiveFrom: "2026-01-01" },
+            stale: false,
+            answerReady: true,
+            warnings: [],
+          }],
+          warnings: [],
+        });
+      },
+    });
+    assert.equal(transientNetworkCalls, 2);
+    assert.equal(transientNetworkRecovery.evidence.length, 1);
+
+    let transientHttpCalls = 0;
+    const transientHttpRecovery = await fetchVerifiedLegalSearchEvidence({
+      question: "transient legal search http failure",
+      fetchImpl: async () => {
+        transientHttpCalls += 1;
+        if (transientHttpCalls === 1) {
+          return new Response("cold start timeout", { status: 503 });
+        }
+        return Response.json({
+          queryId: "legal_query:transient-http-recovery",
+          hits: [{
+            chunkId: "chunk:transient-http",
+            sourceId: "law:transient-http",
+            sourceKind: "statute",
+            authorityRank: "statute",
+            title: "Recovered HTTP legal source",
+            excerpt: "Recovered HTTP legal source excerpt",
+            effective: { effectiveFrom: "2026-01-01" },
+            stale: false,
+            answerReady: true,
+            warnings: [],
+          }],
+          warnings: [],
+        });
+      },
+    });
+    assert.equal(transientHttpCalls, 2);
+    assert.equal(transientHttpRecovery.evidence.length, 1);
+
+    let authFailureCalls = 0;
+    const authFailureNoRetry = await fetchVerifiedLegalSearchEvidence({
+      question: "legal search auth failure",
+      fetchImpl: async () => {
+        authFailureCalls += 1;
+        return new Response("forbidden", { status: 403 });
+      },
+    });
+    assert.equal(authFailureCalls, 1);
+    assert.equal(authFailureNoRetry.warnings[0]?.code, "VERIFIED_LEGAL_SEARCH_API_HTTP_ERROR");
+    assert.equal(authFailureNoRetry.warnings[0]?.message, "Verified Legal Evidence search returned 403.");
   } finally {
     restoreEnv("VERIFIED_LEGAL_EVIDENCE_API_URL", previousLegalEvidenceApiUrl);
     restoreEnv("VERIFIED_LEGAL_SEARCH_API_URL", previousLegalSearchApiUrl);
@@ -1053,7 +1131,7 @@ async function main() {
   assert.match(generateInputBlock, /instruction/);
   assert.doesNotMatch(generateInputBlock, /evidence|sourceIds|diagnosticMode|authority|serviceUrl/);
 
-  console.log(JSON.stringify({ status: "legal-search-adapter-pass", cases: 72 }));
+  console.log(JSON.stringify({ status: "legal-search-adapter-pass", cases: 75 }));
 }
 
 main();

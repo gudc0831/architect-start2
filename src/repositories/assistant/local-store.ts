@@ -477,6 +477,15 @@ class LocalAssistantRepository implements AssistantRepository {
 
   async createUsageEvent(input: CreateAssistantUsageEventInput) {
     const store = await readStore();
+    if (isLocalCodexUsageInput(input) && input.requestHash) {
+      const existing = store.usageEvents.find(
+        (event) => event.executionMode === "local-chatgpt-codex" && event.requestHash === input.requestHash,
+      );
+      if (existing) {
+        return existing;
+      }
+    }
+
     const event: AssistantUsageEvent = {
       id: randomUUID(),
       projectId: input.projectId,
@@ -593,6 +602,10 @@ function dedupeApprovedKnowledgeItems(items: ApprovedKnowledgeItem[]) {
     seenSourceRecordIds.add(item.sourceRecordId);
     return true;
   });
+}
+
+function isLocalCodexUsageInput(input: CreateAssistantUsageEventInput) {
+  return input.executionMode === "local-chatgpt-codex" || input.provider === "local-codex";
 }
 
 function rankApprovedKnowledge(items: ApprovedKnowledgeItem[], query: string) {

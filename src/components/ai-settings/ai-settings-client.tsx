@@ -407,16 +407,16 @@ export function AiSettingsClient({ user }: AiSettingsClientProps) {
         <div className={styles.sectionHeader}>
           <div>
             <h2>AI 사용량</h2>
-            <p>SaaS 사용량은 서버 기록, Local Codex 전체 사용량은 선택 시 브라우저 세션에만 보관됩니다.</p>
+            <p>Daily Local Codex 검토 기록은 서버 메타데이터로 집계되고, 전체 Local Codex scan은 선택 시 브라우저 세션에만 보관됩니다.</p>
           </div>
           <StatusPill state={serviceUsageState === "failed" ? "off" : "on"} label={serviceUsageStateLabel(serviceUsageState)} />
         </div>
 
         <div className={styles.metricGrid}>
-          <Metric label="SaaS tokens" value={combinedUsage.serviceTotalTokens} />
-          <Metric label="Local direct tokens" value={combinedUsage.localDirectTotalTokens} />
-          <Metric label="Combined certain" value={combinedUsage.combinedCertainTotalTokens} />
-          <Metric label="Local uncertain" value={combinedUsage.localUncertainTotalTokens} />
+          <Metric label="SaaS API tokens" value={combinedUsage.serviceTotalTokens} />
+          <Metric label="Local recorded" value={combinedUsage.serverLocalTotalTokens} />
+          <Metric label="Certain total" value={combinedUsage.combinedCertainTotalTokens} />
+          <Metric label="Local scan uncertain" value={combinedUsage.localUncertainTotalTokens} />
         </div>
 
         <UsageChart buckets={combinedUsage.buckets} />

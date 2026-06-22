@@ -66,6 +66,10 @@ export type MyAssistantUsageBucket = {
   serviceOutputTokens: number;
   serviceTotalTokens: number;
   serviceRunCount: number;
+  localCodexInputTokens: number;
+  localCodexOutputTokens: number;
+  localCodexTotalTokens: number;
+  localCodexRunCount: number;
   failedRunCount: number;
   workflowCounts: Record<string, number>;
 };
@@ -81,6 +85,10 @@ export type MyAssistantUsageSummary = {
     serviceOutputTokens: number;
     serviceTotalTokens: number;
     serviceRunCount: number;
+    localCodexInputTokens: number;
+    localCodexOutputTokens: number;
+    localCodexTotalTokens: number;
+    localCodexRunCount: number;
     failedRunCount: number;
   };
   buckets: MyAssistantUsageBucket[];

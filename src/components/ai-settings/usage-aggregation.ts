@@ -36,20 +36,24 @@ export type LocalCodexUsageSummary = {
 export type CombinedUsageBucket = {
   bucket: string;
   serviceTotalTokens: number;
+  serverLocalTotalTokens: number;
   localDirectTotalTokens: number;
   localUncertainTotalTokens: number;
   combinedCertainTotalTokens: number;
   serviceRunCount: number;
+  serverLocalRunCount: number;
   localDirectEntryCount: number;
   localUncertainEntryCount: number;
 };
 
 export type CombinedUsageMetrics = {
   serviceTotalTokens: number;
+  serverLocalTotalTokens: number;
   localDirectTotalTokens: number;
   localUncertainTotalTokens: number;
   combinedCertainTotalTokens: number;
   serviceRunCount: number;
+  serverLocalRunCount: number;
   localDirectEntryCount: number;
   localUncertainEntryCount: number;
   buckets: CombinedUsageBucket[];
@@ -75,30 +79,36 @@ export function buildCombinedUsageMetrics(
     const service = serviceBuckets.get(bucket);
     const local = localBuckets.get(bucket);
     const serviceTotalTokens = normalizeCount(service?.serviceTotalTokens);
-    const localDirectTotalTokens = normalizeCount(local?.directTotalTokens);
+    const serverLocalTotalTokens = normalizeCount(service?.localCodexTotalTokens);
+    const localDirectTotalTokens = serverLocalTotalTokens + normalizeCount(local?.directTotalTokens);
     const localUncertainTotalTokens = normalizeCount(local?.uncertainTotalTokens);
     return {
       bucket,
       serviceTotalTokens,
+      serverLocalTotalTokens,
       localDirectTotalTokens,
       localUncertainTotalTokens,
       combinedCertainTotalTokens: serviceTotalTokens + localDirectTotalTokens,
       serviceRunCount: normalizeCount(service?.serviceRunCount),
+      serverLocalRunCount: normalizeCount(service?.localCodexRunCount),
       localDirectEntryCount: normalizeCount(local?.directEntryCount),
       localUncertainEntryCount: normalizeCount(local?.uncertainEntryCount),
     } satisfies CombinedUsageBucket;
   });
 
   const serviceTotalTokens = normalizeCount(serviceSummary?.totals.serviceTotalTokens);
-  const localDirectTotalTokens = normalizeCount(localSummary?.direct.totalTokens);
+  const serverLocalTotalTokens = normalizeCount(serviceSummary?.totals.localCodexTotalTokens);
+  const localDirectTotalTokens = serverLocalTotalTokens + normalizeCount(localSummary?.direct.totalTokens);
   const localUncertainTotalTokens = normalizeCount(localSummary?.uncertain.totalTokens);
 
   return {
     serviceTotalTokens,
+    serverLocalTotalTokens,
     localDirectTotalTokens,
     localUncertainTotalTokens,
     combinedCertainTotalTokens: serviceTotalTokens + localDirectTotalTokens,
     serviceRunCount: normalizeCount(serviceSummary?.totals.serviceRunCount),
+    serverLocalRunCount: normalizeCount(serviceSummary?.totals.localCodexRunCount),
     localDirectEntryCount: normalizeCount(localSummary?.direct.entryCount),
     localUncertainEntryCount: normalizeCount(localSummary?.uncertain.entryCount),
     buckets,
