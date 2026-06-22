@@ -6,6 +6,8 @@ import { canManageKnowledge } from "@/lib/auth/knowledge-guards";
 import { requirePageUser } from "@/lib/auth/require-page-user";
 import { listKnowledgeCandidates } from "@/use-cases/admin/knowledge-service";
 
+export const dynamic = "force-dynamic";
+
 type AdminKnowledgePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
