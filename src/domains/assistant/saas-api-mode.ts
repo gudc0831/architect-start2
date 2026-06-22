@@ -5,6 +5,7 @@ import type {
   AssistantLegalEvidenceMetadata,
   AssistantTaskContext,
 } from "@/domains/assistant/types";
+import { buildAiReviewAnswerContractPrompt } from "@/domains/assistant/review-answer-contract";
 
 export type AssistantPolicyScopeType = "project";
 export type AssistantPolicyProvider = "mock" | "openai";
@@ -313,6 +314,7 @@ export function buildAssistantPromptText(input: {
     `Task: ${input.taskTitle}`,
     `Question: ${input.question}`,
     `Instruction: ${input.instruction}`,
+    buildAiReviewAnswerContractPrompt(),
     summarizeConversationMemoryForPrompt(input.conversationMemory),
     "Legal evidence:",
     summarizeEvidenceForPrompt(legalEvidence),
