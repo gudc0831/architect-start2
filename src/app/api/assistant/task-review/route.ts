@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       user,
     );
 
-    const status = data.status === "blocked" ? 409 : data.status === "generated" ? 201 : 200;
+    const status = data.status === "blocked" ? 409 : 200;
     return NextResponse.json({ data }, { status });
   } catch (error) {
     return handleRouteError(error);

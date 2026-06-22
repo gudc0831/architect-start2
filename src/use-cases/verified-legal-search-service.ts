@@ -1,4 +1,15 @@
-import type { AssistantEvidence, AssistantLegalEvidenceMetadata } from "@/domains/assistant/types";
+import type {
+  AssistantEvidence,
+  AssistantLegalApplicabilityBundle,
+  AssistantLegalApplicabilityMatch,
+  AssistantLegalArchitecturalConcept,
+  AssistantLegalCandidateImpact,
+  AssistantLegalEvidenceMetadata,
+  AssistantLegalTaskFact,
+  AssistantLegalTaskFactField,
+  AssistantLegalTaskFactSource,
+  AssistantOfficialVerifiedLegalApplicabilityMatch,
+} from "@/domains/assistant/types";
 import { withVerifiedLegalServiceHeaders } from "@/use-cases/verified-legal-service-request";
 
 export type EvidenceReadinessWarning = {
@@ -9,6 +20,7 @@ export type EvidenceReadinessWarning = {
 export type VerifiedLegalSearchResult = {
   evidence: AssistantEvidence[];
   warnings: EvidenceReadinessWarning[];
+  applicability?: AssistantLegalApplicabilityBundle;
 };
 
 type FetchImpl = typeof fetch;
@@ -17,6 +29,8 @@ type FetchVerifiedLegalSearchEvidenceInput = {
   question: string;
   jurisdiction?: string;
   effectiveDate?: string;
+  taskContext?: LegalSearchTaskContext;
+  graphRagMode?: "enabled" | "disabled" | "off";
   serviceUrl?: string;
   apiSecret?: string;
   fetchImpl?: FetchImpl;
@@ -44,6 +58,14 @@ type LegalSearchGraphExpansion = {
   edgeIds: string[];
 };
 
+type LegalSearchTaskContext = string | {
+  task?: string;
+  file?: string;
+  wiki?: string;
+  history?: string;
+  question?: string;
+};
+
 type LegalSearchHit = {
   chunkId: string;
   sourceId: string;
@@ -66,6 +88,7 @@ type LegalSearchPayload = {
   hits: LegalSearchHit[];
   warnings: LegalSearchWarningPayload[];
   graphExpansion?: LegalSearchGraphExpansion;
+  applicability?: unknown;
 };
 
 type LegalSearchContextTask = {
@@ -143,6 +166,8 @@ export async function fetchVerifiedLegalSearchEvidence(
           query: input.question,
           jurisdiction: normalizeOptionalText(input.jurisdiction),
           effectiveDate: normalizeOptionalText(input.effectiveDate),
+          taskContext: normalizeLegalSearchTaskContext(input.taskContext),
+          graphRagMode: normalizeLegalSearchGraphRagMode(input.graphRagMode),
           limit: 6,
         }),
         signal: controller.signal,
@@ -209,7 +234,12 @@ export function mapLegalSearchPayloadToEvidence(payload: unknown): VerifiedLegal
       message: "No answer-ready verified legal source was found; the legal basis was not verified.",
     });
   }
-  return { evidence, warnings };
+  const applicability = mapLegalApplicabilityBundle(payload.applicability);
+  return {
+    evidence,
+    warnings,
+    ...(applicability ? { applicability } : {}),
+  };
 }
 
 function invalidLegalSearchResponse(): VerifiedLegalSearchResult {
@@ -568,6 +598,240 @@ function formatLegalEffectiveReason(effective: AssistantLegalEvidenceMetadata["e
   return effective.promulgatedAt ? `promulgated at ${effective.promulgatedAt}` : "";
 }
 
+function normalizeLegalSearchTaskContext(input: LegalSearchTaskContext | undefined) {
+  if (typeof input === "string") {
+    return normalizeOptionalText(input);
+  }
+  if (!isRecord(input)) {
+    return undefined;
+  }
+
+  const normalized = {
+    task: normalizeOptionalText(input.task),
+    file: normalizeOptionalText(input.file),
+    wiki: normalizeOptionalText(input.wiki),
+    history: normalizeOptionalText(input.history),
+    question: normalizeOptionalText(input.question),
+  };
+  return Object.values(normalized).some(Boolean) ? normalized : undefined;
+}
+
+function normalizeLegalSearchGraphRagMode(input: "enabled" | "disabled" | "off" | undefined) {
+  return input === "disabled" || input === "off" ? input : "enabled";
+}
+
+function mapLegalApplicabilityBundle(value: unknown): AssistantLegalApplicabilityBundle | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const officialVerified = normalizeApplicabilityMatches(
+    value.officialVerified,
+    "official_verified",
+  ) as AssistantOfficialVerifiedLegalApplicabilityMatch[];
+  const candidates = normalizeApplicabilityMatches(value.candidates, "candidate") as Array<
+    AssistantLegalApplicabilityMatch & { status: "candidate" }
+  >;
+  const insufficientFacts = normalizeApplicabilityMatches(value.insufficientFacts, "insufficient_facts") as Array<
+    AssistantLegalApplicabilityMatch & { status: "insufficient_facts" }
+  >;
+  const lowRelevance = normalizeApplicabilityMatches(value.lowRelevance, "low_relevance") as Array<
+    AssistantLegalApplicabilityMatch & { status: "low_relevance" }
+  >;
+  const conflicts = normalizeApplicabilityMatches(value.conflicts, "conflict") as Array<
+    AssistantLegalApplicabilityMatch & { status: "conflict" }
+  >;
+  const candidateImpact = normalizeLegalCandidateImpact(value.candidateImpact) ?? emptyLegalCandidateImpact();
+  const llmExtractionStatus = normalizeLlmExtractionStatus(value.llmExtractionStatus);
+
+  return {
+    officialVerified,
+    candidates,
+    insufficientFacts,
+    lowRelevance,
+    conflicts,
+    candidateImpact,
+    missingFacts: normalizeTaskFactFields(value.missingFacts),
+    graphPaths: normalizeGraphPaths(value.graphPaths),
+    ...(llmExtractionStatus ? { llmExtractionStatus } : {}),
+  };
+}
+
+function normalizeApplicabilityMatches(
+  value: unknown,
+  expectedStatus: AssistantLegalApplicabilityMatch["status"],
+): AssistantLegalApplicabilityMatch[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => normalizeApplicabilityMatch(item, expectedStatus))
+    .filter((item): item is AssistantLegalApplicabilityMatch => Boolean(item));
+}
+
+function normalizeApplicabilityMatch(
+  value: unknown,
+  expectedStatus: AssistantLegalApplicabilityMatch["status"],
+): AssistantLegalApplicabilityMatch | null {
+  if (!isRecord(value) || value.status !== expectedStatus) {
+    return null;
+  }
+
+  const lawName = normalizeOptionalRedactedText(value.lawName);
+  const articleLabel = normalizeOptionalRedactedText(value.articleLabel);
+  const articleNumber = normalizeOptionalRedactedText(value.articleNumber);
+  const normalizedArticleNumber = normalizeOptionalRedactedText(value.normalizedArticleNumber);
+  const reason = normalizeOptionalRedactedText(value.reason) ?? "";
+  const relevanceScore = typeof value.relevanceScore === "number" && Number.isFinite(value.relevanceScore)
+    ? Math.max(0, Math.min(1, value.relevanceScore))
+    : 0;
+
+  if (expectedStatus === "official_verified" && (!lawName || !articleLabel || !articleNumber || !normalizedArticleNumber)) {
+    return null;
+  }
+
+  return {
+    status: expectedStatus,
+    ...(lawName ? { lawName } : {}),
+    ...(articleLabel ? { articleLabel } : {}),
+    ...(articleNumber ? { articleNumber } : {}),
+    ...(normalizedArticleNumber ? { normalizedArticleNumber } : {}),
+    ...(normalizeOptionalRedactedText(value.paragraphLabel) ? { paragraphLabel: normalizeOptionalRedactedText(value.paragraphLabel) } : {}),
+    ...(normalizeOptionalRedactedText(value.itemLabel) ? { itemLabel: normalizeOptionalRedactedText(value.itemLabel) } : {}),
+    graphPath: normalizeStringList(value.graphPath),
+    matchedConcepts: normalizeLegalConcepts(value.matchedConcepts),
+    matchedFacts: normalizeLegalTaskFacts(value.matchedFacts),
+    missingFacts: normalizeTaskFactFields(value.missingFacts),
+    relevanceScore,
+    canChangeConclusion: value.canChangeConclusion === true,
+    highRiskConcepts: normalizeLegalConcepts(value.highRiskConcepts),
+    reason,
+  };
+}
+
+function normalizeLegalCandidateImpact(value: unknown): AssistantLegalCandidateImpact | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    canChangeConclusion: value.canChangeConclusion === true,
+    highRiskConcepts: normalizeLegalConcepts(value.highRiskConcepts),
+    missingFacts: normalizeTaskFactFields(value.missingFacts),
+    stricterCandidateRules: normalizeStringList(value.stricterCandidateRules),
+    reason: normalizeOptionalRedactedText(value.reason) ?? "",
+  };
+}
+
+function emptyLegalCandidateImpact(): AssistantLegalCandidateImpact {
+  return {
+    canChangeConclusion: false,
+    highRiskConcepts: [],
+    missingFacts: [],
+    stricterCandidateRules: [],
+    reason: "No candidate impact was returned.",
+  };
+}
+
+function normalizeLegalConcepts(value: unknown): AssistantLegalArchitecturalConcept[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): AssistantLegalArchitecturalConcept | null => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const conceptId = normalizeOptionalRedactedText(item.conceptId);
+      const category = normalizeOptionalRedactedText(item.category);
+      const label = normalizeOptionalRedactedText(item.label);
+      if (!conceptId || !category || !label) {
+        return null;
+      }
+      return {
+        conceptId,
+        category,
+        label,
+        aliases: normalizeStringList(item.aliases),
+        requiredFacts: normalizeTaskFactFields(item.requiredFacts),
+        ...(typeof item.stricterWhenMissingFacts === "boolean" ? { stricterWhenMissingFacts: item.stricterWhenMissingFacts } : {}),
+        relatedGraphLabels: normalizeStringList(item.relatedGraphLabels),
+      };
+    })
+    .filter((item): item is AssistantLegalArchitecturalConcept => Boolean(item));
+}
+
+function normalizeLegalTaskFacts(value: unknown): AssistantLegalTaskFact[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): AssistantLegalTaskFact | null => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const factId = normalizeOptionalRedactedText(item.factId);
+      const field = normalizeTaskFactField(item.field);
+      const factValue = normalizeOptionalRedactedText(item.value);
+      const source = normalizeTaskFactSource(item.source);
+      const confidence = typeof item.confidence === "number" && Number.isFinite(item.confidence)
+        ? Math.max(0, Math.min(1, item.confidence))
+        : null;
+      if (!factId || !field || !factValue || !source || confidence === null) {
+        return null;
+      }
+      return {
+        factId,
+        field,
+        value: factValue,
+        source,
+        confidence,
+      };
+    })
+    .filter((item): item is AssistantLegalTaskFact => Boolean(item));
+}
+
+function normalizeTaskFactFields(value: unknown): AssistantLegalTaskFactField[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(normalizeTaskFactField)
+    .filter((item): item is AssistantLegalTaskFactField => Boolean(item));
+}
+
+function normalizeTaskFactField(value: unknown): AssistantLegalTaskFactField | null {
+  return typeof value === "string" && legalTaskFactFields.has(value as AssistantLegalTaskFactField)
+    ? value as AssistantLegalTaskFactField
+    : null;
+}
+
+function normalizeTaskFactSource(value: unknown): AssistantLegalTaskFactSource | null {
+  return typeof value === "string" && legalTaskFactSources.has(value as AssistantLegalTaskFactSource)
+    ? value as AssistantLegalTaskFactSource
+    : null;
+}
+
+function normalizeGraphPaths(value: unknown): string[][] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(normalizeStringList)
+    .filter((path) => path.length > 0);
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(normalizeOptionalRedactedText)
+    .filter((item): item is string => Boolean(item));
+}
+
+function normalizeLlmExtractionStatus(value: unknown): AssistantLegalApplicabilityBundle["llmExtractionStatus"] | undefined {
+  return value === "fallback" || value === "provided" || value === "disabled" ? value : undefined;
+}
+
 function isLegalSearchPayload(value: unknown): value is LegalSearchPayload {
   if (!isRecord(value)) {
     return false;
@@ -712,6 +976,27 @@ const legalSearchAuthorityRankBySourceKind: Record<string, string> = {
   statutoryInterpretation: "statutory_interpretation",
   supremeCourtPrecedent: "supreme_court_precedent",
 };
+
+const legalTaskFactFields = new Set<AssistantLegalTaskFactField>([
+  "use",
+  "facility",
+  "location",
+  "action",
+  "permitStage",
+  "requester",
+  "history",
+  "dimension",
+  "quantity",
+  "jurisdiction",
+]);
+
+const legalTaskFactSources = new Set<AssistantLegalTaskFactSource>([
+  "question",
+  "task",
+  "file",
+  "wiki",
+  "history",
+]);
 
 function normalizeLegalSearchWarningCode(value: string): string {
   const [code] = value.split(":");

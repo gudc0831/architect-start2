@@ -672,6 +672,7 @@ async function main() {
     query: "건축법 제11조",
     jurisdiction: "서울",
     effectiveDate: "2026-05-30",
+    graphRagMode: "enabled",
     limit: 6,
   });
   assert.ok(captured[0]?.signal instanceof AbortSignal);
@@ -1095,12 +1096,12 @@ async function main() {
   assert.match(taskAssistantPanelSource, /requestedExecutionMode === "saas-api"/);
   assert.match(taskAssistantPanelSource, /postTaskReviewJson\(\{[\s\S]*?mode:\s*"generate"/);
   assert.match(taskAssistantPanelSource, /normalizeGeneratedRetrieval\(review\.generated\?\.retrieval\)\s*\?\?/);
-  assert.match(taskAssistantPanelSource, /setRecord\(review\.savedRecord\)/);
+  assert.match(taskAssistantPanelSource, /setPendingTaskReview\(review\)/);
+  assert.match(taskAssistantPanelSource, /postJson<AssistantReviewSessionItem>\("\/api\/assistant\/review-sessions"/);
   assert.match(taskAssistantPanelSource, /const retrieveForRecord = generated\.retrieval \?\? verifiedRetrieval/);
   assert.doesNotMatch(taskAssistantPanelSource, /postJson<AssistantGenerateResponse>\("\/api\/assistant\/generate"/);
   assert.doesNotMatch(taskAssistantPanelSource, /appendLegalChangeReviewNotice\(generated\.answer,\s*generated\.retrieval\)/);
   assert.match(taskAssistantPanelSource, /retrieveForRecord\.taskContext\.taskId !== requestedTaskId/);
-  assert.match(taskAssistantPanelSource, /refreshAssistantRecords\(retrieveForRecord\.taskContext\.taskId,\s*reviewRequestId\)/);
   assert.match(taskAssistantPanelSource, /async function refreshAssistantRecords\(taskId: string,\s*reviewRequestId\?: number\)/);
   const refreshAssistantRecordsBlock =
     /async function refreshAssistantRecords\(taskId: string,\s*reviewRequestId\?: number\) \{[\s\S]*?\n  \}/.exec(taskAssistantPanelSource)?.[0] ?? "";
@@ -1118,7 +1119,7 @@ async function main() {
     /if \(reviewRequestId === undefined \|\| reviewRequestSeqRef\.current === reviewRequestId\) \{[\s\S]*?setRecordHistoryLoading\(false\);[\s\S]*?\}/,
   );
   assert.match(taskAssistantPanelSource, /setRetrieveResult\(retrieveForRecord\)/);
-  assert.match(taskAssistantPanelSource, /evidence:\s*retrieveForRecord\.evidence/);
+  assert.match(taskAssistantPanelSource, /evidence:\s*retrieveResult\.evidence/);
   const retrieveRouteSource = await readFile(join(process.cwd(), "src", "app", "api", "assistant", "retrieve", "route.ts"), "utf8");
   assert.match(retrieveRouteSource, /taskId:\s*String\(body\.taskId/);
   assert.match(retrieveRouteSource, /question:\s*String\(body\.question/);

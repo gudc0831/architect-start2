@@ -2,6 +2,7 @@ import type {
   AssistantDraftSummary,
   AssistantEvidence,
   AssistantEvidenceKind,
+  AssistantLegalApplicabilityBundle,
   AssistantLegalEvidenceMetadata,
   AssistantTaskContext,
 } from "@/domains/assistant/types";
@@ -173,6 +174,7 @@ export type AssistantRetrievedEvidenceSnapshot = {
   unavailableEvidenceKinds: string[];
   evidenceReadinessWarnings: AssistantEvidenceReadinessWarning[];
   conversationMemory: string;
+  legalApplicability?: AssistantLegalApplicabilityBundle;
 };
 
 export type AssistantGenerateResult = {
@@ -308,6 +310,7 @@ export function buildAssistantPromptText(input: {
   projectContextChunks?: ProjectContextChunkForReview[];
   projectContextTrace?: ProjectContextTraceSnapshot;
   evidenceReadinessWarnings?: AssistantEvidenceReadinessWarning[];
+  legalApplicability?: AssistantLegalApplicabilityBundle;
 }) {
   const legalEvidence = input.legalEvidence ?? input.evidence.filter((item) => item.legal);
   return [
@@ -316,6 +319,7 @@ export function buildAssistantPromptText(input: {
     `Instruction: ${input.instruction}`,
     buildAiReviewAnswerContractPrompt(),
     summarizeConversationMemoryForPrompt(input.conversationMemory),
+    summarizeLegalApplicabilityForPrompt(input.legalApplicability),
     "Legal evidence:",
     summarizeEvidenceForPrompt(legalEvidence),
     "Project upload context:",
@@ -325,6 +329,47 @@ export function buildAssistantPromptText(input: {
     summarizeEvidenceForPrompt(input.evidence.filter((item) => !legalEvidence.some((legalItem) => legalItem.id === item.id))),
     summarizeEvidenceReadinessWarningsForPrompt(input.evidenceReadinessWarnings),
   ].filter((section) => section.length > 0).join("\n");
+}
+
+function summarizeLegalApplicabilityForPrompt(applicability: AssistantLegalApplicabilityBundle | undefined) {
+  if (!applicability) {
+    return "";
+  }
+
+  const officialVerified = applicability.officialVerified.slice(0, 6).map((match, index) =>
+    [
+      `${index + 1}. ${match.lawName} ${match.articleLabel}`,
+      `normalizedArticleNumber: ${match.normalizedArticleNumber}`,
+      `matchedConcepts: ${match.matchedConcepts.map((concept) => concept.label).join(", ") || "none"}`,
+      `matchedFacts: ${match.matchedFacts.map((fact) => `${fact.field}=${fact.value}`).join(", ") || "none"}`,
+      `graphPath: ${match.graphPath.join(" > ") || "none"}`,
+      `reason: ${match.reason}`,
+    ].join("; "),
+  );
+  const candidates = applicability.candidates.slice(0, 6).map((match, index) =>
+    [
+      `${index + 1}. ${match.lawName ?? "unknown law"} ${match.articleLabel ?? "unknown article"}`,
+      `candidateOnly: true`,
+      `canChangeConclusion: ${match.canChangeConclusion}`,
+      `missingFacts: ${match.missingFacts.join(", ") || "none"}`,
+      `highRiskConcepts: ${match.highRiskConcepts.map((concept) => concept.label).join(", ") || "none"}`,
+      `reason: ${match.reason}`,
+    ].join("; "),
+  );
+
+  return [
+    "Legal applicability Graph RAG:",
+    `llmExtractionStatus: ${applicability.llmExtractionStatus ?? "unknown"}`,
+    `candidateImpact.canChangeConclusion: ${applicability.candidateImpact.canChangeConclusion}`,
+    `candidateImpact.highRiskConcepts: ${applicability.candidateImpact.highRiskConcepts.map((concept) => concept.label).join(", ") || "none"}`,
+    `candidateImpact.missingFacts: ${applicability.candidateImpact.missingFacts.join(", ") || "none"}`,
+    `candidateImpact.reason: ${applicability.candidateImpact.reason}`,
+    "officialVerified:",
+    officialVerified.length ? officialVerified.join("\n") : "none",
+    "relatedPossibleCandidates:",
+    candidates.length ? candidates.join("\n") : "none",
+    "When relatedPossibleCandidates could change the conclusion, explain how the answer would differ without them and use 추가확인필요 when required facts are missing.",
+  ].join("\n");
 }
 
 function summarizeConversationMemoryForPrompt(conversationMemory: string | undefined) {

@@ -1,6 +1,7 @@
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
+  AssistantLegalApplicabilityBundle,
   AssistantLegalEvidenceMetadata,
   AssistantExecutionMode,
   AssistantThreadMessage,
@@ -57,6 +58,7 @@ type EvidenceReadinessWarning = {
 type VerifiedLegalEvidenceBundleResult = {
   evidence: AssistantEvidence[];
   warnings: EvidenceReadinessWarning[];
+  applicability?: AssistantLegalApplicabilityBundle;
 };
 
 type SaveAssistantRecordInput = {
@@ -153,7 +155,18 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
           sourceIds: selectVerifiedLegalEvidenceSourceIds(),
         })
       : Promise.resolve({ evidence: [], warnings: [] }),
-    fetchVerifiedLegalSearchEvidence({ question: retrievalQuery, ...legalSearchContext }),
+    fetchVerifiedLegalSearchEvidence({
+      question: retrievalQuery,
+      ...legalSearchContext,
+      taskContext: buildLegalGraphRagTaskContext({
+        task,
+        projectName: project.name,
+        question,
+        files,
+        previousRecords,
+        approvedKnowledge,
+      }),
+    }),
     input.user
       ? retrieveProjectContextForTaskReview({
           projectId: project.id,
@@ -223,6 +236,46 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     unavailableEvidenceKinds,
     evidenceReadinessWarnings: mergedEvidence.evidenceReadinessWarnings,
     conversationMemory,
+    legalApplicability: mergedEvidence.legalApplicability,
+  };
+}
+
+function buildLegalGraphRagTaskContext(input: {
+  task: TaskRecord;
+  projectName: string;
+  question: string;
+  files: Array<{ originalName: string; fileSummary?: unknown }>;
+  previousRecords: AssistantRecord[];
+  approvedKnowledge: Array<{ title: string; summary: string; bodyMarkdown?: string; tags?: string[] }>;
+}) {
+  const task = compactExcerpt([
+    `Project: ${input.projectName}`,
+    `Task: ${input.task.issueTitle}`,
+    input.task.issueDetailNote,
+    input.task.locationRef ? `Location: ${input.task.locationRef}` : "",
+    input.task.requestedBy ? `Requester: ${input.task.requestedBy}` : "",
+    input.task.decision ? `Decision/history: ${input.task.decision}` : "",
+    input.task.statusHistory ? `Status history: ${input.task.statusHistory}` : "",
+  ]);
+  const file = compactExcerpt(input.files.slice(0, 6).map((item) => item.originalName));
+  const wiki = compactExcerpt(input.approvedKnowledge.slice(0, 4).flatMap((item) => [
+    item.title,
+    item.summary,
+    item.bodyMarkdown,
+    item.tags?.join(", "),
+  ]));
+  const history = compactExcerpt(input.previousRecords.slice(0, 4).flatMap((record) => [
+    record.question,
+    record.answer,
+    record.confidenceReason,
+  ]));
+
+  return {
+    task,
+    file,
+    wiki,
+    history,
+    question: input.question,
   };
 }
 
@@ -290,6 +343,7 @@ export function mergeRetrievedAssistantEvidence(input: {
 
   return {
     evidence,
+    legalApplicability: input.verifiedLegalSearchEvidence.applicability,
     evidenceReadinessWarnings: normalizeEvidenceReadinessWarnings([
       ...input.verifiedLegalEvidence.warnings,
       ...input.verifiedLegalSearchEvidence.warnings,

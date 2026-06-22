@@ -185,6 +185,29 @@ type AssistantRecordHistoryItem = {
   updatedAt: string;
 };
 
+type AssistantReviewSessionItem = {
+  id: string;
+  taskId: string;
+  title: string;
+  question: string;
+  answerPreview: string;
+  verdict: string | null;
+  conclusionMayChange: boolean;
+  savedAt: string;
+  updatedAt: string;
+  savedRecord: SavedAssistantRecord;
+};
+
+type AssistantReviewSessionDetail = AssistantReviewSessionItem & {
+  answer: string;
+  savedEvidenceSnapshot: AssistantEvidence[];
+  latestEvidenceSnapshot: AssistantEvidence[];
+  savedWikiEvidence: AssistantEvidence[];
+  latestWikiEvidence: AssistantEvidence[];
+  savedHistoryEvidence: AssistantEvidence[];
+  latestHistoryEvidence: AssistantEvidence[];
+};
+
 type ExternalEvidenceSourceType =
   | "web_page"
   | "skill_output"
@@ -263,6 +286,8 @@ type TaskReviewResponse = {
     status: "available" | "missing";
     action: string;
   }>;
+  legalApplicability?: unknown;
+  reviewSession?: unknown;
   generated?: AssistantGenerateResponse;
   savedRecord: SavedAssistantRecord | null;
   wiki: {
@@ -453,7 +478,10 @@ export function TaskAssistantPanel({
   const [proposalStatus, setProposalStatus] = useState("");
   const [taskUpdateApplied, setTaskUpdateApplied] = useState(false);
   const [followUpTaskCreated, setFollowUpTaskCreated] = useState(false);
-  const [recordHistory, setRecordHistory] = useState<AssistantRecordHistoryItem[]>([]);
+  const [recordHistory, setRecordHistory] = useState<AssistantReviewSessionItem[]>([]);
+  const [selectedReviewSession, setSelectedReviewSession] = useState<AssistantReviewSessionDetail | null>(null);
+  const [pendingTaskReview, setPendingTaskReview] = useState<TaskReviewResponse | null>(null);
+  const [reviewSessionSaving, setReviewSessionSaving] = useState(false);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [analysisSourceType, setAnalysisSourceType] = useState<FileAnalysisSourceMode>("manual_text");
@@ -473,6 +501,9 @@ export function TaskAssistantPanel({
   const [recordHistoryLoading, setRecordHistoryLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const [externalLoading, setExternalLoading] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [filesExpanded, setFilesExpanded] = useState(false);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
   const [externalExpanded, setExternalExpanded] = useState(false);
   const [externalAllowed, setExternalAllowed] = useState(false);
   const [externalEvidence, setExternalEvidence] = useState<ExternalEvidenceRecord[]>([]);
@@ -496,6 +527,7 @@ export function TaskAssistantPanel({
   const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
   const canDeferSummary = Boolean(selectedTask && record && output && summaryDraft && !busy);
   const canApproveSummary = canDeferSummary && closureAcknowledged && approvalBlockers.length === 0;
+  const canSaveReviewSession = Boolean(selectedTask && output && retrieveResult && !record && !busy && !reviewSessionSaving);
   const summaryTags = useMemo(() => parseSummaryTags(summaryTagsInput), [summaryTagsInput]);
   const taskUpdateProposal = useMemo(
     () =>
@@ -568,6 +600,9 @@ export function TaskAssistantPanel({
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
+    setPendingTaskReview(null);
+    setSelectedReviewSession(null);
+    setReviewSessionSaving(false);
     setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
@@ -586,6 +621,9 @@ export function TaskAssistantPanel({
     setExecutionMode(DEFAULT_ASSISTANT_EXECUTION_MODE);
     setAssistantPolicy(null);
     setExternalEvidence([]);
+    setHistoryExpanded(false);
+    setFilesExpanded(false);
+    setDiagnosticsExpanded(false);
     setExternalExpanded(false);
     setExternalAllowed(false);
     setExternalTitle("");
@@ -618,7 +656,7 @@ export function TaskAssistantPanel({
     setFilesLoading(true);
     setExternalLoading(true);
 
-    getJson<AssistantRecordHistoryItem[]>(`/api/assistant/records?taskId=${encodeURIComponent(selectedTask.id)}`)
+    getJson<AssistantReviewSessionItem[]>(`/api/assistant/review-sessions?taskId=${encodeURIComponent(selectedTask.id)}`)
       .then((items) => {
         if (!cancelled) {
           setRecordHistory(items);
@@ -703,6 +741,8 @@ export function TaskAssistantPanel({
     setBusy(true);
     setOutput(null);
     setRecord(null);
+    setPendingTaskReview(null);
+    setSelectedReviewSession(null);
     setSummarySaveState(null);
     setProposalStatus("");
     setTaskUpdateApplied(false);
@@ -739,7 +779,7 @@ export function TaskAssistantPanel({
           };
         setRetrieveResult(reviewRetrieval);
 
-        if (review.status !== "generated" || !review.generated || !review.savedRecord) {
+        if (review.status !== "generated" || !review.generated) {
           const failures = review.officialLawVerification.failures.join(" / ");
           const readiness = review.evidenceReadiness
             .filter((item) => item.status === "missing")
@@ -763,12 +803,9 @@ export function TaskAssistantPanel({
         setSummaryDraft(generatedOutput.draftSummary);
         setSummaryTagsInput(generatedOutput.draftSummary.tags.join(", "));
         setClosureAcknowledged(false);
-        setRecord(review.savedRecord);
-        await refreshAssistantRecords(review.taskContext.taskId, reviewRequestId);
-        if (reviewRequestSeqRef.current !== reviewRequestId) {
-          return;
-        }
-        setStatus(`공식 법규 검증 경유 SaaS API 검토 의견을 저장했습니다. 신뢰도 ${review.savedRecord.confidenceScore}%.`);
+        setPendingTaskReview(review);
+        setRecord(null);
+        setStatus("공식 법규 검증 경유 SaaS API 검토 의견을 생성했습니다. 검토기록저장을 눌러 최근 기록에 남기세요.");
         return;
       }
 
@@ -827,67 +864,8 @@ export function TaskAssistantPanel({
       setSummaryDraft(generated.draftSummary);
       setSummaryTagsInput(generated.draftSummary.tags.join(", "));
       setClosureAcknowledged(false);
-
-      const confidenceOverride = buildAssistantRecordConfidenceOverride(retrieveForRecord);
-      const savedRecord = await postJson<SavedAssistantRecord>("/api/assistant/records", {
-        taskId: retrieveForRecord.taskContext.taskId,
-        question: requestedQuestion,
-        answer: generated.answer,
-        evidence: retrieveForRecord.evidence,
-        confidenceScore: confidenceOverride.confidenceScore,
-        confidenceReason: confidenceOverride.confidenceReason,
-        executionMode: toRecordExecutionMode(requestedExecutionMode),
-        runtimeMode:
-          requestedExecutionMode === "local-codex" ? "extension-native-bridge-in-page" : "saas-daily-task-panel",
-        draftSummary: generated.draftSummary,
-      });
-      if (reviewRequestSeqRef.current !== reviewRequestId) {
-        return;
-      }
-      setRecord(savedRecord);
-      if (requestedExecutionMode === "local-codex") {
-        const usageRecordInput = {
-          generated,
-          savedRecord,
-          taskId: retrieveForRecord.taskContext.taskId,
-        };
-        setUsageRecordState({ status: "recording", assistantRecordId: savedRecord.id });
-        try {
-          const usageEvent = await recordLocalCodexUsage(usageRecordInput);
-          if (reviewRequestSeqRef.current !== reviewRequestId) {
-            return;
-          }
-          setUsageRecordState({
-            status: "recorded",
-            assistantRecordId: savedRecord.id,
-            eventId: usageEvent.id,
-            inputTokens: usageEvent.inputTokens,
-            outputTokens: usageEvent.outputTokens,
-            usageAvailable: Boolean(generated.localCodexUsage?.usageAvailable),
-          });
-        } catch (usageError) {
-          if (reviewRequestSeqRef.current !== reviewRequestId) {
-            return;
-          }
-          setUsageRecordState({
-            status: "failed",
-            assistantRecordId: savedRecord.id,
-            message: errorMessage(usageError),
-            generated,
-            savedRecord,
-            taskId: retrieveForRecord.taskContext.taskId,
-          });
-        }
-      }
-      await refreshAssistantRecords(retrieveForRecord.taskContext.taskId, reviewRequestId);
-      if (reviewRequestSeqRef.current !== reviewRequestId) {
-        return;
-      }
-      setStatus(
-        requestedExecutionMode === "local-codex"
-          ? `검토 의견을 저장했습니다. 사용량 기록 상태를 확인하세요. 신뢰도 ${savedRecord.confidenceScore}%.`
-          : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
-      );
+      setRecord(null);
+      setStatus("검토 의견을 생성했습니다. 검토기록저장을 눌러 최근 기록에 남기세요.");
     } catch (error) {
       if (reviewRequestSeqRef.current === reviewRequestId) {
         setStatus(errorMessage(error));
@@ -896,6 +874,108 @@ export function TaskAssistantPanel({
       if (reviewRequestSeqRef.current === reviewRequestId) {
         setBusy(false);
       }
+    }
+  }
+
+  async function saveReviewSession() {
+    if (!selectedTask || !output || !retrieveResult) {
+      setStatus("저장할 검토 의견이 없습니다.");
+      return;
+    }
+
+    setReviewSessionSaving(true);
+    setStatus("검토기록을 저장하는 중입니다.");
+    try {
+      const savedSession = await postJson<AssistantReviewSessionItem>("/api/assistant/review-sessions", {
+        taskId: retrieveResult.taskContext.taskId,
+        question,
+        answer: output.answer,
+        evidence: retrieveResult.evidence,
+        title: `${selectedTaskLabel} 검토`,
+        draftSummary: output.draftSummary,
+        generated: pendingTaskReview?.generated ?? null,
+        officialLawVerification: pendingTaskReview?.officialLawVerification ?? null,
+        legalApplicability: pendingTaskReview?.legalApplicability ?? null,
+        reviewSession: pendingTaskReview?.reviewSession ?? null,
+      });
+      setRecord(savedSession.savedRecord);
+      setRecordHistory((items) => [savedSession, ...items.filter((item) => item.id !== savedSession.id)].slice(0, 12));
+      setPendingTaskReview(null);
+      setSelectedReviewSession(null);
+
+      if (output.localCodexUsage) {
+        setUsageRecordState({ status: "recording", assistantRecordId: savedSession.savedRecord.id });
+        try {
+          const usageEvent = await recordLocalCodexUsage({
+            generated: output,
+            savedRecord: savedSession.savedRecord,
+            taskId: retrieveResult.taskContext.taskId,
+          });
+          setUsageRecordState({
+            status: "recorded",
+            assistantRecordId: savedSession.savedRecord.id,
+            eventId: usageEvent.id,
+            inputTokens: usageEvent.inputTokens,
+            outputTokens: usageEvent.outputTokens,
+            usageAvailable: Boolean(output.localCodexUsage.usageAvailable),
+          });
+        } catch (usageError) {
+          setUsageRecordState({
+            status: "failed",
+            assistantRecordId: savedSession.savedRecord.id,
+            message: errorMessage(usageError),
+            generated: output,
+            savedRecord: savedSession.savedRecord,
+            taskId: retrieveResult.taskContext.taskId,
+          });
+        }
+      }
+
+      await refreshAssistantRecords(retrieveResult.taskContext.taskId);
+      setStatus(`검토기록저장 완료. 신뢰도 ${savedSession.savedRecord.confidenceScore}%.`);
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setReviewSessionSaving(false);
+    }
+  }
+
+  async function openReviewSession(session: AssistantReviewSessionItem) {
+    setRecordHistoryLoading(true);
+    try {
+      const detail = await getJson<AssistantReviewSessionDetail>(
+        `/api/assistant/review-sessions/${encodeURIComponent(session.id)}`,
+      );
+      setSelectedReviewSession(detail);
+      setRecord(detail.savedRecord);
+      setStatus("저장된 검토 세션을 열었습니다. 질문을 수정해 추가 질의를 실행할 수 있습니다.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setRecordHistoryLoading(false);
+    }
+  }
+
+  async function renameReviewSession(session: AssistantReviewSessionItem) {
+    const reviewSessionTitle = window.prompt("검토 세션 제목", session.title);
+    if (!reviewSessionTitle?.trim()) {
+      return;
+    }
+    setRecordHistoryLoading(true);
+    try {
+      const renamed = await patchJson<AssistantReviewSessionItem>(
+        `/api/assistant/review-sessions/${encodeURIComponent(session.id)}`,
+        { title: reviewSessionTitle },
+      );
+      setRecordHistory((items) => items.map((item) => (item.id === renamed.id ? renamed : item)));
+      if (selectedReviewSession?.id === renamed.id) {
+        setSelectedReviewSession({ ...selectedReviewSession, title: renamed.title });
+      }
+      setStatus("검토 세션 제목을 변경했습니다.");
+    } catch (error) {
+      setStatus(errorMessage(error));
+    } finally {
+      setRecordHistoryLoading(false);
     }
   }
 
@@ -995,7 +1075,7 @@ export function TaskAssistantPanel({
     }
     setRecordHistoryLoading(true);
     try {
-      const items = await getJson<AssistantRecordHistoryItem[]>(`/api/assistant/records?taskId=${encodeURIComponent(taskId)}`);
+      const items = await getJson<AssistantReviewSessionItem[]>(`/api/assistant/review-sessions?taskId=${encodeURIComponent(taskId)}`);
       if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
         return;
       }
@@ -1362,6 +1442,8 @@ export function TaskAssistantPanel({
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
+    setPendingTaskReview(null);
+    setSelectedReviewSession(null);
   }
 
   function clearAnalysisCrop() {
@@ -1435,33 +1517,54 @@ export function TaskAssistantPanel({
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>최근 검토 기록</h4>
-                  <span>{recordHistoryLoading ? "불러오는 중" : `${recordHistory.length}`}</span>
+                  <button
+                    aria-expanded={historyExpanded}
+                    className="task-assistant__subtle-button"
+                    onClick={() => setHistoryExpanded((current) => !current)}
+                    type="button"
+                  >
+                    {historyExpanded ? "접기" : recordHistoryLoading ? "불러오는 중" : `보기 ${recordHistory.length}`}
+                  </button>
                 </div>
-                {recordHistory.length ? (
-                  <div className="task-assistant__history-list">
-                    {recordHistory.slice(0, 4).map((item) => (
-                      <article
-                        className={`task-assistant__history-item task-assistant__history-item--${historyTone(item.executionMode)}`}
-                        key={item.id}
-                      >
-                        <header>
-                          <strong>{executionModeLabel(item.executionMode)}</strong>
-                          <span>{item.confidenceScore}%</span>
-                        </header>
+                {!historyExpanded ? (
+                  <p className="task-assistant__hint">검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다.</p>
+                ) : recordHistory.length ? (
+                  <>
+                    <div className="task-assistant__history-list">
+                      {recordHistory.slice(0, 6).map((item) => (
+                        <article className="task-assistant__history-item task-assistant__history-item--saas" key={item.id}>
+                          <header>
+                            <button className="task-assistant__link-button" onClick={() => void openReviewSession(item)} type="button">
+                              {item.title}
+                            </button>
+                            <span>{item.savedRecord.confidenceScore}%</span>
+                          </header>
+                          <small>
+                            {formatRecordDate(item.savedAt)} / {item.verdict ?? "판정 없음"} / {item.conclusionMayChange ? "추가확인필요 후보" : "후보 영향 낮음"}
+                          </small>
+                          <p>{item.answerPreview}</p>
+                          <div className="task-assistant__history-tags">
+                            <button className="task-assistant__subtle-button" onClick={() => void openReviewSession(item)} type="button">
+                              세션 열기
+                            </button>
+                            <button className="task-assistant__subtle-button" onClick={() => void renameReviewSession(item)} type="button">
+                              이름 변경
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    {selectedReviewSession ? (
+                      <article className="task-assistant__evidence">
+                        <strong>{selectedReviewSession.title}</strong>
                         <small>
-                          {formatRecordDate(item.createdAt)} / {runtimeModeLabel(item.runtimeMode)} / 근거 {item.evidenceCount}
+                          저장 근거 {selectedReviewSession.savedEvidenceSnapshot.length} / 최신 근거 {selectedReviewSession.latestEvidenceSnapshot.length}
                         </small>
-                        <p>{recordPreview(item)}</p>
-                        <div className="task-assistant__history-tags">
-                          <span>{cleanupStateLabel(item.cleanupState)}</span>
-                          <span>{candidateStateLabel(item.candidateState)}</span>
-                          {item.evidenceKinds.slice(0, 3).map((kind) => (
-                            <span key={kind}>{evidenceKindLabel(kind)}</span>
-                          ))}
-                        </div>
+                        <p>질문: {selectedReviewSession.question}</p>
+                        <p>{selectedReviewSession.answer}</p>
                       </article>
-                    ))}
-                  </div>
+                    ) : null}
+                  </>
                 ) : (
                   <p className="task-assistant__hint">
                     {recordHistoryLoading ? "assistant 기록을 불러오는 중입니다." : "아직 이 task에 저장된 assistant 기록이 없습니다."}
@@ -1474,8 +1577,17 @@ export function TaskAssistantPanel({
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>파일 근거</h4>
-                  <span>{filesLoading ? "불러오는 중" : `${taskFiles.length}`}</span>
+                  <button
+                    aria-expanded={filesExpanded}
+                    className="task-assistant__subtle-button"
+                    onClick={() => setFilesExpanded((current) => !current)}
+                    type="button"
+                  >
+                    {filesExpanded ? "접기" : filesLoading ? "불러오는 중" : `보기 ${taskFiles.length}`}
+                  </button>
                 </div>
+                {filesExpanded ? (
+                  <>
                 <label className="task-assistant__field task-assistant__field--plain">
                   <span>첨부 파일</span>
                   <select
@@ -1672,6 +1784,10 @@ export function TaskAssistantPanel({
                 >
                   파일 근거 저장
                 </button>
+                  </>
+                ) : (
+                  <p className="task-assistant__hint">파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다.</p>
+                )}
               </section>
             ) : null}
 
@@ -1762,7 +1878,7 @@ export function TaskAssistantPanel({
                     </button>
                   </div>
                 )}
-                {externalEvidence.length ? (
+                {externalExpanded && externalEvidence.length ? (
                   <div className="task-assistant__evidence-list">
                     {externalEvidence.slice(0, 3).map((item) => (
                       <article className="task-assistant__evidence" key={item.id}>
@@ -1814,8 +1930,17 @@ export function TaskAssistantPanel({
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>로컬 Codex 로그인</h4>
-                  <span>기본 실행</span>
+                  <button
+                    aria-expanded={diagnosticsExpanded}
+                    className="task-assistant__subtle-button"
+                    onClick={() => setDiagnosticsExpanded((current) => !current)}
+                    type="button"
+                  >
+                    {diagnosticsExpanded ? "접기" : "상태 확인"}
+                  </button>
                 </div>
+                {diagnosticsExpanded ? (
+                  <>
                 <div className="task-assistant__health-actions">
                   <button
                     className="secondary-button"
@@ -1851,16 +1976,26 @@ export function TaskAssistantPanel({
                     Chrome extension native host가 등록되어 있어야 합니다.
                   </p>
                 ) : null}
+                  </>
+                ) : (
+                  <p className="task-assistant__hint">로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다.</p>
+                )}
               </section>
             ) : null}
-            <label className="task-assistant__field">
-              <span>검토 지침</span>
-              <textarea disabled={!selectedTask || busy} onChange={(event) => setInstruction(event.target.value)} rows={4} value={instruction} />
-            </label>
+            <section className="task-assistant__section">
+              <div className="task-assistant__section-header">
+                <h4>기본 검토지침</h4>
+                <span>서비스 고정</span>
+              </div>
+              <p className="task-assistant__hint">답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다.</p>
+            </section>
 
             <div className="task-assistant__actions">
               <button className="primary-button" disabled={!selectedTask || busy} onClick={() => void runAssistantReview()} type="button">
                 {busy ? "검토 중" : "근거 조회 + 의견 생성"}
+              </button>
+              <button className="secondary-button" disabled={!canSaveReviewSession} onClick={() => void saveReviewSession()} type="button">
+                {reviewSessionSaving ? "저장 중" : "검토기록저장"}
               </button>
               <button className="secondary-button" disabled={!canApproveSummary} onClick={() => void saveSummary("approved")} type="button">
                 작업 기록 승인
