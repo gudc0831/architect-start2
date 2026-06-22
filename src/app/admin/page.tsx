@@ -4,6 +4,8 @@ import { AdminFoundationShell } from "@/components/admin/admin-foundation-shell"
 import { requirePageUser } from "@/lib/auth/require-page-user";
 import { listProjectsForSession } from "@/use-cases/admin/admin-service";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminPage() {
   const user = await requirePageUser("/admin");
 

@@ -4,6 +4,8 @@ import { AiSettingsClient } from "@/components/ai-settings/ai-settings-client";
 import { requirePageUser } from "@/lib/auth/require-page-user";
 import { labelForRole } from "@/lib/ui-copy";
 
+export const dynamic = "force-dynamic";
+
 export default async function AiSettingsPage() {
   const user = await requirePageUser("/ai-settings");
 
