@@ -198,6 +198,22 @@ function assertGeneratedSchemaAttachment(checks: string[]) {
   );
   assert.equal(nullWikiSchema.wikiCandidateDraft, null);
   checks.push("structured review keeps wikiCandidateDraft null when preview schema has no candidate");
+
+  const longGeneratedSchema = attachGeneratedAnswerToStructuredReviewSchema(
+    baseSchema,
+    "a".repeat(12050),
+    {
+      conclusion: "s".repeat(650),
+      tags: ["generated"],
+      scope: "task",
+    },
+    80,
+    "r".repeat(650),
+  );
+  assert.equal(longGeneratedSchema.answerMarkdown.length <= 12000, true);
+  assert.equal(longGeneratedSchema.confidence.reason.length <= 500, true);
+  assert.equal(longGeneratedSchema.wikiCandidateDraft?.summary.length, 500);
+  checks.push("generated structured review hard-caps answer, confidence reason, and draft summary text");
 }
 
 async function assertSourceBoundaries(checks: string[]) {

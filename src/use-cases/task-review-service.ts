@@ -506,18 +506,18 @@ export function attachGeneratedAnswerToStructuredReviewSchema(
   confidenceScore: number,
   confidenceReason: string,
 ): StructuredTaskReviewSchema {
-  const draftConclusion = trimText(draftSummary.conclusion, 500);
+  const draftConclusion = trimTextToMaxLength(draftSummary.conclusion, 500);
 
   return {
     ...schema,
-    answerMarkdown: trimText(answerMarkdown, 12000),
+    answerMarkdown: trimTextToMaxLength(answerMarkdown, 12000),
     checklistItems: schema.checklistItems.map((item) => ({
       ...item,
       status: item.status === "blocked" ? "blocked" : "needs_review",
     })),
     confidence: {
       score: clampConfidenceScore(confidenceScore),
-      reason: trimText(confidenceReason, 500),
+      reason: trimTextToMaxLength(confidenceReason, 500),
     },
     wikiCandidateDraft: schema.wikiCandidateDraft
       ? {
@@ -564,6 +564,11 @@ function buildWarnings(
 function trimText(value: string, maxLength: number) {
   const text = value.replace(/\s+/g, " ").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function trimTextToMaxLength(value: string, maxLength: number) {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 function clampConfidenceScore(value: number) {
