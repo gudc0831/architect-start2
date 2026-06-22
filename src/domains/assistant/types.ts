@@ -24,6 +24,91 @@ export type AssistantLegalEvidenceMetadata = {
   confidenceReason?: string;
 };
 
+export type AssistantLegalTaskFactField =
+  | "use"
+  | "facility"
+  | "location"
+  | "action"
+  | "permitStage"
+  | "requester"
+  | "history"
+  | "dimension"
+  | "quantity"
+  | "jurisdiction";
+
+export type AssistantLegalTaskFactSource = "question" | "task" | "file" | "wiki" | "history";
+
+export type AssistantLegalArchitecturalConcept = {
+  conceptId: string;
+  category: string;
+  label: string;
+  aliases: string[];
+  requiredFacts: AssistantLegalTaskFactField[];
+  stricterWhenMissingFacts?: boolean;
+  relatedGraphLabels?: string[];
+};
+
+export type AssistantLegalTaskFact = {
+  factId: string;
+  field: AssistantLegalTaskFactField;
+  value: string;
+  source: AssistantLegalTaskFactSource;
+  confidence: number;
+};
+
+export type AssistantLegalApplicabilityMatchStatus =
+  | "official_verified"
+  | "candidate"
+  | "insufficient_facts"
+  | "low_relevance"
+  | "conflict";
+
+export type AssistantLegalApplicabilityMatch = {
+  status: AssistantLegalApplicabilityMatchStatus;
+  lawName?: string;
+  articleLabel?: string;
+  articleNumber?: string;
+  normalizedArticleNumber?: string;
+  paragraphLabel?: string;
+  itemLabel?: string;
+  graphPath: string[];
+  matchedConcepts: AssistantLegalArchitecturalConcept[];
+  matchedFacts: AssistantLegalTaskFact[];
+  missingFacts: AssistantLegalTaskFactField[];
+  relevanceScore: number;
+  canChangeConclusion: boolean;
+  highRiskConcepts: AssistantLegalArchitecturalConcept[];
+  reason: string;
+};
+
+export type AssistantOfficialVerifiedLegalApplicabilityMatch = AssistantLegalApplicabilityMatch & {
+  status: "official_verified";
+  lawName: string;
+  articleLabel: string;
+  articleNumber: string;
+  normalizedArticleNumber: string;
+};
+
+export type AssistantLegalCandidateImpact = {
+  canChangeConclusion: boolean;
+  highRiskConcepts: AssistantLegalArchitecturalConcept[];
+  missingFacts: AssistantLegalTaskFactField[];
+  stricterCandidateRules: string[];
+  reason: string;
+};
+
+export type AssistantLegalApplicabilityBundle = {
+  officialVerified: AssistantOfficialVerifiedLegalApplicabilityMatch[];
+  candidates: Array<AssistantLegalApplicabilityMatch & { status: "candidate" }>;
+  insufficientFacts: Array<AssistantLegalApplicabilityMatch & { status: "insufficient_facts" }>;
+  lowRelevance: Array<AssistantLegalApplicabilityMatch & { status: "low_relevance" }>;
+  conflicts: Array<AssistantLegalApplicabilityMatch & { status: "conflict" }>;
+  candidateImpact: AssistantLegalCandidateImpact;
+  missingFacts: AssistantLegalTaskFactField[];
+  graphPaths: string[][];
+  llmExtractionStatus?: "fallback" | "provided" | "disabled";
+};
+
 export type AssistantThreadMessageRole = "user" | "assistant" | "system";
 
 export type AssistantThreadSummaryProvenance = {
@@ -139,7 +224,14 @@ export type AssistantRecordMetadata = {
     evidenceDigest: string;
     officialLawDigest: string;
     providerCallMode: "mock" | "live";
-    savedByOrchestrator: true;
+    savedByOrchestrator?: true;
+    savedBy?: "user" | "orchestrator";
+    reviewSessionId?: string;
+    reviewSessionTitle?: string;
+    reviewInstructionVersion?: number;
+    candidateFactsMissing?: AssistantLegalTaskFactField[];
+    conclusionMayChange?: boolean;
+    legalApplicability?: AssistantLegalApplicabilityBundle;
   };
 };
 

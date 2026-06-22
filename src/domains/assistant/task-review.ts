@@ -1,10 +1,12 @@
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
+  AssistantLegalApplicabilityBundle,
   AssistantRecord,
   AssistantTaskContext,
 } from "@/domains/assistant/types";
 import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode";
+import type { TaskAssistantReviewSession } from "@/domains/assistant/review-session";
 
 export type TaskReviewMode = "preview" | "generate";
 
@@ -115,9 +117,11 @@ export type TaskReviewBaseResponse = {
     unavailableEvidenceKinds: string[];
   };
   officialLawVerification: TaskReviewLegalVerificationReport;
+  legalApplicability?: AssistantLegalApplicabilityBundle;
   evidence: AssistantEvidence[];
   evidenceReadiness: EvidenceReadinessItem[];
   savedRecord: TaskReviewSavedRecord | null;
+  reviewSession: TaskAssistantReviewSession | null;
   wiki: {
     candidateCreated: false;
     approvalAttempted: false;
@@ -150,7 +154,7 @@ export type TaskReviewReadyResponse = TaskReviewBaseResponse & {
 export type TaskReviewGeneratedResponse = TaskReviewBaseResponse & {
   status: "generated";
   reason: string;
-  savedRecord: TaskReviewSavedRecord;
+  savedRecord: null;
   structuredReviewSchema: StructuredTaskReviewSchema;
   generation: {
     status: "generated";

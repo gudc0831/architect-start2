@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
-import type { AssistantEvidence } from "@/domains/assistant/types";
+import type {
+  AssistantDraftSummary,
+  AssistantEvidence,
+  AssistantLegalApplicabilityBundle,
+  AssistantRecord,
+} from "@/domains/assistant/types";
 import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode";
 import type {
   EvidenceReadinessItem,
@@ -14,9 +19,19 @@ import {
   isCentralizedVerifiedLegalEvidence,
   requiresCentralizedLegalVerification,
 } from "@/domains/legal/legal-verification-intent";
+import {
+  TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION,
+  TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION_VERSION,
+} from "@/domains/assistant/review-instruction";
+import {
+  buildTaskAssistantReviewSession,
+  type TaskAssistantReviewSession,
+} from "@/domains/assistant/review-session";
+import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
 import { generateAssistantWithVerifiedEvidence } from "@/use-cases/assistant-saas-mode-service";
 import { retrieveAssistantEvidence } from "@/use-cases/assistant-service";
+import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 
 export type ReviewTaskInput = {
   taskId: string;
@@ -25,6 +40,52 @@ export type ReviewTaskInput = {
   mode?: TaskReviewMode;
   fetchImpl?: typeof fetch;
 };
+
+export type SaveTaskReviewSessionRecordInput = {
+  taskId: string;
+  question: string;
+  answer: string;
+  evidence: AssistantEvidence[];
+  title?: string;
+  draftSummary?: AssistantDraftSummary | null;
+  generated?: AssistantGenerateResult | null;
+  officialLawVerification?: TaskReviewLegalVerificationReport | null;
+  legalApplicability?: AssistantLegalApplicabilityBundle | null;
+  reviewSession?: TaskAssistantReviewSession | null;
+};
+
+export type TaskReviewSessionSummary = {
+  id: string;
+  taskId: string;
+  title: string;
+  question: string;
+  answerPreview: string;
+  verdict: string | null;
+  conclusionMayChange: boolean;
+  savedAt: string;
+  updatedAt: string;
+  savedRecord: TaskReviewSavedRecord;
+};
+
+export type TaskReviewSessionDetail = TaskReviewSessionSummary & {
+  answer: string;
+  savedEvidenceSnapshot: AssistantEvidence[];
+  latestEvidenceSnapshot: AssistantEvidence[];
+  savedWikiEvidence: AssistantEvidence[];
+  latestWikiEvidence: AssistantEvidence[];
+  savedHistoryEvidence: AssistantEvidence[];
+  latestHistoryEvidence: AssistantEvidence[];
+  followUp: {
+    savedEvidenceSnapshot: AssistantEvidence[];
+    latestEvidenceSnapshot: AssistantEvidence[];
+    savedWikiEvidence: AssistantEvidence[];
+    latestWikiEvidence: AssistantEvidence[];
+    savedHistoryEvidence: AssistantEvidence[];
+    latestHistoryEvidence: AssistantEvidence[];
+  };
+};
+
+const TASK_REVIEW_SESSION_RENAMED_EVENT = "assistant_review_session_renamed";
 
 export async function reviewTaskWithServerOrchestrator(
   input: ReviewTaskInput,
@@ -54,6 +115,13 @@ export async function reviewTaskWithServerOrchestrator(
   const officialLawDigest = buildOfficialLawDigest(lawReport);
   const evidenceReadiness = buildEvidenceReadiness({ unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds });
   const structuredReviewSchema = buildStructuredReviewPreview(input.question, evidence, lawReport, omittedRegulationCount);
+  const reviewSession = buildTaskAssistantReviewSession({
+    taskContext: retrieved.taskContext,
+    question: input.question,
+    evidence,
+    legalApplicability: retrieved.legalApplicability,
+    lawStatus: lawReport.status,
+  });
 
   if (lawReport.status === "failed") {
     return {
@@ -66,8 +134,10 @@ export async function reviewTaskWithServerOrchestrator(
         unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
       },
       officialLawVerification: lawReport,
+      legalApplicability: retrieved.legalApplicability,
       evidence,
       evidenceReadiness,
+      reviewSession,
       generation: {
         status: "blocked" as const,
         reason: "Generation is blocked until centralized verified legal evidence succeeds.",
@@ -87,7 +157,7 @@ export async function reviewTaskWithServerOrchestrator(
       {
         taskContext: retrieved.taskContext,
         question: input.question,
-        instruction: input.instruction,
+        instruction: TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION,
         evidence,
         evidenceDigest,
         officialLawDigest,
@@ -98,28 +168,29 @@ export async function reviewTaskWithServerOrchestrator(
         unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
         evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
         conversationMemory: retrieved.conversationMemory,
+        legalApplicability: retrieved.legalApplicability,
       },
       user,
     );
-    const savedRecord = await saveGeneratedTaskReviewRecord({
-      generated,
-      user,
-      taskId: retrieved.taskContext.taskId,
-      projectId: retrieved.taskContext.projectId,
-      question: input.question,
+    const generatedConfidence = buildGeneratedTaskReviewConfidence({
       evidence,
-      regulationCount: retrieved.evidence.filter((item) => item.kind === "regulation").length,
       lawReport,
-      evidenceDigest,
-      officialLawDigest,
+      regulationCount: retrieved.evidence.filter((item) => item.kind === "regulation").length,
     });
+    const generatedStructuredReviewSchema = attachGeneratedAnswerToStructuredReviewSchema(
+      structuredReviewSchema,
+      generated.answer,
+      generated.suggestedDraftSummary,
+      generatedConfidence.score,
+      generatedConfidence.reason,
+    );
 
     return {
       status: "generated" as const,
       reason:
         lawReport.status === "verified"
-          ? "Centralized verified legal evidence succeeded and the generated task review was saved server-side."
-          : "Centralized legal verification was not required and the generated task review was saved server-side.",
+          ? "Centralized verified legal evidence succeeded and the generated task review is ready for explicit user save."
+          : "Centralized legal verification was not required and the generated task review is ready for explicit user save.",
       taskContext: retrieved.taskContext,
       retrievedEvidence: {
         count: retrieved.evidence.length,
@@ -127,19 +198,21 @@ export async function reviewTaskWithServerOrchestrator(
         unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
       },
       officialLawVerification: lawReport,
+      legalApplicability: retrieved.legalApplicability,
       evidence,
       evidenceReadiness,
-      structuredReviewSchema,
+      reviewSession,
+      structuredReviewSchema: generatedStructuredReviewSchema,
       generation: {
         status: "generated" as const,
       },
       generated,
-      savedRecord,
+      savedRecord: null,
       wiki: {
         candidateCreated: false,
         approvalAttempted: false,
         approvedKnowledgeItemId: null,
-        reason: "Generated task-review records are saved as not_candidate and are not submitted to WIKI approval.",
+        reason: "Generated task-review records are not saved or submitted to WIKI approval until the user clicks 검토기록저장.",
       },
     };
   }
@@ -157,8 +230,10 @@ export async function reviewTaskWithServerOrchestrator(
       unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
     },
     officialLawVerification: lawReport,
+    legalApplicability: retrieved.legalApplicability,
     evidence,
     evidenceReadiness,
+    reviewSession,
     structuredReviewSchema,
     generation: {
       status: "blocked" as const,
@@ -173,6 +248,128 @@ export async function reviewTaskWithServerOrchestrator(
       reason: "The task-review orchestrator never calls Knowledge WIKI approve routes. Candidate persistence requires a later verified generation step.",
     },
   };
+}
+
+export async function saveTaskReviewSessionRecord(
+  input: SaveTaskReviewSessionRecordInput,
+  user: AuthUser,
+) {
+  const task = await requireTaskInSelectedProject(normalizeRequiredSessionText(input.taskId, "taskId"));
+  const question = normalizeRequiredSessionText(input.question, "question");
+  const answer = normalizeRequiredSessionText(input.answer, "answer");
+  const evidence = sanitizeTaskReviewEvidence(input.evidence ?? []);
+  const lawReport = input.officialLawVerification ?? buildStoredReviewLawReport(evidence);
+  const providerCallMode = input.generated?.provider?.callMode ?? "mock";
+  const confidence = buildGeneratedTaskReviewConfidence({
+    evidence,
+    lawReport,
+    regulationCount: evidence.filter((item) => item.kind === "regulation").length,
+  });
+  const reviewSessionId = input.reviewSession?.id ?? `task-review-session:${task.id}:${new Date().toISOString()}`;
+  const title = normalizeSessionTitle(input.title) ?? buildReviewSessionTitle(question);
+  const legalApplicability = input.legalApplicability ?? null;
+  const record = await assistantRepository.createRecord({
+    projectId: task.projectId,
+    taskId: task.id,
+    profileId: user.id,
+    question,
+    answer,
+    evidence,
+    confidenceScore: confidence.score,
+    confidenceReason: confidence.reason,
+    executionMode: "saas-api",
+    runtimeMode: providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
+    draftSummary: input.draftSummary ?? input.generated?.suggestedDraftSummary ?? null,
+    candidateState: "not_candidate",
+    metadata: {
+      taskReview: {
+        source: "assistant-task-review",
+        officialLawStatus: lawReport.status,
+        evidenceDigest: buildEvidenceDigest(evidence),
+        officialLawDigest: buildOfficialLawDigest(lawReport),
+        providerCallMode,
+        savedBy: "user",
+        reviewSessionId,
+        reviewSessionTitle: title,
+        reviewInstructionVersion: TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION_VERSION,
+        candidateFactsMissing: input.reviewSession?.candidateFactsMissing ?? legalApplicability?.candidateImpact.missingFacts ?? [],
+        conclusionMayChange: input.reviewSession?.conclusionMayChange ?? legalApplicability?.candidateImpact.canChangeConclusion ?? false,
+        ...(legalApplicability ? { legalApplicability } : {}),
+      },
+    },
+  });
+
+  return toTaskReviewSessionSummary(record, title);
+}
+
+export async function listTaskReviewSessions(taskId: string): Promise<TaskReviewSessionSummary[]> {
+  const task = await requireTaskInSelectedProject(normalizeRequiredSessionText(taskId, "taskId"));
+  const records = (await assistantRepository.listRecordsByTask(task.id)).filter(isSavedTaskReviewRecord);
+  const titleBySessionId = await readReviewSessionTitleOverrides(task.projectId);
+  return records
+    .slice(0, 12)
+    .map((record) => toTaskReviewSessionSummary(record, titleBySessionId.get(record.id)));
+}
+
+export async function getTaskReviewSessionDetail(
+  sessionId: string,
+  user: AuthUser,
+): Promise<TaskReviewSessionDetail> {
+  const record = await findSavedTaskReviewRecord(sessionId);
+  await requireTaskInSelectedProject(record.taskId);
+  const latest = await retrieveAssistantEvidence({
+    taskId: record.taskId,
+    question: record.question,
+    user,
+  });
+  const titleBySessionId = await readReviewSessionTitleOverrides(record.projectId);
+  const summary = toTaskReviewSessionSummary(record, titleBySessionId.get(record.id));
+  const savedEvidenceSnapshot = record.evidence;
+  const latestEvidenceSnapshot = latest.evidence;
+  const savedWikiEvidence = savedEvidenceSnapshot.filter((item) => item.kind === "central_knowledge");
+  const latestWikiEvidence = latestEvidenceSnapshot.filter((item) => item.kind === "central_knowledge");
+  const savedHistoryEvidence = savedEvidenceSnapshot.filter(isHistoryEvidence);
+  const latestHistoryEvidence = latestEvidenceSnapshot.filter(isHistoryEvidence);
+
+  return {
+    ...summary,
+    answer: record.answer,
+    savedEvidenceSnapshot,
+    latestEvidenceSnapshot,
+    savedWikiEvidence,
+    latestWikiEvidence,
+    savedHistoryEvidence,
+    latestHistoryEvidence,
+    followUp: {
+      savedEvidenceSnapshot,
+      latestEvidenceSnapshot,
+      savedWikiEvidence,
+      latestWikiEvidence,
+      savedHistoryEvidence,
+      latestHistoryEvidence,
+    },
+  };
+}
+
+export async function renameTaskReviewSession(input: {
+  sessionId: string;
+  title: string;
+}, user: AuthUser): Promise<TaskReviewSessionSummary> {
+  const record = await findSavedTaskReviewRecord(input.sessionId);
+  await requireTaskInSelectedProject(record.taskId);
+  const title = normalizeSessionTitle(input.title);
+  if (!title) {
+    throw badRequest("title is required", "TASK_REVIEW_SESSION_TITLE_REQUIRED");
+  }
+  await assistantRepository.createAuditEvent({
+    projectId: record.projectId,
+    profileId: user.id,
+    eventType: TASK_REVIEW_SESSION_RENAMED_EVENT,
+    targetType: "assistant_review_session",
+    targetId: record.id,
+    metadata: { title },
+  });
+  return toTaskReviewSessionSummary(record, title);
 }
 
 function digestJson(value: unknown) {
@@ -385,47 +582,22 @@ function buildEvidenceReadiness(input: { unavailableEvidenceKinds: string[] }): 
   ];
 }
 
-async function saveGeneratedTaskReviewRecord(input: {
-  generated: AssistantGenerateResult;
-  user: AuthUser;
-  projectId: string;
-  taskId: string;
-  question: string;
+function buildGeneratedTaskReviewConfidence(input: {
   evidence: AssistantEvidence[];
   regulationCount: number;
   lawReport: TaskReviewLegalVerificationReport;
-  evidenceDigest: string;
-  officialLawDigest: string;
-}): Promise<TaskReviewSavedRecord> {
-  const providerCallMode = input.generated.provider.callMode;
-  const record = await assistantRepository.createRecord({
-    projectId: input.projectId,
-    taskId: input.taskId,
-    profileId: input.user.id,
-    question: input.question,
-    answer: input.generated.answer,
-    evidence: input.evidence,
-    confidenceScore: Math.min(95, Math.max(60, 80 + input.regulationCount)),
-    confidenceReason:
+}) {
+  const evidenceCoverageBonus = Math.min(5, Math.floor(input.evidence.length / 4));
+  return {
+    score: Math.min(95, Math.max(60, 80 + input.regulationCount + evidenceCoverageBonus)),
+    reason:
       input.lawReport.status === "verified"
-        ? "Centralized verified legal evidence succeeded and the record was generated from the server-verified evidence bundle."
-        : "Centralized legal verification was not required and the record was generated from the server-verified evidence bundle.",
-    executionMode: "saas-api",
-    runtimeMode: providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
-    draftSummary: input.generated.suggestedDraftSummary,
-    candidateState: "not_candidate",
-    metadata: {
-      taskReview: {
-        source: "assistant-task-review",
-        officialLawStatus: input.lawReport.status,
-        evidenceDigest: input.evidenceDigest,
-        officialLawDigest: input.officialLawDigest,
-        providerCallMode,
-        savedByOrchestrator: true,
-      },
-    },
-  });
+        ? "Centralized verified legal evidence succeeded and the answer was generated from the server-verified evidence bundle."
+        : "Centralized legal verification was not required and the answer was generated from the server-verified evidence bundle.",
+  };
+}
 
+function toTaskReviewSavedRecord(record: AssistantRecord): TaskReviewSavedRecord {
   return {
     id: record.id,
     taskId: record.taskId,
@@ -438,6 +610,110 @@ async function saveGeneratedTaskReviewRecord(input: {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function toTaskReviewSessionSummary(record: AssistantRecord, titleOverride?: string): TaskReviewSessionSummary {
+  const taskReview = record.metadata.taskReview;
+  const title = titleOverride ?? taskReview?.reviewSessionTitle ?? buildReviewSessionTitle(record.question);
+  return {
+    id: record.id,
+    taskId: record.taskId,
+    title,
+    question: record.question,
+    answerPreview: trimText(record.answer.replace(/\s+/g, " "), 160),
+    verdict: readStoredVerdict(record),
+    conclusionMayChange: taskReview?.conclusionMayChange ?? false,
+    savedAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    savedRecord: toTaskReviewSavedRecord(record),
+  };
+}
+
+async function findSavedTaskReviewRecord(sessionId: string): Promise<AssistantRecord> {
+  const record = await assistantRepository.findRecordById(normalizeRequiredSessionText(sessionId, "sessionId"));
+  if (!record || !isSavedTaskReviewRecord(record)) {
+    throw notFound("Review session not found", "TASK_REVIEW_SESSION_NOT_FOUND");
+  }
+  return record;
+}
+
+function isSavedTaskReviewRecord(record: AssistantRecord) {
+  return record.metadata.taskReview?.source === "assistant-task-review" && record.metadata.taskReview.savedBy === "user";
+}
+
+async function readReviewSessionTitleOverrides(projectId: string) {
+  const events = await assistantRepository.listAuditEvents({
+    projectId,
+    limit: 250,
+    eventTypes: [TASK_REVIEW_SESSION_RENAMED_EVENT],
+    targetType: "assistant_review_session",
+  });
+  const titleBySessionId = new Map<string, string>();
+  for (const event of events) {
+    const title = typeof event.metadata.title === "string" ? normalizeSessionTitle(event.metadata.title) : null;
+    if (event.targetId && title && !titleBySessionId.has(event.targetId)) {
+      titleBySessionId.set(event.targetId, title);
+    }
+  }
+  return titleBySessionId;
+}
+
+function isHistoryEvidence(item: AssistantEvidence) {
+  return item.id.startsWith("assistant-record:") || item.kind === "task";
+}
+
+function buildStoredReviewLawReport(evidence: AssistantEvidence[]): TaskReviewLegalVerificationReport {
+  const verifiedLegalEvidence = evidence.filter(isCentralizedVerifiedLegalEvidence);
+  const checkedAt = new Date().toISOString();
+  return {
+    status: verifiedLegalEvidence.length > 0 ? "verified" : "not_required",
+    checkedAt,
+    provider: {
+      name: "Task Assistant saved review session",
+      docsUrl: "",
+    },
+    locators: verifiedLegalEvidence.map((item) => ({
+      lawName: item.lawName ?? item.title,
+      articleLabel: item.articleLabel,
+      articleNumber: item.articleNumber,
+      evidenceId: item.id,
+      sourceUrl: item.sourceUrl,
+    })),
+    sources: verifiedLegalEvidence.map((item) => ({
+      status: "verified" as const,
+      lawName: item.lawName ?? item.title,
+      articleLabel: item.articleLabel,
+      articleNumber: item.articleNumber,
+      apiUrl: item.apiSourceUrl ?? item.sourceUrl ?? "",
+      checkedAt: item.checkedAt ?? checkedAt,
+      evidenceId: item.id,
+      reason: "Stored from explicit Task Assistant review-session save.",
+    })),
+    failures: [],
+    retry: [],
+  };
+}
+
+function readStoredVerdict(record: AssistantRecord) {
+  const answerVerdict = /(?:최종\s*)?판정\s*[:：]\s*(가능|불가|조건부|추가확인필요|판단보류)/.exec(record.answer);
+  return answerVerdict?.[1] ?? null;
+}
+
+function buildReviewSessionTitle(question: string) {
+  return trimText(question.replace(/\s+/g, " "), 48) || "저장된 검토";
+}
+
+function normalizeSessionTitle(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized ? trimText(normalized, 80) : null;
+}
+
+function normalizeRequiredSessionText(value: string, field: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw badRequest(`${field} is required`, `TASK_REVIEW_${field.toUpperCase()}_REQUIRED`);
+  }
+  return normalized;
 }
 
 function buildStructuredReviewPreview(
@@ -492,6 +768,37 @@ function buildStructuredReviewPreview(
   };
 }
 
+export function attachGeneratedAnswerToStructuredReviewSchema(
+  schema: StructuredTaskReviewSchema,
+  answerMarkdown: string,
+  draftSummary: AssistantGenerateResult["suggestedDraftSummary"],
+  confidenceScore: number,
+  confidenceReason: string,
+): StructuredTaskReviewSchema {
+  const draftConclusion = trimTextToMaxLength(draftSummary.conclusion, 500);
+
+  return {
+    ...schema,
+    answerMarkdown: trimTextToMaxLength(answerMarkdown, 12000),
+    checklistItems: schema.checklistItems.map((item) => ({
+      ...item,
+      status: item.status === "blocked" ? "blocked" : "needs_review",
+    })),
+    confidence: {
+      score: clampConfidenceScore(confidenceScore),
+      reason: trimTextToMaxLength(confidenceReason, 500),
+    },
+    wikiCandidateDraft: schema.wikiCandidateDraft
+      ? {
+          ...schema.wikiCandidateDraft,
+          summary: draftConclusion || trimTextToMaxLength(schema.wikiCandidateDraft.summary, 500),
+          tags: mergeWikiCandidateTags(schema.wikiCandidateDraft.tags, draftSummary.tags),
+          sourceEvidenceIds: schema.wikiCandidateDraft.sourceEvidenceIds,
+        }
+      : null,
+  };
+}
+
 function buildWarnings(
   lawReport: TaskReviewLegalVerificationReport,
   evidence: AssistantEvidence[],
@@ -526,4 +833,20 @@ function buildWarnings(
 function trimText(value: string, maxLength: number) {
   const text = value.replace(/\s+/g, " ").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function trimTextToMaxLength(value: string, maxLength: number) {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+function clampConfidenceScore(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function mergeWikiCandidateTags(existingTags: string[], generatedTags: string[]) {
+  return [...new Set([...existingTags, ...generatedTags].map((tag) => tag.trim()).filter(Boolean))].slice(0, 12);
 }

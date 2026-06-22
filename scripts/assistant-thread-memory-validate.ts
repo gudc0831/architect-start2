@@ -252,6 +252,12 @@ async function main() {
   assert.match(promptText, /Project upload context:/);
   assert.match(promptText, /Other evidence:/);
   assert.match(promptText, /Evidence readiness warnings:/);
+  assert.match(promptText, /AI review answer contract v1:/);
+  assert.match(promptText, /## 결론/);
+  assert.match(promptText, /## 근거/);
+  assert.match(promptText, /## 리스크/);
+  assert.match(promptText, /## 후속 조치/);
+  assert.match(promptText, /\[evidence:<evidence id>\]/);
 
   const assistantServiceSource = await readFile(join(process.cwd(), "src", "use-cases", "assistant-service.ts"), "utf8");
   assert.match(assistantServiceSource, /assistantRepository\.findThreadByTask/);

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "@/domains/auth/types";
-import type { AssistantEvidence, AssistantRecord, AssistantWorkSummaryDraft } from "@/domains/assistant/types";
+import type {
+  AssistantEvidence,
+  AssistantLegalApplicabilityBundle,
+  AssistantRecord,
+  AssistantWorkSummaryDraft,
+} from "@/domains/assistant/types";
 import { readAssistantAction, toAssistantActionAuditRecord } from "@/domains/assistant/action-audit";
 import {
   buildAssistantPromptText,
@@ -63,6 +68,7 @@ type GenerateAssistantWithEvidenceInput = {
   unavailableEvidenceKinds?: string[];
   evidenceReadinessWarnings?: AssistantRetrievedEvidenceSnapshot["evidenceReadinessWarnings"];
   conversationMemory?: string;
+  legalApplicability?: AssistantLegalApplicabilityBundle;
 };
 
 type GetAssistantActionAuditReviewInput = {
@@ -1320,6 +1326,7 @@ export async function generateAssistantWithSaasApi(input: GenerateAssistantInput
       unavailableEvidenceKinds: retrieved.unavailableEvidenceKinds,
       evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
       conversationMemory: retrieved.conversationMemory,
+      legalApplicability: retrieved.legalApplicability,
     },
     user,
   );
@@ -1359,6 +1366,7 @@ export async function generateAssistantWithVerifiedEvidence(
     unavailableEvidenceKinds: input.unavailableEvidenceKinds ?? [],
     evidenceReadinessWarnings: input.evidenceReadinessWarnings,
     conversationMemory: input.conversationMemory,
+    legalApplicability: input.legalApplicability,
   });
   const promptText = buildAssistantPromptText({
     taskTitle: taskContext.title,
@@ -1370,6 +1378,7 @@ export async function generateAssistantWithVerifiedEvidence(
     projectContextChunks: retrievalSnapshot.projectContextChunks,
     projectContextTrace: retrievalSnapshot.projectContextTrace,
     evidenceReadinessWarnings: retrievalSnapshot.evidenceReadinessWarnings,
+    legalApplicability: retrievalSnapshot.legalApplicability,
   });
   const inputTokens = estimateTokens(promptText);
   const requestHash = createRequestHash({
@@ -1492,6 +1501,7 @@ export function toAssistantGenerateRetrievalSnapshot(input: {
   unavailableEvidenceKinds: AssistantRetrievedEvidenceSnapshot["unavailableEvidenceKinds"];
   evidenceReadinessWarnings?: AssistantRetrievedEvidenceSnapshot["evidenceReadinessWarnings"];
   conversationMemory?: AssistantRetrievedEvidenceSnapshot["conversationMemory"];
+  legalApplicability?: AssistantRetrievedEvidenceSnapshot["legalApplicability"];
 }): AssistantRetrievedEvidenceSnapshot {
   return {
     taskContext: input.taskContext,
@@ -1513,6 +1523,7 @@ export function toAssistantGenerateRetrievalSnapshot(input: {
     unavailableEvidenceKinds: input.unavailableEvidenceKinds,
     evidenceReadinessWarnings: input.evidenceReadinessWarnings ?? [],
     conversationMemory: input.conversationMemory ?? "",
+    legalApplicability: input.legalApplicability,
   };
 }
 
