@@ -54,6 +54,9 @@ export function AssistantPanelPreviewClient() {
   useLayoutEffect(() => {
     const originalFetch = window.fetch.bind(window);
     const records = [createHistoryRecord("preview-record-001")];
+    let previewFile = createPreviewFile();
+    const externalEvidenceRecords = [createExternalEvidenceRecord("preview-external-001")];
+    const actionAuditRecords: ReturnType<typeof createActionAuditRecord>[] = [];
     const reviewSessions: ReturnType<typeof createReviewSessionItem>[] = [];
     const reviewSessionDetails = new Map<string, ReturnType<typeof createReviewSessionDetail>>();
 
@@ -116,42 +119,36 @@ export function AssistantPanelPreviewClient() {
       }
 
       if (url.pathname === "/api/files") {
-        return jsonResponse([
-          {
-            id: "preview-file-001",
-            originalName: "A-500_curtain-wall-anchor.pdf",
-            metadata: {
-              analysis: [
-                {
-                  id: "preview-analysis-001",
-                  sourceType: "image_region",
-                  verificationState: "verified",
-                  summary: "앵커 플레이트와 보강재가 같은 그리드 축에 걸려 있어 시공 여유 치수 확인이 필요합니다.",
-                  confidenceWeight: 0.82,
-                  provider: "preview",
-                  providerStatus: "complete",
-                  region: { pageNumber: 5, x: 42, y: 28, width: 18, height: 12, unit: "percent" },
-                  createdAt: previewNow,
-                },
-              ],
-            },
-          },
-        ]);
+        return jsonResponse([previewFile]);
+      }
+
+      if (isPreviewFileAnalysisPath(url.pathname) && requestMethod(init) === "POST") {
+        const body = await readJsonBody(init);
+        previewFile = addPreviewFileAnalysis(previewFile, body);
+        return jsonResponse({ file: previewFile }, 201);
       }
 
       if (url.pathname === "/api/assistant/external-evidence") {
-        return jsonResponse([
-          {
-            id: "preview-external-001",
-            taskId: previewTask.id,
-            sourceType: "manufacturer_doc",
-            title: "제조사 앵커 설치 허용 오차",
-            excerpt: "앵커 중심선과 보강재 간 최소 이격을 확보해야 하며, 편심 시 구조 검토 확인이 필요합니다.",
-            sourceUrl: "https://example.com/curtain-wall-anchor-guide",
-            toolName: "preview",
-            capturedAt: previewNow,
-          },
-        ]);
+        if (requestMethod(init) === "POST") {
+          const body = await readJsonBody(init);
+          const externalEvidence = createExternalEvidenceRecord(
+            `preview-external-${externalEvidenceRecords.length + 1}`,
+            body,
+          );
+          externalEvidenceRecords.unshift(externalEvidence);
+          return jsonResponse({ externalEvidence }, 201);
+        }
+        return jsonResponse(externalEvidenceRecords);
+      }
+
+      if (url.pathname === "/api/assistant/action-audits") {
+        if (requestMethod(init) === "POST") {
+          const body = await readJsonBody(init);
+          const audit = createActionAuditRecord(`preview-action-audit-${actionAuditRecords.length + 1}`, body);
+          actionAuditRecords.unshift(audit);
+          return jsonResponse(audit, 201);
+        }
+        return jsonResponse(actionAuditRecords);
       }
 
       if (url.pathname === "/api/assistant/policy") {
@@ -246,6 +243,124 @@ function jsonResponse(data: unknown, status = 200) {
     headers: { "content-type": "application/json" },
     status,
   });
+}
+
+function isPreviewFileAnalysisPath(pathname: string) {
+  return pathname === "/api/files/preview-file-001/analysis";
+}
+
+function createPreviewFile() {
+  return {
+    id: "preview-file-001",
+    originalName: "A-500_curtain-wall-anchor.pdf",
+    metadata: {
+      analysis: [
+        {
+          id: "preview-analysis-001",
+          sourceType: "image_region",
+          verificationState: "verified",
+          summary: "앵커 플레이트와 보강재가 같은 그리드 축에 걸려 있어 시공 여유 치수 확인이 필요합니다.",
+          confidenceWeight: 0.82,
+          provider: "preview",
+          providerStatus: "complete",
+          region: { pageNumber: 5, x: 42, y: 28, width: 18, height: 12, unit: "percent" },
+          createdAt: previewNow,
+        },
+      ],
+    },
+  };
+}
+
+type PreviewFile = ReturnType<typeof createPreviewFile>;
+type PreviewAnalysisRegion = PreviewFile["metadata"]["analysis"][number]["region"];
+
+function addPreviewFileAnalysis(file: PreviewFile, body: Record<string, unknown>) {
+  const sourceType = readString(body.sourceType) || (readString(body.mode) === "ocr_extract" ? "ocr_text" : "manual_text");
+  const summary =
+    readString(body.summary) ||
+    readString(body.extractedText) ||
+    (readString(body.mode) === "auto_extract"
+      ? "Preview 자동 텍스트 추출 결과입니다."
+      : "Preview OCR 결과 추출 근거입니다.");
+  const analysis = {
+    id: `preview-analysis-${file.metadata.analysis.length + 1}`,
+    sourceType,
+    verificationState: "unverified",
+    summary,
+    confidenceWeight: 0.72,
+    provider: readString(body.provider) || "preview",
+    providerStatus: readString(body.providerStatus) || "client_supplied",
+    region: normalizePreviewRegion(body.region),
+    createdAt: previewNow,
+  };
+
+  return {
+    ...file,
+    metadata: {
+      ...file.metadata,
+      analysis: [analysis, ...file.metadata.analysis],
+    },
+  };
+}
+
+function normalizePreviewRegion(value: unknown): PreviewAnalysisRegion {
+  const fallback: PreviewAnalysisRegion = { pageNumber: 1, x: 0, y: 0, width: 100, height: 100, unit: "percent" };
+  if (!isPlainObject(value)) {
+    return fallback;
+  }
+  return {
+    pageNumber: readNumber(value.pageNumber, fallback.pageNumber),
+    x: readNumber(value.x, fallback.x),
+    y: readNumber(value.y, fallback.y),
+    width: readNumber(value.width, fallback.width),
+    height: readNumber(value.height, fallback.height),
+    unit: readString(value.unit) || fallback.unit,
+  };
+}
+
+function createExternalEvidenceRecord(id: string, body: Record<string, unknown> = {}) {
+  return {
+    id,
+    taskId: previewTask.id,
+    sourceType: readString(body.sourceType) || "manufacturer_doc",
+    title: readString(body.title) || "제조사 앵커 설치 허용 오차",
+    excerpt:
+      readString(body.excerpt) ||
+      "앵커 중심선과 보강재 간 최소 이격을 확보해야 하며, 편심 시 구조 검토 확인이 필요합니다.",
+    sourceUrl: readString(body.sourceUrl) || "https://example.com/curtain-wall-anchor-guide",
+    toolName: readString(body.toolName) || "preview",
+    capturedAt: readString(body.capturedAt) || previewNow,
+  };
+}
+
+function createActionAuditRecord(id: string, body: Record<string, unknown>) {
+  return {
+    id,
+    action: readString(body.action) || "task_update_applied",
+    projectId: previewTask.projectId,
+    sourceTaskId: readString(body.sourceTaskId) || previewTask.id,
+    targetTaskId: readString(body.targetTaskId) || previewTask.id,
+    createdTaskId: readString(body.createdTaskId) || null,
+    assistantRecordId: readString(body.assistantRecordId) || "preview-record",
+    summary: isPlainObject(body.summary) ? body.summary : null,
+    statusFrom: readString(body.statusFrom) || null,
+    statusTo: readString(body.statusTo) || null,
+    decisionMarker: readString(body.decisionMarker) || null,
+    createdBy: "preview-user",
+    createdAt: previewNow,
+  };
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function createReviewSessionItem(id: string, body: Record<string, unknown>) {
