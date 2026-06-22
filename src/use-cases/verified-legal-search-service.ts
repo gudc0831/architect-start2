@@ -198,9 +198,10 @@ export function mapLegalSearchPayloadToEvidence(payload: unknown): VerifiedLegal
 
   const warnings = readLegalSearchWarnings(payload.warnings);
   const hits = payload.hits;
+  const checkedAt = new Date().toISOString();
   warnings.push(...readLegalSearchHitWarnings(hits));
   const evidence = hits
-    .map(mapLegalSearchHitToEvidence)
+    .map((hit, index) => mapLegalSearchHitToEvidence(hit, index, checkedAt))
     .filter((item): item is AssistantEvidence => Boolean(item));
   if (evidence.length === 0) {
     warnings.push({
@@ -258,7 +259,7 @@ function isRetryableLegalSearchStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
-function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEvidence | null {
+function mapLegalSearchHitToEvidence(value: unknown, index: number, checkedAt: string): AssistantEvidence | null {
   if (!isRecord(value) || value.answerReady !== true) {
     return null;
   }
@@ -276,8 +277,9 @@ function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEv
     return null;
   }
   const sourceId = redactOfficialLawCredential(rawSourceId);
+  const rawTitle = normalizeText(value.title) || "Verified legal search evidence";
   const title = formatLegalSearchTitle({
-    title: normalizeText(value.title) || "Verified legal search evidence",
+    title: rawTitle,
     sourceKind,
     authorityRank,
   });
@@ -286,6 +288,7 @@ function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEv
   }
   const effective = normalizeLegalEffectiveRange(value.effective);
   const sourceUrl = normalizeOptionalHttpUrl(value.sourceUrl);
+  const article = readLegalArticleLocator([title, excerpt].join("\n"));
   const chunkId = normalizeOptionalRedactedText(value.chunkId);
   const locator = normalizeLegalLocator(value.locator) ?? buildFallbackLegalLocator(sourceId, chunkId);
   const legalChangeWarnings = readLegalChangeWarnings(value.warnings);
@@ -308,6 +311,14 @@ function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEv
     sourceUrl,
     recordId: sourceId,
     confidenceWeight: kind === "regulation" ? 0.8 : 0.45,
+    officialSourceName: "Verified Legal Evidence API",
+    lawName: rawTitle,
+    articleLabel: article?.label,
+    articleNumber: article?.number,
+    effectiveDate: effective?.effectiveFrom ?? effective?.promulgatedAt,
+    checkedAt,
+    apiSourceUrl: sourceUrl,
+    verificationStatus: "verified",
     legal: {
       sourceId,
       chunkId,
@@ -320,6 +331,16 @@ function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEv
       confidenceReason,
     },
   };
+}
+
+function readLegalArticleLocator(value: string): { label: string; number: string } | undefined {
+  const match = /제\s*(\d+)\s*조(?:의\s*(\d+))?/.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const number = match[2] ? `${match[1]}-${match[2]}` : match[1];
+  const label = match[2] ? `제${match[1]}조의${match[2]}` : `제${match[1]}조`;
+  return { label, number };
 }
 
 function mapLegalSearchKind(sourceKind: string): AssistantEvidence["kind"] | null {

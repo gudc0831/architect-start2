@@ -71,6 +71,13 @@ async function main() {
   assert.equal(mapped.evidence.length, 2);
   assert.equal(mapped.evidence[0]?.kind, "regulation");
   assert.equal(mapped.evidence[0]?.sourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(mapped.evidence[0]?.officialSourceName, "Verified Legal Evidence API");
+  assert.equal(mapped.evidence[0]?.lawName, "건축법");
+  assert.equal(mapped.evidence[0]?.articleLabel, "제11조");
+  assert.equal(mapped.evidence[0]?.articleNumber, "11");
+  assert.match(mapped.evidence[0]?.checkedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(mapped.evidence[0]?.apiSourceUrl, "https://open.law.go.kr/LSO/lawService.do?target=law");
+  assert.equal(mapped.evidence[0]?.verificationStatus, "verified");
   assert.equal(mapped.evidence[0]?.recordId, "law:building-act");
   assert.deepEqual(mapped.evidence[0]?.legal, {
     sourceId: "law:building-act",

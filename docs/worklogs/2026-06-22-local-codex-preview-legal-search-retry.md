@@ -9,6 +9,7 @@ Request: Fix the deployed Preview `/daily` Local Codex AI review failure and re-
 - In the in-app browser, Local Codex health failed before generation because the browser context had no Architect Browser Assistant content script/native bridge.
 - In the actual Chrome profile with Architect Browser Assistant installed, content script and native host checks passed, but task review generation was blocked by centralized official-law verification.
 - The UI surfaced `VERIFIED_LEGAL_SEARCH_API_UNREACHABLE`, then blocked answer generation and usage recording.
+- After the retry fix was deployed, Chrome health/preflight passed, but actual `근거 조회 + 의견 생성` still failed closed with `Official law source verification failed`.
 
 ## Cause
 
@@ -16,6 +17,7 @@ Request: Fix the deployed Preview `/daily` Local Codex AI review failure and re-
 - Current Vercel branch env for `architect-start2` includes encrypted branch-scoped `VERIFIED_LEGAL_SEARCH_API_URL`, `VERIFIED_LEGAL_SEARCH_ENABLED`, `VERIFIED_LEGAL_EVIDENCE_API_SECRET`, and `VERIFIED_LEGAL_EVIDENCE_VERCEL_BYPASS_SECRET`.
 - The verified legal API Preview is protected and R2-backed. Its `/api/legal/search` route loads the active search index into function memory and reuses a warm cache.
 - The SaaS adapter previously used a single 5s request attempt. A cold protected Preview/R2 search abort or transient 5xx surfaced as `UNREACHABLE`, which blocked generation before any assistant record or usage row could be created.
+- The second failure was a payload contract mismatch: `task-review` could build verified legal evidence for health/preflight, but mapped `verified-legal-search` evidence did not preserve Browser Assistant-compatible top-level metadata (`verificationStatus`, `checkedAt`, `officialSourceName`, `apiSourceUrl`). Browser Assistant intentionally fails closed when regulation evidence lacks those fields.
 
 ## Fix
 
@@ -28,6 +30,13 @@ Request: Fix the deployed Preview `/daily` Local Codex AI review failure and re-
   - `VERIFIED_LEGAL_SEARCH_TIMEOUT_MS`
   - `VERIFIED_LEGAL_SEARCH_MAX_ATTEMPTS`
 - Added regression coverage to `scripts/legal-search-adapter-validate.ts` for transient network recovery, transient 503 recovery, and non-retry of 403.
+- Added Browser Assistant-compatible verified metadata to mapped answer-ready legal search evidence:
+  - `verificationStatus: "verified"`
+  - `officialSourceName: "Verified Legal Evidence API"`
+  - `checkedAt`
+  - sanitized `apiSourceUrl`
+  - law/article/effective-date metadata where extractable.
+- Added regression assertions that mapped legal search evidence carries this top-level verified metadata.
 
 ## Evidence
 
@@ -37,10 +46,12 @@ Request: Fix the deployed Preview `/daily` Local Codex AI review failure and re-
 - Post-fix `npm run typecheck`: passed.
 - Post-fix `npm run build`: passed.
 - `npm run ai-review:readiness` against local `.env.preview.local` remains blocked because that local file lacks `VERIFIED_LEGAL_SEARCH_API_URL`; this is local-env drift. Read-only Vercel env inventory shows the deployed branch Preview has the encrypted branch-scoped search env names.
+- Second regression failure before metadata fix: `npm run legal-search:validate` failed because `mapped.evidence[0].officialSourceName` was `undefined`.
+- After metadata fix: `npm run legal-search:validate`, `npm run task-review:validate`, and `npm run typecheck` passed again.
 
 ## Prevention
 
 - Treat Local Codex bridge readiness and official-law verification readiness as separate gates during Preview verification.
+- Treat health/preflight pass and generation payload pass as separate evidence-contract gates; Browser Assistant verifies the actual generation payload, not only the server preflight status.
 - For protected R2-backed verified legal Preview, do not sign off from a single cold request. Either prove the route warm or keep bounded retry enabled in the SaaS server-to-server adapter.
 - Do not add `LAW_OPEN_DATA_OC`, R2 credentials, or verified legal secrets to browser code or worklogs.
-
