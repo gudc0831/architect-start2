@@ -86,6 +86,11 @@ function scopeForMode(mode: (typeof items)[number]["mode"]): DashboardScope | nu
   return mode === "trash" ? "trash" : "active";
 }
 
+function canUseSameDocumentWorkspaceNavigation(pathname: string) {
+  const workspacePathname = pathname.startsWith("/preview/") ? pathname.slice("/preview".length) : pathname;
+  return workspacePathname === "/board" || workspacePathname === "/daily" || workspacePathname === "/calendar" || workspacePathname === "/trash";
+}
+
 export function Sidebar({
   isExpanded,
   isPinned,
@@ -177,6 +182,10 @@ export function Sidebar({
       const targetHref = String(href);
       markWorkspaceRouteTransition(mode, targetHref);
 
+      if (!canUseSameDocumentWorkspaceNavigation(pathname)) {
+        return;
+      }
+
       event.preventDefault();
       const targetUrl = new URL(targetHref, window.location.href);
       const targetPath = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
@@ -186,7 +195,7 @@ export function Sidebar({
         window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
       }
     },
-    [],
+    [pathname],
   );
 
   const warmAdminNavigation = useCallback(() => {
