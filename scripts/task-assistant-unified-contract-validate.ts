@@ -208,10 +208,7 @@ function checkCollapsedSecondaryPanelDefaults() {
     "filesExpanded",
     "diagnosticsExpanded",
   ];
-  const missing = requiredCollapsedStates.filter((stateName) => {
-    const pattern = new RegExp(`const\\s*\\[\\s*${stateName}\\s*,[^\\]]+\\]\\s*=\\s*useState(?:<[^>]+>)?\\s*\\(\\s*false\\s*\\)`, "s");
-    return !pattern.test(content);
-  });
+  const missing = requiredCollapsedStates.filter((stateName) => !hasCollapsedUseStateDefault(content, stateName));
 
   addCheck(
     "collapsed defaults for secondary panels",
@@ -362,16 +359,16 @@ function extractFunctionBodies(content: string, functionNames: string[]) {
 }
 
 function extractFunctionBody(content: string, functionName: string) {
-  const patterns = [
-    new RegExp(`\\bfunction\\s+${escapeRegExp(functionName)}\\b`),
-    new RegExp(`\\basync\\s+function\\s+${escapeRegExp(functionName)}\\b`),
-    new RegExp(`\\bexport\\s+function\\s+${escapeRegExp(functionName)}\\b`),
-    new RegExp(`\\bexport\\s+async\\s+function\\s+${escapeRegExp(functionName)}\\b`),
-    new RegExp(`\\bconst\\s+${escapeRegExp(functionName)}\\b`),
-    new RegExp(`\\bexport\\s+const\\s+${escapeRegExp(functionName)}\\b`),
+  const declarations = [
+    `function ${functionName}`,
+    `async function ${functionName}`,
+    `export function ${functionName}`,
+    `export async function ${functionName}`,
+    `const ${functionName}`,
+    `export const ${functionName}`,
   ];
-  const index = patterns
-    .map((pattern) => pattern.exec(content)?.index ?? -1)
+  const index = declarations
+    .map((declaration) => findDeclarationIndex(content, declaration))
     .filter((value) => value >= 0)
     .sort((left, right) => left - right)[0] ?? -1;
   if (index < 0) {
@@ -382,6 +379,47 @@ function extractFunctionBody(content: string, functionName: string) {
     return "";
   }
   return extractBraceBlock(content, braceIndex, index);
+}
+
+function hasCollapsedUseStateDefault(content: string, stateName: string) {
+  const normalized = content.replace(/\s+/g, "");
+  const declarationStart = normalized.indexOf(`const[${stateName},`);
+  if (declarationStart < 0) {
+    return false;
+  }
+  const declarationSegment = normalized.slice(declarationStart, declarationStart + 260);
+  return declarationSegment.includes("]=useState") && declarationSegment.includes("(false)");
+}
+
+function findDeclarationIndex(content: string, declaration: string) {
+  let cursor = 0;
+  while (cursor < content.length) {
+    const index = content.indexOf(declaration, cursor);
+    if (index < 0) {
+      return -1;
+    }
+    if (hasIdentifierBoundary(content, index, declaration.length)) {
+      return index;
+    }
+    cursor = index + declaration.length;
+  }
+  return -1;
+}
+
+function hasIdentifierBoundary(content: string, startIndex: number, declarationLength: number) {
+  const previous = startIndex > 0 ? content[startIndex - 1] : "";
+  const next = content[startIndex + declarationLength] ?? "";
+  return !isIdentifierChar(previous) && !isIdentifierChar(next);
+}
+
+function isIdentifierChar(value: string) {
+  return Boolean(value) && (
+    value === "_" ||
+    value === "$" ||
+    value >= "0" && value <= "9" ||
+    value >= "A" && value <= "Z" ||
+    value >= "a" && value <= "z"
+  );
 }
 
 function findFunctionBodyBrace(content: string, declarationIndex: number) {
@@ -442,10 +480,6 @@ function findMatchingDelimiter(content: string, openIndex: number, open: string,
     }
   }
   return -1;
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractIfBlockContaining(content: string, anchor: string) {
