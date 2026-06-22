@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import type { AssistantEvidence } from "../src/domains/assistant/types";
+import type { StructuredTaskReviewSchema } from "../src/domains/assistant/task-review";
 import {
   isCentralizedVerifiedLegalEvidence,
   requiresCentralizedLegalVerification,
 } from "../src/domains/legal/legal-verification-intent";
 import {
+  attachGeneratedAnswerToStructuredReviewSchema,
   sanitizeTaskReviewEvidence,
   selectEvidenceForCentralizedLegalVerification,
   selectEvidenceForTaskReviewGeneration,
@@ -103,9 +105,99 @@ async function main() {
   assert.equal(sanitized[0]?.sourceUrl?.endsWith("#article"), true);
   checks.push("task-review evidence URLs redact OC query params before save");
 
+  assertGeneratedSchemaAttachment(checks);
+
   await assertSourceBoundaries(checks);
 
   console.log(JSON.stringify({ status: "passed", checks }, null, 2));
+}
+
+function assertGeneratedSchemaAttachment(checks: string[]) {
+  const baseSchema: StructuredTaskReviewSchema = {
+    answerMarkdown: "",
+    lawCitations: [],
+    checklistItems: [
+      {
+        label: "blocked item",
+        evidenceIds: [],
+        status: "blocked",
+      },
+      {
+        label: "todo item",
+        evidenceIds: ["evidence:1"],
+        status: "todo",
+      },
+      {
+        label: "needs review item",
+        evidenceIds: ["evidence:2"],
+        status: "needs_review",
+      },
+    ],
+    warnings: [],
+    evidenceConflicts: [],
+    confidence: {
+      score: 64,
+      reason: "preview confidence",
+    },
+    wikiCandidateDraft: {
+      allowed: true,
+      title: "Candidate title",
+      summary: "Preview summary",
+      tags: ["task-review", "existing"],
+      sourceEvidenceIds: ["source:1", "source:2"],
+    },
+  };
+
+  const generatedSchema = attachGeneratedAnswerToStructuredReviewSchema(
+    baseSchema,
+    "  Generated\n\nanswer markdown  ",
+    {
+      conclusion: "  Generated draft conclusion  ",
+      tags: ["generated", "existing", "task-review"],
+      scope: "task",
+    },
+    101.7,
+    "  Saved confidence reason  ",
+  );
+
+  assert.equal(generatedSchema.answerMarkdown, "Generated answer markdown");
+  checks.push("generated answer markdown is attached to structured review schema");
+
+  assert.equal(generatedSchema.confidence.score, 100);
+  assert.equal(generatedSchema.confidence.reason, "Saved confidence reason");
+  checks.push("saved confidence score and reason are attached to structured review schema");
+
+  assert.deepEqual(
+    generatedSchema.checklistItems.map((item) => item.status),
+    ["blocked", "needs_review", "needs_review"],
+  );
+  checks.push("generated structured review preserves blocked checklist items and marks reviewable items needs_review");
+
+  assert.deepEqual(generatedSchema.wikiCandidateDraft, {
+    allowed: true,
+    title: "Candidate title",
+    summary: "Generated draft conclusion",
+    tags: ["task-review", "existing", "generated"],
+    sourceEvidenceIds: ["source:1", "source:2"],
+  });
+  checks.push("generated draft summary augments wiki candidate summary, tags, and preserves source evidence ids");
+
+  const nullWikiSchema = attachGeneratedAnswerToStructuredReviewSchema(
+    {
+      ...baseSchema,
+      wikiCandidateDraft: null,
+    },
+    "Generated answer",
+    {
+      conclusion: "Generated draft conclusion",
+      tags: ["generated"],
+      scope: "task",
+    },
+    80,
+    "Saved confidence reason",
+  );
+  assert.equal(nullWikiSchema.wikiCandidateDraft, null);
+  checks.push("structured review keeps wikiCandidateDraft null when preview schema has no candidate");
 }
 
 async function assertSourceBoundaries(checks: string[]) {

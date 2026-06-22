@@ -113,6 +113,13 @@ export async function reviewTaskWithServerOrchestrator(
       evidenceDigest,
       officialLawDigest,
     });
+    const generatedStructuredReviewSchema = attachGeneratedAnswerToStructuredReviewSchema(
+      structuredReviewSchema,
+      generated.answer,
+      generated.suggestedDraftSummary,
+      savedRecord.confidenceScore,
+      savedRecord.confidenceReason,
+    );
 
     return {
       status: "generated" as const,
@@ -129,7 +136,7 @@ export async function reviewTaskWithServerOrchestrator(
       officialLawVerification: lawReport,
       evidence,
       evidenceReadiness,
-      structuredReviewSchema,
+      structuredReviewSchema: generatedStructuredReviewSchema,
       generation: {
         status: "generated" as const,
       },
@@ -492,6 +499,37 @@ function buildStructuredReviewPreview(
   };
 }
 
+export function attachGeneratedAnswerToStructuredReviewSchema(
+  schema: StructuredTaskReviewSchema,
+  answerMarkdown: string,
+  draftSummary: AssistantGenerateResult["suggestedDraftSummary"],
+  confidenceScore: number,
+  confidenceReason: string,
+): StructuredTaskReviewSchema {
+  const draftConclusion = trimText(draftSummary.conclusion, 500);
+
+  return {
+    ...schema,
+    answerMarkdown: trimText(answerMarkdown, 12000),
+    checklistItems: schema.checklistItems.map((item) => ({
+      ...item,
+      status: item.status === "blocked" ? "blocked" : "needs_review",
+    })),
+    confidence: {
+      score: clampConfidenceScore(confidenceScore),
+      reason: trimText(confidenceReason, 500),
+    },
+    wikiCandidateDraft: schema.wikiCandidateDraft
+      ? {
+          ...schema.wikiCandidateDraft,
+          summary: draftConclusion || schema.wikiCandidateDraft.summary,
+          tags: mergeWikiCandidateTags(schema.wikiCandidateDraft.tags, draftSummary.tags),
+          sourceEvidenceIds: schema.wikiCandidateDraft.sourceEvidenceIds,
+        }
+      : null,
+  };
+}
+
 function buildWarnings(
   lawReport: TaskReviewLegalVerificationReport,
   evidence: AssistantEvidence[],
@@ -526,4 +564,15 @@ function buildWarnings(
 function trimText(value: string, maxLength: number) {
   const text = value.replace(/\s+/g, " ").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function clampConfidenceScore(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function mergeWikiCandidateTags(existingTags: string[], generatedTags: string[]) {
+  return [...new Set([...existingTags, ...generatedTags].map((tag) => tag.trim()).filter(Boolean))].slice(0, 12);
 }
