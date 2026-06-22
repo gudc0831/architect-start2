@@ -214,6 +214,26 @@ function assertGeneratedSchemaAttachment(checks: string[]) {
   assert.equal(longGeneratedSchema.confidence.reason.length <= 500, true);
   assert.equal(longGeneratedSchema.wikiCandidateDraft?.summary.length, 500);
   checks.push("generated structured review hard-caps answer, confidence reason, and draft summary text");
+
+  const longFallbackSchema = attachGeneratedAnswerToStructuredReviewSchema(
+    {
+      ...baseSchema,
+      wikiCandidateDraft: {
+        ...baseSchema.wikiCandidateDraft!,
+        summary: "f".repeat(650),
+      },
+    },
+    "Generated answer",
+    {
+      conclusion: "   ",
+      tags: ["generated"],
+      scope: "task",
+    },
+    80,
+    "Saved confidence reason",
+  );
+  assert.equal(longFallbackSchema.wikiCandidateDraft?.summary.length, 500);
+  checks.push("generated structured review hard-caps fallback wiki candidate summary text");
 }
 
 async function assertSourceBoundaries(checks: string[]) {

@@ -522,7 +522,7 @@ export function attachGeneratedAnswerToStructuredReviewSchema(
     wikiCandidateDraft: schema.wikiCandidateDraft
       ? {
           ...schema.wikiCandidateDraft,
-          summary: draftConclusion || schema.wikiCandidateDraft.summary,
+          summary: draftConclusion || trimTextToMaxLength(schema.wikiCandidateDraft.summary, 500),
           tags: mergeWikiCandidateTags(schema.wikiCandidateDraft.tags, draftSummary.tags),
           sourceEvidenceIds: schema.wikiCandidateDraft.sourceEvidenceIds,
         }
