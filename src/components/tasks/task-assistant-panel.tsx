@@ -618,7 +618,7 @@ export function TaskAssistantPanel({
     setAnalysisCropSourceUrl("");
     setAnalysisCropSourceTitle("");
     setAnalysisCropCapturedAt("");
-    setExecutionMode(DEFAULT_ASSISTANT_EXECUTION_MODE);
+    setExecutionMode(defaultExecutionMode);
     setAssistantPolicy(null);
     setExternalEvidence([]);
     setHistoryExpanded(false);
@@ -644,7 +644,7 @@ export function TaskAssistantPanel({
 
     setQuestion(`${selectedTaskLabel} task의 검토 근거와 후속 조치를 정리해줘.`);
     setStatus(`${selectedTaskLabel} task가 선택되었습니다.`);
-  }, [selectedTask, selectedTaskLabel]);
+  }, [defaultExecutionMode, selectedTask, selectedTaskLabel]);
 
   useEffect(() => {
     if (!isOpen || !selectedTask) {
