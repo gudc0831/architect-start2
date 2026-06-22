@@ -21,6 +21,7 @@ type FetchVerifiedLegalSearchEvidenceInput = {
   apiSecret?: string;
   fetchImpl?: FetchImpl;
   timeoutMs?: number;
+  maxAttempts?: number;
 };
 
 type LegalSearchEffectiveDateRange = {
@@ -80,6 +81,10 @@ type SelectLegalSearchContextInput = {
   currentDate?: string;
 };
 
+const DEFAULT_LEGAL_SEARCH_TIMEOUT_MS = 8000;
+const DEFAULT_LEGAL_SEARCH_MAX_ATTEMPTS = 2;
+const MAX_LEGAL_SEARCH_MAX_ATTEMPTS = 3;
+
 export function selectLegalSearchContext(input: SelectLegalSearchContextInput): { jurisdiction?: string; effectiveDate: string } {
   const jurisdiction = extractJurisdiction([
     input.task?.locationRef,
@@ -121,51 +126,69 @@ export async function fetchVerifiedLegalSearchEvidence(
     };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 5000);
-  let response: Response;
-  try {
-    response = await (input.fetchImpl ?? fetch)(endpoint, {
-      method: "POST",
-      headers: withVerifiedLegalServiceHeaders({
-        "Content-Type": "application/json",
-        "x-verified-legal-evidence-api-secret": apiSecret,
-      }),
-      body: JSON.stringify({
-        query: input.question,
-        jurisdiction: normalizeOptionalText(input.jurisdiction),
-        effectiveDate: normalizeOptionalText(input.effectiveDate),
-        limit: 6,
-      }),
-      signal: controller.signal,
-    });
-  } catch {
-    return {
-      evidence: [],
-      warnings: [{
-        code: "VERIFIED_LEGAL_SEARCH_API_UNREACHABLE",
-        message: "Verified Legal Evidence search is unavailable; existing assistant evidence was used.",
-      }],
-    };
-  } finally {
-    clearTimeout(timeout);
+  const timeoutMs = resolveLegalSearchTimeoutMs(input.timeoutMs);
+  const maxAttempts = resolveLegalSearchMaxAttempts(input.maxAttempts);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await (input.fetchImpl ?? fetch)(endpoint, {
+        method: "POST",
+        headers: withVerifiedLegalServiceHeaders({
+          "Content-Type": "application/json",
+          "x-verified-legal-evidence-api-secret": apiSecret,
+        }),
+        body: JSON.stringify({
+          query: input.question,
+          jurisdiction: normalizeOptionalText(input.jurisdiction),
+          effectiveDate: normalizeOptionalText(input.effectiveDate),
+          limit: 6,
+        }),
+        signal: controller.signal,
+      });
+    } catch {
+      if (attempt < maxAttempts) {
+        continue;
+      }
+      return {
+        evidence: [],
+        warnings: [{
+          code: "VERIFIED_LEGAL_SEARCH_API_UNREACHABLE",
+          message: "Verified Legal Evidence search is unavailable; existing assistant evidence was used.",
+        }],
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      if (attempt < maxAttempts && isRetryableLegalSearchStatus(response.status)) {
+        continue;
+      }
+      return {
+        evidence: [],
+        warnings: [{
+          code: "VERIFIED_LEGAL_SEARCH_API_HTTP_ERROR",
+          message: `Verified Legal Evidence search returned ${response.status}.`,
+        }],
+      };
+    }
+
+    try {
+      return mapLegalSearchPayloadToEvidence(await response.json());
+    } catch {
+      return invalidLegalSearchResponse();
+    }
   }
 
-  if (!response.ok) {
-    return {
-      evidence: [],
-      warnings: [{
-        code: "VERIFIED_LEGAL_SEARCH_API_HTTP_ERROR",
-        message: `Verified Legal Evidence search returned ${response.status}.`,
-      }],
-    };
-  }
-
-  try {
-    return mapLegalSearchPayloadToEvidence(await response.json());
-  } catch {
-    return invalidLegalSearchResponse();
-  }
+  return {
+    evidence: [],
+    warnings: [{
+      code: "VERIFIED_LEGAL_SEARCH_API_UNREACHABLE",
+      message: "Verified Legal Evidence search is unavailable; existing assistant evidence was used.",
+    }],
+  };
 }
 
 export function mapLegalSearchPayloadToEvidence(payload: unknown): VerifiedLegalSearchResult {
@@ -197,6 +220,42 @@ function invalidLegalSearchResponse(): VerifiedLegalSearchResult {
 
 function resolveLegalEvidenceApiSecret(inputApiSecret: string | undefined): string {
   return inputApiSecret?.trim() || process.env.VERIFIED_LEGAL_EVIDENCE_API_SECRET?.trim() || "";
+}
+
+function resolveLegalSearchTimeoutMs(inputTimeoutMs: number | undefined): number {
+  if (typeof inputTimeoutMs === "number" && Number.isFinite(inputTimeoutMs) && inputTimeoutMs > 0) {
+    return Math.round(inputTimeoutMs);
+  }
+  return resolvePositiveInteger(
+    process.env.VERIFIED_LEGAL_SEARCH_TIMEOUT_MS,
+    DEFAULT_LEGAL_SEARCH_TIMEOUT_MS,
+    1000,
+    20000,
+  );
+}
+
+function resolveLegalSearchMaxAttempts(inputMaxAttempts: number | undefined): number {
+  if (typeof inputMaxAttempts === "number" && Number.isFinite(inputMaxAttempts) && inputMaxAttempts > 0) {
+    return Math.min(MAX_LEGAL_SEARCH_MAX_ATTEMPTS, Math.round(inputMaxAttempts));
+  }
+  return resolvePositiveInteger(
+    process.env.VERIFIED_LEGAL_SEARCH_MAX_ATTEMPTS,
+    DEFAULT_LEGAL_SEARCH_MAX_ATTEMPTS,
+    1,
+    MAX_LEGAL_SEARCH_MAX_ATTEMPTS,
+  );
+}
+
+function resolvePositiveInteger(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function isRetryableLegalSearchStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
 function mapLegalSearchHitToEvidence(value: unknown, index: number): AssistantEvidence | null {
