@@ -17,6 +17,7 @@ type LocalCodexUsageInput = {
   inputTokens?: number | null;
   outputTokens?: number | null;
   status?: "success" | "failed" | "cancelled";
+  requestHash?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -80,7 +81,7 @@ export async function createLocalCodexUsageEvent(input: LocalCodexUsageInput) {
     estimatedCostCents: 0,
     status: normalizeLocalUsageStatus(input.status),
     policyDecision: "allowed",
-    requestHash: null,
+    requestHash: normalizeRequestHash(input.requestHash),
     errorCode: null,
     metadata: sanitizeUsageMetadata(input.metadata ?? {}),
   });
@@ -104,16 +105,27 @@ export function buildMyAssistantUsageSummary(input: {
         serviceOutputTokens: 0,
         serviceTotalTokens: 0,
         serviceRunCount: 0,
+        localCodexInputTokens: 0,
+        localCodexOutputTokens: 0,
+        localCodexTotalTokens: 0,
+        localCodexRunCount: 0,
         failedRunCount: 0,
         workflowCounts: {},
       } satisfies MyAssistantUsageSummary["buckets"][number]);
     const inputTokens = normalizeTokenCount(event.inputTokens);
     const outputTokens = normalizeTokenCount(event.outputTokens);
 
-    current.serviceInputTokens += inputTokens;
-    current.serviceOutputTokens += outputTokens;
-    current.serviceTotalTokens += inputTokens + outputTokens;
-    current.serviceRunCount += 1;
+    if (isLocalCodexUsageEvent(event)) {
+      current.localCodexInputTokens += inputTokens;
+      current.localCodexOutputTokens += outputTokens;
+      current.localCodexTotalTokens += inputTokens + outputTokens;
+      current.localCodexRunCount += 1;
+    } else {
+      current.serviceInputTokens += inputTokens;
+      current.serviceOutputTokens += outputTokens;
+      current.serviceTotalTokens += inputTokens + outputTokens;
+      current.serviceRunCount += 1;
+    }
     if (event.status === "failed" || event.status === "blocked") {
       current.failedRunCount += 1;
     }
@@ -136,6 +148,10 @@ export function buildMyAssistantUsageSummary(input: {
       serviceOutputTokens: sumBuckets(orderedBuckets, "serviceOutputTokens"),
       serviceTotalTokens: sumBuckets(orderedBuckets, "serviceTotalTokens"),
       serviceRunCount: sumBuckets(orderedBuckets, "serviceRunCount"),
+      localCodexInputTokens: sumBuckets(orderedBuckets, "localCodexInputTokens"),
+      localCodexOutputTokens: sumBuckets(orderedBuckets, "localCodexOutputTokens"),
+      localCodexTotalTokens: sumBuckets(orderedBuckets, "localCodexTotalTokens"),
+      localCodexRunCount: sumBuckets(orderedBuckets, "localCodexRunCount"),
       failedRunCount: sumBuckets(orderedBuckets, "failedRunCount"),
     },
     buckets: orderedBuckets,
@@ -213,6 +229,25 @@ function normalizeRequiredShortId(value: string | null | undefined, fieldName: s
 
 function normalizeLocalUsageStatus(value: unknown): "success" | "failed" | "cancelled" {
   return value === "failed" || value === "cancelled" ? value : "success";
+}
+
+function normalizeRequestHash(value: string | null | undefined) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(normalized)) {
+    throw badRequest("requestHash is invalid", "ASSISTANT_USAGE_REQUEST_HASH_INVALID");
+  }
+  return normalized;
+}
+
+function isLocalCodexUsageEvent(event: AssistantUsageEvent) {
+  return event.executionMode === "local-chatgpt-codex" || event.provider === "local-codex";
 }
 
 function normalizeShortText(value: string, fallback: string) {

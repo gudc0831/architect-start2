@@ -5,7 +5,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
-import type { AssistantActionAuditRecord, AssistantActionAuditSummary } from "@/domains/assistant/saas-api-mode";
+import type {
+  AssistantActionAuditRecord,
+  AssistantActionAuditSummary,
+  AssistantUsageEvent,
+} from "@/domains/assistant/saas-api-mode";
 import type { AiSettingsPreference } from "@/domains/preferences/types";
 import { DEFAULT_AI_SETTINGS_PREFERENCE, sanitizeAiSettingsPreference } from "@/domains/preferences/types";
 
@@ -318,6 +322,14 @@ type LocalCodexBridgeResponse<T> =
       error: string;
     };
 
+type LocalCodexReadyEvent = {
+  type: "architect:page-local-runtime-ready";
+  bridgeSchemaVersion?: number;
+  extensionId?: string;
+  origin?: string;
+  injectedAt?: string;
+};
+
 type LocalCodexBridgeRequestOptions = {
   codexOptions?: {
     model?: string;
@@ -355,6 +367,25 @@ type ClosureGateItem = {
 };
 
 type SummarySaveStatus = "approved" | "deferred";
+
+type LocalCodexUsageRecordState =
+  | { status: "recording"; assistantRecordId: string }
+  | {
+      status: "recorded";
+      assistantRecordId: string;
+      eventId: string;
+      inputTokens: number;
+      outputTokens: number;
+      usageAvailable: boolean;
+    }
+  | {
+      status: "failed";
+      assistantRecordId: string;
+      message: string;
+      generated: AssistantOutput;
+      savedRecord: SavedAssistantRecord;
+      taskId: string;
+    };
 
 type TaskUpdateProposal = {
   nextStatus: TaskRecord["status"];
@@ -451,6 +482,7 @@ export function TaskAssistantPanel({
   const [externalToolName, setExternalToolName] = useState("");
   const [externalExcerpt, setExternalExcerpt] = useState("");
   const [localCodexHealth, setLocalCodexHealth] = useState<LocalCodexHealthReport | null>(null);
+  const [usageRecordState, setUsageRecordState] = useState<LocalCodexUsageRecordState | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
@@ -561,6 +593,7 @@ export function TaskAssistantPanel({
     setExternalToolName("");
     setExternalExcerpt("");
     setLocalCodexHealth(null);
+    setUsageRecordState(null);
     setHealthLoading(false);
     setRecordHistoryLoading(false);
     setBusy(false);
@@ -674,7 +707,15 @@ export function TaskAssistantPanel({
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
+    setUsageRecordState(null);
+    setStatus("근거를 조회하고 검토 의견을 생성하는 중입니다.");
     try {
+      const localCodexPreflight =
+        requestedExecutionMode === "local-codex" ? await assertLocalCodexReadyBeforeRetrieval() : null;
+      if (reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+
       if (requestedExecutionMode === "saas-api") {
         const review = await postTaskReviewJson({
           taskId: requestedTaskId,
@@ -765,6 +806,7 @@ export function TaskAssistantPanel({
               instruction: requestedInstruction,
               question: requestedQuestion,
               retrieval: verifiedRetrieval,
+              bridgeStatus: localCodexPreflight ?? undefined,
             })
           : generateArchitectReview({
               evidence: verifiedRetrieval.evidence,
@@ -804,17 +846,48 @@ export function TaskAssistantPanel({
       }
       setRecord(savedRecord);
       if (requestedExecutionMode === "local-codex") {
-        void recordLocalCodexUsage({
+        const usageRecordInput = {
           generated,
           savedRecord,
           taskId: retrieveForRecord.taskContext.taskId,
-        });
+        };
+        setUsageRecordState({ status: "recording", assistantRecordId: savedRecord.id });
+        try {
+          const usageEvent = await recordLocalCodexUsage(usageRecordInput);
+          if (reviewRequestSeqRef.current !== reviewRequestId) {
+            return;
+          }
+          setUsageRecordState({
+            status: "recorded",
+            assistantRecordId: savedRecord.id,
+            eventId: usageEvent.id,
+            inputTokens: usageEvent.inputTokens,
+            outputTokens: usageEvent.outputTokens,
+            usageAvailable: Boolean(generated.localCodexUsage?.usageAvailable),
+          });
+        } catch (usageError) {
+          if (reviewRequestSeqRef.current !== reviewRequestId) {
+            return;
+          }
+          setUsageRecordState({
+            status: "failed",
+            assistantRecordId: savedRecord.id,
+            message: errorMessage(usageError),
+            generated,
+            savedRecord,
+            taskId: retrieveForRecord.taskContext.taskId,
+          });
+        }
       }
       await refreshAssistantRecords(retrieveForRecord.taskContext.taskId, reviewRequestId);
       if (reviewRequestSeqRef.current !== reviewRequestId) {
         return;
       }
-      setStatus(`검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`);
+      setStatus(
+        requestedExecutionMode === "local-codex"
+          ? `검토 의견을 저장했습니다. 사용량 기록 상태를 확인하세요. 신뢰도 ${savedRecord.confidenceScore}%.`
+          : `검토 의견을 저장했습니다. 신뢰도 ${savedRecord.confidenceScore}%.`,
+      );
     } catch (error) {
       if (reviewRequestSeqRef.current === reviewRequestId) {
         setStatus(errorMessage(error));
@@ -881,6 +954,38 @@ export function TaskAssistantPanel({
         status: "failed",
         detail: errorMessage(error),
       };
+    }
+  }
+
+  async function retryLocalCodexUsageRecord() {
+    if (usageRecordState?.status !== "failed") {
+      return;
+    }
+
+    const failedState = usageRecordState;
+    setUsageRecordState({ status: "recording", assistantRecordId: failedState.assistantRecordId });
+
+    try {
+      const usageEvent = await recordLocalCodexUsage({
+        generated: failedState.generated,
+        savedRecord: failedState.savedRecord,
+        taskId: failedState.taskId,
+      });
+      setUsageRecordState({
+        status: "recorded",
+        assistantRecordId: failedState.assistantRecordId,
+        eventId: usageEvent.id,
+        inputTokens: usageEvent.inputTokens,
+        outputTokens: usageEvent.outputTokens,
+        usageAvailable: Boolean(failedState.generated.localCodexUsage?.usageAvailable),
+      });
+      setStatus("로컬 Codex 사용량 기록을 저장했습니다.");
+    } catch (error) {
+      setUsageRecordState({
+        ...failedState,
+        message: errorMessage(error),
+      });
+      setStatus(errorMessage(error));
     }
   }
 
@@ -1828,6 +1933,22 @@ export function TaskAssistantPanel({
                 <article className="task-assistant__answer">
                   <p>{output.answer}</p>
                 </article>
+                {usageRecordState ? (
+                  <div className="task-assistant__missing-evidence" role="status">
+                    <strong>Local Codex 사용량 기록</strong>
+                    <p>{formatLocalCodexUsageRecordState(usageRecordState)}</p>
+                    {usageRecordState.status === "failed" ? (
+                      <button
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() => void retryLocalCodexUsageRecord()}
+                        type="button"
+                      >
+                        사용량 기록 재시도
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 {summaryDraft ? (
                   <article className="task-assistant__summary task-assistant__closure">
                     <div className="task-assistant__section-header">
@@ -2077,6 +2198,19 @@ function fileAnalysisVerificationLabel(state: string) {
     default:
       return state || "미확인";
   }
+}
+
+function formatLocalCodexUsageRecordState(state: LocalCodexUsageRecordState) {
+  if (state.status === "recording") {
+    return "답변 저장 후 사용량을 서버 기록에 반영하는 중입니다.";
+  }
+  if (state.status === "recorded") {
+    const totalTokens = state.inputTokens + state.outputTokens;
+    return state.usageAvailable
+      ? `반영됨. input ${state.inputTokens.toLocaleString("ko-KR")}, output ${state.outputTokens.toLocaleString("ko-KR")}, total ${totalTokens.toLocaleString("ko-KR")} tokens.`
+      : `반영됨. Local Codex가 이번 실행의 토큰 메타데이터를 제공하지 않아 0 tokens로 기록했습니다. event ${state.eventId}`;
+  }
+  return `기록 실패: ${state.message}`;
 }
 
 function evidenceKindLabel(kind: AssistantEvidence["kind"]) {
@@ -2353,13 +2487,31 @@ function formatTaskReviewBlockedReason(review: TaskReviewResponse) {
   return [failures || review.reason, retry, readiness].filter(Boolean).join(" / ");
 }
 
+async function assertLocalCodexReadyBeforeRetrieval(): Promise<LocalCodexStatus> {
+  const readyEvent = await waitForLocalCodexPageBridge(1200);
+
+  try {
+    const status = await requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000);
+    if (!status.available) {
+      throw new Error(status.reason ?? "로컬 Codex 로그인을 사용할 수 없습니다.");
+    }
+    return status;
+  } catch (error) {
+    const readyDetail = readyEvent
+      ? `content script/native bridge 준비 상태: extension ${readyEvent.extensionId ?? "unknown"}, schema ${readyEvent.bridgeSchemaVersion ?? "unknown"}.`
+      : "content script/native bridge 준비 상태가 감지되지 않았습니다.";
+    throw new Error(`${readyDetail} ${errorMessage(error)}`);
+  }
+}
+
 async function generateLocalCodexReview(input: {
   instruction: string;
   question: string;
   retrieval: RetrieveResponse;
+  bridgeStatus?: LocalCodexStatus;
 }): Promise<AssistantOutput> {
   const [status, preference] = await Promise.all([
-    requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000),
+    input.bridgeStatus ? Promise.resolve(input.bridgeStatus) : requestLocalCodexBridge<LocalCodexStatus>("status", undefined, 5000),
     fetchAiSettingsPreference(),
   ]);
   if (!status.available) {
@@ -2483,11 +2635,12 @@ async function recordLocalCodexUsage(input: {
   generated: AssistantOutput;
   savedRecord: SavedAssistantRecord;
   taskId: string;
-}) {
+}): Promise<AssistantUsageEvent> {
   const usage = input.generated.localCodexUsage;
-  await postJson("/api/assistant/usage/me", {
+  return postJson<AssistantUsageEvent>("/api/assistant/usage/me", {
     taskId: input.taskId,
     assistantRecordId: input.savedRecord.id,
+    requestHash: `local-codex:${input.savedRecord.id}`,
     runtimeMode: "extension-native-bridge-in-page",
     model: usage?.model ?? DEFAULT_AI_SETTINGS_PREFERENCE.aiDefaultModel,
     inputTokens: usage?.usageAvailable ? usage.inputTokens : 0,
@@ -2842,6 +2995,36 @@ function requestLocalCodexBridge<T>(
       },
       window.location.origin,
     );
+  });
+}
+
+function waitForLocalCodexPageBridge(timeoutMs = 1200): Promise<LocalCodexReadyEvent | null> {
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage);
+      resolve(null);
+    }, timeoutMs);
+
+    function handleMessage(event: MessageEvent) {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+
+      const message = event.data as LocalCodexReadyEvent;
+      if (message?.type !== "architect:page-local-runtime-ready") {
+        return;
+      }
+
+      window.clearTimeout(timer);
+      window.removeEventListener("message", handleMessage);
+      resolve(message);
+    }
+
+    window.addEventListener("message", handleMessage);
   });
 }
 

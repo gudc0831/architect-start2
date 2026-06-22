@@ -48,7 +48,7 @@ export function UsageChart({ buckets }: UsageChartProps) {
           <i className={styles.legendService} /> SaaS
         </span>
         <span>
-          <i className={styles.legendDirect} /> 로컬 직접
+          <i className={styles.legendDirect} /> 로컬 기록
         </span>
         <span>
           <i className={styles.legendUncertain} /> 로컬 uncertain
@@ -62,6 +62,7 @@ function formatBucketTitle(bucket: CombinedUsageBucket) {
   return [
     bucket.bucket,
     `SaaS ${formatNumber(bucket.serviceTotalTokens)}`,
+    `local recorded ${formatNumber(bucket.serverLocalTotalTokens)}`,
     `local direct ${formatNumber(bucket.localDirectTotalTokens)}`,
     `local uncertain ${formatNumber(bucket.localUncertainTotalTokens)}`,
   ].join(" / ");

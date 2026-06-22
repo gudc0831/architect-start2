@@ -84,8 +84,32 @@ const serviceSummary = buildMyAssistantUsageSummary({
       metadata: { workflow: "daily-task-panel" },
       createdAt: "2026-06-02T12:00:00.000Z",
     },
+    {
+      id: "local-1",
+      projectId: "project",
+      taskId: "task",
+      profileId: "profile-a",
+      assistantRecordId: "record-local",
+      executionMode: "local-chatgpt-codex",
+      runtimeMode: "extension-native-bridge-in-page",
+      provider: "local-codex",
+      model: "gpt-5.5",
+      inputTokens: 12,
+      outputTokens: 8,
+      estimatedCostCents: 0,
+      status: "success",
+      policyDecision: "allowed",
+      requestHash: "local-codex:record-local",
+      errorCode: null,
+      metadata: { workflow: "daily-task-panel", usageAvailable: true },
+      createdAt: "2026-06-02T12:05:00.000Z",
+    },
   ],
 });
+assert.equal(serviceSummary.totals.serviceTotalTokens, 150);
+assert.equal(serviceSummary.totals.localCodexTotalTokens, 20);
+assert.equal(serviceSummary.buckets[0].serviceRunCount, 1);
+assert.equal(serviceSummary.buckets[0].localCodexRunCount, 1);
 const combined = buildCombinedUsageMetrics(serviceSummary, {
   schemaVersion: 2,
   scannedAt: "2026-06-05T00:00:00.000Z",
@@ -108,9 +132,10 @@ const combined = buildCombinedUsageMetrics(serviceSummary, {
   ],
 });
 assert.equal(combined.serviceTotalTokens, 150);
-assert.equal(combined.localDirectTotalTokens, 120);
+assert.equal(combined.serverLocalTotalTokens, 20);
+assert.equal(combined.localDirectTotalTokens, 140);
 assert.equal(combined.localUncertainTotalTokens, 80);
-assert.equal(combined.combinedCertainTotalTokens, 270);
+assert.equal(combined.combinedCertainTotalTokens, 290);
 
 const localCacheSummary = {
   schemaVersion: 2,
@@ -160,6 +185,7 @@ assert.match(preferenceRoute, /updateAiSettingsPreference\(user\.id/);
 const usageRoute = readSource("src/app/api/assistant/usage/me/route.ts");
 assert.match(usageRoute, /requireActiveUser/);
 assert.match(usageRoute, /getMyAssistantUsageSummary/);
+assert.match(usageRoute, /requestHash/);
 assert.doesNotMatch(usageRoute, /admin/);
 
 const clientSource = readSource("src/components/ai-settings/ai-settings-client.tsx");
@@ -194,6 +220,9 @@ const taskPanelSource = readSource("src/components/tasks/task-assistant-panel.ts
 assert.match(taskPanelSource, /codexOptions/);
 assert.match(taskPanelSource, /noHistory: preference\.aiLocalCodexNoHistory/);
 assert.match(taskPanelSource, /usageAvailable/);
+assert.match(taskPanelSource, /architect:page-local-runtime-ready/);
+assert.match(taskPanelSource, /assertLocalCodexReadyBeforeRetrieval/);
+assert.match(taskPanelSource, /requestHash: `local-codex:\$\{input\.savedRecord\.id\}`/);
 assert.match(taskPanelSource, /\.\.\.\(options\?\.codexOptions \? \{ codexOptions: options\.codexOptions \} : \{\}\)/);
 assert.doesNotMatch(taskPanelSource, /configPath/);
 
@@ -201,6 +230,8 @@ const usageService = readSource("src/use-cases/assistant-usage-service.ts");
 assert.doesNotMatch(usageService, /\b(prompt|transcript|raw log|session text|configPath|OPENAI_API_KEY)\b/i);
 assert.match(usageService, /ASSISTANT_USAGE_RECORD_FORBIDDEN/);
 assert.match(usageService, /MAX_LOCAL_CODEX_USAGE_TOKENS/);
+assert.match(usageService, /localCodexTotalTokens/);
+assert.match(usageService, /normalizeRequestHash/);
 
 const aiSettingsCss = readSource("src/components/ai-settings/ai-settings.module.css");
 assert.doesNotMatch(aiSettingsCss, /--theme-text-strong/);
@@ -209,6 +240,7 @@ const prismaSchema = readSource("prisma/schema.prisma");
 assert.match(prismaSchema, /aiLocalCodexNoHistory\s+Boolean/);
 assert.match(prismaSchema, /@map\("ai_local_codex_no_history"\)/);
 assert.match(prismaSchema, /@default\("gpt-5\.5"\)/);
+assert.match(prismaSchema, /requestHash\s+String\?\s+@map\("request_hash"\)/);
 
 const preferenceTypesSource = readSource("src/domains/preferences/types.ts");
 assert.match(preferenceTypesSource, /WINDOWS_CODEX_MODEL_OPTIONS/);
@@ -221,6 +253,11 @@ assert.match(migration, /ai_local_codex_no_history/);
 const modelCatalogMigration = readSource("prisma/migrations/202606110002_use_windows_codex_model_catalog_defaults/migration.sql");
 assert.match(modelCatalogMigration, /alter column "ai_default_model" set default 'gpt-5\.5'/);
 assert.match(modelCatalogMigration, /'gpt-5-codex', 'codex-default'/);
+
+const usageHashMigration = readSource("prisma/migrations/202606220001_add_assistant_usage_request_hash_unique/migration.sql");
+assert.match(usageHashMigration, /assistant_usage_events_request_hash_key/);
+assert.match(usageHashMigration, /request_hash/);
+assert.match(usageHashMigration, /execution_mode"\s+=\s+'local-chatgpt-codex'/);
 
 console.log("AI settings contract validation passed.");
 
