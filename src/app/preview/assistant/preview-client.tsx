@@ -54,6 +54,8 @@ export function AssistantPanelPreviewClient() {
   useLayoutEffect(() => {
     const originalFetch = window.fetch.bind(window);
     const records = [createHistoryRecord("preview-record-001")];
+    const reviewSessions: ReturnType<typeof createReviewSessionItem>[] = [];
+    const reviewSessionDetails = new Map<string, ReturnType<typeof createReviewSessionDetail>>();
 
     window.fetch = async (input, init) => {
       const requestUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
@@ -75,6 +77,42 @@ export function AssistantPanelPreviewClient() {
           confidenceScore: record.confidenceScore,
           confidenceReason: record.confidenceReason,
         });
+      }
+
+      if (url.pathname === "/api/assistant/review-sessions" && requestMethod(init) === "GET") {
+        return jsonResponse(reviewSessions);
+      }
+
+      if (url.pathname === "/api/assistant/review-sessions" && requestMethod(init) === "POST") {
+        const body = await readJsonBody(init);
+        const id = `preview-review-session-${reviewSessions.length + 1}`;
+        const item = createReviewSessionItem(id, body);
+        const detail = createReviewSessionDetail(item, body);
+        reviewSessions.unshift(item);
+        reviewSessionDetails.set(item.id, detail);
+        return jsonResponse(item);
+      }
+
+      if (url.pathname.startsWith("/api/assistant/review-sessions/")) {
+        const sessionId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+        const detail = reviewSessionDetails.get(sessionId);
+        if (!detail) {
+          return jsonResponse({ message: "preview review session not found" }, 404);
+        }
+        if (requestMethod(init) === "GET") {
+          return jsonResponse(detail);
+        }
+        if (requestMethod(init) === "PATCH") {
+          const body = await readJsonBody(init);
+          const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : detail.title;
+          const updated = { ...detail, title, updatedAt: previewNow };
+          reviewSessionDetails.set(sessionId, updated);
+          const index = reviewSessions.findIndex((item) => item.id === sessionId);
+          if (index >= 0) {
+            reviewSessions[index] = toReviewSessionItem(updated);
+          }
+          return jsonResponse(toReviewSessionItem(updated));
+        }
       }
 
       if (url.pathname === "/api/files") {
@@ -192,11 +230,73 @@ function requestMethod(init?: RequestInit) {
   return init?.method?.toUpperCase() ?? "GET";
 }
 
+async function readJsonBody(init?: RequestInit) {
+  if (typeof init?.body !== "string") {
+    return {} as Record<string, unknown>;
+  }
+  try {
+    return JSON.parse(init.body) as Record<string, unknown>;
+  } catch {
+    return {} as Record<string, unknown>;
+  }
+}
+
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify({ data }), {
     headers: { "content-type": "application/json" },
     status,
   });
+}
+
+function createReviewSessionItem(id: string, body: Record<string, unknown>) {
+  const answer = typeof body.answer === "string" ? body.answer : "샘플 검토 의견입니다.";
+  const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : "012 검토";
+  return {
+    id,
+    taskId: previewTask.id,
+    title,
+    question: typeof body.question === "string" ? body.question : "012 task의 검토 근거와 후속 조치를 정리해줘.",
+    answerPreview: answer.slice(0, 140),
+    verdict: null,
+    conclusionMayChange: false,
+    savedAt: previewNow,
+    updatedAt: previewNow,
+    savedRecord: {
+      id: `preview-record-${id}`,
+      taskId: previewTask.id,
+      confidenceScore: 84,
+      confidenceReason: "샘플 task 기록과 승인된 외부 근거가 함께 사용되었습니다.",
+      executionMode: "mock",
+      runtimeMode: "preview-assistant-panel",
+      draftSummary: isDraftSummary(body.draftSummary) ? body.draftSummary : null,
+      candidateState: "candidate",
+      createdAt: previewNow,
+      updatedAt: previewNow,
+    },
+  };
+}
+
+function createReviewSessionDetail(item: ReturnType<typeof createReviewSessionItem>, body: Record<string, unknown>) {
+  const evidence = Array.isArray(body.evidence) ? body.evidence : [];
+  return {
+    ...item,
+    answer: typeof body.answer === "string" ? body.answer : item.answerPreview,
+    savedEvidenceSnapshot: evidence,
+    latestEvidenceSnapshot: evidence,
+    savedWikiEvidence: [],
+    latestWikiEvidence: [],
+    savedHistoryEvidence: [],
+    latestHistoryEvidence: [],
+  };
+}
+
+function toReviewSessionItem(detail: ReturnType<typeof createReviewSessionDetail>) {
+  const { answer: _answer, savedEvidenceSnapshot: _savedEvidence, latestEvidenceSnapshot: _latestEvidence, savedWikiEvidence: _savedWiki, latestWikiEvidence: _latestWiki, savedHistoryEvidence: _savedHistory, latestHistoryEvidence: _latestHistory, ...item } = detail;
+  return item;
+}
+
+function isDraftSummary(value: unknown) {
+  return Boolean(value) && typeof value === "object";
 }
 
 function createHistoryRecord(id: string) {
