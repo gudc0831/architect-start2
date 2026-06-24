@@ -4,6 +4,12 @@ alter table "assistant_task_records"
   add column "review_restored_at" timestamptz(6),
   add column "review_restored_by" uuid;
 
+create unique index "assistant_task_records_project_id_id_key"
+  on "assistant_task_records" ("project_id", "id");
+
+create unique index "assistant_work_summary_drafts_project_id_id_key"
+  on "assistant_work_summary_drafts" ("project_id", "id");
+
 create table "project_wiki_items" (
   "id" uuid primary key default gen_random_uuid(),
   "project_id" uuid not null,
@@ -32,11 +38,11 @@ create table "project_wiki_items" (
   constraint "project_wiki_items_source_task_fkey"
     foreign key ("project_id", "source_task_id") references "tasks" ("project_id", "id") on delete cascade on update cascade,
   constraint "project_wiki_items_source_review_record_id_fkey"
-    foreign key ("source_review_record_id") references "assistant_task_records" ("id") on delete restrict on update cascade,
+    foreign key ("project_id", "source_review_record_id") references "assistant_task_records" ("project_id", "id") on delete restrict on update cascade,
   constraint "project_wiki_items_source_work_summary_draft_id_fkey"
-    foreign key ("source_work_summary_draft_id") references "assistant_work_summary_drafts" ("id") on delete restrict on update cascade,
+    foreign key ("project_id", "source_work_summary_draft_id") references "assistant_work_summary_drafts" ("project_id", "id") on delete restrict on update cascade,
   constraint "project_wiki_items_common_candidate_record_id_fkey"
-    foreign key ("common_candidate_record_id") references "assistant_task_records" ("id") on delete set null on update cascade,
+    foreign key ("project_id", "common_candidate_record_id") references "assistant_task_records" ("project_id", "id") on delete set null ("common_candidate_record_id") on update cascade,
   constraint "project_wiki_items_created_by_fkey"
     foreign key ("created_by") references "profiles" ("id") on delete restrict on update cascade,
   constraint "project_wiki_items_disabled_by_fkey"

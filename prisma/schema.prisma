@@ -460,6 +460,7 @@ model AssistantTaskRecord {
   projectWikiSourceItems ProjectWikiItem[] @relation("ProjectWikiSourceReviewRecord")
   projectWikiCommonCandidateItems ProjectWikiItem[] @relation("ProjectWikiCommonCandidateRecord")
 
+  @@unique([projectId, id])
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
   @@map("assistant_task_records")
@@ -687,6 +688,7 @@ model AssistantWorkSummaryDraft {
   profile        Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   projectWikiItems ProjectWikiItem[]
 
+  @@unique([projectId, id])
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
   @@map("assistant_work_summary_drafts")
@@ -717,9 +719,12 @@ model ProjectWikiItem {
   updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sourceTask               Task     @relation("ProjectWikiSourceTask", fields: [projectId, sourceTaskId], references: [projectId, id], onDelete: Cascade)
-  sourceReviewRecord       AssistantTaskRecord @relation("ProjectWikiSourceReviewRecord", fields: [sourceReviewRecordId], references: [id], onDelete: Restrict)
-  sourceWorkSummaryDraft   AssistantWorkSummaryDraft @relation(fields: [sourceWorkSummaryDraftId], references: [id], onDelete: Restrict)
-  commonCandidateRecord    AssistantTaskRecord? @relation("ProjectWikiCommonCandidateRecord", fields: [commonCandidateRecordId], references: [id], onDelete: SetNull)
+  sourceReviewRecord       AssistantTaskRecord @relation("ProjectWikiSourceReviewRecord", fields: [projectId, sourceReviewRecordId], references: [projectId, id], onDelete: Restrict)
+  sourceWorkSummaryDraft   AssistantWorkSummaryDraft @relation(fields: [projectId, sourceWorkSummaryDraftId], references: [projectId, id], onDelete: Restrict)
+  /// DB invariant: migration enforces the common candidate relation as a scoped composite FK
+  /// with ON DELETE SET NULL for common_candidate_record_id only. Prisma cannot express
+  /// column-list SetNull when projectId is shared and required, so NoAction mirrors the scope.
+  commonCandidateRecord    AssistantTaskRecord? @relation("ProjectWikiCommonCandidateRecord", fields: [projectId, commonCandidateRecordId], references: [projectId, id], onDelete: NoAction)
   creator                  Profile @relation("ProjectWikiCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
   disabler                 Profile? @relation("ProjectWikiDisabledBy", fields: [disabledBy], references: [id], onDelete: SetNull)
   restorer                 Profile? @relation("ProjectWikiRestoredBy", fields: [restoredBy], references: [id], onDelete: SetNull)

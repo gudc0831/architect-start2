@@ -57,11 +57,6 @@ export type SearchProjectWikiForAssistantInput = {
   excludedItemIds?: Iterable<string>;
 };
 
-export type RegisterProjectWikiResult = {
-  item: ProjectWikiItem;
-  actionLog: ProjectWikiActionLog;
-};
-
 export type SetProjectWikiStatusResult = {
   item: ProjectWikiItem;
   actionLog: ProjectWikiActionLog;
@@ -76,7 +71,7 @@ export interface ProjectWikiRepository {
   buildProjectWikiRegistrationPreview(
     input: BuildProjectWikiRegistrationPreviewInput,
   ): Promise<ProjectWikiRegistrationPreview>;
-  registerProjectWiki(input: RegisterProjectWikiInput): Promise<RegisterProjectWikiResult>;
+  registerProjectWiki(input: RegisterProjectWikiInput): Promise<ProjectWikiItem>;
   setProjectWikiStatus(input: SetProjectWikiStatusInput): Promise<SetProjectWikiStatusResult>;
   searchProjectWikiForAssistant(input: SearchProjectWikiForAssistantInput): Promise<ProjectWikiAssistantSearchResult[]>;
 }

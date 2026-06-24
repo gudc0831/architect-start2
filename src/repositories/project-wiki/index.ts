@@ -5,7 +5,6 @@ export type {
   ListProjectWikiItemsInput,
   ProjectWikiRepository,
   RegisterProjectWikiInput,
-  RegisterProjectWikiResult,
   SearchProjectWikiForAssistantInput,
   SetProjectWikiStatusInput,
   SetProjectWikiStatusResult,
