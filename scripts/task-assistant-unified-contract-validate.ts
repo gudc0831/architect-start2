@@ -546,7 +546,8 @@ function checkTaskAssistantBasicAdvancedMode() {
     removedAlwaysVisibleAdvancedHints.every((anchor) => !panelContent.includes(anchor)) &&
     removedNativeAdvancedTitles.every((anchor) => !panelContent.includes(anchor)) &&
     !/title=\{\s*assistantPolicy\?\.enabled/.test(panelContent) &&
-    panelContent.includes('aria-label="임시 검토 기록: 생성 후 자동저장된 최근 검토 기록입니다."') &&
+    panelContent.includes('aria-label="임시 검토 기록: 생성 후 자동저장된 최근 임시 검토 기록입니다."') &&
+    !panelContent.includes("최근 검토 기록") &&
     /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]::after\s*\{[\s\S]*content:\s*attr\(data-hint\)[\s\S]*opacity:\s*0[\s\S]*visibility:\s*hidden/.test(cssContent) &&
     /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:hover::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-visible::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-within::after\s*\{[\s\S]*opacity:\s*1[\s\S]*visibility:\s*visible/.test(cssContent);
 

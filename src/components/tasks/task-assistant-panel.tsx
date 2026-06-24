@@ -2143,7 +2143,7 @@ export function TaskAssistantPanel({
             {selectedTask ? (
               <section className="task-assistant__section">
                 <div
-                  aria-label="임시 검토 기록: 생성 후 자동저장된 최근 검토 기록입니다."
+                  aria-label="임시 검토 기록: 생성 후 자동저장된 최근 임시 검토 기록입니다."
                   className="task-assistant__section-header"
                   data-hint="생성 후 자동저장된 최근 임시 검토 기록입니다."
                   tabIndex={0}
