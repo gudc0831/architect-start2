@@ -404,6 +404,9 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
     panelContent.includes("ProjectWikiItem") &&
     panelContent.includes("/project-wiki/registration-preview") &&
     panelContent.includes("프로젝트wiki로 등록") &&
+    panelContent.includes("프로젝트wiki 등록 취소") &&
+    panelContent.includes("프로젝트wiki 등록 재시도") &&
+    panelContent.includes("canRetryProjectWikiRegistration") &&
     panelContent.includes("보완 메모 추가") &&
     panelContent.includes("프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.") &&
     panelContent.includes("commonizationCaution") &&

@@ -533,7 +533,7 @@ type ProjectWikiPreviewState =
   | { status: "loading" }
   | { status: "ready"; preview: ProjectWikiRegistrationPreview }
   | { status: "registered"; item: ProjectWikiItem }
-  | { status: "failed"; message: string };
+  | { status: "failed"; message: string; preview?: ProjectWikiRegistrationPreview | null };
 
 type AssistantWorkSummaryDraft = {
   id: string;
@@ -772,6 +772,15 @@ export function TaskAssistantPanel({
   const canRegisterProjectWiki = Boolean(
     projectWikiPreviewState.status === "ready" &&
       projectWikiPreviewState.preview.canRegister &&
+      projectWikiPreviewState.preview.draft &&
+      isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
+      projectWikiSource?.sourceReviewRecordId &&
+      (projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId) &&
+      !busy,
+  );
+  const canRetryProjectWikiRegistration = Boolean(
+    projectWikiPreviewState.status === "failed" &&
+      projectWikiPreviewState.preview?.canRegister &&
       projectWikiPreviewState.preview.draft &&
       isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
       projectWikiSource?.sourceReviewRecordId &&
@@ -1683,11 +1692,29 @@ export function TaskAssistantPanel({
       setStatus("프로젝트wiki로 등록했습니다. 공용wiki 후보 검토에도 올라갔습니다.");
     } catch (error) {
       const message = errorMessage(error);
-      setProjectWikiPreviewState({ status: "failed", message });
+      const retryPreview =
+        projectWikiPreviewState.status === "ready"
+          ? projectWikiPreviewState.preview
+          : projectWikiPreviewState.status === "failed"
+            ? projectWikiPreviewState.preview ?? null
+            : null;
+      setProjectWikiPreviewState({
+        status: "failed",
+        message,
+        preview: retryPreview,
+      });
       setStatus(message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function cancelProjectWikiRegistration() {
+    setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiSource(null);
+    setProjectWikiSupplementalNote("");
+    setProjectWikiNoteExpanded(false);
+    setStatus("프로젝트wiki 등록을 취소했습니다.");
   }
 
   function updateReviewSessionProjectWikiRegistered(item: ProjectWikiItem) {
@@ -2886,7 +2913,20 @@ export function TaskAssistantPanel({
                       <p className="task-assistant__hint">프로젝트wiki 등록 미리보기를 준비하는 중입니다.</p>
                     ) : null}
                     {projectWikiPreviewState.status === "failed" ? (
-                      <p className="task-assistant__diagnostic task-assistant__diagnostic--fail">{projectWikiPreviewState.message}</p>
+                      <div className="task-assistant__project-wiki-actions">
+                        <p className="task-assistant__diagnostic task-assistant__diagnostic--fail">{projectWikiPreviewState.message}</p>
+                        <button
+                          className="secondary-button"
+                          disabled={!canRetryProjectWikiRegistration}
+                          onClick={() => void registerProjectWiki()}
+                          type="button"
+                        >
+                          프로젝트wiki 등록 재시도
+                        </button>
+                        <button className="task-assistant__subtle-button" onClick={cancelProjectWikiRegistration} type="button">
+                          프로젝트wiki 등록 취소
+                        </button>
+                      </div>
                     ) : null}
                     {projectWikiPreviewState.status === "ready" ? (
                       <>
@@ -2951,6 +2991,9 @@ export function TaskAssistantPanel({
                               type="button"
                             >
                               프로젝트wiki로 등록
+                            </button>
+                            <button className="task-assistant__subtle-button" disabled={busy} onClick={cancelProjectWikiRegistration} type="button">
+                              프로젝트wiki 등록 취소
                             </button>
                           </div>
                         ) : null}
