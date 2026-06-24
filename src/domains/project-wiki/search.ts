@@ -1,3 +1,4 @@
+import type { AssistantEvidenceKind } from "@/domains/assistant/types";
 import type {
   ProjectWikiAssistantSearchResult,
   ProjectWikiItem,
@@ -136,6 +137,23 @@ export function resolveProjectWikiSourceBadge(input: ProjectWikiSourceBadgeInput
       return "외부";
     default:
       return "프로젝트 WIKI";
+  }
+}
+
+export function evidenceKindSourceBadge(kind: AssistantEvidenceKind): ProjectWikiSourceBadge {
+  switch (kind) {
+    case "project_wiki":
+      return "프로젝트 WIKI";
+    case "central_knowledge":
+      return "공용 WIKI";
+    case "task":
+      return "task";
+    case "project_document":
+      return "도면/문서";
+    case "regulation":
+      return "법규";
+    case "web_or_skill":
+      return "외부";
   }
 }
 

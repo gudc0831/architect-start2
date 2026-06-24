@@ -15,7 +15,7 @@ import { DEFAULT_AI_SETTINGS_PREFERENCE, sanitizeAiSettingsPreference } from "@/
 
 type AssistantEvidence = {
   id: string;
-  kind: "central_knowledge" | "regulation" | "task" | "project_document" | "web_or_skill";
+  kind: "central_knowledge" | "project_wiki" | "regulation" | "task" | "project_document" | "web_or_skill";
   priority: number;
   title: string;
   excerpt: string;
@@ -2665,18 +2665,18 @@ function formatLocalCodexUsageRecordState(state: LocalCodexUsageRecordState) {
 
 function evidenceKindLabel(kind: AssistantEvidence["kind"]) {
   switch (kind) {
+    case "project_wiki":
+      return "프로젝트 WIKI";
     case "central_knowledge":
-      return "중앙 지식";
-    case "regulation":
-      return "법규/기준";
+      return "공용 WIKI";
     case "task":
-      return "Task 기록";
+      return "task";
     case "project_document":
-      return "프로젝트 문서";
+      return "도면/문서";
+    case "regulation":
+      return "법규";
     case "web_or_skill":
-      return "외부 웹/스킬";
-    default:
-      return kind;
+      return "외부";
   }
 }
 
@@ -2685,7 +2685,7 @@ function formatUnavailableEvidenceKind(kind: string) {
 }
 
 function isAssistantEvidenceKind(kind: string): kind is AssistantEvidence["kind"] {
-  return kind === "central_knowledge" || kind === "regulation" || kind === "task" || kind === "project_document" || kind === "web_or_skill";
+  return kind === "central_knowledge" || kind === "project_wiki" || kind === "regulation" || kind === "task" || kind === "project_document" || kind === "web_or_skill";
 }
 
 function cleanupStateLabel(state: AssistantRecordHistoryItem["cleanupState"]) {

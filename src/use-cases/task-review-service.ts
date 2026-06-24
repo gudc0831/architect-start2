@@ -336,8 +336,8 @@ export async function getTaskReviewSessionDetail(
   const summary = toTaskReviewSessionSummary(record, titleBySessionId.get(record.id));
   const savedEvidenceSnapshot = record.evidence;
   const latestEvidenceSnapshot = latest.evidence;
-  const savedWikiEvidence = savedEvidenceSnapshot.filter((item) => item.kind === "central_knowledge");
-  const latestWikiEvidence = latestEvidenceSnapshot.filter((item) => item.kind === "central_knowledge");
+  const savedWikiEvidence = savedEvidenceSnapshot.filter(isWikiEvidence);
+  const latestWikiEvidence = latestEvidenceSnapshot.filter(isWikiEvidence);
   const savedHistoryEvidence = savedEvidenceSnapshot.filter(isHistoryEvidence);
   const latestHistoryEvidence = latestEvidenceSnapshot.filter(isHistoryEvidence);
 
@@ -726,6 +726,10 @@ async function readReviewSessionTitleOverrides(projectId: string) {
 
 function isHistoryEvidence(item: AssistantEvidence) {
   return item.id.startsWith("assistant-record:") || item.kind === "task";
+}
+
+function isWikiEvidence(item: AssistantEvidence) {
+  return item.kind === "project_wiki" || item.kind === "central_knowledge";
 }
 
 function buildStoredReviewLawReport(evidence: AssistantEvidence[]): TaskReviewLegalVerificationReport {

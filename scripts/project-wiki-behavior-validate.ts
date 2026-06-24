@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ProjectWikiItem } from "@/domains/project-wiki/types";
 import {
+  evidenceKindSourceBadge,
   matchesProjectWikiKeyword,
   normalizeProjectWikiKeyword,
   projectWikiStatusLabel,
@@ -51,6 +52,8 @@ assert.equal(matchesProjectWikiKeyword(item, "철골"), false);
 
 assert.equal(projectWikiStatusLabel("active"), "활성");
 assert.equal(projectWikiStatusLabel("disabled"), "비활성");
+assert.equal(evidenceKindSourceBadge("project_wiki"), "프로젝트 WIKI");
+assert.equal(evidenceKindSourceBadge("central_knowledge"), "공용 WIKI");
 assert.equal(suitabilityBadgeTone("recommended"), "green");
 assert.equal(suitabilityBadgeTone("caution"), "amber");
 assert.equal(suitabilityBadgeTone("not_recommended"), "gray");
@@ -68,6 +71,8 @@ assert.match(
 
 const localStore = read("src/repositories/project-wiki/local-store.ts");
 assert.match(localStore, /current\.status === input\.status[\s\S]*actionLog: null/);
+assert.match(localStore, /searchProjectWikiForAssistant[\s\S]*status:\s*"active"/);
+assert.match(postgresStore, /searchProjectWikiForAssistant[\s\S]*status:\s*"active"/);
 
 const contracts = read("src/repositories/project-wiki/contracts.ts");
 assert.match(contracts, /actionLog: ProjectWikiActionLog \| null;/);

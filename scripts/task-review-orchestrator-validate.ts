@@ -297,6 +297,15 @@ async function assertSourceBoundaries(checks: string[]) {
   assert.match(legalSearchService, /withVerifiedLegalServiceHeaders/);
   assert.match(assistantService, /legalEvidence:\s*evidence\.filter/);
   assert.match(assistantService, /projectContextChunks:\s*projectContextRetrieval\.chunks/);
+  assert.match(
+    assistantService,
+    /projectWikiRepository\.searchProjectWikiForAssistant\(\{ projectId: project\.id, query: retrievalQuery, limit: 4 \}\)/,
+  );
+  assert.match(
+    assistantService,
+    /projectWikiEvidence[\s\S]*approvedKnowledge[\s\S]*kind:\s*"project_wiki"[\s\S]*priority:\s*1[\s\S]*kind:\s*"central_knowledge"[\s\S]*priority:\s*2/,
+  );
+  assert.match(assistantService, /value === "project_wiki"/);
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
   checks.push("verified legal search is the default path and legacy bundle retrieval is explicit opt-in");

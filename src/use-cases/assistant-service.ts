@@ -35,6 +35,7 @@ import type { TaskRecord } from "@/domains/task/types";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
 import { fileRepository, taskRepository } from "@/repositories";
+import { projectWikiRepository } from "@/repositories/project-wiki";
 import { requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
 import { fetchVerifiedLegalSearchEvidence, selectLegalSearchContext } from "@/use-cases/verified-legal-search-service";
@@ -131,12 +132,13 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
     threadSummary: thread?.summary ?? "",
     recentMessages: recentThreadMessages,
   });
-  const [tasks, files, previousRecords, externalEvidence, approvedKnowledge] = await Promise.all([
+  const [tasks, files, previousRecords, externalEvidence, approvedKnowledge, projectWikiEvidence] = await Promise.all([
     taskRepository.listActiveTasks(project.id),
     fileRepository.listFilesByTask(task.id),
     assistantRepository.listRecordsByTask(task.id),
     assistantRepository.listExternalEvidenceByTask(task.id),
     assistantRepository.searchApprovedKnowledge({ projectId: project.id, query: retrievalQuery, limit: 4 }),
+    projectWikiRepository.searchProjectWikiForAssistant({ projectId: project.id, query: retrievalQuery, limit: 4 }),
   ]);
   const queryEmbedding = await createFileAnalysisQueryEmbedding(retrievalQuery);
   const projectFileAnalysisMatches = await fileRepository.searchFileAnalyses({
@@ -188,6 +190,7 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
       previousRecords,
       externalEvidence,
       approvedKnowledge,
+      projectWikiEvidence,
       regulationResults,
     }),
     verifiedLegalEvidence,
@@ -920,17 +923,32 @@ function buildEvidence(input: {
   previousRecords: Awaited<ReturnType<typeof assistantRepository.listRecordsByTask>>;
   externalEvidence: Awaited<ReturnType<typeof assistantRepository.listExternalEvidenceByTask>>;
   approvedKnowledge: Awaited<ReturnType<typeof assistantRepository.searchApprovedKnowledge>>;
+  projectWikiEvidence: Awaited<ReturnType<typeof projectWikiRepository.searchProjectWikiForAssistant>>;
   regulationResults: RegulationSearchResult[];
 }): AssistantEvidence[] {
-  const evidence: AssistantEvidence[] = input.approvedKnowledge.map((item) => ({
-    id: `approved-knowledge:${item.id}`,
-    kind: "central_knowledge",
-    priority: 1,
-    title: item.title,
-    excerpt: compactExcerpt([item.summary, item.bodyMarkdown]),
-    recordId: item.sourceRecordId,
-    confidenceWeight: 0.86,
-  }));
+  const evidence: AssistantEvidence[] = [
+    ...input.projectWikiEvidence.map((result) => {
+      const item = result.item;
+      return {
+        id: `project-wiki:${item.id}`,
+        kind: "project_wiki" as const,
+        priority: 1,
+        title: item.title,
+        excerpt: compactExcerpt([item.summary, item.bodyMarkdown, item.supplementalNote]),
+        recordId: item.id,
+        confidenceWeight: 0.84,
+      };
+    }),
+    ...input.approvedKnowledge.map((item) => ({
+      id: `approved-knowledge:${item.id}`,
+      kind: "central_knowledge" as const,
+      priority: 2,
+      title: item.title,
+      excerpt: compactExcerpt([item.summary, item.bodyMarkdown]),
+      recordId: item.sourceRecordId,
+      confidenceWeight: 0.86,
+    })),
+  ];
 
   for (const regulationResult of input.regulationResults) {
     evidence.push(regulationSearchResultToEvidence(regulationResult));
@@ -1270,6 +1288,7 @@ function sanitizeLegalLocatorValue(value: unknown): unknown {
 
 function normalizeEvidenceKind(value: unknown): AssistantEvidence["kind"] {
   return value === "central_knowledge" ||
+    value === "project_wiki" ||
     value === "regulation" ||
     value === "task" ||
     value === "project_document" ||

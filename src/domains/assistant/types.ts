@@ -3,6 +3,7 @@ import type { ExternalEvidenceRecord } from "@/domains/assistant/external-eviden
 
 export type AssistantEvidenceKind =
   | "central_knowledge"
+  | "project_wiki"
   | "regulation"
   | "task"
   | "project_document"
