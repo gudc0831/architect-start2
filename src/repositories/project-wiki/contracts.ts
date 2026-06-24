@@ -59,7 +59,7 @@ export type SearchProjectWikiForAssistantInput = {
 
 export type SetProjectWikiStatusResult = {
   item: ProjectWikiItem;
-  actionLog: ProjectWikiActionLog;
+  actionLog: ProjectWikiActionLog | null;
 };
 
 export interface ProjectWikiRepository {

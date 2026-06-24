@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ProjectWikiItem } from "@/domains/project-wiki/types";
 import {
   matchesProjectWikiKeyword,
@@ -6,6 +8,10 @@ import {
   projectWikiStatusLabel,
   suitabilityBadgeTone,
 } from "@/domains/project-wiki/search";
+
+function read(path: string) {
+  return readFileSync(join(process.cwd(), path), "utf8");
+}
 
 const item: ProjectWikiItem = {
   id: "project-wiki-item-1",
@@ -48,5 +54,36 @@ assert.equal(projectWikiStatusLabel("disabled"), "비활성");
 assert.equal(suitabilityBadgeTone("recommended"), "green");
 assert.equal(suitabilityBadgeTone("caution"), "amber");
 assert.equal(suitabilityBadgeTone("not_recommended"), "gray");
+
+const postgresStore = read("src/repositories/project-wiki/postgres-store.ts");
+assert.match(
+  postgresStore,
+  /catch \(error\) \{[\s\S]*isUniqueConstraintError\(error\)[\s\S]*findProjectWikiBySourceReviewRecord[\s\S]*return existing;/,
+);
+assert.match(postgresStore, /Prisma\.PrismaClientKnownRequestError[\s\S]*error\.code === "P2002"/);
+assert.match(
+  postgresStore,
+  /normalizeProjectWikiStatus\(current\.status\) === input\.status[\s\S]*actionLog: null/,
+);
+
+const localStore = read("src/repositories/project-wiki/local-store.ts");
+assert.match(localStore, /current\.status === input\.status[\s\S]*actionLog: null/);
+
+const contracts = read("src/repositories/project-wiki/contracts.ts");
+assert.match(contracts, /actionLog: ProjectWikiActionLog \| null;/);
+
+const jsonBody = read("src/app/api/projects/[projectId]/project-wiki/json-body.ts");
+assert.match(jsonBody, /readJsonBody\(request: Request\)/);
+assert.match(jsonBody, /badRequest\("Invalid JSON payload\.", "PROJECT_WIKI_PAYLOAD_INVALID"\)/);
+
+for (const routePath of [
+  "src/app/api/projects/[projectId]/project-wiki/route.ts",
+  "src/app/api/projects/[projectId]/project-wiki/registration-preview/route.ts",
+  "src/app/api/projects/[projectId]/project-wiki/[itemId]/status/route.ts",
+]) {
+  const route = read(routePath);
+  assert.match(route, /readJsonBody\(request\)/, `${routePath} must parse JSON through readJsonBody`);
+  assert.doesNotMatch(route, /request\.json\(/, `${routePath} must not call request.json directly`);
+}
 
 console.log("project-wiki-behavior-validate: ok");

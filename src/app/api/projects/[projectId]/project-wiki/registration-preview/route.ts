@@ -4,6 +4,7 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { buildProjectWikiRegistrationPreview } from "@/use-cases/project-wiki-service";
+import { readJsonBody } from "@/app/api/projects/[projectId]/project-wiki/json-body";
 
 export const runtime = "nodejs";
 export const preferredRegion = "icn1";
@@ -16,7 +17,7 @@ export async function POST(
     assertRequestIntegrity(request);
     const user = await requireUser();
     const { projectId } = await context.params;
-    const body = parseRegistrationPreviewBody(await request.json());
+    const body = parseRegistrationPreviewBody(await readJsonBody(request));
     const data = await buildProjectWikiRegistrationPreview({
       projectId,
       sourceReviewRecordId: body.sourceReviewRecordId,

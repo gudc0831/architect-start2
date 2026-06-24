@@ -198,6 +198,13 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
 
     const timestamp = nowIso();
     const current = projectWikiItems[index];
+    if (current.status === input.status) {
+      return {
+        item: attachActionLogs(current),
+        actionLog: null,
+      };
+    }
+
     const action = input.status === "disabled" ? "disable" : "restore";
     const item: ProjectWikiItem =
       input.status === "disabled"

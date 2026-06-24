@@ -181,133 +181,146 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
   }
 
   async registerProjectWiki(input: RegisterProjectWikiInput) {
-    return prisma.$transaction(async (tx) => {
-      const sourceReview = await tx.assistantTaskRecord.findFirst({
-        where: {
-          id: input.sourceReviewRecordId,
-          projectId: input.projectId,
-        },
-        include: {
-          task: { select: { title: true } },
-        },
-      });
-      if (!sourceReview || !isUsableTaskReviewRecord(sourceReview)) {
-        throw notFound("Source review record not found.", "PROJECT_WIKI_SOURCE_REVIEW_NOT_FOUND");
-      }
-      if (sourceReview.taskId !== input.sourceTaskId) {
-        throw badRequest("sourceTaskId does not match the source review record.", "PROJECT_WIKI_SOURCE_TASK_MISMATCH");
-      }
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const sourceReview = await tx.assistantTaskRecord.findFirst({
+          where: {
+            id: input.sourceReviewRecordId,
+            projectId: input.projectId,
+          },
+          include: {
+            task: { select: { title: true } },
+          },
+        });
+        if (!sourceReview || !isUsableTaskReviewRecord(sourceReview)) {
+          throw notFound("Source review record not found.", "PROJECT_WIKI_SOURCE_REVIEW_NOT_FOUND");
+        }
+        if (sourceReview.taskId !== input.sourceTaskId) {
+          throw badRequest("sourceTaskId does not match the source review record.", "PROJECT_WIKI_SOURCE_TASK_MISMATCH");
+        }
 
-      const approvedDraft = await tx.assistantWorkSummaryDraft.findFirst({
-        where: {
-          id: input.sourceWorkSummaryDraftId,
-          recordId: input.sourceReviewRecordId,
-          projectId: input.projectId,
-          status: "approved",
-        },
-      });
-      if (!approvedDraft) {
-        throw badRequest("Approved work summary draft is required.", "PROJECT_WIKI_APPROVED_DRAFT_REQUIRED");
-      }
+        const approvedDraft = await tx.assistantWorkSummaryDraft.findFirst({
+          where: {
+            id: input.sourceWorkSummaryDraftId,
+            recordId: input.sourceReviewRecordId,
+            projectId: input.projectId,
+            status: "approved",
+          },
+        });
+        if (!approvedDraft) {
+          throw badRequest("Approved work summary draft is required.", "PROJECT_WIKI_APPROVED_DRAFT_REQUIRED");
+        }
 
-      const existing = await tx.projectWikiItem.findFirst({
-        where: {
+        const existing = await tx.projectWikiItem.findFirst({
+          where: {
+            projectId: input.projectId,
+            sourceReviewRecordId: input.sourceReviewRecordId,
+          },
+          include: {
+            creator: { select: { displayName: true } },
+          },
+        });
+        if (existing) {
+          return toProjectWikiItem(existing);
+        }
+
+        const itemId = randomUUID();
+        const commonCandidate = await tx.assistantTaskRecord.create({
+          data: {
+            projectId: input.projectId,
+            taskId: sourceReview.taskId,
+            profileId: input.actorProfileId,
+            question: `Project WIKI common candidate: ${input.draft.title}`,
+            answer: input.draft.bodyMarkdown,
+            evidence: toInputJson(readEvidenceArray(sourceReview.evidence)),
+            confidenceScore: suitabilityConfidenceScore(input.draft.aiSuitabilityState),
+            confidenceReason: input.draft.aiSuitabilityReason,
+            executionMode: "unavailable",
+            runtimeMode: "project-wiki-registration",
+            draftSummary: toInputJson({
+              conclusion: input.draft.summary,
+              tags: input.draft.tags,
+              scope: "project-wiki-registration",
+              followUpAction: input.draft.commonizationCaution,
+            }),
+            cleanupState: "draft",
+            candidateState: "candidate",
+            metadata: toInputJson({
+              commonWikiCandidate: {
+                source: "project-wiki",
+                sourceProjectWikiStatus: "active",
+                sourceReviewRecordId: input.sourceReviewRecordId,
+                sourceWorkSummaryDraftId: input.sourceWorkSummaryDraftId,
+                sourceProjectWikiItemId: itemId,
+                supplementalNote: input.supplementalNote,
+                aiSuitabilityState: input.draft.aiSuitabilityState,
+                aiSuitabilityReason: input.draft.aiSuitabilityReason,
+                commonizationCaution: input.draft.commonizationCaution,
+                projectSpecificContext: true,
+              },
+            }),
+          },
+        });
+
+        const item = await tx.projectWikiItem.create({
+          data: {
+            id: itemId,
+            projectId: input.projectId,
+            sourceTaskId: sourceReview.taskId,
+            sourceReviewRecordId: sourceReview.id,
+            sourceWorkSummaryDraftId: approvedDraft.id,
+            commonCandidateRecordId: commonCandidate.id,
+            title: input.draft.title,
+            summary: input.draft.summary,
+            bodyMarkdown: input.draft.bodyMarkdown,
+            tags: toInputJson(input.draft.tags),
+            supplementalNote: input.supplementalNote,
+            aiSuitabilityState: input.draft.aiSuitabilityState,
+            aiSuitabilityReason: input.draft.aiSuitabilityReason,
+            commonizationCaution: input.draft.commonizationCaution,
+            status: "active",
+            createdBy: input.actorProfileId,
+          },
+          include: {
+            creator: { select: { displayName: true } },
+          },
+        });
+
+        const projectWikiState: ProjectWikiReviewState = {
+          registrationState: "registered",
+          suitabilityReason: input.draft.aiSuitabilityReason || null,
+          projectWikiItemId: item.id,
+          commonCandidateRecordId: commonCandidate.id,
+          workSummaryDraftId: approvedDraft.id,
+        };
+        const nextMetadata = mergeReviewSessionProjectWikiState(asAssistantRecordMetadata(sourceReview.metadata), projectWikiState);
+        const updateResult = await tx.assistantTaskRecord.updateMany({
+          where: {
+            id: sourceReview.id,
+            projectId: input.projectId,
+          },
+          data: {
+            metadata: toInputJson(nextMetadata),
+          },
+        });
+        if (updateResult.count !== 1) {
+          throw notFound("Source review record not found.", "PROJECT_WIKI_SOURCE_REVIEW_NOT_FOUND");
+        }
+
+        return toProjectWikiItem(item);
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        const existing = await this.findProjectWikiBySourceReviewRecord({
           projectId: input.projectId,
           sourceReviewRecordId: input.sourceReviewRecordId,
-        },
-        include: {
-          creator: { select: { displayName: true } },
-        },
-      });
-      if (existing) {
-        return toProjectWikiItem(existing);
+        });
+        if (existing) {
+          return existing;
+        }
       }
-
-      const itemId = randomUUID();
-      const commonCandidate = await tx.assistantTaskRecord.create({
-        data: {
-          projectId: input.projectId,
-          taskId: sourceReview.taskId,
-          profileId: input.actorProfileId,
-          question: `Project WIKI common candidate: ${input.draft.title}`,
-          answer: input.draft.bodyMarkdown,
-          evidence: toInputJson(readEvidenceArray(sourceReview.evidence)),
-          confidenceScore: suitabilityConfidenceScore(input.draft.aiSuitabilityState),
-          confidenceReason: input.draft.aiSuitabilityReason,
-          executionMode: "unavailable",
-          runtimeMode: "project-wiki-registration",
-          draftSummary: toInputJson({
-            conclusion: input.draft.summary,
-            tags: input.draft.tags,
-            scope: "project-wiki-registration",
-            followUpAction: input.draft.commonizationCaution,
-          }),
-          cleanupState: "draft",
-          candidateState: "candidate",
-          metadata: toInputJson({
-            commonWikiCandidate: {
-              source: "project-wiki",
-              sourceProjectWikiStatus: "active",
-              sourceReviewRecordId: input.sourceReviewRecordId,
-              sourceWorkSummaryDraftId: input.sourceWorkSummaryDraftId,
-              sourceProjectWikiItemId: itemId,
-              supplementalNote: input.supplementalNote,
-              aiSuitabilityState: input.draft.aiSuitabilityState,
-              aiSuitabilityReason: input.draft.aiSuitabilityReason,
-              commonizationCaution: input.draft.commonizationCaution,
-              projectSpecificContext: true,
-            },
-          }),
-        },
-      });
-
-      const item = await tx.projectWikiItem.create({
-        data: {
-          id: itemId,
-          projectId: input.projectId,
-          sourceTaskId: sourceReview.taskId,
-          sourceReviewRecordId: sourceReview.id,
-          sourceWorkSummaryDraftId: approvedDraft.id,
-          commonCandidateRecordId: commonCandidate.id,
-          title: input.draft.title,
-          summary: input.draft.summary,
-          bodyMarkdown: input.draft.bodyMarkdown,
-          tags: toInputJson(input.draft.tags),
-          supplementalNote: input.supplementalNote,
-          aiSuitabilityState: input.draft.aiSuitabilityState,
-          aiSuitabilityReason: input.draft.aiSuitabilityReason,
-          commonizationCaution: input.draft.commonizationCaution,
-          status: "active",
-          createdBy: input.actorProfileId,
-        },
-        include: {
-          creator: { select: { displayName: true } },
-        },
-      });
-
-      const projectWikiState: ProjectWikiReviewState = {
-        registrationState: "registered",
-        suitabilityReason: input.draft.aiSuitabilityReason || null,
-        projectWikiItemId: item.id,
-        commonCandidateRecordId: commonCandidate.id,
-        workSummaryDraftId: approvedDraft.id,
-      };
-      const nextMetadata = mergeReviewSessionProjectWikiState(asAssistantRecordMetadata(sourceReview.metadata), projectWikiState);
-      const updateResult = await tx.assistantTaskRecord.updateMany({
-        where: {
-          id: sourceReview.id,
-          projectId: input.projectId,
-        },
-        data: {
-          metadata: toInputJson(nextMetadata),
-        },
-      });
-      if (updateResult.count !== 1) {
-        throw notFound("Source review record not found.", "PROJECT_WIKI_SOURCE_REVIEW_NOT_FOUND");
-      }
-
-      return toProjectWikiItem(item);
-    });
+      throw error;
+    }
   }
 
   async setProjectWikiStatus(input: SetProjectWikiStatusInput) {
@@ -317,9 +330,22 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
           id: input.itemId,
           projectId: input.projectId,
         },
+        include: {
+          creator: { select: { displayName: true } },
+          actionLogs: {
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: 50,
+          },
+        },
       });
       if (!current) {
         throw notFound("Project WIKI item not found.", "PROJECT_WIKI_ITEM_NOT_FOUND");
+      }
+      if (normalizeProjectWikiStatus(current.status) === input.status) {
+        return {
+          item: toProjectWikiItemWithLogs(current),
+          actionLog: null,
+        };
       }
 
       const action = input.status === "disabled" ? "disable" : "restore";
@@ -557,6 +583,10 @@ function normalizeLimit(value: number | undefined, fallback: number, max: number
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
