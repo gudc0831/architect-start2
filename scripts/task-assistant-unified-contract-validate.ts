@@ -226,8 +226,10 @@ function checkTemporaryReviewAutoSaveContract() {
     !/!record\.reviewDeletedAt/.test(includingDeletedBody);
   const limitsNewestSix = /\.slice\(0,\s*6\)/.test(listBody);
   const exposesProjectWikiState = typeContent.includes("ProjectWikiReviewState") &&
+    typeContent.includes("projectWikiState?: ProjectWikiReviewState") &&
     typeContent.includes("registrationState") &&
     summaryBody.includes("projectWikiState") &&
+    summaryBody.includes("taskReview?.projectWikiState ?? defaultProjectWikiReviewState()") &&
     summaryBody.includes("defaultProjectWikiReviewState");
 
   addCheck(
@@ -257,10 +259,38 @@ function checkReviewSessionDeleteRestoreContract() {
 
   const repositoryFiles = [contractContent, postgresContent, localContent, indexContent];
   const repositoryMethodsExist = repositoryFiles.every((content) =>
-    ["softDeleteReviewSession", "restoreReviewSession", "updateReviewSessionMetadata"].every((methodName) =>
+    ["softDeleteReviewSession", "restoreReviewSession", "updateReviewSessionProjectWikiState"].every((methodName) =>
       content.includes(methodName),
     ),
   );
+  const updateProjectWikiBodies = [
+    sourceWindowAround(postgresContent, "async updateReviewSessionProjectWikiState", 200, 1600),
+    sourceWindowAround(localContent, "async updateReviewSessionProjectWikiState", 200, 1600),
+  ];
+  const mergeHelperBodies = [
+    extractFunctionBody(postgresContent, "mergeReviewSessionProjectWikiState"),
+    extractFunctionBody(localContent, "mergeReviewSessionProjectWikiState"),
+  ];
+  const narrowProjectWikiStateMethod = contractContent.includes("ProjectWikiReviewState") &&
+    /updateReviewSessionProjectWikiState\s*\(\s*input\s*:\s*\{[\s\S]*projectWikiState\s*:\s*ProjectWikiReviewState[\s\S]*\}/.test(contractContent) &&
+    !contractContent.includes("updateReviewSessionMetadata");
+  const mergeSafeProjectWikiStateUpdate = updateProjectWikiBodies.every((body) =>
+    body.includes("input.recordId") &&
+    body.includes("input.projectId") &&
+    body.includes("mergeReviewSessionProjectWikiState") &&
+    body.includes("input.projectWikiState"),
+  ) &&
+    mergeHelperBodies.every((body) =>
+      body.includes('taskReview?.source !== "assistant-task-review"') &&
+      body.includes("...metadata") &&
+      body.includes("...taskReview") &&
+      body.includes("projectWikiState"),
+    );
+  const noWholeObjectMetadataReplacement = !repositoryFiles.some((content) => content.includes("updateReviewSessionMetadata")) &&
+    !updateProjectWikiBodies.some((content) =>
+      /metadata\s*:\s*input\.metadata/.test(content) ||
+      /metadata\s*:\s*toInputJson\(input\.metadata\)/.test(content),
+    );
   const postgresScopesUpdates = /reviewDeletedAt\s*:\s*new Date\(\)/.test(postgresContent) &&
     /reviewDeletedBy\s*:\s*input\.profileId/.test(postgresContent) &&
     /reviewDeletedAt\s*:\s*null/.test(postgresContent) &&
@@ -283,10 +313,24 @@ function checkReviewSessionDeleteRestoreContract() {
 
   addCheck(
     "review session delete and restore API contract",
-    repositoryMethodsExist && postgresScopesUpdates && serviceMethodsExist && deleteRouteExists && restoreRouteExists,
-    repositoryMethodsExist && postgresScopesUpdates && serviceMethodsExist && deleteRouteExists && restoreRouteExists
-      ? "repository methods, scoped store updates, service methods, DELETE route, and restore route exist"
-      : "missing repository soft-delete/restore/metadata methods, scoped update fields, service methods, DELETE route, or restore route",
+    repositoryMethodsExist &&
+      narrowProjectWikiStateMethod &&
+      mergeSafeProjectWikiStateUpdate &&
+      noWholeObjectMetadataReplacement &&
+      postgresScopesUpdates &&
+      serviceMethodsExist &&
+      deleteRouteExists &&
+      restoreRouteExists,
+    repositoryMethodsExist &&
+      narrowProjectWikiStateMethod &&
+      mergeSafeProjectWikiStateUpdate &&
+      noWholeObjectMetadataReplacement &&
+      postgresScopesUpdates &&
+      serviceMethodsExist &&
+      deleteRouteExists &&
+      restoreRouteExists
+      ? "repository methods, narrow merge-safe projectWikiState update, scoped store updates, service methods, DELETE route, and restore route exist"
+      : "missing repository soft-delete/restore/projectWikiState methods, narrow merge-safe metadata update, scoped update fields, service methods, DELETE route, or restore route",
   );
 }
 

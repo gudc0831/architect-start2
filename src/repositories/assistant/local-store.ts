@@ -18,6 +18,7 @@ import type {
   AssistantThreadMessage,
   AssistantThreadSummaryProvenance,
   AssistantWorkSummaryDraft,
+  ProjectWikiReviewState,
 } from "@/domains/assistant/types";
 import type { AssistantAuditEvent, AssistantRunPolicy, AssistantUsageEvent } from "@/domains/assistant/saas-api-mode";
 import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
@@ -108,6 +109,24 @@ function normalizeRecord(record: AssistantRecord): AssistantRecord {
     reviewDeletedBy: record.reviewDeletedBy ?? null,
     reviewRestoredAt: record.reviewRestoredAt ?? null,
     reviewRestoredBy: record.reviewRestoredBy ?? null,
+  };
+}
+
+function mergeReviewSessionProjectWikiState(
+  metadata: AssistantRecordMetadata,
+  projectWikiState: ProjectWikiReviewState,
+): AssistantRecordMetadata {
+  const taskReview = metadata.taskReview;
+  if (taskReview?.source !== "assistant-task-review") {
+    throw new Error("Review session not found");
+  }
+
+  return {
+    ...metadata,
+    taskReview: {
+      ...taskReview,
+      projectWikiState,
+    },
   };
 }
 
@@ -361,10 +380,10 @@ class LocalAssistantRepository implements AssistantRepository {
     return nextRecord;
   }
 
-  async updateReviewSessionMetadata(input: {
+  async updateReviewSessionProjectWikiState(input: {
     projectId: string;
     recordId: string;
-    metadata: AssistantRecordMetadata;
+    projectWikiState: ProjectWikiReviewState;
   }) {
     const store = await readStore();
     const timestamp = nowIso();
@@ -374,7 +393,7 @@ class LocalAssistantRepository implements AssistantRepository {
     }
     const nextRecord: AssistantRecord = {
       ...record,
-      metadata: input.metadata,
+      metadata: mergeReviewSessionProjectWikiState(record.metadata, input.projectWikiState),
       updatedAt: timestamp,
     };
 

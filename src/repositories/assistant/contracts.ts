@@ -3,6 +3,7 @@ import type {
   AssistantEvidence,
   AssistantExecutionMode,
   AssistantRecordMetadata,
+  ProjectWikiReviewState,
   ApprovedKnowledgeItem,
   AssistantCandidateState,
   AssistantRecord,
@@ -199,10 +200,10 @@ export interface AssistantRepository {
     recordId: string;
     profileId: string;
   }): Promise<AssistantRecord>;
-  updateReviewSessionMetadata(input: {
+  updateReviewSessionProjectWikiState(input: {
     projectId: string;
     recordId: string;
-    metadata: AssistantRecordMetadata;
+    projectWikiState: ProjectWikiReviewState;
   }): Promise<AssistantRecord>;
   createExternalEvidence(input: CreateExternalEvidenceInput): Promise<ExternalEvidenceRecord>;
   saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput): Promise<AssistantWorkSummaryDraft>;

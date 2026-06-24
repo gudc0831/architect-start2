@@ -385,25 +385,25 @@ export async function renameTaskReviewSession(input: {
 export async function deleteTaskReviewSession(sessionId: string, user: AuthUser) {
   const record = await findSavedTaskReviewRecordIncludingDeleted(sessionId);
   await requireTaskInSelectedProject(record.taskId);
-  return toTaskReviewSessionSummary(
-    await assistantRepository.softDeleteReviewSession({
-      projectId: record.projectId,
-      recordId: record.id,
-      profileId: user.id,
-    }),
-  );
+  const titleBySessionId = await readReviewSessionTitleOverrides(record.projectId);
+  const deletedRecord = await assistantRepository.softDeleteReviewSession({
+    projectId: record.projectId,
+    recordId: record.id,
+    profileId: user.id,
+  });
+  return toTaskReviewSessionSummary(deletedRecord, titleBySessionId.get(record.id));
 }
 
 export async function restoreTaskReviewSession(sessionId: string, user: AuthUser) {
   const record = await findSavedTaskReviewRecordIncludingDeleted(sessionId);
   await requireTaskInSelectedProject(record.taskId);
-  return toTaskReviewSessionSummary(
-    await assistantRepository.restoreReviewSession({
-      projectId: record.projectId,
-      recordId: record.id,
-      profileId: user.id,
-    }),
-  );
+  const titleBySessionId = await readReviewSessionTitleOverrides(record.projectId);
+  const restoredRecord = await assistantRepository.restoreReviewSession({
+    projectId: record.projectId,
+    recordId: record.id,
+    profileId: user.id,
+  });
+  return toTaskReviewSessionSummary(restoredRecord, titleBySessionId.get(record.id));
 }
 
 function digestJson(value: unknown) {
@@ -657,7 +657,7 @@ function toTaskReviewSessionSummary(record: AssistantRecord, titleOverride?: str
     answerPreview: trimText(record.answer.replace(/\s+/g, " "), 160),
     verdict: readStoredVerdict(record),
     conclusionMayChange: taskReview?.conclusionMayChange ?? false,
-    projectWikiState: defaultProjectWikiReviewState(),
+    projectWikiState: taskReview?.projectWikiState ?? defaultProjectWikiReviewState(),
     savedAt: record.createdAt,
     updatedAt: record.updatedAt,
     savedRecord: toTaskReviewSavedRecord(record),

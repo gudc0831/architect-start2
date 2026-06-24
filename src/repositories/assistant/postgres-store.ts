@@ -21,6 +21,7 @@ import type {
   AssistantThreadMessage,
   AssistantThreadSummaryProvenance,
   AssistantWorkSummaryDraft,
+  ProjectWikiReviewState,
 } from "@/domains/assistant/types";
 import type {
   AssistantAuditEvent,
@@ -220,6 +221,24 @@ function asRecordMetadata(value: Prisma.JsonValue): Record<string, unknown> {
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function mergeReviewSessionProjectWikiState(
+  metadata: AssistantRecordMetadata,
+  projectWikiState: ProjectWikiReviewState,
+): AssistantRecordMetadata {
+  const taskReview = metadata.taskReview;
+  if (taskReview?.source !== "assistant-task-review") {
+    throw new Error("Review session not found");
+  }
+
+  return {
+    ...metadata,
+    taskReview: {
+      ...taskReview,
+      projectWikiState,
+    },
+  };
 }
 
 function toRecord(record: PrismaAssistantRecord): AssistantRecord {
@@ -647,18 +666,28 @@ class PostgresAssistantRepository implements AssistantRepository {
     return toRecord(record);
   }
 
-  async updateReviewSessionMetadata(input: {
+  async updateReviewSessionProjectWikiState(input: {
     projectId: string;
     recordId: string;
-    metadata: AssistantRecordMetadata;
+    projectWikiState: ProjectWikiReviewState;
   }) {
+    const current = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    if (!current) {
+      throw new Error("Review session not found");
+    }
+    const nextMetadata = mergeReviewSessionProjectWikiState(toRecord(current).metadata, input.projectWikiState);
     const updateResult = await prisma.assistantTaskRecord.updateMany({
       where: {
         id: input.recordId,
         projectId: input.projectId,
       },
       data: {
-        metadata: toInputJson(input.metadata),
+        metadata: toInputJson(nextMetadata),
       },
     });
     if (updateResult.count !== 1) {

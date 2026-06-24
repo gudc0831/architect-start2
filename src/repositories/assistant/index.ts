@@ -56,8 +56,8 @@ export const assistantRepository: AssistantRepository = {
   restoreReviewSession(input) {
     return getAssistantRepository().restoreReviewSession(input);
   },
-  updateReviewSessionMetadata(input) {
-    return getAssistantRepository().updateReviewSessionMetadata(input);
+  updateReviewSessionProjectWikiState(input) {
+    return getAssistantRepository().updateReviewSessionProjectWikiState(input);
   },
   createExternalEvidence(input) {
     return getAssistantRepository().createExternalEvidence(input);

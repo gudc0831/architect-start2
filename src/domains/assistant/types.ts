@@ -242,6 +242,7 @@ export type AssistantRecordMetadata = {
     reviewInstructionVersion?: number;
     candidateFactsMissing?: AssistantLegalTaskFactField[];
     conclusionMayChange?: boolean;
+    projectWikiState?: ProjectWikiReviewState;
     legalApplicability?: AssistantLegalApplicabilityBundle;
   };
 };
