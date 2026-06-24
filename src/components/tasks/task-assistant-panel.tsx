@@ -536,6 +536,7 @@ export function TaskAssistantPanel({
   const [record, setRecord] = useState<SavedAssistantRecord | null>(null);
   const [summaryDraft, setSummaryDraft] = useState<DraftSummary | null>(null);
   const [summaryTagsInput, setSummaryTagsInput] = useState("");
+  const [summaryEditorExpanded, setSummaryEditorExpanded] = useState(false);
   const [closureAcknowledged, setClosureAcknowledged] = useState(false);
   const [summarySaveState, setSummarySaveState] = useState<SummarySaveStatus | null>(null);
   const [proposalStatus, setProposalStatus] = useState("");
@@ -741,6 +742,7 @@ export function TaskAssistantPanel({
     setRecord(null);
     setSummaryDraft(null);
     setSummaryTagsInput("");
+    setSummaryEditorExpanded(false);
     setClosureAcknowledged(false);
     setSummarySaveState(null);
     setProposalStatus("");
@@ -908,6 +910,7 @@ export function TaskAssistantPanel({
     setPendingTaskReview(null);
     setSelectedReviewSession(null);
     setEvidenceExpanded(false);
+    setSummaryEditorExpanded(false);
     setSummarySaveState(null);
     setProposalStatus("");
     setTaskUpdateApplied(false);
@@ -969,6 +972,7 @@ export function TaskAssistantPanel({
         setOutput(generatedOutput);
         setSummaryDraft(generatedOutput.draftSummary);
         setSummaryTagsInput(generatedOutput.draftSummary.tags.join(", "));
+        setSummaryEditorExpanded(false);
         setClosureAcknowledged(false);
         setPendingTaskReview(review);
         setRecord(null);
@@ -1030,6 +1034,7 @@ export function TaskAssistantPanel({
       setOutput(generated);
       setSummaryDraft(generated.draftSummary);
       setSummaryTagsInput(generated.draftSummary.tags.join(", "));
+      setSummaryEditorExpanded(false);
       setClosureAcknowledged(false);
       setRecord(null);
       setStatus("검토 의견을 생성했습니다. 검토기록저장을 눌러 최근 기록에 남기세요.");
@@ -1640,6 +1645,7 @@ export function TaskAssistantPanel({
     setRecord(null);
     setSummaryDraft(null);
     setSummaryTagsInput("");
+    setSummaryEditorExpanded(false);
     setClosureAcknowledged(false);
     setSummarySaveState(null);
     setProposalStatus("");
@@ -1821,7 +1827,7 @@ export function TaskAssistantPanel({
                           저장 근거 {selectedReviewSession.savedEvidenceSnapshot.length} / 최신 근거 {selectedReviewSession.latestEvidenceSnapshot.length}
                         </small>
                         <p>질문: {selectedReviewSession.question}</p>
-                        <p>{selectedReviewSession.answer}</p>
+                        <p>{formatVisibleReviewAnswer(selectedReviewSession.answer)}</p>
                       </article>
                     ) : null}
                   </>
@@ -2358,7 +2364,7 @@ export function TaskAssistantPanel({
                   {record ? <span>{record.confidenceScore}%</span> : null}
                 </div>
                 <article className="task-assistant__answer">
-                  <p>{output.answer}</p>
+                  <p>{formatVisibleReviewAnswer(output.answer)}</p>
                 </article>
                 {usageRecordState ? (
                   <div className="task-assistant__missing-evidence" role="status">
@@ -2380,73 +2386,95 @@ export function TaskAssistantPanel({
                   <article className="task-assistant__summary task-assistant__closure">
                     <div className="task-assistant__section-header">
                       <h4>작업 기록 정리 초안</h4>
-                      <span>{approvalBlockers.length === 0 ? "승인 가능" : `${approvalBlockers.length}개 확인 필요`}</span>
-                    </div>
-                    <label className="task-assistant__field task-assistant__field--plain">
-                      <span>결론</span>
-                      <textarea
-                        disabled={busy}
-                        onChange={(event) => updateSummaryDraft("conclusion", event.target.value)}
-                        rows={3}
-                        value={summaryDraft.conclusion}
-                      />
-                    </label>
-                    <label className="task-assistant__field task-assistant__field--plain">
-                      <span>태그</span>
-                      <input
-                        disabled={busy}
-                        onChange={(event) => {
-                          setSummaryTagsInput(event.target.value);
-                          setClosureAcknowledged(false);
-                          setSummarySaveState(null);
-                          setProposalStatus("");
-                          setTaskUpdateApplied(false);
-                          setFollowUpTaskCreated(false);
-                        }}
-                        value={summaryTagsInput}
-                      />
-                    </label>
-                    <label className="task-assistant__field task-assistant__field--plain">
-                      <span>적용 범위</span>
-                      <textarea
-                        disabled={busy}
-                        onChange={(event) => updateSummaryDraft("scope", event.target.value)}
-                        rows={2}
-                        value={summaryDraft.scope}
-                      />
-                    </label>
-                    <label className="task-assistant__field task-assistant__field--plain">
-                      <span>후속 조치</span>
-                      <textarea
-                        disabled={busy}
-                        onChange={(event) => updateSummaryDraft("followUpAction", event.target.value)}
-                        rows={3}
-                        value={summaryDraft.followUpAction ?? ""}
-                      />
-                    </label>
-                    <div className="task-assistant__closure-list">
-                      {visibleClosureGate.map((item) => (
-                        <article
-                          aria-label={`${item.label}: ${item.detail}`}
-                          className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`}
-                          key={item.id}
-                          tabIndex={0}
+                      <div className="task-assistant__summary-actions">
+                        <span>{approvalBlockers.length === 0 ? "승인 가능" : `${approvalBlockers.length}개 확인 필요`}</span>
+                        <button
+                          aria-expanded={summaryEditorExpanded}
+                          className="task-assistant__subtle-button"
+                          onClick={() => setSummaryEditorExpanded((current) => !current)}
+                          type="button"
                         >
-                          <strong>{item.label}</strong>
-                          <span>{closureGateStatusLabel(item.status)}</span>
-                          <p>{item.detail}</p>
-                        </article>
-                      ))}
+                          {summaryEditorExpanded
+                            ? "요약 접기"
+                            : summarySaveState
+                            ? "요약 수정"
+                            : "작업 기록 승인 준비"}
+                        </button>
+                      </div>
                     </div>
-                    <label className="task-assistant__toggle task-assistant__toggle--boxed">
-                      <input
-                        checked={closureAcknowledged}
-                        disabled={busy || approvalBlockers.length > 0}
-                        onChange={(event) => setClosureAcknowledged(event.target.checked)}
-                        type="checkbox"
-                      />
-                      <span>검토 내용을 확인하고 승인해주세요.</span>
-                    </label>
+                    {summaryEditorExpanded ? (
+                      <>
+                        <label className="task-assistant__field task-assistant__field--plain">
+                          <span>결론</span>
+                          <textarea
+                            disabled={busy}
+                            onChange={(event) => updateSummaryDraft("conclusion", event.target.value)}
+                            rows={3}
+                            value={summaryDraft.conclusion}
+                          />
+                        </label>
+                        <label className="task-assistant__field task-assistant__field--plain">
+                          <span>태그</span>
+                          <input
+                            disabled={busy}
+                            onChange={(event) => {
+                              setSummaryTagsInput(event.target.value);
+                              setClosureAcknowledged(false);
+                              setSummarySaveState(null);
+                              setProposalStatus("");
+                              setTaskUpdateApplied(false);
+                              setFollowUpTaskCreated(false);
+                            }}
+                            value={summaryTagsInput}
+                          />
+                        </label>
+                        <label className="task-assistant__field task-assistant__field--plain">
+                          <span>적용 범위</span>
+                          <textarea
+                            disabled={busy}
+                            onChange={(event) => updateSummaryDraft("scope", event.target.value)}
+                            rows={2}
+                            value={summaryDraft.scope}
+                          />
+                        </label>
+                        <label className="task-assistant__field task-assistant__field--plain">
+                          <span>후속 조치</span>
+                          <textarea
+                            disabled={busy}
+                            onChange={(event) => updateSummaryDraft("followUpAction", event.target.value)}
+                            rows={3}
+                            value={summaryDraft.followUpAction ?? ""}
+                          />
+                        </label>
+                        <div className="task-assistant__closure-list">
+                          {visibleClosureGate.map((item) => (
+                            <article
+                              aria-label={`${item.label}: ${item.detail}`}
+                              className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`}
+                              key={item.id}
+                              tabIndex={0}
+                            >
+                              <strong>{item.label}</strong>
+                              <span>{closureGateStatusLabel(item.status)}</span>
+                              <p>{item.detail}</p>
+                            </article>
+                          ))}
+                        </div>
+                        <label className="task-assistant__toggle task-assistant__toggle--boxed">
+                          <input
+                            checked={closureAcknowledged}
+                            disabled={busy || approvalBlockers.length > 0}
+                            onChange={(event) => setClosureAcknowledged(event.target.checked)}
+                            type="checkbox"
+                          />
+                          <span>검토 내용을 확인하고 승인해주세요.</span>
+                        </label>
+                      </>
+                    ) : (
+                      <div className="task-assistant__summary-preview">
+                        <p>승인용 입력은 접혀 있습니다. 확인이나 수정이 필요할 때 버튼을 눌러 열어주세요.</p>
+                      </div>
+                    )}
                   </article>
                 ) : null}
                 {taskUpdateProposal || followUpTaskProposal ? (
@@ -3061,6 +3089,92 @@ function normalizeLocalCodexUsageMetadata(
 
 function normalizeUsageTokenCount(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+const VISIBLE_REVIEW_ANSWER_MARKDOWN_HEADINGS = new Set([
+  "## 결론",
+  "## 검토 의견",
+  "## 의견",
+  "## 리스크",
+  "## 후속 조치",
+]);
+
+const HIDDEN_REVIEW_ANSWER_LINE_PREFIXES = [
+  "사용자 지침:",
+  "주요 근거:",
+  "외부 근거:",
+  "Evidence readiness warnings:",
+  "Legal change impact:",
+  "Legal change detected - requires review",
+  "Confidence is lowered",
+];
+
+function formatVisibleReviewAnswer(answer: string) {
+  const normalized = answer.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const visibleMarkdownSections = extractVisibleReviewAnswerMarkdownSections(normalized);
+  if (visibleMarkdownSections) {
+    return visibleMarkdownSections;
+  }
+
+  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const explicitUserFacingBlocks = blocks.filter(isExplicitUserFacingReviewBlock);
+  if (explicitUserFacingBlocks.length > 0) {
+    return explicitUserFacingBlocks.join("\n\n");
+  }
+
+  const nonMetaBlocks = blocks.filter((block) => !isHiddenReviewAnswerBlock(block));
+  return nonMetaBlocks.length > 0 ? nonMetaBlocks.join("\n\n") : normalized;
+}
+
+function extractVisibleReviewAnswerMarkdownSections(answer: string) {
+  const lines = answer.split("\n");
+  const sections: Array<{ heading: string; lines: string[] }> = [];
+  let current: { heading: string; lines: string[] } | null = null;
+  let sawHeading = false;
+
+  for (const line of lines) {
+    const normalizedHeading = normalizeReviewAnswerMarkdownHeading(line);
+    if (normalizedHeading) {
+      sawHeading = true;
+      current = { heading: normalizedHeading, lines: [line] };
+      sections.push(current);
+      continue;
+    }
+
+    if (current) {
+      current.lines.push(line);
+    }
+  }
+
+  if (!sawHeading) {
+    return null;
+  }
+
+  const visible = sections
+    .filter((section) => VISIBLE_REVIEW_ANSWER_MARKDOWN_HEADINGS.has(section.heading))
+    .map((section) => section.lines.join("\n").trim())
+    .filter(Boolean);
+
+  return visible.length > 0 ? visible.join("\n\n") : null;
+}
+
+function normalizeReviewAnswerMarkdownHeading(line: string) {
+  const trimmed = line.trim();
+  return /^##\s+/.test(trimmed) ? trimmed.replace(/\s+/g, " ") : null;
+}
+
+function isExplicitUserFacingReviewBlock(block: string) {
+  const firstLine = block.split("\n")[0]?.trim() ?? "";
+  return firstLine.startsWith("의견:") || firstLine.startsWith("후속 조치:");
+}
+
+function isHiddenReviewAnswerBlock(block: string) {
+  const firstLine = block.split("\n")[0]?.trim() ?? "";
+  return HIDDEN_REVIEW_ANSWER_LINE_PREFIXES.some((prefix) => firstLine.startsWith(prefix));
 }
 
 async function recordLocalCodexUsage(input: {

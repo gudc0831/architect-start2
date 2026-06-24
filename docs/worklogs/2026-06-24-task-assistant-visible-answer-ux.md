@@ -1,0 +1,4 @@
+Req: Keep token optimization deferred and make only the `/daily` Task Assistant answer and approval-summary UI less noisy.
+Diff: Added a display-only answer formatter in `TaskAssistantPanel` so current and saved review answers hide user-instruction and repeated evidence metadata while keeping opinion/follow-up content visible. Collapsed the approval summary fields by default behind `작업 기록 승인 준비` / `요약 수정`, and added validator guards for both UX contracts.
+Why: Evidence, instruction context, and approval summary fields are available elsewhere or on demand; the default answer area should focus on the user-facing review opinion and next actions without changing generation prompts, token usage, WIKI eligibility, or saved raw answer payloads.
+Verify/Time: `npm run task-assistant:unified:validate`, `npm run typecheck`, `npm run worklog:check`, `git diff --check`, and `npm run lint` passed after the summary-collapse update / 2026-06-24 KST.

@@ -4660,6 +4660,22 @@ a {
   gap: 0.65rem;
 }
 
+.task-assistant__summary-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.task-assistant__summary-preview {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
 .task-assistant__closure-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(5.8rem, 1fr));

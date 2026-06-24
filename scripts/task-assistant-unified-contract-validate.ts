@@ -40,6 +40,8 @@ checkReviewSessionExecutionModePersistence();
 checkTaskAssistantBasicAdvancedMode();
 checkTaskAssistantChromeSidePanelBridge();
 checkTaskAssistantEvidenceUiDisclosure();
+checkTaskAssistantVisibleAnswerUx();
+checkTaskAssistantSummaryEditorCollapsedUx();
 checkTaskAssistantClosureDetailHover();
 checkCollapsedSecondaryPanelDefaults();
 checkAnswerContractVerdicts();
@@ -450,6 +452,69 @@ function checkTaskAssistantEvidenceUiDisclosure() {
     hidesEvidenceMetadata && keepsEvidenceTitleAndSourceLink && hasCollapsedEvidenceSection
       ? "evidence cards keep title/source link visible and default the evidence detail section closed"
       : "evidence cards must hide kind, priority, and excerpt details while preserving title/source link rendering and a default-closed evidence section",
+  );
+}
+
+function checkTaskAssistantVisibleAnswerUx() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const formatterBody = extractFunctionBody(panelContent, "formatVisibleReviewAnswer");
+  const hidesInstructionAndEvidence = panelContent.includes("HIDDEN_REVIEW_ANSWER_LINE_PREFIXES") &&
+    panelContent.includes('"사용자 지침:"') &&
+    panelContent.includes('"주요 근거:"') &&
+    panelContent.includes("isExplicitUserFacingReviewBlock") &&
+    panelContent.includes("extractVisibleReviewAnswerMarkdownSections");
+  const keepsGeneratedAnswerRawForSave = panelContent.includes("answer: output.answer");
+  const formatsCurrentAndSavedAnswer = panelContent.includes("<p>{formatVisibleReviewAnswer(output.answer)}</p>") &&
+    panelContent.includes("<p>{formatVisibleReviewAnswer(selectedReviewSession.answer)}</p>");
+  const noRawAnswerRendering = !panelContent.includes("<p>{output.answer}</p>") &&
+    !panelContent.includes("<p>{selectedReviewSession.answer}</p>");
+  const keepsExplicitOpinionAndFollowUp = formatterBody.includes("isExplicitUserFacingReviewBlock") &&
+    panelContent.includes("의견:") &&
+    panelContent.includes("후속 조치:");
+
+  addCheck(
+    "task assistant visible answer hides generation metadata",
+    hidesInstructionAndEvidence &&
+      keepsGeneratedAnswerRawForSave &&
+      formatsCurrentAndSavedAnswer &&
+      noRawAnswerRendering &&
+      keepsExplicitOpinionAndFollowUp,
+    hidesInstructionAndEvidence &&
+      keepsGeneratedAnswerRawForSave &&
+      formatsCurrentAndSavedAnswer &&
+      noRawAnswerRendering &&
+      keepsExplicitOpinionAndFollowUp
+      ? "visible answer uses a display formatter that hides instruction/evidence metadata while preserving raw saved answer payloads"
+      : "visible answer must format current and saved answers, hide user-instruction/evidence metadata, keep opinion/follow-up blocks, and preserve raw save payloads",
+  );
+}
+
+function checkTaskAssistantSummaryEditorCollapsedUx() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const cssPath = appPath("src/app/globals.css");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const cssContent = stripComments(readRequiredFile(cssPath));
+  const hasCollapsedState = hasCollapsedUseStateDefault(panelContent, "summaryEditorExpanded") &&
+    panelContent.includes("setSummaryEditorExpanded(false)") &&
+    panelContent.includes("aria-expanded={summaryEditorExpanded}");
+  const hasUserOpenActions = panelContent.includes("작업 기록 승인 준비") &&
+    panelContent.includes("요약 수정") &&
+    panelContent.includes("요약 접기") &&
+    panelContent.includes("setSummaryEditorExpanded((current) => !current)");
+  const gatesEditorFields = panelContent.includes("summaryEditorExpanded ? (") &&
+    panelContent.includes("task-assistant__summary-preview") &&
+    panelContent.includes("승인용 입력은 접혀 있습니다");
+  const keepsApprovalFields = ["결론", "태그", "적용 범위", "후속 조치"].every((label) => panelContent.includes(label));
+  const hasCollapsedSummaryCss = /\.task-assistant__summary-actions\s*\{[\s\S]*flex-wrap:\s*wrap[\s\S]*justify-content:\s*flex-end/.test(cssContent) &&
+    /\.task-assistant__summary-preview\s*\{[\s\S]*background:\s*var\(--theme-surface-field\)/.test(cssContent);
+
+  addCheck(
+    "task assistant summary editor is collapsed by default",
+    hasCollapsedState && hasUserOpenActions && gatesEditorFields && keepsApprovalFields && hasCollapsedSummaryCss,
+    hasCollapsedState && hasUserOpenActions && gatesEditorFields && keepsApprovalFields && hasCollapsedSummaryCss
+      ? "summary approval fields are hidden until the user opens approval preparation or summary editing"
+      : "summary approval fields must default closed, expose open/edit/collapse actions, preserve approval fields, and include collapsed summary styling",
   );
 }
 
