@@ -5,11 +5,15 @@ import { usePathname } from "next/navigation";
 import { useProjectMeta } from "@/providers/project-provider";
 import { t } from "@/lib/ui-copy";
 import { recordWorkspaceRouteReady } from "@/lib/workspace/route-timing";
+import { ProjectWikiPage } from "./project-wiki-page";
 import styles from "./project-materials-page.module.css";
 
 type ProjectMaterialsPageProps = {
+  initialView?: ProjectMaterialsView;
   preview?: boolean;
 };
+
+type ProjectMaterialsView = "materials" | "wiki";
 
 type ProjectContextUploadListItem = {
   uploadId: string;
@@ -49,9 +53,10 @@ type ProjectContextPreview = {
   }>;
 };
 
-export function ProjectMaterialsPage({ preview = false }: ProjectMaterialsPageProps) {
+export function ProjectMaterialsPage({ initialView = "materials", preview = false }: ProjectMaterialsPageProps) {
   const pathname = usePathname();
   const { currentProjectId, projectLoaded } = useProjectMeta();
+  const [view, setView] = useState<ProjectMaterialsView>(initialView);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
@@ -77,7 +82,7 @@ export function ProjectMaterialsPage({ preview = false }: ProjectMaterialsPagePr
       pathname,
       taskCount: 0,
     });
-  }, [pathname, uploads.length]);
+  }, [pathname, uploads.length, view]);
 
   const refreshUploads = useCallback(async (projectId = currentProjectId) => {
     if (!projectId || preview) {
@@ -189,129 +194,147 @@ export function ProjectMaterialsPage({ preview = false }: ProjectMaterialsPagePr
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{t("materials.title")}</h1>
-        <button className="primary-button" disabled={busy || !file || Boolean(disabledReason)} onClick={() => void uploadMaterial()} type="button">
-          {t("materials.primaryUpload")}
-        </button>
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>{t("materials.title")}</h1>
+          <div className={styles.viewTabs} role="tablist" aria-label="프로젝트 자료 보기">
+            <button aria-selected={view === "materials"} onClick={() => setView("materials")} role="tab" type="button">
+              자료
+            </button>
+            <button aria-selected={view === "wiki"} onClick={() => setView("wiki")} role="tab" type="button">
+              프로젝트 WIKI
+            </button>
+          </div>
+        </div>
+        {view === "materials" ? (
+          <button className="primary-button" disabled={busy || !file || Boolean(disabledReason)} onClick={() => void uploadMaterial()} type="button">
+            {t("materials.primaryUpload")}
+          </button>
+        ) : null}
       </header>
 
-      <section className={styles.uploadBand} aria-label={t("materials.title")}>
-        <div className={styles.copy}>
-          <p>{t("materials.scopeText")}</p>
-          <p>{t("materials.rawRetentionText")}</p>
-          <p>PM 이상이 active로 승인한 자료만 task review의 project_context 검색 대상이 됩니다.</p>
-        </div>
-        <label className={styles.fileInput}>
-          <span>{t("materials.fileLabel")}</span>
-          <input
-            disabled={busy || preview || !currentProjectId}
-            onChange={(event) => {
-              setFile(event.currentTarget.files?.[0] ?? null);
-              setStatusText(t("materials.ready"));
-            }}
-            type="file"
-          />
-        </label>
-      </section>
-
-      <section className={styles.listSection} aria-busy={listBusy}>
-        <div className={styles.sectionHeader}>
-          <h2>업로드 자료</h2>
-          <button className="secondary-button" disabled={busy || listBusy || Boolean(disabledReason)} onClick={() => void refreshUploads()} type="button">
-            새로고침
-          </button>
-        </div>
-        {uploads.length === 0 ? (
-          <p className={styles.empty}>아직 프로젝트 자료가 없습니다.</p>
-        ) : (
-          <div className={styles.uploadList}>
-            {uploads.map((upload) => (
-              <article className={styles.uploadItem} key={upload.uploadId}>
-                <div className={styles.uploadMain}>
-                  <h3>{upload.fileName}</h3>
-                  <dl className={styles.metaGrid}>
-                    <div>
-                      <dt>상태</dt>
-                      <dd>{formatStatus(upload.versionStatus)}</dd>
-                    </div>
-                    <div>
-                      <dt>chunk</dt>
-                      <dd>{upload.chunkCount}</dd>
-                    </div>
-                    <div>
-                      <dt>원본 보관</dt>
-                      <dd>{formatDate(upload.rawRetentionUntil)} / {upload.rawDeletionStatus}</dd>
-                    </div>
-                    <div>
-                      <dt>정책</dt>
-                      <dd>{upload.normalizationRuleVersion} / {upload.parserVersion}</dd>
-                    </div>
-                  </dl>
-                  {upload.failureMessage ? (
-                    <p className={styles.failure}>{upload.failureCode}: {upload.failureMessage}</p>
-                  ) : null}
-                </div>
-                <div className={styles.actions}>
-                  <button className="secondary-button" disabled={busy} onClick={() => void loadPreview(upload)} type="button">
-                    미리보기
-                  </button>
-                  {canApprove && upload.versionStatus === "review_pending" ? (
-                    <>
-                      <button className="secondary-button" disabled={busy || upload.chunkCount === 0} onClick={() => void updateStatus(upload, "active")} type="button">
-                        active
-                      </button>
-                      <button className="secondary-button" disabled={busy} onClick={() => void updateStatus(upload, "rejected")} type="button">
-                        reject
-                      </button>
-                    </>
-                  ) : null}
-                  {canApprove && upload.versionStatus === "active" ? (
-                    <button className="secondary-button" disabled={busy} onClick={() => void updateStatus(upload, "archived")} type="button">
-                      archive
-                    </button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {selectedPreview ? (
-        <section className={styles.previewSection}>
-          <div className={styles.sectionHeader}>
-            <h2>{selectedPreview.fileName}</h2>
-            <span>{formatStatus(selectedPreview.versionStatus)}</span>
-          </div>
-          <div className={styles.previewMeta}>
-            <span>원본 보관: {formatDate(selectedPreview.rawRetentionUntil)} / {selectedPreview.rawDeletionStatus}</span>
-            <span>정규화: {selectedPreview.normalizationRuleVersion}</span>
-            <span>parser: {selectedPreview.parserVersion}</span>
-            <span>processed: {selectedPreview.processedAt ? formatDate(selectedPreview.processedAt) : "-"}</span>
-          </div>
-          {selectedPreview.chunks.length === 0 ? (
-            <p className={styles.empty}>AI review에 사용할 수 있는 chunk가 아직 없습니다.</p>
-          ) : (
-            <div className={styles.chunkList}>
-              {selectedPreview.chunks.map((chunk, index) => (
-                <article className={styles.chunkItem} key={chunk.chunkId}>
-                  <div className={styles.chunkHeader}>
-                    <strong>Chunk {index + 1}</strong>
-                    <span>{chunk.contextType} / {chunk.injectionRisk} / {chunk.chunkQualityScore.toFixed(2)}</span>
-                  </div>
-                  <p>{chunk.normalizedText}</p>
-                  <blockquote>{chunk.sourceQuote}</blockquote>
-                  <code>{formatLocation(chunk.location)}</code>
-                </article>
-              ))}
+      {view === "wiki" ? (
+        <ProjectWikiPage preview={preview} projectId={currentProjectId ?? (preview ? "preview-project" : null)} />
+      ) : (
+        <>
+          <section className={styles.uploadBand} aria-label={t("materials.title")}>
+            <div className={styles.copy}>
+              <p>{t("materials.scopeText")}</p>
+              <p>{t("materials.rawRetentionText")}</p>
+              <p>PM 이상이 active로 승인한 자료만 task review의 project_context 검색 대상이 됩니다.</p>
             </div>
-          )}
-        </section>
-      ) : null}
+            <label className={styles.fileInput}>
+              <span>{t("materials.fileLabel")}</span>
+              <input
+                disabled={busy || preview || !currentProjectId}
+                onChange={(event) => {
+                  setFile(event.currentTarget.files?.[0] ?? null);
+                  setStatusText(t("materials.ready"));
+                }}
+                type="file"
+              />
+            </label>
+          </section>
 
-      <p className={styles.status} data-loaded={projectLoaded ? "true" : "false"}>
-        {disabledReason ?? statusText}
-      </p>
+          <section className={styles.listSection} aria-busy={listBusy}>
+            <div className={styles.sectionHeader}>
+              <h2>업로드 자료</h2>
+              <button className="secondary-button" disabled={busy || listBusy || Boolean(disabledReason)} onClick={() => void refreshUploads()} type="button">
+                새로고침
+              </button>
+            </div>
+            {uploads.length === 0 ? (
+              <p className={styles.empty}>아직 프로젝트 자료가 없습니다.</p>
+            ) : (
+              <div className={styles.uploadList}>
+                {uploads.map((upload) => (
+                  <article className={styles.uploadItem} key={upload.uploadId}>
+                    <div className={styles.uploadMain}>
+                      <h3>{upload.fileName}</h3>
+                      <dl className={styles.metaGrid}>
+                        <div>
+                          <dt>상태</dt>
+                          <dd>{formatStatus(upload.versionStatus)}</dd>
+                        </div>
+                        <div>
+                          <dt>chunk</dt>
+                          <dd>{upload.chunkCount}</dd>
+                        </div>
+                        <div>
+                          <dt>원본 보관</dt>
+                          <dd>{formatDate(upload.rawRetentionUntil)} / {upload.rawDeletionStatus}</dd>
+                        </div>
+                        <div>
+                          <dt>정책</dt>
+                          <dd>{upload.normalizationRuleVersion} / {upload.parserVersion}</dd>
+                        </div>
+                      </dl>
+                      {upload.failureMessage ? (
+                        <p className={styles.failure}>{upload.failureCode}: {upload.failureMessage}</p>
+                      ) : null}
+                    </div>
+                    <div className={styles.actions}>
+                      <button className="secondary-button" disabled={busy} onClick={() => void loadPreview(upload)} type="button">
+                        미리보기
+                      </button>
+                      {canApprove && upload.versionStatus === "review_pending" ? (
+                        <>
+                          <button className="secondary-button" disabled={busy || upload.chunkCount === 0} onClick={() => void updateStatus(upload, "active")} type="button">
+                            active
+                          </button>
+                          <button className="secondary-button" disabled={busy} onClick={() => void updateStatus(upload, "rejected")} type="button">
+                            reject
+                          </button>
+                        </>
+                      ) : null}
+                      {canApprove && upload.versionStatus === "active" ? (
+                        <button className="secondary-button" disabled={busy} onClick={() => void updateStatus(upload, "archived")} type="button">
+                          archive
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {selectedPreview ? (
+            <section className={styles.previewSection}>
+              <div className={styles.sectionHeader}>
+                <h2>{selectedPreview.fileName}</h2>
+                <span>{formatStatus(selectedPreview.versionStatus)}</span>
+              </div>
+              <div className={styles.previewMeta}>
+                <span>원본 보관: {formatDate(selectedPreview.rawRetentionUntil)} / {selectedPreview.rawDeletionStatus}</span>
+                <span>정규화: {selectedPreview.normalizationRuleVersion}</span>
+                <span>parser: {selectedPreview.parserVersion}</span>
+                <span>processed: {selectedPreview.processedAt ? formatDate(selectedPreview.processedAt) : "-"}</span>
+              </div>
+              {selectedPreview.chunks.length === 0 ? (
+                <p className={styles.empty}>AI review에 사용할 수 있는 chunk가 아직 없습니다.</p>
+              ) : (
+                <div className={styles.chunkList}>
+                  {selectedPreview.chunks.map((chunk, index) => (
+                    <article className={styles.chunkItem} key={chunk.chunkId}>
+                      <div className={styles.chunkHeader}>
+                        <strong>Chunk {index + 1}</strong>
+                        <span>{chunk.contextType} / {chunk.injectionRisk} / {chunk.chunkQualityScore.toFixed(2)}</span>
+                      </div>
+                      <p>{chunk.normalizedText}</p>
+                      <blockquote>{chunk.sourceQuote}</blockquote>
+                      <code>{formatLocation(chunk.location)}</code>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          <p className={styles.status} data-loaded={projectLoaded ? "true" : "false"}>
+            {disabledReason ?? statusText}
+          </p>
+        </>
+      )}
     </main>
   );
 }

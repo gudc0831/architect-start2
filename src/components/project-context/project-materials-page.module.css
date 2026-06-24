@@ -17,6 +17,36 @@
   margin: 0;
 }
 
+.headerTitleGroup {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.viewTabs {
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 8px;
+  display: inline-flex;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.viewTabs button {
+  background: transparent;
+  border: 0;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
+}
+
+.viewTabs button[aria-selected="true"] {
+  background: #dbe1dd;
+  color: var(--theme-text);
+}
+
 .uploadBand {
   align-items: end;
   border: 1px solid var(--theme-border-subtle);
@@ -204,6 +234,246 @@
   white-space: normal;
 }
 
+.wikiShell {
+  display: grid;
+  gap: 1rem;
+}
+
+.wikiToolbar {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(14rem, 1fr) auto auto;
+}
+
+.searchField,
+.checkboxField {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.searchField span,
+.checkboxField span {
+  color: var(--theme-text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.searchField input {
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 8px;
+  background: var(--theme-surface, #fff);
+  color: var(--theme-text);
+  font: inherit;
+  min-height: 2.35rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.checkboxField {
+  align-items: center;
+  display: flex;
+  min-height: 2.35rem;
+}
+
+.checkboxField input {
+  height: 1rem;
+  width: 1rem;
+}
+
+.wikiLayout {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(18rem, 0.95fr) minmax(0, 1.35fr);
+}
+
+.wikiList,
+.wikiDetail {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.wikiItem,
+.wikiDetail {
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 8px;
+  padding: 0.9rem;
+}
+
+.wikiItem {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.wikiItemSelected {
+  border-color: var(--theme-border-strong, #8d9a92);
+}
+
+.wikiItemButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0;
+  text-align: left;
+}
+
+.wikiItemTitle {
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.wikiItem p,
+.wikiDetailHeader p,
+.detailBlock p,
+.actionLogSection p {
+  color: var(--theme-text-muted);
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tagList,
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tagList span,
+.statusBadge,
+.suitabilityBadge {
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.32rem 0.5rem;
+  white-space: nowrap;
+}
+
+.tagList span {
+  background: #eef1ef;
+  color: var(--theme-text-muted);
+}
+
+.statusBadgeActive {
+  background: #d8eee0;
+  color: #18623a;
+}
+
+.statusBadgeDisabled,
+.suitabilityBadgeNeutral {
+  background: #ebe9e4;
+  color: #5f5b52;
+}
+
+.suitabilityBadgeRecommended {
+  background: #d8eee0;
+  color: #18623a;
+}
+
+.suitabilityBadgeCaution {
+  background: #fff1c2;
+  color: #7a5600;
+}
+
+.wikiMetaGrid,
+.detailGrid {
+  display: grid;
+  gap: 0.5rem 0.8rem;
+  margin: 0;
+}
+
+.wikiMetaGrid {
+  color: var(--theme-text-muted);
+  font-size: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detailGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wikiMetaGrid div,
+.detailGrid div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.wikiMetaGrid dt,
+.detailGrid dt {
+  color: var(--theme-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.wikiMetaGrid dd,
+.detailGrid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wikiMetaGrid a,
+.detailGrid a,
+.wikiDetail a {
+  color: var(--theme-link, #285c8f);
+  font-weight: 700;
+}
+
+.wikiDetailHeader {
+  align-items: start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.wikiDetailHeader h2,
+.detailBlock h3,
+.actionLogSection h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.detailBlock,
+.actionLogSection,
+.statusControl {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.actionLogSection ol {
+  display: grid;
+  gap: 0.55rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.actionLogSection li {
+  border-top: 1px solid var(--theme-border-subtle);
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 0.55rem;
+}
+
+.actionLogSection span {
+  color: var(--theme-text-muted);
+  font-size: 0.8rem;
+}
+
+.statusControl {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 @media (max-width: 760px) {
   .header,
   .uploadBand {
@@ -229,5 +499,23 @@
 
   .metaGrid {
     grid-template-columns: 1fr;
+  }
+
+  .viewTabs,
+  .wikiToolbar,
+  .wikiLayout,
+  .wikiMetaGrid,
+  .detailGrid,
+  .statusControl {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .viewTabs {
+    display: grid;
+  }
+
+  .wikiDetailHeader {
+    display: grid;
   }
 }
