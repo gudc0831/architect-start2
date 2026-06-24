@@ -78,6 +78,10 @@ model Profile {
   confirmedKnowledgeImportPreviews KnowledgeImportPreview[] @relation("KnowledgeImportPreviewConfirmedBy")
   createdKnowledgeImportRubrics KnowledgeImportRubric[] @relation("KnowledgeImportRubricCreatedBy")
   updatedKnowledgeImportRubrics KnowledgeImportRubric[] @relation("KnowledgeImportRubricUpdatedBy")
+  createdProjectWikiItems ProjectWikiItem[] @relation("ProjectWikiCreatedBy")
+  disabledProjectWikiItems ProjectWikiItem[] @relation("ProjectWikiDisabledBy")
+  restoredProjectWikiItems ProjectWikiItem[] @relation("ProjectWikiRestoredBy")
+  projectWikiActionLogs ProjectWikiActionLog[] @relation("ProjectWikiActionLogActor")
   preference      ProfilePreference?
 
   @@map("profiles")
@@ -112,6 +116,8 @@ model Project {
   taskCellUpdates TaskCellUpdate[]
   knowledgeDiscoveryRequests KnowledgeDiscoveryRequest[]
   knowledgeImportPreviews KnowledgeImportPreview[]
+  projectWikiItems ProjectWikiItem[]
+  projectWikiActionLogs ProjectWikiActionLog[]
 
   @@map("projects")
 }
@@ -169,6 +175,7 @@ model Task {
   cellDocuments TaskCellDocument[]
   knowledgeDiscoveryRequests KnowledgeDiscoveryRequest[] @relation("KnowledgeDiscoveryTask")
   defaultKnowledgeImportPreviews KnowledgeImportPreview[] @relation("KnowledgeImportPreviewDefaultTask")
+  sourceProjectWikiItems ProjectWikiItem[] @relation("ProjectWikiSourceTask")
 
   @@unique([projectId, taskNumber])
   @@unique([projectId, id])
@@ -438,6 +445,10 @@ model AssistantTaskRecord {
   cleanupState     String   @default("draft") @map("cleanup_state")
   candidateState   String   @default("candidate") @map("candidate_state")
   metadata         Json     @default("{}")
+  reviewDeletedAt  DateTime? @map("review_deleted_at") @db.Timestamptz(6)
+  reviewDeletedBy  String?   @map("review_deleted_by") @db.Uuid
+  reviewRestoredAt DateTime? @map("review_restored_at") @db.Timestamptz(6)
+  reviewRestoredBy String?   @map("review_restored_by") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -446,6 +457,8 @@ model AssistantTaskRecord {
   workSummaryDraft AssistantWorkSummaryDraft?
   threadMessages   AssistantThreadMessage[]
   promotedFromKnowledgeDiscoveryRequests KnowledgeDiscoveryRequest[] @relation("KnowledgeDiscoveryPromotedCandidate")
+  projectWikiSourceItems ProjectWikiItem[] @relation("ProjectWikiSourceReviewRecord")
+  projectWikiCommonCandidateItems ProjectWikiItem[] @relation("ProjectWikiCommonCandidateRecord")
 
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
@@ -672,10 +685,67 @@ model AssistantWorkSummaryDraft {
   task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   record         AssistantTaskRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
   profile        Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  projectWikiItems ProjectWikiItem[]
 
   @@index([projectId, taskId, createdAt])
   @@index([profileId, createdAt])
   @@map("assistant_work_summary_drafts")
+}
+
+model ProjectWikiItem {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId                String   @map("project_id") @db.Uuid
+  sourceTaskId             String   @map("source_task_id") @db.Uuid
+  sourceReviewRecordId     String   @unique @map("source_review_record_id") @db.Uuid
+  sourceWorkSummaryDraftId String   @map("source_work_summary_draft_id") @db.Uuid
+  commonCandidateRecordId  String?  @unique @map("common_candidate_record_id") @db.Uuid
+  title                    String
+  summary                  String
+  bodyMarkdown             String   @map("body_markdown")
+  tags                     Json     @default("[]")
+  supplementalNote         String   @default("") @map("supplemental_note")
+  aiSuitabilityState       String   @map("ai_suitability_state")
+  aiSuitabilityReason      String   @default("") @map("ai_suitability_reason")
+  commonizationCaution     String   @default("") @map("commonization_caution")
+  status                   String   @default("active")
+  createdBy                String   @map("created_by") @db.Uuid
+  disabledBy               String?  @map("disabled_by") @db.Uuid
+  disabledAt               DateTime? @map("disabled_at") @db.Timestamptz(6)
+  restoredBy               String?  @map("restored_by") @db.Uuid
+  restoredAt               DateTime? @map("restored_at") @db.Timestamptz(6)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceTask               Task     @relation("ProjectWikiSourceTask", fields: [projectId, sourceTaskId], references: [projectId, id], onDelete: Cascade)
+  sourceReviewRecord       AssistantTaskRecord @relation("ProjectWikiSourceReviewRecord", fields: [sourceReviewRecordId], references: [id], onDelete: Restrict)
+  sourceWorkSummaryDraft   AssistantWorkSummaryDraft @relation(fields: [sourceWorkSummaryDraftId], references: [id], onDelete: Restrict)
+  commonCandidateRecord    AssistantTaskRecord? @relation("ProjectWikiCommonCandidateRecord", fields: [commonCandidateRecordId], references: [id], onDelete: SetNull)
+  creator                  Profile @relation("ProjectWikiCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  disabler                 Profile? @relation("ProjectWikiDisabledBy", fields: [disabledBy], references: [id], onDelete: SetNull)
+  restorer                 Profile? @relation("ProjectWikiRestoredBy", fields: [restoredBy], references: [id], onDelete: SetNull)
+  actionLogs               ProjectWikiActionLog[]
+
+  @@index([projectId, status, updatedAt])
+  @@index([sourceTaskId, createdAt])
+  @@map("project_wiki_items")
+}
+
+model ProjectWikiActionLog {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String   @map("project_id") @db.Uuid
+  projectWikiItemId String   @map("project_wiki_item_id") @db.Uuid
+  action            String
+  actorProfileId    String   @map("actor_profile_id") @db.Uuid
+  actorDisplay      String   @default("") @map("actor_display")
+  reason            String   @default("")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  item              ProjectWikiItem @relation(fields: [projectWikiItemId], references: [id], onDelete: Cascade)
+  actor             Profile @relation("ProjectWikiActionLogActor", fields: [actorProfileId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, projectWikiItemId, createdAt])
+  @@index([actorProfileId, createdAt])
+  @@map("project_wiki_action_logs")
 }
 
 model AssistantThread {
