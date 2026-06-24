@@ -204,6 +204,7 @@ export type AssistantGenerateResult = {
 
 export const ASSISTANT_EVIDENCE_KINDS: AssistantEvidenceKind[] = [
   "central_knowledge",
+  "project_wiki",
   "regulation",
   "task",
   "project_document",

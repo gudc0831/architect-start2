@@ -625,6 +625,7 @@ function compactText(value: string, limit: number): string {
 
 function isAssistantEvidenceKind(value: string): value is AssistantEvidence["kind"] {
   return value === "central_knowledge" ||
+    value === "project_wiki" ||
     value === "regulation" ||
     value === "task" ||
     value === "project_document" ||

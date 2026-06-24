@@ -7,6 +7,11 @@ import {
   requiresCentralizedLegalVerification,
 } from "../src/domains/legal/legal-verification-intent";
 import {
+  ASSISTANT_EVIDENCE_KINDS,
+  isAssistantEvidenceKind as isSaasAssistantEvidenceKind,
+  normalizeAllowedEvidenceKinds,
+} from "../src/domains/assistant/saas-api-mode";
+import {
   attachGeneratedAnswerToStructuredReviewSchema,
   sanitizeTaskReviewEvidence,
   selectEvidenceForCentralizedLegalVerification,
@@ -61,6 +66,11 @@ async function main() {
     "verified-legal-search:law:building-act:chunk:49",
   ]);
   checks.push("centralized verified legal evidence is identified without a SaaS law.go.kr credential");
+
+  assert.equal(ASSISTANT_EVIDENCE_KINDS.includes("project_wiki"), true);
+  assert.equal(isSaasAssistantEvidenceKind("project_wiki"), true);
+  assert.deepEqual(normalizeAllowedEvidenceKinds(["project_wiki"]), ["project_wiki"]);
+  checks.push("SaaS evidence kind policy accepts project_wiki");
 
   const generationEvidence = selectEvidenceForTaskReviewGeneration([
     ...verifiedRegulationEvidence,
@@ -244,6 +254,16 @@ async function assertSourceBoundaries(checks: string[]) {
   const assistantService = await readFile(new URL("../src/use-cases/assistant-service.ts", import.meta.url), "utf8");
   const legalSearchService = await readFile(new URL("../src/use-cases/verified-legal-search-service.ts", import.meta.url), "utf8");
   const taskAssistantPanel = await readFile(new URL("../src/components/tasks/task-assistant-panel.tsx", import.meta.url), "utf8");
+  const saasApiMode = await readFile(new URL("../src/domains/assistant/saas-api-mode.ts", import.meta.url), "utf8");
+  const legalManualSmokeReport = await readFile(
+    new URL("../src/domains/assistant/legal-manual-smoke-report.ts", import.meta.url),
+    "utf8",
+  );
+  const assistantAdminShell = await readFile(
+    new URL("../src/components/admin/assistant-admin-shell.tsx", import.meta.url),
+    "utf8",
+  );
+  const prismaSchema = await readFile(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
   const candidateImportService = await readFile(
     new URL("../src/use-cases/admin/verified-legal-candidate-import-service.ts", import.meta.url),
     "utf8",
@@ -306,11 +326,20 @@ async function assertSourceBoundaries(checks: string[]) {
     /projectWikiEvidence[\s\S]*approvedKnowledge[\s\S]*kind:\s*"project_wiki"[\s\S]*priority:\s*1[\s\S]*kind:\s*"central_knowledge"[\s\S]*priority:\s*2/,
   );
   assert.match(assistantService, /value === "project_wiki"/);
+  assert.match(saasApiMode, /ASSISTANT_EVIDENCE_KINDS[\s\S]*"project_wiki"/);
+  assert.match(legalManualSmokeReport, /function isAssistantEvidenceKind[\s\S]*value === "project_wiki"/);
+  assert.match(assistantAdminShell, /value:\s*"project_wiki",\s*label:\s*"프로젝트 WIKI"/);
+  assert.ok(
+    prismaSchema.includes(
+      '@default("[\\"central_knowledge\\",\\"project_wiki\\",\\"regulation\\",\\"task\\",\\"project_document\\",\\"web_or_skill\\"]")',
+    ),
+  );
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
   checks.push("verified legal search is the default path and legacy bundle retrieval is explicit opt-in");
   checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
   checks.push("generic assistant records strip client-submitted legal verification claims and skip WIKI candidacy");
+  checks.push("project_wiki remains present in default policy, admin options, Prisma default, and smoke-report normalizers");
 
   assert.match(taskAssistantPanel, /postTaskReviewJson/);
   assert.match(taskAssistantPanel, /legalEvidence:\s*review\.evidence\.filter/);

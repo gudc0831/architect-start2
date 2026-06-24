@@ -390,6 +390,7 @@ type AdminActionAuditTaskSnapshot = {
 
 const evidenceOptions: Array<{ value: AssistantEvidenceKind; label: string }> = [
   { value: "central_knowledge", label: "중앙 WIKI" },
+  { value: "project_wiki", label: "프로젝트 WIKI" },
   { value: "regulation", label: "법규/기준" },
   { value: "task", label: "작업 기록" },
   { value: "project_document", label: "프로젝트 문서" },

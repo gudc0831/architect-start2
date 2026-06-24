@@ -798,7 +798,7 @@ model AssistantRunPolicy {
   maxInputTokens           Int      @default(12000) @map("max_input_tokens")
   maxOutputTokens          Int      @default(2000) @map("max_output_tokens")
   externalEvidenceAllowed  Boolean  @default(true) @map("external_evidence_allowed")
-  allowedEvidenceKinds     Json     @default("[\"central_knowledge\",\"regulation\",\"task\",\"project_document\",\"web_or_skill\"]") @map("allowed_evidence_kinds")
+  allowedEvidenceKinds     Json     @default("[\"central_knowledge\",\"project_wiki\",\"regulation\",\"task\",\"project_document\",\"web_or_skill\"]") @map("allowed_evidence_kinds")
   retentionDays            Int      @default(365) @map("retention_days")
   createdBy                String?  @map("created_by") @db.Uuid
   updatedBy                String?  @map("updated_by") @db.Uuid
