@@ -167,6 +167,7 @@ export async function retrieveAssistantEvidence(input: RetrieveAssistantEvidence
         files,
         previousRecords,
         approvedKnowledge,
+        projectWikiEvidence,
       }),
     }),
     input.user
@@ -250,6 +251,7 @@ function buildLegalGraphRagTaskContext(input: {
   files: Array<{ originalName: string; fileSummary?: unknown }>;
   previousRecords: AssistantRecord[];
   approvedKnowledge: Array<{ title: string; summary: string; bodyMarkdown?: string; tags?: string[] }>;
+  projectWikiEvidence: Awaited<ReturnType<typeof projectWikiRepository.searchProjectWikiForAssistant>>;
 }) {
   const task = compactExcerpt([
     `Project: ${input.projectName}`,
@@ -261,12 +263,24 @@ function buildLegalGraphRagTaskContext(input: {
     input.task.statusHistory ? `Status history: ${input.task.statusHistory}` : "",
   ]);
   const file = compactExcerpt(input.files.slice(0, 6).map((item) => item.originalName));
-  const wiki = compactExcerpt(input.approvedKnowledge.slice(0, 4).flatMap((item) => [
-    item.title,
-    item.summary,
-    item.bodyMarkdown,
-    item.tags?.join(", "),
-  ]));
+  const wiki = compactExcerpt([
+    ...input.projectWikiEvidence.slice(0, 4).flatMap((result) => {
+      const item = result.item;
+      return [
+        item.title,
+        item.summary,
+        item.bodyMarkdown,
+        item.tags.join(", "),
+        item.supplementalNote,
+      ];
+    }),
+    ...input.approvedKnowledge.slice(0, 4).flatMap((item) => [
+      item.title,
+      item.summary,
+      item.bodyMarkdown,
+      item.tags?.join(", "),
+    ]),
+  ]);
   const history = compactExcerpt(input.previousRecords.slice(0, 4).flatMap((record) => [
     record.question,
     record.answer,

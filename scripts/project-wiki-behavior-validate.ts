@@ -7,6 +7,7 @@ import {
   matchesProjectWikiKeyword,
   normalizeProjectWikiKeyword,
   projectWikiStatusLabel,
+  rankProjectWikiItems,
   suitabilityBadgeTone,
 } from "@/domains/project-wiki/search";
 
@@ -49,6 +50,17 @@ assert.equal(matchesProjectWikiKeyword(item, "피난층"), true);
 assert.equal(matchesProjectWikiKeyword(item, "건축법"), true);
 assert.equal(matchesProjectWikiKeyword(item, "샤프트"), true);
 assert.equal(matchesProjectWikiKeyword(item, "철골"), false);
+assert.deepEqual(
+  rankProjectWikiItems({
+    items: [
+      { ...item, id: "disabled-project-wiki-item", status: "disabled" },
+      item,
+    ],
+    query: "방화구획",
+    limit: 10,
+  }).map((result) => result.item.id),
+  ["project-wiki-item-1"],
+);
 
 assert.equal(projectWikiStatusLabel("active"), "활성");
 assert.equal(projectWikiStatusLabel("disabled"), "비활성");

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import type { AssistantEvidence } from "../src/domains/assistant/types";
 import type { StructuredTaskReviewSchema } from "../src/domains/assistant/task-review";
+import { buildTaskAssistantReviewSession } from "../src/domains/assistant/review-session";
 import {
   isCentralizedVerifiedLegalEvidence,
   requiresCentralizedLegalVerification,
@@ -71,6 +72,49 @@ async function main() {
   assert.equal(isSaasAssistantEvidenceKind("project_wiki"), true);
   assert.deepEqual(normalizeAllowedEvidenceKinds(["project_wiki"]), ["project_wiki"]);
   checks.push("SaaS evidence kind policy accepts project_wiki");
+
+  const reviewSession = buildTaskAssistantReviewSession({
+    taskContext: {
+      taskId: "task-1",
+      projectId: "project-1",
+      title: "Task",
+      description: "Task description",
+      status: "open",
+      issueId: "A-1",
+      projectName: "Project",
+    },
+    question: "project wiki section classification",
+    evidence: [
+      {
+        id: "project-wiki:item-1",
+        kind: "project_wiki",
+        priority: 1,
+        title: "Project WIKI",
+        excerpt: "Project wiki evidence",
+      },
+      {
+        id: "approved-knowledge:item-1",
+        kind: "central_knowledge",
+        priority: 2,
+        title: "Common WIKI",
+        excerpt: "Common wiki evidence",
+      },
+      {
+        id: "task:task-1",
+        kind: "task",
+        priority: 3,
+        title: "Task context",
+        excerpt: "Task evidence",
+      },
+    ],
+    lawStatus: "not_required",
+    now: "2026-06-24T00:00:00.000Z",
+  });
+  assert.deepEqual(reviewSession.evidenceSections.wikiEvidenceIds, [
+    "project-wiki:item-1",
+    "approved-knowledge:item-1",
+  ]);
+  checks.push("review-session wiki evidence sections include project_wiki");
 
   const generationEvidence = selectEvidenceForTaskReviewGeneration([
     ...verifiedRegulationEvidence,
@@ -254,6 +298,7 @@ async function assertSourceBoundaries(checks: string[]) {
   const assistantService = await readFile(new URL("../src/use-cases/assistant-service.ts", import.meta.url), "utf8");
   const legalSearchService = await readFile(new URL("../src/use-cases/verified-legal-search-service.ts", import.meta.url), "utf8");
   const taskAssistantPanel = await readFile(new URL("../src/components/tasks/task-assistant-panel.tsx", import.meta.url), "utf8");
+  const reviewSessionSource = await readFile(new URL("../src/domains/assistant/review-session.ts", import.meta.url), "utf8");
   const saasApiMode = await readFile(new URL("../src/domains/assistant/saas-api-mode.ts", import.meta.url), "utf8");
   const legalManualSmokeReport = await readFile(
     new URL("../src/domains/assistant/legal-manual-smoke-report.ts", import.meta.url),
@@ -266,6 +311,10 @@ async function assertSourceBoundaries(checks: string[]) {
   const prismaSchema = await readFile(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
   const assistantSaasApiModeMigration = await readFile(
     new URL("../prisma/migrations/202605080002_add_assistant_saas_api_mode/migration.sql", import.meta.url),
+    "utf8",
+  );
+  const projectWikiAssistantPolicyMigration = await readFile(
+    new URL("../prisma/migrations/202606240002_add_project_wiki_to_assistant_policy/migration.sql", import.meta.url),
     "utf8",
   );
   const previewAssistantClient = await readFile(
@@ -337,7 +386,19 @@ async function assertSourceBoundaries(checks: string[]) {
     assistantService,
     /projectWikiEvidence[\s\S]*approvedKnowledge[\s\S]*kind:\s*"project_wiki"[\s\S]*priority:\s*1[\s\S]*kind:\s*"central_knowledge"[\s\S]*priority:\s*2/,
   );
+  assert.match(
+    assistantService,
+    /taskContext: buildLegalGraphRagTaskContext\(\{[\s\S]*approvedKnowledge,[\s\S]*projectWikiEvidence,[\s\S]*\}\)/,
+  );
+  assert.match(
+    assistantService,
+    /const wiki = compactExcerpt\(\[[\s\S]*input\.projectWikiEvidence\.slice\(0, 4\)[\s\S]*item\.supplementalNote[\s\S]*input\.approvedKnowledge\.slice\(0, 4\)/,
+  );
   assert.match(assistantService, /value === "project_wiki"/);
+  assert.match(
+    reviewSessionSource,
+    /wikiEvidenceIds: evidence[\s\S]*item\.kind === "central_knowledge" \|\| item\.kind === "project_wiki"/,
+  );
   assert.match(saasApiMode, /ASSISTANT_EVIDENCE_KINDS[\s\S]*"project_wiki"/);
   assert.match(legalManualSmokeReport, /function isAssistantEvidenceKind[\s\S]*value === "project_wiki"/);
   assert.match(assistantAdminShell, /value:\s*"project_wiki",\s*label:\s*"프로젝트 WIKI"/);
@@ -348,8 +409,26 @@ async function assertSourceBoundaries(checks: string[]) {
   );
   assert.ok(
     assistantSaasApiModeMigration.includes(
-      `'["central_knowledge","project_wiki","regulation","task","project_document","web_or_skill"]'::jsonb`,
+      `'["central_knowledge","regulation","task","project_document","web_or_skill"]'::jsonb`,
     ),
+  );
+  assert.ok(
+    !assistantSaasApiModeMigration.includes(
+      `"allowed_evidence_kinds" jsonb not null default '["central_knowledge","project_wiki"`,
+    ),
+  );
+  assert.ok(
+    projectWikiAssistantPolicyMigration.includes(
+      `alter column allowed_evidence_kinds set default '["central_knowledge","project_wiki","regulation","task","project_document","web_or_skill"]'::jsonb`,
+    ),
+  );
+  assert.ok(
+    projectWikiAssistantPolicyMigration.includes(
+      `where allowed_evidence_kinds = '["central_knowledge","regulation","task","project_document","web_or_skill"]'::jsonb`,
+    ),
+  );
+  assert.ok(
+    !projectWikiAssistantPolicyMigration.includes("where not allowed_evidence_kinds"),
   );
   assert.ok(
     previewAssistantClient.includes(
@@ -367,6 +446,8 @@ async function assertSourceBoundaries(checks: string[]) {
   checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
   checks.push("generic assistant records strip client-submitted legal verification claims and skip WIKI candidacy");
   checks.push("project_wiki remains present in default policy, admin options, Prisma defaults, preview policies, and smoke normalizers");
+  checks.push("project_wiki assistant policy migration preserves custom policies and backfills only the old default");
+  checks.push("legal Graph RAG context includes project wiki text before common WIKI");
 
   assert.match(taskAssistantPanel, /postTaskReviewJson/);
   assert.match(taskAssistantPanel, /legalEvidence:\s*review\.evidence\.filter/);

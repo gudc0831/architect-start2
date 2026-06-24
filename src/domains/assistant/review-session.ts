@@ -121,7 +121,7 @@ function splitEvidenceSections(evidence: AssistantEvidence[]): TaskAssistantRevi
       .filter((item) => item.kind === "regulation" || Boolean(item.legal))
       .map((item) => item.id),
     wikiEvidenceIds: evidence
-      .filter((item) => item.kind === "central_knowledge")
+      .filter((item) => item.kind === "central_knowledge" || item.kind === "project_wiki")
       .map((item) => item.id),
     priorRecordEvidenceIds: evidence
       .filter((item) => item.id.startsWith("assistant-record:"))
