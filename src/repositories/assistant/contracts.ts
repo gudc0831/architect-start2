@@ -189,6 +189,21 @@ export interface AssistantRepository {
   updateThreadSummary(threadId: string, summary: string, provenance: AssistantThreadSummaryProvenance): Promise<void>;
   findThreadByTask(taskId: string): Promise<AssistantThread | null>;
   createRecord(input: CreateAssistantRecordInput): Promise<AssistantRecord>;
+  softDeleteReviewSession(input: {
+    projectId: string;
+    recordId: string;
+    profileId: string;
+  }): Promise<AssistantRecord>;
+  restoreReviewSession(input: {
+    projectId: string;
+    recordId: string;
+    profileId: string;
+  }): Promise<AssistantRecord>;
+  updateReviewSessionMetadata(input: {
+    projectId: string;
+    recordId: string;
+    metadata: AssistantRecordMetadata;
+  }): Promise<AssistantRecord>;
   createExternalEvidence(input: CreateExternalEvidenceInput): Promise<ExternalEvidenceRecord>;
   saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput): Promise<AssistantWorkSummaryDraft>;
   reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateInput): Promise<{

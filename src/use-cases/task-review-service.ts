@@ -6,6 +6,7 @@ import type {
   AssistantExecutionMode,
   AssistantLegalApplicabilityBundle,
   AssistantRecord,
+  ProjectWikiReviewState,
 } from "@/domains/assistant/types";
 import type { AssistantGenerateResult } from "@/domains/assistant/saas-api-mode";
 import type {
@@ -65,6 +66,7 @@ export type TaskReviewSessionSummary = {
   answerPreview: string;
   verdict: string | null;
   conclusionMayChange: boolean;
+  projectWikiState: ProjectWikiReviewState;
   savedAt: string;
   updatedAt: string;
   savedRecord: TaskReviewSavedRecord;
@@ -192,8 +194,8 @@ export async function reviewTaskWithServerOrchestrator(
       status: "generated" as const,
       reason:
         lawReport.status === "verified"
-          ? "Centralized verified legal evidence succeeded and the generated task review is ready for explicit user save."
-          : "Centralized legal verification was not required and the generated task review is ready for explicit user save.",
+          ? "Centralized verified legal evidence succeeded and the generated task review is ready for temporary review auto-save."
+          : "Centralized legal verification was not required and the generated task review is ready for temporary review auto-save.",
       taskContext: retrieved.taskContext,
       retrievedEvidence: {
         count: retrieved.evidence.length,
@@ -215,7 +217,7 @@ export async function reviewTaskWithServerOrchestrator(
         candidateCreated: false,
         approvalAttempted: false,
         approvedKnowledgeItemId: null,
-        reason: "Generated task-review records are not saved or submitted to WIKI approval until the user clicks 검토기록저장.",
+        reason: "Temporary task-review records are not submitted to WIKI approval until a later explicit review-registration flow.",
       },
     };
   }
@@ -295,7 +297,8 @@ export async function saveTaskReviewSessionRecord(
         providerCallMode,
         executionMode,
         runtimeMode,
-        savedBy: "user",
+        savedBy: "auto",
+        reviewRecordKind: "temporary",
         reviewSessionId,
         reviewSessionTitle: title,
         reviewInstructionVersion: TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION_VERSION,
@@ -314,7 +317,7 @@ export async function listTaskReviewSessions(taskId: string): Promise<TaskReview
   const records = (await assistantRepository.listRecordsByTask(task.id)).filter(isSavedTaskReviewRecord);
   const titleBySessionId = await readReviewSessionTitleOverrides(task.projectId);
   return records
-    .slice(0, 12)
+    .slice(0, 6)
     .map((record) => toTaskReviewSessionSummary(record, titleBySessionId.get(record.id)));
 }
 
@@ -377,6 +380,30 @@ export async function renameTaskReviewSession(input: {
     metadata: { title },
   });
   return toTaskReviewSessionSummary(record, title);
+}
+
+export async function deleteTaskReviewSession(sessionId: string, user: AuthUser) {
+  const record = await findSavedTaskReviewRecordIncludingDeleted(sessionId);
+  await requireTaskInSelectedProject(record.taskId);
+  return toTaskReviewSessionSummary(
+    await assistantRepository.softDeleteReviewSession({
+      projectId: record.projectId,
+      recordId: record.id,
+      profileId: user.id,
+    }),
+  );
+}
+
+export async function restoreTaskReviewSession(sessionId: string, user: AuthUser) {
+  const record = await findSavedTaskReviewRecordIncludingDeleted(sessionId);
+  await requireTaskInSelectedProject(record.taskId);
+  return toTaskReviewSessionSummary(
+    await assistantRepository.restoreReviewSession({
+      projectId: record.projectId,
+      recordId: record.id,
+      profileId: user.id,
+    }),
+  );
 }
 
 function digestJson(value: unknown) {
@@ -630,6 +657,7 @@ function toTaskReviewSessionSummary(record: AssistantRecord, titleOverride?: str
     answerPreview: trimText(record.answer.replace(/\s+/g, " "), 160),
     verdict: readStoredVerdict(record),
     conclusionMayChange: taskReview?.conclusionMayChange ?? false,
+    projectWikiState: defaultProjectWikiReviewState(),
     savedAt: record.createdAt,
     updatedAt: record.updatedAt,
     savedRecord: toTaskReviewSavedRecord(record),
@@ -645,7 +673,38 @@ async function findSavedTaskReviewRecord(sessionId: string): Promise<AssistantRe
 }
 
 function isSavedTaskReviewRecord(record: AssistantRecord) {
-  return record.metadata.taskReview?.source === "assistant-task-review" && record.metadata.taskReview.savedBy === "user";
+  const taskReview = record.metadata.taskReview;
+  return (
+    taskReview?.source === "assistant-task-review" &&
+    (taskReview.savedBy === "auto" || taskReview.savedBy === "user") &&
+    !record.reviewDeletedAt
+  );
+}
+
+async function findSavedTaskReviewRecordIncludingDeleted(sessionId: string): Promise<AssistantRecord> {
+  const record = await assistantRepository.findRecordById(normalizeRequiredSessionText(sessionId, "sessionId"));
+  if (!record || !isSavedTaskReviewRecordIncludingDeleted(record)) {
+    throw notFound("Review session not found", "TASK_REVIEW_SESSION_NOT_FOUND");
+  }
+  return record;
+}
+
+function isSavedTaskReviewRecordIncludingDeleted(record: AssistantRecord) {
+  const taskReview = record.metadata.taskReview;
+  return (
+    taskReview?.source === "assistant-task-review" &&
+    (taskReview.savedBy === "auto" || taskReview.savedBy === "user")
+  );
+}
+
+function defaultProjectWikiReviewState(): ProjectWikiReviewState {
+  return {
+    registrationState: "not_evaluated",
+    suitabilityReason: null,
+    projectWikiItemId: null,
+    commonCandidateRecordId: null,
+    workSummaryDraftId: null,
+  };
 }
 
 async function readReviewSessionTitleOverrides(projectId: string) {
@@ -694,7 +753,7 @@ function buildStoredReviewLawReport(evidence: AssistantEvidence[]): TaskReviewLe
       apiUrl: item.apiSourceUrl ?? item.sourceUrl ?? "",
       checkedAt: item.checkedAt ?? checkedAt,
       evidenceId: item.id,
-      reason: "Stored from explicit Task Assistant review-session save.",
+      reason: "Stored from Task Assistant temporary review-session save.",
     })),
     failures: [],
     retry: [],

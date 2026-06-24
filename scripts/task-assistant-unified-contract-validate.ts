@@ -36,6 +36,9 @@ checkFileContains({
 checkNoNormalGenerateRecordPost();
 checkNoServerGenerateAutoSave();
 checkReviewSessionRoutes();
+checkTemporaryReviewAutoSaveContract();
+checkReviewSessionDeleteRestoreContract();
+checkTemporaryReviewUiCopyReadiness();
 checkReviewSessionExecutionModePersistence();
 checkTaskAssistantBasicAdvancedMode();
 checkTaskAssistantChromeSidePanelBridge();
@@ -198,6 +201,124 @@ function checkReviewSessionRoutes() {
     missing.length === 0
       ? "review session route files exist"
       : `missing route file(s): ${missing.map((filePath) => filePath.replace(repoRoot, "")).join(", ")}`,
+  );
+}
+
+function checkTemporaryReviewAutoSaveContract() {
+  const servicePath = appPath("src/use-cases/task-review-service.ts");
+  const typePath = appPath("src/domains/assistant/types.ts");
+  const serviceContent = stripComments(readRequiredFile(servicePath));
+  const typeContent = stripComments(readRequiredFile(typePath));
+  const saveRecordBody = extractFunctionBody(serviceContent, "saveTaskReviewSessionRecord");
+  const listBody = extractFunctionBody(serviceContent, "listTaskReviewSessions");
+  const summaryBody = extractFunctionBody(serviceContent, "toTaskReviewSessionSummary");
+  const activePredicateBody = extractFunctionBody(serviceContent, "isSavedTaskReviewRecord");
+  const includingDeletedBody = extractFunctionBody(serviceContent, "isSavedTaskReviewRecordIncludingDeleted");
+
+  const hasTemporaryMetadata = /savedBy\s*:\s*["'`]auto["'`]/.test(saveRecordBody) &&
+    /reviewRecordKind\s*:\s*["'`]temporary["'`]/.test(saveRecordBody);
+  const activePredicateAcceptsTemporary = /savedBy\s*===\s*["'`]auto["'`]/.test(activePredicateBody) &&
+    /savedBy\s*===\s*["'`]user["'`]/.test(activePredicateBody) &&
+    /!record\.reviewDeletedAt/.test(activePredicateBody);
+  const includingDeletedLookupAcceptsTemporary = serviceContent.includes("findSavedTaskReviewRecordIncludingDeleted") &&
+    /savedBy\s*===\s*["'`]auto["'`]/.test(includingDeletedBody) &&
+    /savedBy\s*===\s*["'`]user["'`]/.test(includingDeletedBody) &&
+    !/!record\.reviewDeletedAt/.test(includingDeletedBody);
+  const limitsNewestSix = /\.slice\(0,\s*6\)/.test(listBody);
+  const exposesProjectWikiState = typeContent.includes("ProjectWikiReviewState") &&
+    typeContent.includes("registrationState") &&
+    summaryBody.includes("projectWikiState") &&
+    summaryBody.includes("defaultProjectWikiReviewState");
+
+  addCheck(
+    "temporary review auto-save service contract",
+    hasTemporaryMetadata && activePredicateAcceptsTemporary && includingDeletedLookupAcceptsTemporary && limitsNewestSix && exposesProjectWikiState,
+    hasTemporaryMetadata && activePredicateAcceptsTemporary && includingDeletedLookupAcceptsTemporary && limitsNewestSix && exposesProjectWikiState
+      ? "temporary records use auto metadata, active lists exclude deleted records, including-deleted lookup exists, newest six are returned, and projectWikiState is exposed"
+      : "missing temporary auto-save metadata, deleted-record filtering, including-deleted lookup, newest-six limit, or projectWikiState summary field",
+  );
+}
+
+function checkReviewSessionDeleteRestoreContract() {
+  const contractPath = appPath("src/repositories/assistant/contracts.ts");
+  const postgresPath = appPath("src/repositories/assistant/postgres-store.ts");
+  const localPath = appPath("src/repositories/assistant/local-store.ts");
+  const indexPath = appPath("src/repositories/assistant/index.ts");
+  const servicePath = appPath("src/use-cases/task-review-service.ts");
+  const routePath = appPath("src/app/api/assistant/review-sessions/[sessionId]/route.ts");
+  const restoreRoutePath = appPath("src/app/api/assistant/review-sessions/[sessionId]/restore/route.ts");
+  const contractContent = stripComments(readRequiredFile(contractPath));
+  const postgresContent = stripComments(readRequiredFile(postgresPath));
+  const localContent = stripComments(readRequiredFile(localPath));
+  const indexContent = stripComments(readRequiredFile(indexPath));
+  const serviceContent = stripComments(readRequiredFile(servicePath));
+  const routeContent = stripComments(readRequiredFile(routePath));
+  const restoreRouteContent = stripComments(readOptionalFile(restoreRoutePath));
+
+  const repositoryFiles = [contractContent, postgresContent, localContent, indexContent];
+  const repositoryMethodsExist = repositoryFiles.every((content) =>
+    ["softDeleteReviewSession", "restoreReviewSession", "updateReviewSessionMetadata"].every((methodName) =>
+      content.includes(methodName),
+    ),
+  );
+  const postgresScopesUpdates = /reviewDeletedAt\s*:\s*new Date\(\)/.test(postgresContent) &&
+    /reviewDeletedBy\s*:\s*input\.profileId/.test(postgresContent) &&
+    /reviewDeletedAt\s*:\s*null/.test(postgresContent) &&
+    /reviewRestoredAt\s*:\s*new Date\(\)/.test(postgresContent) &&
+    /id\s*:\s*input\.recordId/.test(postgresContent) &&
+    /projectId\s*:\s*input\.projectId/.test(postgresContent);
+  const serviceMethodsExist = serviceContent.includes("export async function deleteTaskReviewSession") &&
+    serviceContent.includes("export async function restoreTaskReviewSession") &&
+    serviceContent.includes("assistantRepository.softDeleteReviewSession") &&
+    serviceContent.includes("assistantRepository.restoreReviewSession");
+  const deleteRouteExists = /export\s+async\s+function\s+DELETE/.test(routeContent) &&
+    routeContent.includes("assertRequestIntegrity(request)") &&
+    routeContent.includes("requireCurrentProjectEditor(user)") &&
+    routeContent.includes("deleteTaskReviewSession(sessionId, user)");
+  const restoreRouteExists = existsSync(restoreRoutePath) &&
+    /export\s+async\s+function\s+POST/.test(restoreRouteContent) &&
+    restoreRouteContent.includes("assertRequestIntegrity(request)") &&
+    restoreRouteContent.includes("requireCurrentProjectEditor(user)") &&
+    restoreRouteContent.includes("restoreTaskReviewSession(sessionId, user)");
+
+  addCheck(
+    "review session delete and restore API contract",
+    repositoryMethodsExist && postgresScopesUpdates && serviceMethodsExist && deleteRouteExists && restoreRouteExists,
+    repositoryMethodsExist && postgresScopesUpdates && serviceMethodsExist && deleteRouteExists && restoreRouteExists
+      ? "repository methods, scoped store updates, service methods, DELETE route, and restore route exist"
+      : "missing repository soft-delete/restore/metadata methods, scoped update fields, service methods, DELETE route, or restore route",
+  );
+}
+
+function checkTemporaryReviewUiCopyReadiness() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const servicePath = appPath("src/use-cases/task-review-service.ts");
+  const routePath = appPath("src/app/api/assistant/review-sessions/[sessionId]/route.ts");
+  const restoreRoutePath = appPath("src/app/api/assistant/review-sessions/[sessionId]/restore/route.ts");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const serviceContent = stripComments(readRequiredFile(servicePath));
+  const routeContent = stripComments(readRequiredFile(routePath));
+  const restoreRouteContent = stripComments(readOptionalFile(restoreRoutePath));
+  const requiredTemporaryCopy = [
+    "임시 검토 기록",
+    "임시 기록 자동저장됨",
+    "저장 실패 · 다시 시도",
+  ];
+  const hasTemporaryCopy = requiredTemporaryCopy.every((anchor) => panelContent.includes(anchor));
+  const manualPrimaryRemoved = !panelContent.includes("검토기록저장");
+  const task2ApiReady = /savedBy\s*:\s*["'`]auto["'`]/.test(serviceContent) &&
+    /reviewRecordKind\s*:\s*["'`]temporary["'`]/.test(serviceContent) &&
+    /export\s+async\s+function\s+DELETE/.test(routeContent) &&
+    /export\s+async\s+function\s+POST/.test(restoreRouteContent);
+
+  addCheck(
+    "temporary review UI copy and manual save removal readiness",
+    (manualPrimaryRemoved && hasTemporaryCopy) || (!manualPrimaryRemoved && task2ApiReady),
+    manualPrimaryRemoved && hasTemporaryCopy
+      ? "temporary review copy exists and manual primary save action is removed"
+      : !manualPrimaryRemoved && task2ApiReady
+        ? "manual 검토기록저장 UI remains for Task 5, but temporary auto-save API anchors are ready"
+        : "missing temporary UI copy anchors, manual save removal, or Task 2 temporary API readiness anchors",
   );
 }
 

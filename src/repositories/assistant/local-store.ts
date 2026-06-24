@@ -13,6 +13,7 @@ import type {
   ApprovedKnowledgeItem,
   AssistantCandidateState,
   AssistantRecord,
+  AssistantRecordMetadata,
   AssistantThread,
   AssistantThreadMessage,
   AssistantThreadSummaryProvenance,
@@ -103,6 +104,10 @@ function normalizeRecord(record: AssistantRecord): AssistantRecord {
   return {
     ...record,
     metadata: record.metadata ?? {},
+    reviewDeletedAt: record.reviewDeletedAt ?? null,
+    reviewDeletedBy: record.reviewDeletedBy ?? null,
+    reviewRestoredAt: record.reviewRestoredAt ?? null,
+    reviewRestoredBy: record.reviewRestoredBy ?? null,
   };
 }
 
@@ -288,12 +293,102 @@ class LocalAssistantRepository implements AssistantRepository {
       cleanupState: input.cleanupState ?? "draft",
       candidateState: input.candidateState ?? "candidate",
       metadata: input.metadata ?? {},
+      reviewDeletedAt: null,
+      reviewDeletedBy: null,
+      reviewRestoredAt: null,
+      reviewRestoredBy: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
 
     await writeLocalStore("assistant", { ...store, records: [record, ...store.records] }, { reason: "assistant.record.create" });
     return record;
+  }
+
+  async softDeleteReviewSession(input: { projectId: string; recordId: string; profileId: string }) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const record = store.records.find((item) => item.id === input.recordId && item.projectId === input.projectId);
+    if (!record) {
+      throw new Error("Review session not found");
+    }
+    const nextRecord: AssistantRecord = {
+      ...record,
+      reviewDeletedAt: timestamp,
+      reviewDeletedBy: input.profileId,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        records: store.records.map((item) =>
+          item.id === nextRecord.id && item.projectId === nextRecord.projectId ? nextRecord : item,
+        ),
+      },
+      { reason: "assistant.review-session.soft-delete" },
+    );
+    return nextRecord;
+  }
+
+  async restoreReviewSession(input: { projectId: string; recordId: string; profileId: string }) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const record = store.records.find((item) => item.id === input.recordId && item.projectId === input.projectId);
+    if (!record) {
+      throw new Error("Review session not found");
+    }
+    const nextRecord: AssistantRecord = {
+      ...record,
+      reviewDeletedAt: null,
+      reviewDeletedBy: null,
+      reviewRestoredAt: timestamp,
+      reviewRestoredBy: input.profileId,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        records: store.records.map((item) =>
+          item.id === nextRecord.id && item.projectId === nextRecord.projectId ? nextRecord : item,
+        ),
+      },
+      { reason: "assistant.review-session.restore" },
+    );
+    return nextRecord;
+  }
+
+  async updateReviewSessionMetadata(input: {
+    projectId: string;
+    recordId: string;
+    metadata: AssistantRecordMetadata;
+  }) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const record = store.records.find((item) => item.id === input.recordId && item.projectId === input.projectId);
+    if (!record) {
+      throw new Error("Review session not found");
+    }
+    const nextRecord: AssistantRecord = {
+      ...record,
+      metadata: input.metadata,
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        records: store.records.map((item) =>
+          item.id === nextRecord.id && item.projectId === nextRecord.projectId ? nextRecord : item,
+        ),
+      },
+      { reason: "assistant.review-session.metadata.update" },
+    );
+    return nextRecord;
   }
 
   async createExternalEvidence(input: CreateExternalEvidenceInput) {
@@ -321,6 +416,10 @@ class LocalAssistantRepository implements AssistantRepository {
       cleanupState: "deferred",
       candidateState: "not_candidate",
       metadata: { externalEvidence },
+      reviewDeletedAt: null,
+      reviewDeletedBy: null,
+      reviewRestoredAt: null,
+      reviewRestoredBy: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };

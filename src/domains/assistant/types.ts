@@ -213,6 +213,14 @@ export type ApprovedKnowledgeItem = {
   approvedAt: string;
 };
 
+export type ProjectWikiReviewState = {
+  registrationState: "not_evaluated" | "recommended" | "caution" | "not_recommended" | "registered";
+  suitabilityReason: string | null;
+  projectWikiItemId: string | null;
+  commonCandidateRecordId: string | null;
+  workSummaryDraftId: string | null;
+};
+
 export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
@@ -227,7 +235,8 @@ export type AssistantRecordMetadata = {
     executionMode?: AssistantExecutionMode;
     runtimeMode?: string;
     savedByOrchestrator?: true;
-    savedBy?: "user" | "orchestrator";
+    savedBy?: "auto" | "user" | "orchestrator";
+    reviewRecordKind?: "temporary" | "manual";
     reviewSessionId?: string;
     reviewSessionTitle?: string;
     reviewInstructionVersion?: number;
@@ -253,6 +262,10 @@ export type AssistantRecord = {
   cleanupState: "draft" | "approved" | "deferred";
   candidateState: AssistantCandidateState;
   metadata: AssistantRecordMetadata;
+  reviewDeletedAt?: string | null;
+  reviewDeletedBy?: string | null;
+  reviewRestoredAt?: string | null;
+  reviewRestoredBy?: string | null;
   createdAt: string;
   updatedAt: string;
 };

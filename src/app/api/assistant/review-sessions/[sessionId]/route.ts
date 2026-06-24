@@ -5,6 +5,7 @@ import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import {
+  deleteTaskReviewSession,
   getTaskReviewSessionDetail,
   renameTaskReviewSession,
 } from "@/use-cases/task-review-service";
@@ -40,6 +41,23 @@ export async function PATCH(
     const body = await request.json();
     const title = parseRenameTitle(body);
     const data = await renameTaskReviewSession({ sessionId, title }, user);
+
+    return NextResponse.json({ data });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ sessionId: string }> },
+) {
+  try {
+    assertRequestIntegrity(request);
+    const user = await requireUser();
+    await requireCurrentProjectEditor(user);
+    const { sessionId } = await context.params;
+    const data = await deleteTaskReviewSession(sessionId, user);
 
     return NextResponse.json({ data });
   } catch (error) {

@@ -67,6 +67,10 @@ type PrismaAssistantRecord = {
   cleanupState: string;
   candidateState: string;
   metadata: Prisma.JsonValue;
+  reviewDeletedAt: Date | null;
+  reviewDeletedBy: string | null;
+  reviewRestoredAt: Date | null;
+  reviewRestoredBy: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -235,6 +239,10 @@ function toRecord(record: PrismaAssistantRecord): AssistantRecord {
     cleanupState: record.cleanupState as AssistantRecord["cleanupState"],
     candidateState: record.candidateState as AssistantRecord["candidateState"],
     metadata: asMetadata(record.metadata),
+    reviewDeletedAt: record.reviewDeletedAt?.toISOString() ?? null,
+    reviewDeletedBy: record.reviewDeletedBy,
+    reviewRestoredAt: record.reviewRestoredAt?.toISOString() ?? null,
+    reviewRestoredBy: record.reviewRestoredBy,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -582,6 +590,89 @@ class PostgresAssistantRepository implements AssistantRepository {
       },
     });
 
+    return toRecord(record);
+  }
+
+  async softDeleteReviewSession(input: { projectId: string; recordId: string; profileId: string }) {
+    const updateResult = await prisma.assistantTaskRecord.updateMany({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+      data: {
+        reviewDeletedAt: new Date(),
+        reviewDeletedBy: input.profileId,
+      },
+    });
+    if (updateResult.count !== 1) {
+      throw new Error("Review session not found");
+    }
+    const record = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    if (!record) {
+      throw new Error("Review session not found");
+    }
+    return toRecord(record);
+  }
+
+  async restoreReviewSession(input: { projectId: string; recordId: string; profileId: string }) {
+    const updateResult = await prisma.assistantTaskRecord.updateMany({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+      data: {
+        reviewDeletedAt: null,
+        reviewDeletedBy: null,
+        reviewRestoredAt: new Date(),
+        reviewRestoredBy: input.profileId,
+      },
+    });
+    if (updateResult.count !== 1) {
+      throw new Error("Review session not found");
+    }
+    const record = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    if (!record) {
+      throw new Error("Review session not found");
+    }
+    return toRecord(record);
+  }
+
+  async updateReviewSessionMetadata(input: {
+    projectId: string;
+    recordId: string;
+    metadata: AssistantRecordMetadata;
+  }) {
+    const updateResult = await prisma.assistantTaskRecord.updateMany({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+      data: {
+        metadata: toInputJson(input.metadata),
+      },
+    });
+    if (updateResult.count !== 1) {
+      throw new Error("Review session not found");
+    }
+    const record = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    if (!record) {
+      throw new Error("Review session not found");
+    }
     return toRecord(record);
   }
 

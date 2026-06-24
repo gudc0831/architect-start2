@@ -50,6 +50,15 @@ export const assistantRepository: AssistantRepository = {
   createRecord(input) {
     return getAssistantRepository().createRecord(input);
   },
+  softDeleteReviewSession(input) {
+    return getAssistantRepository().softDeleteReviewSession(input);
+  },
+  restoreReviewSession(input) {
+    return getAssistantRepository().restoreReviewSession(input);
+  },
+  updateReviewSessionMetadata(input) {
+    return getAssistantRepository().updateReviewSessionMetadata(input);
+  },
   createExternalEvidence(input) {
     return getAssistantRepository().createExternalEvidence(input);
   },
