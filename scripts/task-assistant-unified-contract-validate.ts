@@ -257,8 +257,11 @@ function checkTaskAssistantBasicAdvancedMode() {
   const hasColoredAdvancedCss = /\.task-assistant__advanced\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.1\)/.test(cssContent) &&
     /\.task-assistant__mode-button--advanced\.task-assistant__mode-button--active\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.16\)/.test(cssContent);
   const hasCompactActionGridCss = /\.task-assistant__panel\s*\{[\s\S]*width:\s*min\(30rem,\s*calc\(100vw - 2rem\)\)/.test(cssContent) &&
-    /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
+    /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
     /\.task-assistant__actions\s+\.primary-button,[\s\S]*\.task-assistant__actions\s+\.secondary-button\s*\{[\s\S]*height:\s*2\.36rem[\s\S]*font-size:\s*0\.75rem[\s\S]*white-space:\s*normal/.test(cssContent);
+  const removedDeferredSummaryAction = !panelContent.includes("보류 저장") &&
+    !panelContent.includes('saveSummary("deferred")') &&
+    !panelContent.includes("canDeferSummary");
   const advancedHoverHintAnchors = [
     'data-hint="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."',
     'data-hint="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."',
@@ -290,10 +293,10 @@ function checkTaskAssistantBasicAdvancedMode() {
 
   addCheck(
     "task assistant basic/advanced mode grouping",
-    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints,
-    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints
-      ? "basic/advanced mode controls, colored advanced grouping, compact four-action row anchors, and advanced title hover hints exist"
-      : "missing basic/advanced mode state, controls, requested advanced labels, non-white advanced styling, compact four-action row styling, or advanced title hover hints",
+    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints && removedDeferredSummaryAction,
+    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints && removedDeferredSummaryAction
+      ? "basic/advanced mode controls, colored advanced grouping, compact three-action row anchors, advanced title hover hints, and no deferred summary action exist"
+      : "missing basic/advanced mode state, controls, requested advanced labels, non-white advanced styling, compact three-action row styling, advanced title hover hints, or deferred-summary removal",
   );
 }
 

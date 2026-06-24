@@ -454,7 +454,7 @@ type ClosureGateItem = {
   required: boolean;
 };
 
-type SummarySaveStatus = "approved" | "deferred";
+type SummarySaveStatus = "approved";
 
 type LocalCodexUsageRecordState =
   | { status: "recording"; assistantRecordId: string }
@@ -632,8 +632,7 @@ export function TaskAssistantPanel({
     [closureGate],
   );
   const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
-  const canDeferSummary = Boolean(selectedTask && record && output && summaryDraft && !busy);
-  const canApproveSummary = canDeferSummary && closureAcknowledged && approvalBlockers.length === 0;
+  const canApproveSummary = Boolean(selectedTask && record && output && summaryDraft && !busy && closureAcknowledged && approvalBlockers.length === 0);
   const canSaveReviewSession = Boolean(selectedTask && output && retrieveResult && !record && !busy && !reviewSessionSaving);
   const summaryTags = useMemo(() => parseSummaryTags(summaryTagsInput), [summaryTagsInput]);
   const taskUpdateProposal = useMemo(
@@ -669,7 +668,7 @@ export function TaskAssistantPanel({
       { label: "검토안 생성", complete: Boolean(output), active: Boolean(retrieveResult) && !output },
       {
         label: "요약 처리",
-        complete: summarySaveState === "approved" || summarySaveState === "deferred",
+        complete: summarySaveState === "approved",
         active: Boolean(output) && !summarySaveState,
       },
     ],
@@ -689,7 +688,7 @@ export function TaskAssistantPanel({
       return "근거를 확인했습니다. 검토 의견 생성을 계속 진행하세요.";
     }
     if (!summarySaveState) {
-      return "검토 의견을 확인한 뒤 작업 기록을 승인하거나 보류하세요.";
+      return "검토 의견을 확인한 뒤 필요할 때 작업 기록을 승인하세요.";
     }
     return "검토 흐름이 처리되었습니다.";
   }, [output, question, retrieveResult, selectedTask, summarySaveState]);
@@ -1337,21 +1336,15 @@ export function TaskAssistantPanel({
       setSummarySaveState(statusValue);
       setTaskUpdateApplied(false);
       setFollowUpTaskCreated(false);
-      setProposalStatus(
-        statusValue === "approved"
-          ? "Task 업데이트와 후속 task 제안이 준비되었습니다. 아직 자동 반영된 항목은 없습니다."
-          : "",
-      );
-      setStatus(statusValue === "approved" ? "종료 검토 후 작업 요약을 승인했습니다." : "작업 요약을 나중에 검토하도록 보류 저장했습니다.");
+      setProposalStatus("Task 업데이트와 후속 task 제안이 준비되었습니다. 아직 자동 반영된 항목은 없습니다.");
+      setStatus("종료 검토 후 작업 요약을 승인했습니다.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
       setBusy(false);
       if (savedSummaryStatus) {
         setStatus(
-          savedSummaryStatus === "approved"
-            ? "종료 검토 후 작업 요약을 승인했습니다."
-            : "작업 요약을 나중에 검토하도록 보류 저장했습니다.",
+          "종료 검토 후 작업 요약을 승인했습니다.",
         );
       }
     }
@@ -2286,9 +2279,6 @@ export function TaskAssistantPanel({
               </button>
               <button className="secondary-button" disabled={!canApproveSummary} onClick={() => void saveSummary("approved")} type="button">
                 작업 기록 승인
-              </button>
-              <button className="secondary-button" disabled={!canDeferSummary} onClick={() => void saveSummary("deferred")} type="button">
-                보류 저장
               </button>
             </div>
             <p className="task-assistant__hint">{reviewActionHint}</p>
