@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
@@ -102,6 +102,8 @@ type AssistantOutput = {
   answer: string;
   draftSummary: DraftSummary;
   retrieval?: RetrieveResponse;
+  executionMode: "local-chatgpt-codex" | "mock" | "saas-api";
+  runtimeMode: string;
   localCodexUsage?: LocalCodexUsageMetadata;
   localCodexBridgeSchemaVersion?: number;
 };
@@ -347,6 +349,67 @@ type LocalCodexBridgeResponse<T> =
       error: string;
     };
 
+type SidePanelBridgeResponse =
+  | {
+      type: "architect:page-side-panel-response";
+      requestId: string;
+      ok: true;
+      data: {
+        opened: true;
+        taskId: string;
+        openedAt: string;
+      };
+    }
+  | {
+      type: "architect:page-side-panel-response";
+      requestId: string;
+      ok: false;
+      error: string;
+      errorCode?: string;
+    };
+
+const SIDE_PANEL_CONTEXT_UPDATED_EVENT = "architect:side-panel-context-updated";
+const SIDE_PANEL_CONTEXT_SOURCE = "architect-saas-daily";
+const SIDE_PANEL_CONTEXT_QUESTION_DEBOUNCE_MS = 300;
+
+type SidePanelContextUpdateReason =
+  | "launch"
+  | "selection-change"
+  | "question-change"
+  | "mode-change";
+
+type SidePanelAssistantMode = "basic" | "advanced";
+
+type SidePanelContextSnapshot = {
+  task: {
+    taskId: string;
+    projectId?: string;
+    displayId?: string;
+    title?: string;
+    status?: string;
+  };
+  review?: {
+    question: string;
+    executionMode?: string;
+    assistantMode?: SidePanelAssistantMode;
+  };
+  page: {
+    url: string;
+    route: string;
+  };
+  reason: SidePanelContextUpdateReason;
+  selectedAt: string;
+  source: typeof SIDE_PANEL_CONTEXT_SOURCE;
+};
+
+type SidePanelContextSourceState = {
+  selectedTask: TaskRecord | null;
+  selectedTaskLabel: string;
+  question: string;
+  executionMode: AssistantExecutionMode;
+  assistantMode: SidePanelAssistantMode;
+};
+
 type LocalCodexReadyEvent = {
   type: "architect:page-local-runtime-ready";
   bridgeSchemaVersion?: number;
@@ -505,6 +568,8 @@ export function TaskAssistantPanel({
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
   const [externalExpanded, setExternalExpanded] = useState(false);
+  const [evidenceExpanded, setEvidenceExpanded] = useState(false);
+  const [assistantPanelMode, setAssistantPanelMode] = useState<"basic" | "advanced">("basic");
   const [externalAllowed, setExternalAllowed] = useState(false);
   const [externalEvidence, setExternalEvidence] = useState<ExternalEvidenceRecord[]>([]);
   const [externalSourceType, setExternalSourceType] = useState<ExternalEvidenceSourceType>("web_page");
@@ -515,14 +580,55 @@ export function TaskAssistantPanel({
   const [localCodexHealth, setLocalCodexHealth] = useState<LocalCodexHealthReport | null>(null);
   const [usageRecordState, setUsageRecordState] = useState<LocalCodexUsageRecordState | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [sidePanelRequestId, setSidePanelRequestId] = useState(() => makeSidePanelRequestId());
+  const [sidePanelOpening, setSidePanelOpening] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
   const reviewRequestSeqRef = useRef(0);
 
   const selectedTaskLabel = useMemo(() => (selectedTask ? formatTaskDisplayId(selectedTask) : ""), [selectedTask]);
+  const sidePanelSelectionTaskIdRef = useRef<string | null>(null);
+  const sidePanelModeKeyRef = useRef(`${executionMode}:${assistantPanelMode}`);
+  const sidePanelQuestionTimerRef = useRef<number | null>(null);
+  const sidePanelContextRef = useRef<SidePanelContextSourceState>({
+    selectedTask,
+    selectedTaskLabel,
+    question,
+    executionMode,
+    assistantMode: assistantPanelMode,
+  });
+  const dispatchSidePanelContextUpdate = useCallback((reason: SidePanelContextUpdateReason) => {
+    const context = sidePanelContextRef.current;
+    if (!context.selectedTask) {
+      return false;
+    }
+
+    return dispatchSidePanelContextUpdated(
+      buildSidePanelContextSnapshot({
+        selectedTask: context.selectedTask,
+        selectedTaskLabel: context.selectedTaskLabel,
+        question: context.question,
+        executionMode: context.executionMode,
+        assistantMode: context.assistantMode,
+        reason,
+      }),
+    );
+  }, []);
+  const clearSidePanelQuestionTimer = useCallback(() => {
+    if (sidePanelQuestionTimerRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(sidePanelQuestionTimerRef.current);
+    sidePanelQuestionTimerRef.current = null;
+  }, []);
   const closureGate = useMemo(
     () => buildClosureGate({ record, retrieveResult, summaryDraft }),
     [record, retrieveResult, summaryDraft],
+  );
+  const visibleClosureGate = useMemo(
+    () => closureGate.filter((item) => item.id === "confidence"),
+    [closureGate],
   );
   const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
   const canDeferSummary = Boolean(selectedTask && record && output && summaryDraft && !busy);
@@ -589,6 +695,46 @@ export function TaskAssistantPanel({
   const showLocalCodexConnectionHelp = Boolean(localCodexHealth?.steps.some((step) => step.status === "fail"));
 
   useEffect(() => {
+    sidePanelContextRef.current = {
+      selectedTask,
+      selectedTaskLabel,
+      question,
+      executionMode,
+      assistantMode: assistantPanelMode,
+    };
+  }, [assistantPanelMode, executionMode, question, selectedTask, selectedTaskLabel]);
+
+  useEffect(() => {
+    clearSidePanelQuestionTimer();
+
+    const scheduledTaskId = selectedTask?.id ?? null;
+    if (!scheduledTaskId || sidePanelSelectionTaskIdRef.current !== scheduledTaskId) {
+      return;
+    }
+
+    sidePanelQuestionTimerRef.current = window.setTimeout(() => {
+      sidePanelQuestionTimerRef.current = null;
+      if (sidePanelContextRef.current.selectedTask?.id !== scheduledTaskId) {
+        return;
+      }
+      dispatchSidePanelContextUpdate("question-change");
+    }, SIDE_PANEL_CONTEXT_QUESTION_DEBOUNCE_MS);
+
+    return clearSidePanelQuestionTimer;
+  }, [clearSidePanelQuestionTimer, dispatchSidePanelContextUpdate, question, selectedTask?.id]);
+
+  useEffect(() => {
+    const nextModeKey = `${executionMode}:${assistantPanelMode}`;
+    if (sidePanelModeKeyRef.current === nextModeKey) {
+      return;
+    }
+
+    sidePanelModeKeyRef.current = nextModeKey;
+    clearSidePanelQuestionTimer();
+    dispatchSidePanelContextUpdate("mode-change");
+  }, [assistantPanelMode, clearSidePanelQuestionTimer, dispatchSidePanelContextUpdate, executionMode]);
+
+  useEffect(() => {
     reviewRequestSeqRef.current += 1;
     setRetrieveResult(null);
     setOutput(null);
@@ -625,6 +771,7 @@ export function TaskAssistantPanel({
     setFilesExpanded(false);
     setDiagnosticsExpanded(false);
     setExternalExpanded(false);
+    setEvidenceExpanded(false);
     setExternalAllowed(false);
     setExternalTitle("");
     setExternalUrl("");
@@ -633,17 +780,34 @@ export function TaskAssistantPanel({
     setLocalCodexHealth(null);
     setUsageRecordState(null);
     setHealthLoading(false);
+    setSidePanelRequestId(makeSidePanelRequestId());
+    setSidePanelOpening(false);
     setRecordHistoryLoading(false);
     setBusy(false);
 
     if (!selectedTask) {
+      sidePanelSelectionTaskIdRef.current = null;
       setQuestion("");
       setStatus("task를 선택하면 assistant가 해당 task에 반응합니다.");
       return;
     }
 
-    setQuestion(`${selectedTaskLabel} task의 검토 근거와 후속 조치를 정리해줘.`);
+    const nextQuestion = `${selectedTaskLabel} task의 검토 근거와 후속 조치를 정리해줘.`;
+    setQuestion(nextQuestion);
     setStatus(`${selectedTaskLabel} task가 선택되었습니다.`);
+    if (sidePanelSelectionTaskIdRef.current !== selectedTask.id) {
+      sidePanelSelectionTaskIdRef.current = selectedTask.id;
+      dispatchSidePanelContextUpdated(
+        buildSidePanelContextSnapshot({
+          selectedTask,
+          selectedTaskLabel,
+          question: nextQuestion,
+          executionMode: defaultExecutionMode,
+          assistantMode: sidePanelContextRef.current.assistantMode,
+          reason: "selection-change",
+        }),
+      );
+    }
   }, [defaultExecutionMode, selectedTask, selectedTaskLabel]);
 
   useEffect(() => {
@@ -743,6 +907,7 @@ export function TaskAssistantPanel({
     setRecord(null);
     setPendingTaskReview(null);
     setSelectedReviewSession(null);
+    setEvidenceExpanded(false);
     setSummarySaveState(null);
     setProposalStatus("");
     setTaskUpdateApplied(false);
@@ -797,6 +962,8 @@ export function TaskAssistantPanel({
           ].join("\n"),
           draftSummary: review.generated.suggestedDraftSummary,
           retrieval: reviewRetrieval,
+          executionMode: "saas-api",
+          runtimeMode: review.generated.provider.callMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
         };
 
         setOutput(generatedOutput);
@@ -893,6 +1060,8 @@ export function TaskAssistantPanel({
         evidence: retrieveResult.evidence,
         title: `${selectedTaskLabel} 검토`,
         draftSummary: output.draftSummary,
+        executionMode: output.executionMode,
+        runtimeMode: output.runtimeMode,
         generated: pendingTaskReview?.generated ?? null,
         officialLawVerification: pendingTaskReview?.officialLawVerification ?? null,
         legalApplicability: pendingTaskReview?.legalApplicability ?? null,
@@ -995,6 +1164,39 @@ export function TaskAssistantPanel({
       setStatus(report.summary);
     } finally {
       setHealthLoading(false);
+    }
+  }
+
+  async function openExtensionSidePanel() {
+    if (!selectedTask) {
+      setStatus("오른쪽 확장 패널을 열려면 먼저 일일목록에서 task를 선택하세요.");
+      return;
+    }
+
+    setSidePanelOpening(true);
+    dispatchSidePanelContextUpdate("launch");
+    try {
+      const result = await waitForAssistantSidePanelResponse(sidePanelRequestId);
+      setStatus(
+        result.taskId === selectedTask.id
+          ? "오른쪽 확장 패널을 열었습니다. 현재 SaaS 패널은 그대로 계속 사용할 수 있습니다."
+          : "오른쪽 확장 패널을 열었습니다. 선택 task가 다르면 /daily에서 task를 다시 선택하세요.",
+      );
+    } catch (error) {
+      const message = sidePanelOpenErrorMessage(error);
+      if (isSidePanelPageRefreshRequiredMessage(message)) {
+        const scheduled = scheduleSidePanelPageRefresh();
+        setStatus(
+          scheduled
+            ? `${message} 현재 /daily 탭을 자동 새로고침합니다. 새로고침 뒤 오른쪽 패널을 다시 눌러주세요.`
+            : `${message} 자동 새로고침을 이미 시도했습니다. /daily 탭을 직접 새로고침한 뒤 오른쪽 패널을 다시 눌러주세요.`,
+        );
+      } else {
+        setStatus(`${message} 현재 SaaS 패널은 그대로 사용할 수 있습니다.`);
+      }
+    } finally {
+      setSidePanelRequestId(makeSidePanelRequestId());
+      setSidePanelOpening(false);
     }
   }
 
@@ -1433,6 +1635,7 @@ export function TaskAssistantPanel({
 
   function resetGeneratedOutput() {
     setRetrieveResult(null);
+    setEvidenceExpanded(false);
     setOutput(null);
     setRecord(null);
     setSummaryDraft(null);
@@ -1478,9 +1681,27 @@ export function TaskAssistantPanel({
               <p>건축 Task Assistant</p>
               <h3>{selectedTask ? selectedTaskLabel : "task 미선택"}</h3>
             </div>
-            <button aria-label="assistant 닫기" className="task-assistant__close" onClick={() => setIsOpen(false)} type="button">
-              x
-            </button>
+            <div className="task-assistant__header-actions">
+              {selectedTask ? (
+                <button
+                  className="task-assistant__side-panel-button"
+                  data-architect-side-panel-launch="true"
+                  data-architect-side-panel-project-id={selectedTask.projectId}
+                  data-architect-side-panel-question={question}
+                  data-architect-side-panel-request-id={sidePanelRequestId}
+                  data-architect-side-panel-task-id={selectedTask.id}
+                  data-architect-side-panel-title={selectedTask.issueTitle || selectedTaskLabel}
+                  disabled={sidePanelOpening}
+                  onClick={() => void openExtensionSidePanel()}
+                  type="button"
+                >
+                  {sidePanelOpening ? "여는 중" : "오른쪽 패널"}
+                </button>
+              ) : null}
+              <button aria-label="assistant 닫기" className="task-assistant__close" onClick={() => setIsOpen(false)} type="button">
+                x
+              </button>
+            </div>
           </header>
 
           <div className="task-assistant__body">
@@ -1513,9 +1734,48 @@ export function TaskAssistantPanel({
               </section>
             )}
 
+            <section className="task-assistant__mode-switch" aria-label="AI 검토 표시 모드">
+              <button
+                aria-pressed={assistantPanelMode === "basic"}
+                className={
+                  assistantPanelMode === "basic"
+                    ? "task-assistant__mode-button task-assistant__mode-button--active"
+                    : "task-assistant__mode-button"
+                }
+                onClick={() => setAssistantPanelMode("basic")}
+                type="button"
+              >
+                기본 모드
+              </button>
+              <button
+                aria-pressed={assistantPanelMode === "advanced"}
+                className={
+                  assistantPanelMode === "advanced"
+                    ? "task-assistant__mode-button task-assistant__mode-button--advanced task-assistant__mode-button--active"
+                    : "task-assistant__mode-button task-assistant__mode-button--advanced"
+                }
+                onClick={() => setAssistantPanelMode("advanced")}
+                type="button"
+              >
+                고급 모드
+              </button>
+            </section>
+
+            <label className="task-assistant__field">
+              <span>질문</span>
+              <textarea disabled={!selectedTask || busy} onChange={(event) => setQuestion(event.target.value)} rows={3} value={question} />
+            </label>
+
+            {assistantPanelMode === "advanced" ? (
+              <div className="task-assistant__advanced" aria-label="고급 모드">
             {selectedTask ? (
               <section className="task-assistant__section">
-                <div className="task-assistant__section-header">
+                <div
+                  aria-label="최근 검토 기록: 검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."
+                  className="task-assistant__section-header"
+                  data-hint="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."
+                  tabIndex={0}
+                >
                   <h4>최근 검토 기록</h4>
                   <button
                     aria-expanded={historyExpanded}
@@ -1527,7 +1787,7 @@ export function TaskAssistantPanel({
                   </button>
                 </div>
                 {!historyExpanded ? (
-                  <p className="task-assistant__hint">검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다.</p>
+                  null
                 ) : recordHistory.length ? (
                   <>
                     <div className="task-assistant__history-list">
@@ -1575,7 +1835,12 @@ export function TaskAssistantPanel({
 
             {selectedTask ? (
               <section className="task-assistant__section">
-                <div className="task-assistant__section-header">
+                <div
+                  aria-label="파일 근거: 파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."
+                  className="task-assistant__section-header"
+                  data-hint="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."
+                  tabIndex={0}
+                >
                   <h4>파일 근거</h4>
                   <button
                     aria-expanded={filesExpanded}
@@ -1785,15 +2050,18 @@ export function TaskAssistantPanel({
                   파일 근거 저장
                 </button>
                   </>
-                ) : (
-                  <p className="task-assistant__hint">파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다.</p>
-                )}
+                ) : null}
               </section>
             ) : null}
 
             {selectedTask ? (
               <section className="task-assistant__section">
-                <div className="task-assistant__section-header">
+                <div
+                  aria-label="외부 웹/스킬 근거: 일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."
+                  className="task-assistant__section-header"
+                  data-hint="일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."
+                  tabIndex={0}
+                >
                   <h4>외부 웹/스킬 근거</h4>
                   <button
                     aria-expanded={externalExpanded}
@@ -1805,7 +2073,7 @@ export function TaskAssistantPanel({
                   </button>
                 </div>
                 {!externalExpanded ? (
-                  <p className="task-assistant__hint">일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다.</p>
+                  null
                 ) : (
                   <div className="task-assistant__external-body">
                     <label className="task-assistant__toggle">
@@ -1883,8 +2151,6 @@ export function TaskAssistantPanel({
                     {externalEvidence.slice(0, 3).map((item) => (
                       <article className="task-assistant__evidence" key={item.id}>
                         <strong>{item.title}</strong>
-                        <small>{externalSourceTypeLabel(item.sourceType)}{item.toolName ? ` / ${item.toolName}` : ""}</small>
-                        <p>{item.excerpt}</p>
                         {item.sourceUrl ? (
                           <a href={item.sourceUrl} rel="noreferrer" target="_blank">
                             출처 열기
@@ -1897,10 +2163,6 @@ export function TaskAssistantPanel({
               </section>
             ) : null}
 
-            <label className="task-assistant__field">
-              <span>질문</span>
-              <textarea disabled={!selectedTask || busy} onChange={(event) => setQuestion(event.target.value)} rows={3} value={question} />
-            </label>
             <label className="task-assistant__field">
               <span>실행 모드</span>
               <select
@@ -1915,20 +2177,33 @@ export function TaskAssistantPanel({
             </label>
             {executionMode === "saas-api" ? (
               <section className="task-assistant__section">
-                <div className="task-assistant__section-header">
+                <div
+                  aria-label={
+                    assistantPolicy?.enabled
+                      ? `SaaS API 모드: ${assistantPolicy.provider} / ${assistantPolicy.model}`
+                      : "SaaS API 모드: 관리자 정책이 꺼져 있으면 생성 요청은 감사 로그와 사용량 차단 기록만 남깁니다."
+                  }
+                  className="task-assistant__section-header"
+                  data-hint={
+                    assistantPolicy?.enabled
+                      ? `${assistantPolicy.provider} / ${assistantPolicy.model}`
+                      : "관리자 정책이 꺼져 있으면 생성 요청은 감사 로그와 사용량 차단 기록만 남깁니다."
+                  }
+                  tabIndex={0}
+                >
                   <h4>SaaS API 모드</h4>
                   <span>{assistantPolicy?.enabled ? "사용 중" : "꺼짐"}</span>
                 </div>
-                <p className="task-assistant__hint">
-                  {assistantPolicy?.enabled
-                    ? `${assistantPolicy.provider} / ${assistantPolicy.model}`
-                    : "관리자 정책이 꺼져 있으면 생성 요청은 감사 로그와 사용량 차단 기록만 남깁니다."}
-                </p>
               </section>
             ) : null}
             {executionMode === "local-codex" ? (
               <section className="task-assistant__section">
-                <div className="task-assistant__section-header">
+                <div
+                  aria-label="로컬 Codex 로그인: 로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."
+                  className="task-assistant__section-header"
+                  data-hint="로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."
+                  tabIndex={0}
+                >
                   <h4>로컬 Codex 로그인</h4>
                   <button
                     aria-expanded={diagnosticsExpanded}
@@ -1978,17 +2253,23 @@ export function TaskAssistantPanel({
                 ) : null}
                   </>
                 ) : (
-                  <p className="task-assistant__hint">로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다.</p>
+                  null
                 )}
               </section>
             ) : null}
             <section className="task-assistant__section">
-              <div className="task-assistant__section-header">
+              <div
+                aria-label="기본 검토지침: 답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다."
+                className="task-assistant__section-header"
+                data-hint="답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다."
+                tabIndex={0}
+              >
                 <h4>기본 검토지침</h4>
                 <span>서비스 고정</span>
               </div>
-              <p className="task-assistant__hint">답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다.</p>
             </section>
+              </div>
+            ) : null}
 
             <div className="task-assistant__actions">
               <button className="primary-button" disabled={!selectedTask || busy} onClick={() => void runAssistantReview()} type="button">
@@ -2010,52 +2291,63 @@ export function TaskAssistantPanel({
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>근거</h4>
-                  <span>{retrieveResult.evidence.length}</span>
+                  <button
+                    aria-expanded={evidenceExpanded}
+                    className="task-assistant__subtle-button"
+                    onClick={() => setEvidenceExpanded((current) => !current)}
+                    type="button"
+                  >
+                    {evidenceExpanded ? "접기" : `보기 ${retrieveResult.evidence.length}`}
+                  </button>
                 </div>
-                <div className="task-assistant__missing-evidence" role="status">
-                  <strong>법적 근거</strong>
-                  <p>{(retrieveResult.legalEvidence ?? retrieveResult.evidence.filter((item) => item.legal)).length}개</p>
-                </div>
-                <div className="task-assistant__missing-evidence" role="status">
-                  <strong>프로젝트 업로드 자료 반영</strong>
-                  <p>{retrieveResult.projectContextChunks?.length ? retrieveResult.projectContextChunks.map((chunk) => chunk.sourceDocumentTitle).join(", ") : "반영된 chunk 없음"}</p>
-                </div>
-                <div className="task-assistant__missing-evidence" role="status">
-                  <strong>프로젝트 업로드 자료 검토 상태</strong>
-                  <p>{formatProjectContextTraceStatus(retrieveResult.projectContextTrace)}</p>
-                </div>
-                {retrieveResult.unavailableEvidenceKinds.length ? (
-                  <div className="task-assistant__missing-evidence" role="status">
-                    <strong>사용할 수 없는 근거</strong>
-                    <p>{retrieveResult.unavailableEvidenceKinds.map(formatUnavailableEvidenceKind).join(", ")}</p>
-                  </div>
-                ) : null}
-                {retrieveResult.evidenceReadinessWarnings?.length ? (
-                  <div className="task-assistant__missing-evidence" role="status">
-                    <strong>Evidence readiness</strong>
-                    <p>{retrieveResult.evidenceReadinessWarnings.map((warning) => warning.message).join(" ")}</p>
-                  </div>
-                ) : null}
-                {hasLegalChangeImpactWarning(retrieveResult) ? (
-                  <div className="task-assistant__missing-evidence" role="status">
-                    <strong>Legal change detected - requires review</strong>
-                    <p>{LEGAL_CHANGE_IMPACT_WARNING}</p>
-                  </div>
-                ) : null}
-                <div className="task-assistant__evidence-list">
-                  {retrieveResult.evidence.slice(0, 10).map((item) => (
-                      <article className="task-assistant__evidence" key={item.id}>
-                        <strong>{item.title}</strong>
-                      <small>{evidenceKindLabel(item.kind)} / 우선순위 {item.priority}</small>
-                      <p>{item.excerpt}</p>
-                      {item.sourceUrl ? (
-                        <a href={item.sourceUrl} rel="noreferrer" target="_blank">
-                          출처 열기
-                        </a>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
+                {evidenceExpanded ? (
+                  <>
+                    <div className="task-assistant__missing-evidence" role="status">
+                      <strong>법적 근거</strong>
+                      <p>{(retrieveResult.legalEvidence ?? retrieveResult.evidence.filter((item) => item.legal)).length}개</p>
+                    </div>
+                    <div className="task-assistant__missing-evidence" role="status">
+                      <strong>프로젝트 업로드 자료 반영</strong>
+                      <p>{retrieveResult.projectContextChunks?.length ? retrieveResult.projectContextChunks.map((chunk) => chunk.sourceDocumentTitle).join(", ") : "반영된 chunk 없음"}</p>
+                    </div>
+                    <div className="task-assistant__missing-evidence" role="status">
+                      <strong>프로젝트 업로드 자료 검토 상태</strong>
+                      <p>{formatProjectContextTraceStatus(retrieveResult.projectContextTrace)}</p>
+                    </div>
+                    {retrieveResult.unavailableEvidenceKinds.length ? (
+                      <div className="task-assistant__missing-evidence" role="status">
+                        <strong>사용할 수 없는 근거</strong>
+                        <p>{retrieveResult.unavailableEvidenceKinds.map(formatUnavailableEvidenceKind).join(", ")}</p>
+                      </div>
+                    ) : null}
+                    {retrieveResult.evidenceReadinessWarnings?.length ? (
+                      <div className="task-assistant__missing-evidence" role="status">
+                        <strong>Evidence readiness</strong>
+                        <p>{retrieveResult.evidenceReadinessWarnings.map((warning) => warning.message).join(" ")}</p>
+                      </div>
+                    ) : null}
+                    {hasLegalChangeImpactWarning(retrieveResult) ? (
+                      <div className="task-assistant__missing-evidence" role="status">
+                        <strong>Legal change detected - requires review</strong>
+                        <p>{LEGAL_CHANGE_IMPACT_WARNING}</p>
+                      </div>
+                    ) : null}
+                    <div className="task-assistant__evidence-list">
+                      {retrieveResult.evidence.slice(0, 10).map((item) => (
+                        <article className="task-assistant__evidence" key={item.id}>
+                          <strong>{item.title}</strong>
+                          {item.sourceUrl ? (
+                            <a href={item.sourceUrl} rel="noreferrer" target="_blank">
+                              출처 열기
+                            </a>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="task-assistant__hint">근거 세부 항목은 필요할 때만 펼쳐 확인합니다.</p>
+                )}
               </section>
             ) : null}
 
@@ -2133,8 +2425,13 @@ export function TaskAssistantPanel({
                       />
                     </label>
                     <div className="task-assistant__closure-list">
-                      {closureGate.map((item) => (
-                        <article className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`} key={item.id}>
+                      {visibleClosureGate.map((item) => (
+                        <article
+                          aria-label={`${item.label}: ${item.detail}`}
+                          className={`task-assistant__closure-item task-assistant__closure-item--${item.status}`}
+                          key={item.id}
+                          tabIndex={0}
+                        >
                           <strong>{item.label}</strong>
                           <span>{closureGateStatusLabel(item.status)}</span>
                           <p>{item.detail}</p>
@@ -2148,7 +2445,7 @@ export function TaskAssistantPanel({
                         onChange={(event) => setClosureAcknowledged(event.target.checked)}
                         type="checkbox"
                       />
-                      <span>위 초안, 근거, 신뢰도와 후속 조치를 확인했고 이 내용을 작업 기록으로 승인합니다.</span>
+                      <span>검토 내용을 확인하고 승인해주세요.</span>
                     </label>
                   </article>
                 ) : null}
@@ -2371,10 +2668,6 @@ function formatUnavailableEvidenceKind(kind: string) {
 
 function isAssistantEvidenceKind(kind: string): kind is AssistantEvidence["kind"] {
   return kind === "central_knowledge" || kind === "regulation" || kind === "task" || kind === "project_document" || kind === "web_or_skill";
-}
-
-function externalSourceTypeLabel(sourceType: ExternalEvidenceSourceType) {
-  return externalSourceOptions.find((option) => option.value === sourceType)?.label ?? sourceType;
 }
 
 function cleanupStateLabel(state: AssistantRecordHistoryItem["cleanupState"]) {
@@ -2681,6 +2974,8 @@ async function generateLocalCodexReview(input: {
   return {
     ...output,
     retrieval,
+    executionMode: "local-chatgpt-codex",
+    runtimeMode: "extension-native-bridge-in-page",
     answer: appendLegalChangeReviewNotice(output.answer, {
       taskContext: retrieval.taskContext,
       evidence: retrieval.evidence,
@@ -2729,6 +3024,8 @@ function normalizeLocalCodexOutput(output: Partial<AssistantOutput>, taskContext
           ? draftSummary.followUpAction
           : "Task 기록을 업데이트하기 전에 인용 근거를 확인하세요.",
     },
+    executionMode: "local-chatgpt-codex",
+    runtimeMode: "extension-native-bridge-in-page",
     localCodexUsage: output.localCodexUsage,
     localCodexBridgeSchemaVersion: output.localCodexBridgeSchemaVersion,
   };
@@ -3133,6 +3430,151 @@ function requestLocalCodexBridge<T>(
   });
 }
 
+function buildSidePanelContextSnapshot(input: {
+  selectedTask: TaskRecord;
+  selectedTaskLabel: string;
+  question: string;
+  executionMode: AssistantExecutionMode;
+  assistantMode: SidePanelAssistantMode;
+  reason: SidePanelContextUpdateReason;
+}): SidePanelContextSnapshot {
+  const displayId = sanitizeSidePanelContextText(input.selectedTaskLabel) ?? formatTaskDisplayId(input.selectedTask);
+  const title = sanitizeSidePanelContextText(input.selectedTask.issueTitle) ?? displayId;
+  const question = sanitizeSidePanelContextText(input.question) ?? "";
+  const projectId = sanitizeSidePanelContextText(input.selectedTask.projectId);
+  const status = sanitizeSidePanelContextText(input.selectedTask.status);
+
+  return {
+    task: {
+      taskId: input.selectedTask.id,
+      ...(projectId ? { projectId } : {}),
+      ...(displayId ? { displayId } : {}),
+      ...(title ? { title } : {}),
+      ...(status ? { status } : {}),
+    },
+    review: {
+      question,
+      executionMode: input.executionMode,
+      assistantMode: input.assistantMode,
+    },
+    page: readSidePanelPageContext(),
+    reason: input.reason,
+    selectedAt: new Date().toISOString(),
+    source: SIDE_PANEL_CONTEXT_SOURCE,
+  };
+}
+
+function dispatchSidePanelContextUpdated(snapshot: SidePanelContextSnapshot) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  window.dispatchEvent(new CustomEvent(SIDE_PANEL_CONTEXT_UPDATED_EVENT, { detail: snapshot }));
+  return true;
+}
+
+function readSidePanelPageContext() {
+  if (typeof window === "undefined") {
+    return { url: "", route: "" };
+  }
+
+  const route = window.location.pathname;
+  return {
+    url: `${window.location.origin}${route}`,
+    route,
+  };
+}
+
+function sanitizeSidePanelContextText(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function waitForAssistantSidePanelResponse(requestId: string, timeoutMs = 5000) {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("오른쪽 확장 패널은 브라우저에서만 열 수 있습니다."));
+  }
+
+  return new Promise<Extract<SidePanelBridgeResponse, { ok: true }>["data"]>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage);
+      reject(
+        new Error(
+          "Architect Browser Assistant 확장 패널 응답이 없습니다. 확장이 로드되어 있는지 확인하고 /daily를 새로고침하세요.",
+        ),
+      );
+    }, timeoutMs);
+
+    function handleMessage(event: MessageEvent) {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+
+      const response = event.data as SidePanelBridgeResponse;
+      if (!response || response.type !== "architect:page-side-panel-response" || response.requestId !== requestId) {
+        return;
+      }
+
+      window.clearTimeout(timer);
+      window.removeEventListener("message", handleMessage);
+
+      if (response.ok) {
+        resolve(response.data);
+        return;
+      }
+
+      reject(new Error(sidePanelBridgeErrorMessage(response)));
+    }
+    window.addEventListener("message", handleMessage);
+  });
+}
+
+function makeSidePanelRequestId() {
+  return `architect-side-panel-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function sidePanelBridgeErrorMessage(response: Extract<SidePanelBridgeResponse, { ok: false }>) {
+  if (
+    response.errorCode === "extension_context_invalidated" ||
+    response.error.toLowerCase().includes("extension context invalidated")
+  ) {
+    return "Chrome 확장이 새로 로드되어 현재 /daily 탭 연결을 갱신해야 합니다.";
+  }
+
+  return response.error;
+}
+
+function sidePanelOpenErrorMessage(error: unknown) {
+  const message = errorMessage(error);
+  return message.toLowerCase().includes("extension context invalidated")
+    ? "Chrome 확장이 새로 로드되어 현재 /daily 탭 연결을 갱신해야 합니다."
+    : message;
+}
+
+function isSidePanelPageRefreshRequiredMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("extension context invalidated") || message.includes("현재 /daily 탭 연결을 갱신");
+}
+
+function scheduleSidePanelPageRefresh() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const refreshKey = "architect-side-panel-refresh-after-extension-reload";
+  const lastAttempt = Number(window.sessionStorage.getItem(refreshKey) || "0");
+  const now = Date.now();
+  if (now - lastAttempt < 15000) {
+    return false;
+  }
+
+  window.sessionStorage.setItem(refreshKey, String(now));
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 900);
+  return true;
+}
+
 function waitForLocalCodexPageBridge(timeoutMs = 1200): Promise<LocalCodexReadyEvent | null> {
   if (typeof window === "undefined") {
     return Promise.resolve(null);
@@ -3301,6 +3743,8 @@ function generateArchitectReview(input: {
       scope: taskLabel,
       followUpAction: "도면, 첨부 파일, 공식 기준 문서를 확인한 뒤 검토 결론을 task 기록에 반영하세요.",
     },
+    executionMode: "mock",
+    runtimeMode: "daily-task-panel",
   };
 }
 

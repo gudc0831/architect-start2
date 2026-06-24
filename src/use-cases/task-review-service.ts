@@ -3,6 +3,7 @@ import type { AuthUser } from "@/domains/auth/types";
 import type {
   AssistantDraftSummary,
   AssistantEvidence,
+  AssistantExecutionMode,
   AssistantLegalApplicabilityBundle,
   AssistantRecord,
 } from "@/domains/assistant/types";
@@ -48,6 +49,8 @@ export type SaveTaskReviewSessionRecordInput = {
   evidence: AssistantEvidence[];
   title?: string;
   draftSummary?: AssistantDraftSummary | null;
+  executionMode?: AssistantExecutionMode;
+  runtimeMode?: string;
   generated?: AssistantGenerateResult | null;
   officialLawVerification?: TaskReviewLegalVerificationReport | null;
   legalApplicability?: AssistantLegalApplicabilityBundle | null;
@@ -260,6 +263,8 @@ export async function saveTaskReviewSessionRecord(
   const evidence = sanitizeTaskReviewEvidence(input.evidence ?? []);
   const lawReport = input.officialLawVerification ?? buildStoredReviewLawReport(evidence);
   const providerCallMode = input.generated?.provider?.callMode ?? "mock";
+  const executionMode = normalizeTaskReviewSessionExecutionMode(input.executionMode, input.generated);
+  const runtimeMode = normalizeTaskReviewSessionRuntimeMode(input.runtimeMode, executionMode, providerCallMode);
   const confidence = buildGeneratedTaskReviewConfidence({
     evidence,
     lawReport,
@@ -277,8 +282,8 @@ export async function saveTaskReviewSessionRecord(
     evidence,
     confidenceScore: confidence.score,
     confidenceReason: confidence.reason,
-    executionMode: "saas-api",
-    runtimeMode: providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider",
+    executionMode,
+    runtimeMode,
     draftSummary: input.draftSummary ?? input.generated?.suggestedDraftSummary ?? null,
     candidateState: "not_candidate",
     metadata: {
@@ -288,6 +293,8 @@ export async function saveTaskReviewSessionRecord(
         evidenceDigest: buildEvidenceDigest(evidence),
         officialLawDigest: buildOfficialLawDigest(lawReport),
         providerCallMode,
+        executionMode,
+        runtimeMode,
         savedBy: "user",
         reviewSessionId,
         reviewSessionTitle: title,
@@ -706,6 +713,42 @@ function buildReviewSessionTitle(question: string) {
 function normalizeSessionTitle(value: string | undefined) {
   const normalized = value?.trim();
   return normalized ? trimText(normalized, 80) : null;
+}
+
+function normalizeTaskReviewSessionExecutionMode(
+  value: AssistantExecutionMode | undefined,
+  generated: AssistantGenerateResult | null | undefined,
+): AssistantExecutionMode {
+  if (value === "local-chatgpt-codex" || value === "mock" || value === "unavailable" || value === "saas-api") {
+    return value;
+  }
+  return generated?.executionMode ?? "saas-api";
+}
+
+function normalizeTaskReviewSessionRuntimeMode(
+  value: string | undefined,
+  executionMode: AssistantExecutionMode,
+  providerCallMode: "mock" | "live",
+) {
+  const normalized = normalizeRuntimeMode(value);
+  if (normalized) {
+    return normalized;
+  }
+  if (executionMode === "local-chatgpt-codex") {
+    return "extension-native-bridge-in-page";
+  }
+  if (executionMode === "mock") {
+    return "daily-task-panel";
+  }
+  if (executionMode === "unavailable") {
+    return "unavailable";
+  }
+  return providerCallMode === "live" ? "task-review-live-provider" : "task-review-mock-provider";
+}
+
+function normalizeRuntimeMode(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized && /^[A-Za-z0-9._:-]{1,80}$/.test(normalized) ? normalized : null;
 }
 
 function normalizeRequiredSessionText(value: string, field: string) {

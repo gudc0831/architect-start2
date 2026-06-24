@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { AssistantEvidence } from "@/domains/assistant/types";
+import type { AssistantEvidence, AssistantExecutionMode } from "@/domains/assistant/types";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireCurrentProjectAccess, requireCurrentProjectEditor } from "@/lib/auth/project-guards";
@@ -67,6 +67,8 @@ function parseSaveTaskReviewSessionBody(rawBody: unknown): SaveTaskReviewSession
     ...(isRecord(rawBody.draftSummary) || rawBody.draftSummary === null
       ? { draftSummary: rawBody.draftSummary as SaveTaskReviewSessionRecordInput["draftSummary"] }
       : {}),
+    ...(isAssistantExecutionMode(rawBody.executionMode) ? { executionMode: rawBody.executionMode } : {}),
+    ...(typeof rawBody.runtimeMode === "string" && rawBody.runtimeMode.trim() ? { runtimeMode: rawBody.runtimeMode } : {}),
     ...(isRecord(rawBody.officialLawVerification)
       ? { officialLawVerification: rawBody.officialLawVerification as SaveTaskReviewSessionRecordInput["officialLawVerification"] }
       : {}),
@@ -90,6 +92,10 @@ function isAssistantEvidencePayload(value: unknown): value is AssistantEvidence 
     typeof value.title === "string" &&
     typeof value.excerpt === "string"
   );
+}
+
+function isAssistantExecutionMode(value: unknown): value is AssistantExecutionMode {
+  return value === "local-chatgpt-codex" || value === "mock" || value === "unavailable" || value === "saas-api";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -3975,7 +3975,7 @@ a {
 
 .task-assistant__panel {
   display: grid;
-  width: min(26rem, calc(100vw - 2rem));
+  width: min(30rem, calc(100vw - 2rem));
   max-height: min(46rem, calc(100dvh - 2rem));
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -4025,6 +4025,30 @@ a {
   font-size: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-assistant__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.task-assistant__side-panel-button {
+  min-height: 2rem;
+  border: 1px solid var(--theme-border-field-soft);
+  border-radius: 999px;
+  background: var(--theme-surface-field);
+  color: var(--theme-text);
+  padding: 0 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.task-assistant__side-panel-button:disabled {
+  color: var(--theme-text-subtle);
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .task-assistant__close {
@@ -4091,6 +4115,58 @@ a {
 .task-assistant__flow-step--complete {
   border-color: rgba(38, 96, 71, 0.28);
   color: #266047;
+}
+
+.task-assistant__mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--theme-border-field);
+  border-radius: 8px;
+  background: var(--theme-surface-field);
+}
+
+.task-assistant__mode-button {
+  min-width: 0;
+  min-height: 2.1rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.task-assistant__mode-button--active {
+  border-color: var(--theme-border-field-strong);
+  background: var(--theme-surface-form-label);
+  color: var(--theme-text);
+}
+
+.task-assistant__mode-button--advanced.task-assistant__mode-button--active {
+  border-color: rgba(44, 94, 98, 0.36);
+  background: rgba(44, 94, 98, 0.16);
+  color: #24545a;
+}
+
+.task-assistant__advanced {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(44, 94, 98, 0.26);
+  border-radius: 8px;
+  background: rgba(44, 94, 98, 0.1);
+}
+
+.task-assistant__advanced .task-assistant__section,
+.task-assistant__advanced .task-assistant__field {
+  border-color: rgba(44, 94, 98, 0.24);
+  background: rgba(235, 246, 244, 0.86);
+}
+
+.task-assistant__advanced .task-assistant__field--plain {
+  background: transparent;
 }
 
 .assistant-preview-page {
@@ -4211,8 +4287,21 @@ a {
 
 .task-assistant__actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.task-assistant__actions .primary-button,
+.task-assistant__actions .secondary-button {
+  width: 100%;
+  min-width: 0;
+  height: 2.36rem;
+  min-height: 0;
+  padding: 0.25rem 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
 }
 
 .task-assistant__health-actions {
@@ -4314,6 +4403,49 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.task-assistant__advanced .task-assistant__section-header[data-hint] {
+  position: relative;
+  min-width: 0;
+  border-radius: 6px;
+  outline: none;
+}
+
+.task-assistant__advanced .task-assistant__section-header[data-hint]::after {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  left: 0;
+  z-index: 5;
+  border: 1px solid rgba(44, 94, 98, 0.24);
+  border-radius: 8px;
+  background: rgba(235, 246, 244, 0.98);
+  box-shadow: 0 0.75rem 1.4rem rgba(23, 44, 48, 0.13);
+  color: var(--theme-text-muted);
+  content: attr(data-hint);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.45;
+  opacity: 0;
+  padding: 0.45rem 0.55rem;
+  pointer-events: none;
+  transform: translateY(-0.2rem);
+  transition: opacity 160ms ease, transform 160ms ease, visibility 160ms ease;
+  visibility: hidden;
+  white-space: normal;
+}
+
+.task-assistant__advanced .task-assistant__section-header[data-hint]:hover::after,
+.task-assistant__advanced .task-assistant__section-header[data-hint]:focus-visible::after,
+.task-assistant__advanced .task-assistant__section-header[data-hint]:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.task-assistant__advanced .task-assistant__section-header[data-hint]:focus-visible {
+  box-shadow: 0 0 0 2px rgba(44, 94, 98, 0.18);
 }
 
 .task-assistant__section-header h4 {
@@ -4530,19 +4662,23 @@ a {
 
 .task-assistant__closure-list {
   display: grid;
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(5.8rem, 1fr));
+  gap: 0.3rem;
 }
 
 .task-assistant__closure-item {
   display: grid;
+  position: relative;
   grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 0.25rem 0.55rem;
-  align-items: start;
-  padding: 0.55rem;
+  min-width: 0;
+  gap: 0.12rem 0.28rem;
+  align-items: center;
+  padding: 0.38rem 0.42rem;
   border: 1px solid var(--theme-border-field);
   border-left-width: 3px;
   border-radius: 8px;
   background: var(--theme-surface-field);
+  outline: none;
 }
 
 .task-assistant__closure-item--pass {
@@ -4557,12 +4693,25 @@ a {
   border-left-color: #b63a31;
 }
 
+.task-assistant__closure-item:focus-visible {
+  box-shadow: 0 0 0 2px rgba(38, 96, 71, 0.2);
+}
+
+.task-assistant__closure-item strong {
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .task-assistant__closure-item span {
   border-radius: 999px;
-  padding: 0.14rem 0.45rem;
+  justify-self: end;
+  padding: 0.08rem 0.3rem;
   background: rgba(20, 33, 27, 0.08);
   color: var(--theme-text-muted);
-  font-size: 0.66rem;
+  font-size: 0.56rem;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -4570,9 +4719,22 @@ a {
 .task-assistant__closure-item p {
   grid-column: 1 / -1;
   margin: 0;
+  max-height: 0;
+  overflow: hidden;
   color: var(--theme-text-muted);
   font-size: 0.74rem;
   line-height: 1.45;
+  opacity: 0;
+  transition:
+    max-height 160ms ease,
+    opacity 160ms ease;
+}
+
+.task-assistant__closure-item:hover p,
+.task-assistant__closure-item:focus-visible p,
+.task-assistant__closure-item:focus-within p {
+  max-height: 4rem;
+  opacity: 1;
 }
 
 .task-assistant__proposal {

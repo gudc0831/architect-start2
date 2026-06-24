@@ -224,6 +224,8 @@ export type AssistantRecordMetadata = {
     evidenceDigest: string;
     officialLawDigest: string;
     providerCallMode: "mock" | "live";
+    executionMode?: AssistantExecutionMode;
+    runtimeMode?: string;
     savedByOrchestrator?: true;
     savedBy?: "user" | "orchestrator";
     reviewSessionId?: string;

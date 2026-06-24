@@ -36,6 +36,11 @@ checkFileContains({
 checkNoNormalGenerateRecordPost();
 checkNoServerGenerateAutoSave();
 checkReviewSessionRoutes();
+checkReviewSessionExecutionModePersistence();
+checkTaskAssistantBasicAdvancedMode();
+checkTaskAssistantChromeSidePanelBridge();
+checkTaskAssistantEvidenceUiDisclosure();
+checkTaskAssistantClosureDetailHover();
 checkCollapsedSecondaryPanelDefaults();
 checkAnswerContractVerdicts();
 checkCandidateImpactRule();
@@ -191,6 +196,292 @@ function checkReviewSessionRoutes() {
     missing.length === 0
       ? "review session route files exist"
       : `missing route file(s): ${missing.map((filePath) => filePath.replace(repoRoot, "")).join(", ")}`,
+  );
+}
+
+function checkReviewSessionExecutionModePersistence() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const routePath = appPath("src/app/api/assistant/review-sessions/route.ts");
+  const servicePath = appPath("src/use-cases/task-review-service.ts");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const routeContent = stripComments(readRequiredFile(routePath));
+  const serviceContent = stripComments(readRequiredFile(servicePath));
+  const saveReviewSessionBody = extractFunctionBody(panelContent, "saveReviewSession");
+  const localCodexGenerateBody = extractFunctionBody(panelContent, "generateLocalCodexReview");
+  const saveRecordBody = extractFunctionBody(serviceContent, "saveTaskReviewSessionRecord");
+
+  const clientSendsMode = /executionMode\s*:\s*output\.executionMode/.test(saveReviewSessionBody) &&
+    /runtimeMode\s*:\s*output\.runtimeMode/.test(saveReviewSessionBody);
+  const localOutputHasMode = /executionMode\s*:\s*["'`]local-chatgpt-codex["'`]/.test(localCodexGenerateBody) &&
+    /runtimeMode\s*:\s*["'`]extension-native-bridge-in-page["'`]/.test(localCodexGenerateBody);
+  const routeAcceptsMode = /isAssistantExecutionMode\(rawBody\.executionMode\)/.test(routeContent) &&
+    /runtimeMode:\s*rawBody\.runtimeMode/.test(routeContent);
+  const servicePersistsMode = /normalizeTaskReviewSessionExecutionMode/.test(serviceContent) &&
+    /normalizeTaskReviewSessionRuntimeMode/.test(serviceContent) &&
+    /assistantRepository\.createRecord\(\{[\s\S]*\bexecutionMode,[\s\S]*\bruntimeMode,/.test(saveRecordBody);
+
+  addCheck(
+    "review-session save preserves Local Codex execution and runtime modes",
+    clientSendsMode && localOutputHasMode && routeAcceptsMode && servicePersistsMode,
+    clientSendsMode && localOutputHasMode && routeAcceptsMode && servicePersistsMode
+      ? "save payload, route parser, and service persistence preserve Local Codex mode"
+      : "missing Local Codex execution/runtime mode preservation in panel, route, or service",
+  );
+}
+
+function checkTaskAssistantBasicAdvancedMode() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const cssPath = appPath("src/app/globals.css");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const cssContent = stripComments(readRequiredFile(cssPath));
+  const requiredAdvancedLabels = [
+    "최근 검토 기록",
+    "파일 근거",
+    "외부 웹/스킬 근거",
+    "실행 모드",
+    "로컬 Codex 로그인",
+    "기본 검토지침",
+  ];
+  const hasModeState = panelContent.includes("assistantPanelMode") &&
+    panelContent.includes('"basic" | "advanced"') &&
+    panelContent.includes('setAssistantPanelMode("basic")') &&
+    panelContent.includes('setAssistantPanelMode("advanced")');
+  const hasModeButtons = panelContent.includes("기본 모드") &&
+    panelContent.includes("고급 모드") &&
+    panelContent.includes('aria-label="AI 검토 표시 모드"');
+  const hasAdvancedWrapper = panelContent.includes('assistantPanelMode === "advanced"') &&
+    panelContent.includes('className="task-assistant__advanced"');
+  const hasAdvancedLabels = requiredAdvancedLabels.every((label) => panelContent.includes(label));
+  const hasColoredAdvancedCss = /\.task-assistant__advanced\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.1\)/.test(cssContent) &&
+    /\.task-assistant__mode-button--advanced\.task-assistant__mode-button--active\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.16\)/.test(cssContent);
+  const hasCompactActionGridCss = /\.task-assistant__panel\s*\{[\s\S]*width:\s*min\(30rem,\s*calc\(100vw - 2rem\)\)/.test(cssContent) &&
+    /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
+    /\.task-assistant__actions\s+\.primary-button,[\s\S]*\.task-assistant__actions\s+\.secondary-button\s*\{[\s\S]*height:\s*2\.36rem[\s\S]*font-size:\s*0\.75rem[\s\S]*white-space:\s*normal/.test(cssContent);
+  const advancedHoverHintAnchors = [
+    'data-hint="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."',
+    'data-hint="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."',
+    'data-hint="일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."',
+    'data-hint="로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."',
+    'data-hint="답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다."',
+  ];
+  const removedAlwaysVisibleAdvancedHints = [
+    '<p className="task-assistant__hint">검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다.</p>',
+    '<p className="task-assistant__hint">파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다.</p>',
+    '<p className="task-assistant__hint">일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다.</p>',
+    '<p className="task-assistant__hint">로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다.</p>',
+    '<p className="task-assistant__hint">답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다.</p>',
+  ];
+  const removedNativeAdvancedTitles = [
+    'title="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."',
+    'title="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."',
+    'title="일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."',
+    'title="로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."',
+    'title="답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다."',
+  ];
+  const hasAdvancedHoverHints = advancedHoverHintAnchors.every((anchor) => panelContent.includes(anchor)) &&
+    removedAlwaysVisibleAdvancedHints.every((anchor) => !panelContent.includes(anchor)) &&
+    removedNativeAdvancedTitles.every((anchor) => !panelContent.includes(anchor)) &&
+    !/title=\{\s*assistantPolicy\?\.enabled/.test(panelContent) &&
+    panelContent.includes('aria-label="최근 검토 기록: 검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."') &&
+    /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]::after\s*\{[\s\S]*content:\s*attr\(data-hint\)[\s\S]*opacity:\s*0[\s\S]*visibility:\s*hidden/.test(cssContent) &&
+    /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:hover::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-visible::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-within::after\s*\{[\s\S]*opacity:\s*1[\s\S]*visibility:\s*visible/.test(cssContent);
+
+  addCheck(
+    "task assistant basic/advanced mode grouping",
+    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints,
+    hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints
+      ? "basic/advanced mode controls, colored advanced grouping, compact four-action row anchors, and advanced title hover hints exist"
+      : "missing basic/advanced mode state, controls, requested advanced labels, non-white advanced styling, compact four-action row styling, or advanced title hover hints",
+  );
+}
+
+function checkTaskAssistantChromeSidePanelBridge() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const cssPath = appPath("src/app/globals.css");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const cssContent = stripComments(readRequiredFile(cssPath));
+  const contextBuilderBody = extractFunctionBody(panelContent, "buildSidePanelContextSnapshot");
+  const pageContextBody = extractFunctionBody(panelContent, "readSidePanelPageContext");
+  const dispatchContextUpdateBody = extractFunctionBody(panelContent, "dispatchSidePanelContextUpdate");
+  const dispatchContextUpdatedBody = extractFunctionBody(panelContent, "dispatchSidePanelContextUpdated");
+  const openSidePanelBody = extractFunctionBody(panelContent, "openExtensionSidePanel");
+  const selectionChangeSource = sourceWindowAround(panelContent, 'reason: "selection-change"', 700, 700);
+  const questionChangeSource = sourceWindowAround(panelContent, 'dispatchSidePanelContextUpdate("question-change")', 900, 900);
+  const modeChangeSource = sourceWindowAround(panelContent, 'dispatchSidePanelContextUpdate("mode-change")', 700, 700);
+  const sidePanelContextSource = [
+    contextBuilderBody,
+    pageContextBody,
+    dispatchContextUpdateBody,
+    dispatchContextUpdatedBody,
+    selectionChangeSource,
+    questionChangeSource,
+    modeChangeSource,
+    openSidePanelBody,
+  ].join("\n");
+  const hasSidePanelRequest = panelContent.includes('"architect:page-side-panel-response"') &&
+    panelContent.includes("data-architect-side-panel-launch") &&
+    panelContent.includes("data-architect-side-panel-request-id") &&
+    panelContent.includes("waitForAssistantSidePanelResponse") &&
+    panelContent.includes("makeSidePanelRequestId") &&
+    panelContent.includes("openExtensionSidePanel");
+  const keepsSaasFallback = panelContent.includes("현재 SaaS 패널은 그대로 사용할 수 있습니다.") &&
+    panelContent.includes("Architect Browser Assistant 확장 패널 응답이 없습니다") &&
+    panelContent.includes("extension_context_invalidated") &&
+    panelContent.includes("scheduleSidePanelPageRefresh") &&
+    panelContent.includes("window.location.reload");
+  const hasHeaderButton = panelContent.includes("task-assistant__side-panel-button") &&
+    panelContent.includes("오른쪽 패널") &&
+    panelContent.includes("sidePanelOpening");
+  const hasScopedCss = /\.task-assistant__header-actions\s*\{[\s\S]*display:\s*inline-flex/.test(cssContent) &&
+    /\.task-assistant__side-panel-button\s*\{[\s\S]*border-radius:\s*999px/.test(cssContent);
+  const hasContextUpdatedEvent = panelContent.includes('SIDE_PANEL_CONTEXT_UPDATED_EVENT = "architect:side-panel-context-updated"') &&
+    panelContent.includes("buildSidePanelContextSnapshot") &&
+    panelContent.includes("dispatchSidePanelContextUpdated") &&
+    panelContent.includes("SIDE_PANEL_CONTEXT_QUESTION_DEBOUNCE_MS = 300");
+  const dispatchesContextCustomEvent = panelContent.includes("new CustomEvent(SIDE_PANEL_CONTEXT_UPDATED_EVENT");
+  const hasLiveContextReasons = sourceWindowAroundContains(panelContent, 'reason: "selection-change"', [
+    "dispatchSidePanelContextUpdated(",
+    "buildSidePanelContextSnapshot({",
+  ]) &&
+    sourceWindowAroundContains(panelContent, 'dispatchSidePanelContextUpdate("question-change")', [
+      "window.setTimeout",
+      "SIDE_PANEL_CONTEXT_QUESTION_DEBOUNCE_MS",
+      "scheduledTaskId",
+    ], 700, 700) &&
+    sourceWindowAroundContains(panelContent, 'dispatchSidePanelContextUpdate("mode-change")', [
+      "nextModeKey",
+    ]) &&
+    openSidePanelBody.includes('dispatchSidePanelContextUpdate("launch")');
+  const hasOnlySaasEmittedReasons = !panelContent.includes("health-refresh");
+  const hasSafeContextBuilderFields = [
+    "taskId",
+    "projectId",
+    "displayId",
+    "title",
+    "status",
+    "question",
+    "executionMode",
+    "assistantMode",
+    "page",
+    "reason",
+    "selectedAt",
+    "source",
+  ].every((anchor) => contextBuilderBody.includes(anchor));
+  const alwaysEmitsQuestionString = contextBuilderBody.includes("const question = sanitizeSidePanelContextText(input.question) ??") &&
+    contextBuilderBody.includes("question,") &&
+    !contextBuilderBody.includes("...(question ? { question } : {})");
+  const builderUsesPageContextHelper = contextBuilderBody.includes("page: readSidePanelPageContext()");
+  const hasScrubbedPageContext = Boolean(pageContextBody) &&
+    pageContextBody.includes("window.location.origin") &&
+    pageContextBody.includes("window.location.pathname") &&
+    !pageContextBody.includes("window.location.href") &&
+    !pageContextBody.includes("window.location.search") &&
+    !pageContextBody.includes("window.location.hash") &&
+    !pageContextBody.includes("search:") &&
+    !pageContextBody.includes("hash:");
+  const forbiddenContextBuilderAnchors = [
+    "cookie",
+    "localStorage",
+    "sessionStorage",
+    "access_token",
+    "projectContextChunks",
+    "evidenceReadinessWarnings",
+    "localCodexTranscript",
+    "window.location.href",
+    "window.location.search",
+    "window.location.hash",
+  ];
+  const keepsContextBuilderUiSafe = Boolean(sidePanelContextSource) &&
+    forbiddenContextBuilderAnchors.every((anchor) => !sidePanelContextSource.includes(anchor)) &&
+    !sidePanelContextSource.includes("search:") &&
+    !sidePanelContextSource.includes("hash:");
+
+  addCheck(
+    "task assistant Chrome side panel bridge keeps SaaS fallback and live context sync",
+    hasSidePanelRequest &&
+      keepsSaasFallback &&
+      hasHeaderButton &&
+      hasScopedCss &&
+      hasContextUpdatedEvent &&
+      dispatchesContextCustomEvent &&
+      hasLiveContextReasons &&
+      hasOnlySaasEmittedReasons &&
+      hasSafeContextBuilderFields &&
+      alwaysEmitsQuestionString &&
+      builderUsesPageContextHelper &&
+      hasScrubbedPageContext &&
+      keepsContextBuilderUiSafe,
+    hasSidePanelRequest &&
+      keepsSaasFallback &&
+      hasHeaderButton &&
+      hasScopedCss &&
+      hasContextUpdatedEvent &&
+      dispatchesContextCustomEvent &&
+      hasLiveContextReasons &&
+      hasOnlySaasEmittedReasons &&
+      hasSafeContextBuilderFields &&
+      alwaysEmitsQuestionString &&
+      builderUsesPageContextHelper &&
+      hasScrubbedPageContext &&
+      keepsContextBuilderUiSafe
+      ? "SaaS panel exposes side-panel launch plus UI-safe task context events for actual launch, selection, question, and mode sync"
+      : "missing side-panel launch bridge, fallback, scoped button styling, context event dispatch, actual live sync reason dispatch, SaaS-only reasons, always-emitted question, builder page helper use, scrubbed page URL, safe builder fields, or combined forbidden-source guardrail",
+  );
+}
+
+function checkTaskAssistantEvidenceUiDisclosure() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const hidesEvidenceMetadata = !panelContent.includes("externalSourceTypeLabel(item.sourceType)") &&
+    !panelContent.includes("evidenceKindLabel(item.kind)} / 우선순위") &&
+    !panelContent.includes("<p>{item.excerpt}</p>");
+  const keepsEvidenceTitleAndSourceLink = panelContent.includes("<strong>{item.title}</strong>") &&
+    panelContent.includes("출처 열기") &&
+    panelContent.includes("item.sourceUrl");
+  const hasCollapsedEvidenceSection = panelContent.includes("evidenceExpanded") &&
+    panelContent.includes("setEvidenceExpanded(false)") &&
+    panelContent.includes("aria-expanded={evidenceExpanded}") &&
+    panelContent.includes("setEvidenceExpanded((current) => !current)") &&
+    panelContent.includes("근거 세부 항목은 필요할 때만 펼쳐 확인합니다.");
+
+  addCheck(
+    "task assistant evidence UI hides system-only details",
+    hidesEvidenceMetadata && keepsEvidenceTitleAndSourceLink && hasCollapsedEvidenceSection,
+    hidesEvidenceMetadata && keepsEvidenceTitleAndSourceLink && hasCollapsedEvidenceSection
+      ? "evidence cards keep title/source link visible and default the evidence detail section closed"
+      : "evidence cards must hide kind, priority, and excerpt details while preserving title/source link rendering and a default-closed evidence section",
+  );
+}
+
+function checkTaskAssistantClosureDetailHover() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const cssPath = appPath("src/app/globals.css");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const cssContent = stripComments(readRequiredFile(cssPath));
+  const hasFocusableClosureCards = panelContent.includes("task-assistant__closure-item task-assistant__closure-item--${item.status}") &&
+    panelContent.includes("tabIndex={0}") &&
+    panelContent.includes("aria-label={`${item.label}: ${item.detail}`}") &&
+    !panelContent.includes("title={item.detail}");
+  const keepsClosureGateSystemOnly = panelContent.includes("visibleClosureGate") &&
+    panelContent.includes('closureGate.filter((item) => item.id === "confidence")') &&
+    panelContent.includes("approvalBlockers = closureGate.filter") &&
+    panelContent.includes("visibleClosureGate.map((item)");
+  const hidesDetailByDefault = /\.task-assistant__closure-item\s+p\s*\{[\s\S]*max-height:\s*0[\s\S]*opacity:\s*0/.test(cssContent);
+  const revealsDetailOnHoverOrFocus = /\.task-assistant__closure-item:hover\s+p,[\s\S]*\.task-assistant__closure-item:focus-visible\s+p,[\s\S]*\.task-assistant__closure-item:focus-within\s+p\s*\{[\s\S]*max-height:\s*4rem[\s\S]*opacity:\s*1/.test(cssContent);
+  const hasCompactClosureGrid = /\.task-assistant__closure-list\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(5\.8rem,\s*1fr\)\)[\s\S]*gap:\s*0\.3rem/.test(cssContent) &&
+    /\.task-assistant__closure-item\s*\{[\s\S]*padding:\s*0\.38rem\s+0\.42rem/.test(cssContent) &&
+    /\.task-assistant__closure-item\s+span\s*\{[\s\S]*font-size:\s*0\.56rem/.test(cssContent);
+  const keepsClosureTitlesUnclipped = /\.task-assistant__closure-item\s+strong\s*\{[^}]*white-space:\s*normal/.test(cssContent) &&
+    /\.task-assistant__closure-item\s+strong\s*\{[^}]*overflow-wrap:\s*anywhere/.test(cssContent) &&
+    !/\.task-assistant__closure-item\s+strong\s*\{[^}]*text-overflow:\s*ellipsis/.test(cssContent) &&
+    !/\.task-assistant__closure-item\s+strong\s*\{[^}]*overflow:\s*hidden/.test(cssContent);
+
+  addCheck(
+    "task assistant closure details show on hover or focus",
+    hasFocusableClosureCards && keepsClosureGateSystemOnly && hidesDetailByDefault && revealsDetailOnHoverOrFocus && hasCompactClosureGrid && keepsClosureTitlesUnclipped,
+    hasFocusableClosureCards && keepsClosureGateSystemOnly && hidesDetailByDefault && revealsDetailOnHoverOrFocus && hasCompactClosureGrid && keepsClosureTitlesUnclipped
+      ? "closure checklist detail text is hidden by default, confidence-only in UI, full gate system-only, and uses a compact unclipped grid"
+      : "closure checklist UI must show confidence only while preserving full system gate checks, hover/focus detail reveal, compact grid, and unclipped titles",
   );
 }
 
@@ -389,6 +680,38 @@ function hasCollapsedUseStateDefault(content: string, stateName: string) {
   }
   const declarationSegment = normalized.slice(declarationStart, declarationStart + 260);
   return declarationSegment.includes("]=useState") && declarationSegment.includes("(false)");
+}
+
+function sourceWindowAroundContains(
+  content: string,
+  anchor: string,
+  requiredAnchors: string[],
+  beforeLength = 500,
+  afterLength = 500,
+) {
+  const segment = sourceWindowAround(content, anchor, beforeLength, afterLength);
+  if (!segment) {
+    return false;
+  }
+
+  return requiredAnchors.every((requiredAnchor) => segment.includes(requiredAnchor));
+}
+
+function sourceWindowAround(
+  content: string,
+  anchor: string,
+  beforeLength = 500,
+  afterLength = 500,
+) {
+  const anchorIndex = content.indexOf(anchor);
+  if (anchorIndex < 0) {
+    return "";
+  }
+
+  return content.slice(
+    Math.max(0, anchorIndex - beforeLength),
+    Math.min(content.length, anchorIndex + anchor.length + afterLength),
+  );
 }
 
 function findDeclarationIndex(content: string, declaration: string) {

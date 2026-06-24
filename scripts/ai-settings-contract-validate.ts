@@ -222,6 +222,10 @@ assert.match(taskPanelSource, /noHistory: preference\.aiLocalCodexNoHistory/);
 assert.match(taskPanelSource, /usageAvailable/);
 assert.match(taskPanelSource, /architect:page-local-runtime-ready/);
 assert.match(taskPanelSource, /assertLocalCodexReadyBeforeRetrieval/);
+assert.match(taskPanelSource, /executionMode:\s*output\.executionMode/);
+assert.match(taskPanelSource, /runtimeMode:\s*output\.runtimeMode/);
+assert.match(taskPanelSource, /executionMode:\s*"local-chatgpt-codex"/);
+assert.match(taskPanelSource, /runtimeMode:\s*"extension-native-bridge-in-page"/);
 assert.match(taskPanelSource, /requestHash: `local-codex:\$\{input\.savedRecord\.id\}`/);
 assert.match(taskPanelSource, /\.\.\.\(options\?\.codexOptions \? \{ codexOptions: options\.codexOptions \} : \{\}\)/);
 assert.doesNotMatch(taskPanelSource, /configPath/);
@@ -232,6 +236,15 @@ assert.match(usageService, /ASSISTANT_USAGE_RECORD_FORBIDDEN/);
 assert.match(usageService, /MAX_LOCAL_CODEX_USAGE_TOKENS/);
 assert.match(usageService, /localCodexTotalTokens/);
 assert.match(usageService, /normalizeRequestHash/);
+
+const taskReviewService = readSource("src/use-cases/task-review-service.ts");
+assert.match(taskReviewService, /normalizeTaskReviewSessionExecutionMode/);
+assert.match(taskReviewService, /normalizeTaskReviewSessionRuntimeMode/);
+assert.match(taskReviewService, /executionMode,\s*\n\s*runtimeMode,/);
+
+const reviewSessionsRoute = readSource("src/app/api/assistant/review-sessions/route.ts");
+assert.match(reviewSessionsRoute, /isAssistantExecutionMode\(rawBody\.executionMode\)/);
+assert.match(reviewSessionsRoute, /runtimeMode:\s*rawBody\.runtimeMode/);
 
 const aiSettingsCss = readSource("src/components/ai-settings/ai-settings.module.css");
 assert.doesNotMatch(aiSettingsCss, /--theme-text-strong/);
