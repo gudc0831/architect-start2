@@ -165,6 +165,7 @@ type SavedAssistantRecord = {
   runtimeMode?: string;
   candidateState?: "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected";
   draftSummary?: DraftSummary | null;
+  cleanupState?: "draft" | "approved" | "deferred";
   createdAt?: string;
   updatedAt?: string;
 };
@@ -195,6 +196,7 @@ type AssistantReviewSessionItem = {
   answerPreview: string;
   verdict: string | null;
   conclusionMayChange: boolean;
+  projectWikiState: ProjectWikiReviewState;
   savedAt: string;
   updatedAt: string;
   savedRecord: SavedAssistantRecord;
@@ -456,6 +458,109 @@ type ClosureGateItem = {
 
 type SummarySaveStatus = "approved";
 
+type SaveReviewSessionPayload = {
+  taskId: string;
+  question: string;
+  answer: string;
+  evidence: AssistantEvidence[];
+  title: string;
+  draftSummary: DraftSummary;
+  executionMode: AssistantOutput["executionMode"];
+  runtimeMode: string;
+  generated?: TaskReviewResponse["generated"] | null;
+  officialLawVerification?: TaskReviewResponse["officialLawVerification"] | null;
+  legalApplicability?: TaskReviewResponse["legalApplicability"] | null;
+  reviewSession?: TaskReviewResponse["reviewSession"] | null;
+  localCodexUsage?: LocalCodexUsageMetadata;
+  localCodexBridgeSchemaVersion?: number;
+};
+
+type AutoSaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "saved"; sessionId: string }
+  | { status: "failed"; message: string; retryPayload: SaveReviewSessionPayload };
+
+type ProjectWikiReviewState = {
+  registrationState: "not_evaluated" | "recommended" | "caution" | "not_recommended" | "registered";
+  suitabilityReason: string | null;
+  projectWikiItemId: string | null;
+  commonCandidateRecordId: string | null;
+  workSummaryDraftId: string | null;
+};
+
+type ProjectWikiSuitabilityState = "recommended" | "caution" | "not_recommended";
+
+type ProjectWikiDraft = {
+  title: string;
+  summary: string;
+  bodyMarkdown: string;
+  tags: string[];
+  aiSuitabilityState: ProjectWikiSuitabilityState;
+  aiSuitabilityReason: string;
+  commonizationCaution: string;
+};
+
+type ProjectWikiItem = ProjectWikiDraft & {
+  id: string;
+  projectId: string;
+  sourceTaskId: string;
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+  commonCandidateRecordId: string | null;
+  supplementalNote: string;
+  status: "active" | "disabled";
+  createdBy: string;
+  createdByDisplay: string;
+  createdAt: string;
+  updatedAt: string;
+  disabledBy: string | null;
+  disabledAt: string | null;
+  restoredBy: string | null;
+  restoredAt: string | null;
+};
+
+type ProjectWikiRegistrationPreview = {
+  state: ProjectWikiReviewState["registrationState"];
+  draft: ProjectWikiDraft | null;
+  existingItem: ProjectWikiItem | null;
+  blockingReason: string;
+  canRegister: boolean;
+};
+
+type ProjectWikiPreviewState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; preview: ProjectWikiRegistrationPreview }
+  | { status: "registered"; item: ProjectWikiItem }
+  | { status: "failed"; message: string };
+
+type AssistantWorkSummaryDraft = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  recordId: string;
+  profileId: string;
+  conclusion: string;
+  tags: string[];
+  scope: string;
+  followUpAction: string;
+  status: "draft" | "approved" | "deferred";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ProjectWikiSourceState = {
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+};
+
+type InPanelToast = {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+};
+
 type LocalCodexUsageRecordState =
   | { status: "recording"; assistantRecordId: string }
   | {
@@ -523,6 +628,13 @@ const externalSourceOptions: Array<{ value: ExternalEvidenceSourceType; label: s
   { value: "public_standard", label: "공개 기준" },
 ];
 
+const autoSaveLabel: Record<AutoSaveState["status"], string> = {
+  idle: "",
+  saving: "저장 중",
+  saved: "임시 기록 자동저장됨",
+  failed: "저장 실패 · 다시 시도",
+};
+
 export function TaskAssistantPanel({
   selectedTask,
   defaultOpen = false,
@@ -544,8 +656,13 @@ export function TaskAssistantPanel({
   const [followUpTaskCreated, setFollowUpTaskCreated] = useState(false);
   const [recordHistory, setRecordHistory] = useState<AssistantReviewSessionItem[]>([]);
   const [selectedReviewSession, setSelectedReviewSession] = useState<AssistantReviewSessionDetail | null>(null);
-  const [pendingTaskReview, setPendingTaskReview] = useState<TaskReviewResponse | null>(null);
-  const [reviewSessionSaving, setReviewSessionSaving] = useState(false);
+  const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>({ status: "idle" });
+  const [approvedSummaryDraftId, setApprovedSummaryDraftId] = useState("");
+  const [projectWikiPreviewState, setProjectWikiPreviewState] = useState<ProjectWikiPreviewState>({ status: "idle" });
+  const [projectWikiSource, setProjectWikiSource] = useState<ProjectWikiSourceState | null>(null);
+  const [projectWikiSupplementalNote, setProjectWikiSupplementalNote] = useState("");
+  const [projectWikiNoteExpanded, setProjectWikiNoteExpanded] = useState(false);
+  const [toast, setToast] = useState<InPanelToast | null>(null);
   const [taskFiles, setTaskFiles] = useState<AssistantFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [analysisSourceType, setAnalysisSourceType] = useState<FileAnalysisSourceMode>("manual_text");
@@ -633,7 +750,6 @@ export function TaskAssistantPanel({
   );
   const approvalBlockers = closureGate.filter((item) => item.required && item.status !== "pass");
   const canApproveSummary = Boolean(selectedTask && record && output && summaryDraft && !busy && closureAcknowledged && approvalBlockers.length === 0);
-  const canSaveReviewSession = Boolean(selectedTask && output && retrieveResult && !record && !busy && !reviewSessionSaving);
   const summaryTags = useMemo(() => parseSummaryTags(summaryTagsInput), [summaryTagsInput]);
   const taskUpdateProposal = useMemo(
     () =>
@@ -653,6 +769,15 @@ export function TaskAssistantPanel({
     taskUpdateProposal && !busy && !taskUpdateApplied && (!taskUpdateProposal.alreadyRecorded || taskUpdateProposal.statusChanged),
   );
   const canCreateFollowUpTask = Boolean(followUpTaskProposal && !busy && !followUpTaskCreated);
+  const canRegisterProjectWiki = Boolean(
+    projectWikiPreviewState.status === "ready" &&
+      projectWikiPreviewState.preview.canRegister &&
+      projectWikiPreviewState.preview.draft &&
+      isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
+      projectWikiSource?.sourceReviewRecordId &&
+      (projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId) &&
+      !busy,
+  );
   const selectedAssistantFile = useMemo(
     () => taskFiles.find((file) => file.id === selectedFileId) ?? null,
     [selectedFileId, taskFiles],
@@ -747,9 +872,14 @@ export function TaskAssistantPanel({
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
-    setPendingTaskReview(null);
     setSelectedReviewSession(null);
-    setReviewSessionSaving(false);
+    setAutoSaveState({ status: "idle" });
+    setApprovedSummaryDraftId("");
+    setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiSource(null);
+    setProjectWikiSupplementalNote("");
+    setProjectWikiNoteExpanded(false);
+    setToast(null);
     setRecordHistory([]);
     setTaskFiles([]);
     setSelectedFileId("");
@@ -903,10 +1033,10 @@ export function TaskAssistantPanel({
     const requestedQuestion = question;
     const requestedInstruction = instruction;
     const requestedExecutionMode = executionMode;
+    const requestedTaskLabel = selectedTaskLabel;
     setBusy(true);
     setOutput(null);
     setRecord(null);
-    setPendingTaskReview(null);
     setSelectedReviewSession(null);
     setEvidenceExpanded(false);
     setSummaryEditorExpanded(false);
@@ -915,6 +1045,12 @@ export function TaskAssistantPanel({
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
     setUsageRecordState(null);
+    setAutoSaveState({ status: "idle" });
+    setApprovedSummaryDraftId("");
+    setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiSource(null);
+    setProjectWikiSupplementalNote("");
+    setProjectWikiNoteExpanded(false);
     setStatus("근거를 조회하고 검토 의견을 생성하는 중입니다.");
     try {
       const localCodexPreflight =
@@ -973,9 +1109,18 @@ export function TaskAssistantPanel({
         setSummaryTagsInput(generatedOutput.draftSummary.tags.join(", "));
         setSummaryEditorExpanded(false);
         setClosureAcknowledged(false);
-        setPendingTaskReview(review);
         setRecord(null);
-        setStatus("공식 법규 검증 경유 SaaS API 검토 의견을 생성했습니다. 검토기록저장을 눌러 최근 기록에 남기세요.");
+        setStatus("공식 법규 검증 경유 SaaS API 검토 의견을 생성했습니다. 임시 기록을 자동저장합니다.");
+        void autoSaveReviewSession(
+          buildSaveReviewSessionPayload({
+            taskLabel: requestedTaskLabel,
+            question: requestedQuestion,
+            output: generatedOutput,
+            retrieval: reviewRetrieval,
+            taskReview: review,
+          }),
+          reviewRequestId,
+        );
         return;
       }
 
@@ -1036,7 +1181,17 @@ export function TaskAssistantPanel({
       setSummaryEditorExpanded(false);
       setClosureAcknowledged(false);
       setRecord(null);
-      setStatus("검토 의견을 생성했습니다. 검토기록저장을 눌러 최근 기록에 남기세요.");
+      setStatus("검토 의견을 생성했습니다. 임시 기록을 자동저장합니다.");
+      void autoSaveReviewSession(
+        buildSaveReviewSessionPayload({
+          taskLabel: requestedTaskLabel,
+          question: requestedQuestion,
+          output: generated,
+          retrieval: retrieveForRecord,
+          taskReview: null,
+        }),
+        reviewRequestId,
+      );
     } catch (error) {
       if (reviewRequestSeqRef.current === reviewRequestId) {
         setStatus(errorMessage(error));
@@ -1048,41 +1203,59 @@ export function TaskAssistantPanel({
     }
   }
 
-  async function saveReviewSession() {
-    if (!selectedTask || !output || !retrieveResult) {
-      setStatus("저장할 검토 의견이 없습니다.");
+  function buildSaveReviewSessionPayload(input: {
+    taskLabel: string;
+    question: string;
+    output: AssistantOutput;
+    retrieval: RetrieveResponse;
+    taskReview: TaskReviewResponse | null;
+  }): SaveReviewSessionPayload {
+    return {
+      taskId: input.retrieval.taskContext.taskId,
+      question: input.question,
+      answer: input.output.answer,
+      evidence: input.retrieval.evidence,
+      title: `${input.taskLabel} 검토`,
+      draftSummary: input.output.draftSummary,
+      executionMode: input.output.executionMode,
+      runtimeMode: input.output.runtimeMode,
+      generated: input.taskReview?.generated ?? null,
+      officialLawVerification: input.taskReview?.officialLawVerification ?? null,
+      legalApplicability: input.taskReview?.legalApplicability ?? null,
+      reviewSession: input.taskReview?.reviewSession ?? null,
+      localCodexUsage: input.output.localCodexUsage,
+      localCodexBridgeSchemaVersion: input.output.localCodexBridgeSchemaVersion,
+    };
+  }
+
+  async function autoSaveReviewSession(payload: SaveReviewSessionPayload, reviewRequestId?: number) {
+    if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
       return;
     }
 
-    setReviewSessionSaving(true);
-    setStatus("검토기록을 저장하는 중입니다.");
+    setAutoSaveState({ status: "saving" });
     try {
-      const savedSession = await postJson<AssistantReviewSessionItem>("/api/assistant/review-sessions", {
-        taskId: retrieveResult.taskContext.taskId,
-        question,
-        answer: output.answer,
-        evidence: retrieveResult.evidence,
-        title: `${selectedTaskLabel} 검토`,
-        draftSummary: output.draftSummary,
-        executionMode: output.executionMode,
-        runtimeMode: output.runtimeMode,
-        generated: pendingTaskReview?.generated ?? null,
-        officialLawVerification: pendingTaskReview?.officialLawVerification ?? null,
-        legalApplicability: pendingTaskReview?.legalApplicability ?? null,
-        reviewSession: pendingTaskReview?.reviewSession ?? null,
-      });
-      setRecord(savedSession.savedRecord);
-      setRecordHistory((items) => [savedSession, ...items.filter((item) => item.id !== savedSession.id)].slice(0, 12));
-      setPendingTaskReview(null);
-      setSelectedReviewSession(null);
+      const savedSession = await postJson<AssistantReviewSessionItem>(
+        "/api/assistant/review-sessions",
+        toSaveReviewSessionRequestBody(payload),
+      );
+      if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
 
-      if (output.localCodexUsage) {
+      setRecord(savedSession.savedRecord);
+      setRecordHistory((items) => [savedSession, ...items.filter((item) => item.id !== savedSession.id)].slice(0, 6));
+      setSelectedReviewSession(null);
+      setAutoSaveState({ status: "saved", sessionId: savedSession.id });
+
+      if (payload.localCodexUsage) {
         setUsageRecordState({ status: "recording", assistantRecordId: savedSession.savedRecord.id });
+        const generatedForUsage = assistantOutputFromSavePayload(payload);
         try {
           const usageEvent = await recordLocalCodexUsage({
-            generated: output,
+            generated: generatedForUsage,
             savedRecord: savedSession.savedRecord,
-            taskId: retrieveResult.taskContext.taskId,
+            taskId: payload.taskId,
           });
           setUsageRecordState({
             status: "recorded",
@@ -1090,27 +1263,36 @@ export function TaskAssistantPanel({
             eventId: usageEvent.id,
             inputTokens: usageEvent.inputTokens,
             outputTokens: usageEvent.outputTokens,
-            usageAvailable: Boolean(output.localCodexUsage.usageAvailable),
+            usageAvailable: Boolean(payload.localCodexUsage.usageAvailable),
           });
         } catch (usageError) {
           setUsageRecordState({
             status: "failed",
             assistantRecordId: savedSession.savedRecord.id,
             message: errorMessage(usageError),
-            generated: output,
+            generated: generatedForUsage,
             savedRecord: savedSession.savedRecord,
-            taskId: retrieveResult.taskContext.taskId,
+            taskId: payload.taskId,
           });
         }
       }
 
-      await refreshAssistantRecords(retrieveResult.taskContext.taskId);
-      setStatus(`검토기록저장 완료. 신뢰도 ${savedSession.savedRecord.confidenceScore}%.`);
+      setStatus(`검토 의견을 생성했고 임시 기록을 자동저장했습니다. 신뢰도 ${savedSession.savedRecord.confidenceScore}%.`);
     } catch (error) {
-      setStatus(errorMessage(error));
-    } finally {
-      setReviewSessionSaving(false);
+      if (reviewRequestId !== undefined && reviewRequestSeqRef.current !== reviewRequestId) {
+        return;
+      }
+      const message = errorMessage(error);
+      setAutoSaveState({ status: "failed", message, retryPayload: payload });
+      setStatus("검토 의견은 생성됐지만 임시 기록 자동저장에 실패했습니다.");
     }
+  }
+
+  function retryAutoSaveReviewSession() {
+    if (autoSaveState.status !== "failed") {
+      return;
+    }
+    void autoSaveReviewSession(autoSaveState.retryPayload);
   }
 
   async function openReviewSession(session: AssistantReviewSessionItem) {
@@ -1149,6 +1331,63 @@ export function TaskAssistantPanel({
       setStatus(errorMessage(error));
     } finally {
       setRecordHistoryLoading(false);
+    }
+  }
+
+  function removeSessionFromList(sessionId: string) {
+    setRecordHistory((items) => items.filter((item) => item.id !== sessionId));
+    setSelectedReviewSession((current) => (current?.id === sessionId ? null : current));
+    setRecord((current) => (current?.id === sessionId ? null : current));
+    setAutoSaveState((current) => (current.status === "saved" && current.sessionId === sessionId ? { status: "idle" } : current));
+  }
+
+  function showUndoToast(input: InPanelToast) {
+    setToast(input);
+  }
+
+  async function deleteReviewSession(session: AssistantReviewSessionItem) {
+    try {
+      const deleted = await fetch(`/api/assistant/review-sessions/${encodeURIComponent(session.id)}`, {
+        method: "DELETE",
+        headers: { "x-architect-request-intent": "mutate" },
+      });
+      if (!deleted.ok) {
+        setStatus("임시 검토 기록을 삭제하지 못했습니다.");
+        return;
+      }
+      removeSessionFromList(session.id);
+      showUndoToast({
+        message: session.projectWikiState?.projectWikiItemId
+          ? "임시 검토 기록을 삭제했습니다. 연결된 프로젝트wiki와 공용wiki 후보는 유지됩니다."
+          : "임시 검토 기록을 삭제했습니다.",
+        actionLabel: "되돌리기",
+        onAction: () => void restoreReviewSession(session.id),
+      });
+    } catch {
+      setStatus("임시 검토 기록을 삭제하지 못했습니다.");
+    }
+  }
+
+  async function restoreReviewSession(sessionId: string) {
+    try {
+      const restored = await fetch(`/api/assistant/review-sessions/${encodeURIComponent(sessionId)}/restore`, {
+        method: "POST",
+        headers: { "x-architect-request-intent": "mutate" },
+      });
+      const parsed = (await restored.json().catch(() => ({}))) as {
+        data?: AssistantReviewSessionItem;
+        error?: { message?: string };
+      };
+      if (!restored.ok || !parsed.data) {
+        setStatus(parsed.error?.message ?? "임시 검토 기록을 되돌리지 못했습니다.");
+        return;
+      }
+
+      setRecordHistory((items) => [parsed.data!, ...items.filter((item) => item.id !== parsed.data!.id)].slice(0, 6));
+      setToast(null);
+      setStatus("임시 검토 기록을 되돌렸습니다.");
+    } catch {
+      setStatus("임시 검토 기록을 되돌리지 못했습니다.");
     }
   }
 
@@ -1321,33 +1560,162 @@ export function TaskAssistantPanel({
       return;
     }
 
-    let savedSummaryStatus: SummarySaveStatus | null = null;
+    const sourceReviewRecordId = record.id;
+    const projectId = selectedTask.projectId;
     setBusy(true);
     try {
-      await postJson("/api/assistant/summaries", {
+      const savedDraft = await postJson<AssistantWorkSummaryDraft>("/api/assistant/summaries", {
         taskId: selectedTask.id,
-        recordId: record.id,
+        recordId: sourceReviewRecordId,
         ...summaryDraft,
         tags: summaryTags,
         status: statusValue,
       });
       await refreshAssistantRecords(selectedTask.id);
-      savedSummaryStatus = statusValue;
+      setApprovedSummaryDraftId(savedDraft.id);
       setSummarySaveState(statusValue);
+      markReviewSessionApproved(sourceReviewRecordId);
       setTaskUpdateApplied(false);
       setFollowUpTaskCreated(false);
       setProposalStatus("Task 업데이트와 후속 task 제안이 준비되었습니다. 아직 자동 반영된 항목은 없습니다.");
-      setStatus("종료 검토 후 작업 요약을 승인했습니다.");
+      setStatus("종료 검토 후 작업 요약을 승인했습니다. 프로젝트wiki 등록 미리보기를 준비합니다.");
+      await loadProjectWikiRegistrationPreview({
+        projectId,
+        sourceReviewRecordId,
+        sourceWorkSummaryDraftId: savedDraft.id,
+      });
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
       setBusy(false);
-      if (savedSummaryStatus) {
-        setStatus(
-          "종료 검토 후 작업 요약을 승인했습니다.",
-        );
-      }
     }
+  }
+
+  function markReviewSessionApproved(sessionId: string) {
+    setRecord((current) => (current?.id === sessionId ? { ...current, cleanupState: "approved" } : current));
+    setRecordHistory((items) =>
+      items.map((item) =>
+        item.id === sessionId
+          ? {
+              ...item,
+              savedRecord: {
+                ...item.savedRecord,
+                cleanupState: "approved",
+              },
+            }
+          : item,
+      ),
+    );
+    setSelectedReviewSession((current) =>
+      current?.id === sessionId
+        ? {
+            ...current,
+            savedRecord: {
+              ...current.savedRecord,
+              cleanupState: "approved",
+            },
+          }
+        : current,
+    );
+  }
+
+  async function loadProjectWikiRegistrationPreview(input: {
+    projectId: string;
+    sourceReviewRecordId: string;
+    sourceWorkSummaryDraftId: string;
+  }) {
+    setProjectWikiSource({
+      sourceReviewRecordId: input.sourceReviewRecordId,
+      sourceWorkSummaryDraftId: input.sourceWorkSummaryDraftId,
+    });
+    setProjectWikiSupplementalNote("");
+    setProjectWikiNoteExpanded(false);
+    setProjectWikiPreviewState({ status: "loading" });
+
+    try {
+      const preview = await postJson<ProjectWikiRegistrationPreview>(
+        `/api/projects/${encodeURIComponent(input.projectId)}/project-wiki/registration-preview`,
+        {
+          sourceReviewRecordId: input.sourceReviewRecordId,
+          sourceWorkSummaryDraftId: input.sourceWorkSummaryDraftId,
+        },
+      );
+      if (preview.existingItem) {
+        setProjectWikiPreviewState({ status: "registered", item: preview.existingItem });
+        updateReviewSessionProjectWikiRegistered(preview.existingItem);
+        setStatus("이미 프로젝트wiki로 등록된 검토입니다.");
+        return;
+      }
+
+      setProjectWikiPreviewState({ status: "ready", preview });
+      setStatus("프로젝트wiki 등록 미리보기를 준비했습니다.");
+    } catch (error) {
+      const message = errorMessage(error);
+      setProjectWikiPreviewState({ status: "failed", message });
+      setStatus(message);
+    }
+  }
+
+  async function registerProjectWiki() {
+    if (!selectedTask || !projectWikiSource) {
+      setStatus("프로젝트wiki 등록에 필요한 승인 요약 정보가 없습니다.");
+      return;
+    }
+
+    const sourceWorkSummaryDraftId = projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId;
+    if (!sourceWorkSummaryDraftId) {
+      setStatus("프로젝트wiki 등록에 필요한 승인 요약 ID가 없습니다.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const item = await postJson<ProjectWikiItem>(
+        `/api/projects/${encodeURIComponent(selectedTask.projectId)}/project-wiki`,
+        {
+          sourceReviewRecordId: projectWikiSource.sourceReviewRecordId,
+          sourceWorkSummaryDraftId,
+          supplementalNote: projectWikiSupplementalNote,
+        },
+      );
+      setProjectWikiPreviewState({ status: "registered", item });
+      updateReviewSessionProjectWikiRegistered(item);
+      setStatus("프로젝트wiki로 등록했습니다. 공용wiki 후보 검토에도 올라갔습니다.");
+    } catch (error) {
+      const message = errorMessage(error);
+      setProjectWikiPreviewState({ status: "failed", message });
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateReviewSessionProjectWikiRegistered(item: ProjectWikiItem) {
+    const projectWikiState: ProjectWikiReviewState = {
+      registrationState: "registered",
+      suitabilityReason: item.aiSuitabilityReason || null,
+      projectWikiItemId: item.id,
+      commonCandidateRecordId: item.commonCandidateRecordId,
+      workSummaryDraftId: item.sourceWorkSummaryDraftId,
+    };
+    setRecordHistory((items) =>
+      items.map((session) =>
+        session.id === item.sourceReviewRecordId
+          ? {
+              ...session,
+              projectWikiState,
+            }
+          : session,
+      ),
+    );
+    setSelectedReviewSession((current) =>
+      current?.id === item.sourceReviewRecordId
+        ? {
+            ...current,
+            projectWikiState,
+          }
+        : current,
+    );
   }
 
   async function applyTaskUpdateProposal() {
@@ -1644,8 +2012,13 @@ export function TaskAssistantPanel({
     setProposalStatus("");
     setTaskUpdateApplied(false);
     setFollowUpTaskCreated(false);
-    setPendingTaskReview(null);
     setSelectedReviewSession(null);
+    setAutoSaveState({ status: "idle" });
+    setApprovedSummaryDraftId("");
+    setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiSource(null);
+    setProjectWikiSupplementalNote("");
+    setProjectWikiNoteExpanded(false);
   }
 
   function clearAnalysisCrop() {
@@ -1770,12 +2143,12 @@ export function TaskAssistantPanel({
             {selectedTask ? (
               <section className="task-assistant__section">
                 <div
-                  aria-label="최근 검토 기록: 검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."
+                  aria-label="임시 검토 기록: 생성 후 자동저장된 최근 검토 기록입니다."
                   className="task-assistant__section-header"
-                  data-hint="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."
+                  data-hint="생성 후 자동저장된 최근 임시 검토 기록입니다."
                   tabIndex={0}
                 >
-                  <h4>최근 검토 기록</h4>
+                  <h4>임시 검토 기록</h4>
                   <button
                     aria-expanded={historyExpanded}
                     className="task-assistant__subtle-button"
@@ -1796,13 +2169,25 @@ export function TaskAssistantPanel({
                             <button className="task-assistant__link-button" onClick={() => void openReviewSession(item)} type="button">
                               {item.title}
                             </button>
-                            <span>{item.savedRecord.confidenceScore}%</span>
+                            <div className="task-assistant__history-row-actions">
+                              <span>{item.savedRecord.confidenceScore}%</span>
+                              <button
+                                aria-label="임시 검토 기록 삭제"
+                                className="task-assistant__icon-button"
+                                onClick={() => void deleteReviewSession(item)}
+                                type="button"
+                              >
+                                ×
+                              </button>
+                            </div>
                           </header>
                           <small>
                             {formatRecordDate(item.savedAt)} / {item.verdict ?? "판정 없음"} / {item.conclusionMayChange ? "추가확인필요 후보" : "후보 영향 낮음"}
                           </small>
                           <p>{item.answerPreview}</p>
                           <div className="task-assistant__history-tags">
+                            {item.savedRecord.cleanupState === "approved" ? <span>작업기록 승인됨</span> : null}
+                            {item.projectWikiState?.registrationState === "registered" ? <span>프로젝트wiki 등록됨</span> : null}
                             <button className="task-assistant__subtle-button" onClick={() => void openReviewSession(item)} type="button">
                               세션 열기
                             </button>
@@ -1826,7 +2211,7 @@ export function TaskAssistantPanel({
                   </>
                 ) : (
                   <p className="task-assistant__hint">
-                    {recordHistoryLoading ? "assistant 기록을 불러오는 중입니다." : "아직 이 task에 저장된 assistant 기록이 없습니다."}
+                    {recordHistoryLoading ? "assistant 기록을 불러오는 중입니다." : "아직 이 task에 저장된 임시 검토 기록이 없습니다."}
                   </p>
                 )}
               </section>
@@ -2274,9 +2659,6 @@ export function TaskAssistantPanel({
               <button className="primary-button" disabled={!selectedTask || busy} onClick={() => void runAssistantReview()} type="button">
                 {busy ? "검토 중" : "근거 조회 + 의견 생성"}
               </button>
-              <button className="secondary-button" disabled={!canSaveReviewSession} onClick={() => void saveReviewSession()} type="button">
-                {reviewSessionSaving ? "저장 중" : "검토기록저장"}
-              </button>
               <button className="secondary-button" disabled={!canApproveSummary} onClick={() => void saveSummary("approved")} type="button">
                 작업 기록 승인
               </button>
@@ -2351,10 +2733,29 @@ export function TaskAssistantPanel({
               <section className="task-assistant__section">
                 <div className="task-assistant__section-header">
                   <h4>검토 의견</h4>
-                  {record ? <span>{record.confidenceScore}%</span> : null}
+                  <div className="task-assistant__answer-badges">
+                    {autoSaveState.status === "failed" ? (
+                      <button
+                        className="task-assistant__autosave-badge task-assistant__autosave-badge--failed"
+                        disabled={busy}
+                        onClick={retryAutoSaveReviewSession}
+                        type="button"
+                      >
+                        {autoSaveLabel.failed}
+                      </button>
+                    ) : autoSaveLabel[autoSaveState.status] ? (
+                      <span className={`task-assistant__autosave-badge task-assistant__autosave-badge--${autoSaveState.status}`}>
+                        {autoSaveLabel[autoSaveState.status]}
+                      </span>
+                    ) : null}
+                    {record ? <span>{record.confidenceScore}%</span> : null}
+                  </div>
                 </div>
                 <article className="task-assistant__answer">
                   <p>{formatVisibleReviewAnswer(output.answer)}</p>
+                  {autoSaveState.status === "failed" ? (
+                    <small>임시 기록 자동저장 오류: {autoSaveState.message}</small>
+                  ) : null}
                 </article>
                 {usageRecordState ? (
                   <div className="task-assistant__missing-evidence" role="status">
@@ -2467,6 +2868,112 @@ export function TaskAssistantPanel({
                     )}
                   </article>
                 ) : null}
+                {projectWikiPreviewState.status !== "idle" ? (
+                  <article className="task-assistant__summary task-assistant__project-wiki">
+                    <div className="task-assistant__section-header">
+                      <h4>프로젝트wiki 등록</h4>
+                      {projectWikiPreviewState.status === "ready" ? (
+                        <span className={`task-assistant__project-wiki-badge task-assistant__project-wiki-badge--${projectWikiSuitabilityTone(projectWikiPreviewState.preview.state)}`}>
+                          {projectWikiSuitabilityLabel(projectWikiPreviewState.preview.state)}
+                        </span>
+                      ) : projectWikiPreviewState.status === "registered" ? (
+                        <span className="task-assistant__project-wiki-badge task-assistant__project-wiki-badge--recommended">
+                          등록됨
+                        </span>
+                      ) : null}
+                    </div>
+                    {projectWikiPreviewState.status === "loading" ? (
+                      <p className="task-assistant__hint">프로젝트wiki 등록 미리보기를 준비하는 중입니다.</p>
+                    ) : null}
+                    {projectWikiPreviewState.status === "failed" ? (
+                      <p className="task-assistant__diagnostic task-assistant__diagnostic--fail">{projectWikiPreviewState.message}</p>
+                    ) : null}
+                    {projectWikiPreviewState.status === "ready" ? (
+                      <>
+                        {projectWikiPreviewState.preview.draft ? (
+                          <div className="task-assistant__project-wiki-preview">
+                            <dl>
+                              <div>
+                                <dt>제목</dt>
+                                <dd>{projectWikiPreviewState.preview.draft.title}</dd>
+                              </div>
+                              <div>
+                                <dt>요약</dt>
+                                <dd>{projectWikiPreviewState.preview.draft.summary}</dd>
+                              </div>
+                              <div>
+                                <dt>본문</dt>
+                                <dd>{projectWikiStateBody(projectWikiPreviewState.preview.draft.bodyMarkdown)}</dd>
+                              </div>
+                              <div>
+                                <dt>태그</dt>
+                                <dd>{projectWikiPreviewState.preview.draft.tags.join(", ") || "태그 없음"}</dd>
+                              </div>
+                              <div>
+                                <dt>공용화 주의</dt>
+                                <dd>{projectWikiPreviewState.preview.draft.commonizationCaution || "공용화 주의 문구 없음"}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        ) : (
+                          <p className="task-assistant__hint">
+                            {projectWikiPreviewState.preview.blockingReason || "프로젝트wiki 등록 초안을 만들 수 없습니다."}
+                          </p>
+                        )}
+                        {canRegisterProjectWiki ? (
+                          <div className="task-assistant__project-wiki-actions">
+                            <p className="task-assistant__hint">
+                              프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.
+                            </p>
+                            <button
+                              aria-expanded={projectWikiNoteExpanded}
+                              className="task-assistant__subtle-button"
+                              onClick={() => setProjectWikiNoteExpanded((current) => !current)}
+                              type="button"
+                            >
+                              {projectWikiNoteExpanded ? "보완 메모 접기" : "보완 메모 추가"}
+                            </button>
+                            {projectWikiNoteExpanded ? (
+                              <label className="task-assistant__field task-assistant__field--plain">
+                                <span>보완 메모</span>
+                                <textarea
+                                  disabled={busy}
+                                  onChange={(event) => setProjectWikiSupplementalNote(event.target.value)}
+                                  rows={3}
+                                  value={projectWikiSupplementalNote}
+                                />
+                              </label>
+                            ) : null}
+                            <button
+                              className="secondary-button"
+                              disabled={!canRegisterProjectWiki}
+                              onClick={() => void registerProjectWiki()}
+                              type="button"
+                            >
+                              프로젝트wiki로 등록
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {projectWikiPreviewState.status === "registered" ? (
+                      <div className="task-assistant__project-wiki-registered">
+                        <strong>{projectWikiPreviewState.item.title}</strong>
+                        <p>{projectWikiPreviewState.item.summary}</p>
+                        <small>프로젝트wiki ID {projectWikiPreviewState.item.id}</small>
+                        {projectWikiPreviewState.item.commonCandidateRecordId ? (
+                          <a
+                            href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(projectWikiPreviewState.item.commonCandidateRecordId)}`}
+                          >
+                            공용wiki 후보 열기
+                          </a>
+                        ) : (
+                          <small>공용wiki 후보 상태: 생성 정보 없음</small>
+                        )}
+                      </div>
+                    ) : null}
+                  </article>
+                ) : null}
                 {taskUpdateProposal || followUpTaskProposal ? (
                   <article className="task-assistant__summary task-assistant__proposal">
                     <div className="task-assistant__section-header">
@@ -2525,6 +3032,19 @@ export function TaskAssistantPanel({
             ) : null}
           </div>
 
+          {toast ? (
+            <div className="task-assistant__toast" role="status">
+              <span>{toast.message}</span>
+              {toast.actionLabel && toast.onAction ? (
+                <button className="task-assistant__subtle-button" onClick={toast.onAction} type="button">
+                  {toast.actionLabel}
+                </button>
+              ) : null}
+              <button aria-label="알림 닫기" className="task-assistant__icon-button" onClick={() => setToast(null)} type="button">
+                ×
+              </button>
+            </div>
+          ) : null}
           <footer className="task-assistant__status">{status}</footer>
         </aside>
       )}
@@ -3189,6 +3709,69 @@ async function recordLocalCodexUsage(input: {
       bridgeSchemaVersion: usage?.bridgeSchemaVersion ?? input.generated.localCodexBridgeSchemaVersion,
     },
   });
+}
+
+function toSaveReviewSessionRequestBody(payload: SaveReviewSessionPayload) {
+  return {
+    taskId: payload.taskId,
+    question: payload.question,
+    answer: payload.answer,
+    evidence: payload.evidence,
+    title: payload.title,
+    draftSummary: payload.draftSummary,
+    executionMode: payload.executionMode,
+    runtimeMode: payload.runtimeMode,
+    generated: payload.generated ?? null,
+    officialLawVerification: payload.officialLawVerification ?? null,
+    legalApplicability: payload.legalApplicability ?? null,
+    reviewSession: payload.reviewSession ?? null,
+  };
+}
+
+function assistantOutputFromSavePayload(payload: SaveReviewSessionPayload): AssistantOutput {
+  return {
+    answer: payload.answer,
+    draftSummary: payload.draftSummary,
+    executionMode: payload.executionMode,
+    runtimeMode: payload.runtimeMode,
+    localCodexUsage: payload.localCodexUsage,
+    localCodexBridgeSchemaVersion: payload.localCodexBridgeSchemaVersion,
+  };
+}
+
+function isRegisterableProjectWikiState(state: ProjectWikiRegistrationPreview["state"]) {
+  return state === "recommended" || state === "caution";
+}
+
+function projectWikiSuitabilityLabel(state: ProjectWikiRegistrationPreview["state"]) {
+  if (state === "recommended") {
+    return "추천";
+  }
+  if (state === "caution") {
+    return "주의";
+  }
+  if (state === "registered") {
+    return "등록됨";
+  }
+  return "비추천";
+}
+
+function projectWikiSuitabilityTone(state: ProjectWikiRegistrationPreview["state"]) {
+  if (state === "recommended") {
+    return "recommended";
+  }
+  if (state === "caution") {
+    return "caution";
+  }
+  return "not-recommended";
+}
+
+function projectWikiStateBody(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "본문 없음";
+  }
+  return normalized.length > 700 ? `${normalized.slice(0, 700)}...` : normalized;
 }
 
 function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefined {

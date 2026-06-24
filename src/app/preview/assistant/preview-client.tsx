@@ -48,6 +48,40 @@ const previewTask: TaskRecord = {
   },
 };
 
+type PreviewProjectWikiItem = ReturnType<typeof createProjectWikiDraft> & {
+  id: string;
+  projectId: string;
+  sourceTaskId: string;
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+  commonCandidateRecordId: string | null;
+  supplementalNote: string;
+  status: "active" | "disabled";
+  createdBy: string;
+  createdByDisplay: string;
+  createdAt: string;
+  updatedAt: string;
+  disabledBy: string | null;
+  disabledAt: string | null;
+  restoredBy: string | null;
+  restoredAt: string | null;
+};
+
+type PreviewDraftSummary = {
+  conclusion: string;
+  tags: string[];
+  scope: string;
+  followUpAction?: string;
+};
+
+type PreviewProjectWikiReviewState = {
+  registrationState: "not_evaluated" | "recommended" | "caution" | "not_recommended" | "registered";
+  suitabilityReason: string | null;
+  projectWikiItemId: string | null;
+  commonCandidateRecordId: string | null;
+  workSummaryDraftId: string | null;
+};
+
 export function AssistantPanelPreviewClient() {
   const selectedTask = useMemo(() => previewTask, []);
 
@@ -59,6 +93,8 @@ export function AssistantPanelPreviewClient() {
     const actionAuditRecords: ReturnType<typeof createActionAuditRecord>[] = [];
     const reviewSessions: ReturnType<typeof createReviewSessionItem>[] = [];
     const reviewSessionDetails = new Map<string, ReturnType<typeof createReviewSessionDetail>>();
+    const deletedReviewSessions = new Set<string>();
+    const projectWikiItems: PreviewProjectWikiItem[] = [];
 
     window.fetch = async (input, init) => {
       const requestUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
@@ -83,7 +119,7 @@ export function AssistantPanelPreviewClient() {
       }
 
       if (url.pathname === "/api/assistant/review-sessions" && requestMethod(init) === "GET") {
-        return jsonResponse(reviewSessions);
+        return jsonResponse(reviewSessions.filter((item) => !deletedReviewSessions.has(item.id)).slice(0, 6));
       }
 
       if (url.pathname === "/api/assistant/review-sessions" && requestMethod(init) === "POST") {
@@ -96,8 +132,21 @@ export function AssistantPanelPreviewClient() {
         return jsonResponse(item);
       }
 
-      if (url.pathname.startsWith("/api/assistant/review-sessions/")) {
-        const sessionId = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      const restoreSessionMatch = /^\/api\/assistant\/review-sessions\/([^/]+)\/restore$/.exec(url.pathname);
+      if (restoreSessionMatch && requestMethod(init) === "POST") {
+        const sessionId = decodeURIComponent(restoreSessionMatch[1] ?? "");
+        const detail = reviewSessionDetails.get(sessionId);
+        if (!detail) {
+          return jsonResponse({ message: "preview review session not found" }, 404);
+        }
+        deletedReviewSessions.delete(sessionId);
+        upsertReviewSessionItem(reviewSessions, toReviewSessionItem(detail));
+        return jsonResponse(toReviewSessionItem(detail));
+      }
+
+      const reviewSessionMatch = /^\/api\/assistant\/review-sessions\/([^/]+)$/.exec(url.pathname);
+      if (reviewSessionMatch) {
+        const sessionId = decodeURIComponent(reviewSessionMatch[1] ?? "");
         const detail = reviewSessionDetails.get(sessionId);
         if (!detail) {
           return jsonResponse({ message: "preview review session not found" }, 404);
@@ -116,6 +165,31 @@ export function AssistantPanelPreviewClient() {
           }
           return jsonResponse(toReviewSessionItem(updated));
         }
+        if (requestMethod(init) === "DELETE") {
+          deletedReviewSessions.add(sessionId);
+          const index = reviewSessions.findIndex((item) => item.id === sessionId);
+          if (index >= 0) {
+            reviewSessions.splice(index, 1);
+          }
+          return jsonResponse(toReviewSessionItem(detail));
+        }
+      }
+
+      const projectWikiPreviewMatch = /^\/api\/projects\/([^/]+)\/project-wiki\/registration-preview$/.exec(url.pathname);
+      if (projectWikiPreviewMatch && requestMethod(init) === "POST") {
+        const body = await readJsonBody(init);
+        const projectId = decodeURIComponent(projectWikiPreviewMatch[1] ?? "");
+        return jsonResponse(createProjectWikiRegistrationPreview(projectId, body, reviewSessionDetails, projectWikiItems));
+      }
+
+      const projectWikiRegisterMatch = /^\/api\/projects\/([^/]+)\/project-wiki$/.exec(url.pathname);
+      if (projectWikiRegisterMatch && requestMethod(init) === "POST") {
+        const body = await readJsonBody(init);
+        const projectId = decodeURIComponent(projectWikiRegisterMatch[1] ?? "");
+        const item = createProjectWikiItem(projectId, body, reviewSessionDetails, projectWikiItems);
+        upsertProjectWikiItem(projectWikiItems, item);
+        updatePreviewReviewSessionProjectWikiState(reviewSessions, reviewSessionDetails, item);
+        return jsonResponse(item, 201);
       }
 
       if (url.pathname === "/api/files") {
@@ -195,8 +269,11 @@ export function AssistantPanelPreviewClient() {
         });
       }
 
-      if (url.pathname === "/api/assistant/summaries") {
-        return jsonResponse({ ok: true });
+      if (url.pathname === "/api/assistant/summaries" && requestMethod(init) === "POST") {
+        const body = await readJsonBody(init);
+        const draft = createWorkSummaryDraft(body);
+        markPreviewReviewSessionApproved(reviewSessions, reviewSessionDetails, readString(body.recordId));
+        return jsonResponse(draft, 201);
       }
 
       if (url.pathname === `/api/tasks/${previewTask.id}` || url.pathname === "/api/tasks") {
@@ -243,6 +320,18 @@ function jsonResponse(data: unknown, status = 200) {
     headers: { "content-type": "application/json" },
     status,
   });
+}
+
+function upsertReviewSessionItem(
+  reviewSessions: ReturnType<typeof createReviewSessionItem>[],
+  item: ReturnType<typeof createReviewSessionItem>,
+) {
+  const index = reviewSessions.findIndex((candidate) => candidate.id === item.id);
+  if (index >= 0) {
+    reviewSessions[index] = item;
+    return;
+  }
+  reviewSessions.unshift(item);
 }
 
 function isPreviewFileAnalysisPath(pathname: string) {
@@ -374,6 +463,7 @@ function createReviewSessionItem(id: string, body: Record<string, unknown>) {
     answerPreview: answer.slice(0, 140),
     verdict: null,
     conclusionMayChange: false,
+    projectWikiState: defaultProjectWikiReviewState(),
     savedAt: previewNow,
     updatedAt: previewNow,
     savedRecord: {
@@ -384,6 +474,7 @@ function createReviewSessionItem(id: string, body: Record<string, unknown>) {
       executionMode: "mock",
       runtimeMode: "preview-assistant-panel",
       draftSummary: isDraftSummary(body.draftSummary) ? body.draftSummary : null,
+      cleanupState: "draft",
       candidateState: "candidate",
       createdAt: previewNow,
       updatedAt: previewNow,
@@ -410,8 +501,199 @@ function toReviewSessionItem(detail: ReturnType<typeof createReviewSessionDetail
   return item;
 }
 
-function isDraftSummary(value: unknown) {
-  return Boolean(value) && typeof value === "object";
+function defaultProjectWikiReviewState(): PreviewProjectWikiReviewState {
+  return {
+    registrationState: "not_evaluated",
+    suitabilityReason: null,
+    projectWikiItemId: null,
+    commonCandidateRecordId: null,
+    workSummaryDraftId: null,
+  };
+}
+
+function createWorkSummaryDraft(body: Record<string, unknown>) {
+  return {
+    id: `preview-work-summary-${Date.now()}`,
+    projectId: previewTask.projectId,
+    taskId: readString(body.taskId) || previewTask.id,
+    recordId: readString(body.recordId),
+    profileId: "preview-user",
+    conclusion: readString(body.conclusion) || "앵커 위치 간섭 가능성이 있어 공식 도면 확인이 필요합니다.",
+    tags: Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : ["assistant", "preview"],
+    scope: readString(body.scope) || previewTask.issueId,
+    followUpAction: readString(body.followUpAction) || "구조 담당자와 허용 편심 여부를 확인하세요.",
+    status: readString(body.status) || "approved",
+    createdAt: previewNow,
+    updatedAt: previewNow,
+  };
+}
+
+function markPreviewReviewSessionApproved(
+  reviewSessions: ReturnType<typeof createReviewSessionItem>[],
+  reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
+  recordId: string,
+) {
+  const detail = reviewSessionDetails.get(recordId);
+  if (!detail) {
+    return;
+  }
+  const updated = {
+    ...detail,
+    savedRecord: {
+      ...detail.savedRecord,
+      cleanupState: "approved",
+    },
+    updatedAt: previewNow,
+  };
+  reviewSessionDetails.set(recordId, updated);
+  upsertReviewSessionItem(reviewSessions, toReviewSessionItem(updated));
+}
+
+function createProjectWikiRegistrationPreview(
+  projectId: string,
+  body: Record<string, unknown>,
+  reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
+  projectWikiItems: PreviewProjectWikiItem[],
+) {
+  const sourceReviewRecordId = readString(body.sourceReviewRecordId);
+  const sourceWorkSummaryDraftId = readString(body.sourceWorkSummaryDraftId);
+  const existingItem = projectWikiItems.find(
+    (item) => item.projectId === projectId && item.sourceReviewRecordId === sourceReviewRecordId,
+  );
+  if (existingItem) {
+    return {
+      state: "registered",
+      draft: null,
+      existingItem,
+      blockingReason: "이미 프로젝트wiki로 등록된 검토입니다.",
+      canRegister: false,
+    };
+  }
+  const detail = reviewSessionDetails.get(sourceReviewRecordId);
+  if (!detail || !sourceWorkSummaryDraftId) {
+    return {
+      state: "not_recommended",
+      draft: null,
+      existingItem: null,
+      blockingReason: "승인된 임시 검토 기록이 필요합니다.",
+      canRegister: false,
+    };
+  }
+
+  const draft = createProjectWikiDraft(detail);
+  return {
+    state: draft.aiSuitabilityState,
+    draft,
+    existingItem: null,
+    blockingReason: "",
+    canRegister: true,
+  };
+}
+
+function createProjectWikiDraft(detail: ReturnType<typeof createReviewSessionDetail>) {
+  const summary = detail.savedRecord.draftSummary;
+  return {
+    title: summary?.scope ? `${summary.scope} 프로젝트wiki` : `${previewTask.issueId} 프로젝트wiki`,
+    summary: summary?.conclusion || "커튼월 앵커 간섭 검토 결과를 프로젝트별 재사용 지식으로 정리합니다.",
+    bodyMarkdown: [
+      summary?.conclusion || "앵커 위치 간섭 가능성이 있어 공식 도면과 제조사 기준 확인이 필요합니다.",
+      "",
+      detail.answer,
+      "",
+      summary?.followUpAction ? `후속 조치: ${summary.followUpAction}` : "",
+    ].filter(Boolean).join("\n"),
+    tags: summary?.tags?.length ? summary.tags : ["assistant", "preview", "프로젝트wiki"],
+    aiSuitabilityState: "recommended",
+    aiSuitabilityReason: "승인된 task 검토 요약과 근거가 있어 프로젝트 WIKI 등록에 적합합니다.",
+    commonizationCaution: "프로젝트별 앵커 상세 치수와 협의 이력은 공용wiki 후보 검토에서 일반화 여부를 재확인하세요.",
+  };
+}
+
+function createProjectWikiItem(
+  projectId: string,
+  body: Record<string, unknown>,
+  reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
+  projectWikiItems: PreviewProjectWikiItem[],
+): PreviewProjectWikiItem {
+  const sourceReviewRecordId = readString(body.sourceReviewRecordId);
+  const existingItem = projectWikiItems.find(
+    (item) => item.projectId === projectId && item.sourceReviewRecordId === sourceReviewRecordId,
+  );
+  if (existingItem) {
+    return existingItem;
+  }
+
+  const detail = reviewSessionDetails.get(sourceReviewRecordId);
+  const draft = detail ? createProjectWikiDraft(detail) : createProjectWikiDraft(createReviewSessionDetail(createReviewSessionItem(sourceReviewRecordId, {}), {}));
+  return {
+    ...draft,
+    id: `preview-project-wiki-${projectWikiItems.length + 1}`,
+    projectId,
+    sourceTaskId: previewTask.id,
+    sourceReviewRecordId,
+    sourceWorkSummaryDraftId: readString(body.sourceWorkSummaryDraftId),
+    commonCandidateRecordId: `preview-common-candidate-${projectWikiItems.length + 1}`,
+    supplementalNote: readString(body.supplementalNote),
+    status: "active",
+    createdBy: "preview-user",
+    createdByDisplay: "Preview User",
+    createdAt: previewNow,
+    updatedAt: previewNow,
+    disabledBy: null,
+    disabledAt: null,
+    restoredBy: null,
+    restoredAt: null,
+  };
+}
+
+function upsertProjectWikiItem(
+  projectWikiItems: PreviewProjectWikiItem[],
+  item: PreviewProjectWikiItem,
+) {
+  const index = projectWikiItems.findIndex((candidate) => candidate.id === item.id);
+  if (index >= 0) {
+    projectWikiItems[index] = item;
+    return;
+  }
+  projectWikiItems.unshift(item);
+}
+
+function updatePreviewReviewSessionProjectWikiState(
+  reviewSessions: ReturnType<typeof createReviewSessionItem>[],
+  reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
+  item: PreviewProjectWikiItem,
+) {
+  const detail = reviewSessionDetails.get(item.sourceReviewRecordId);
+  if (!detail) {
+    return;
+  }
+  const projectWikiState: PreviewProjectWikiReviewState = {
+    registrationState: "registered",
+    suitabilityReason: item.aiSuitabilityReason,
+    projectWikiItemId: item.id,
+    commonCandidateRecordId: item.commonCandidateRecordId,
+    workSummaryDraftId: item.sourceWorkSummaryDraftId,
+  };
+  const updated = {
+    ...detail,
+    projectWikiState,
+    updatedAt: previewNow,
+  };
+  reviewSessionDetails.set(item.sourceReviewRecordId, updated);
+  upsertReviewSessionItem(reviewSessions, toReviewSessionItem(updated));
+}
+
+function isDraftSummary(value: unknown): value is PreviewDraftSummary {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.conclusion === "string" &&
+    Array.isArray(value.tags) &&
+    value.tags.every((tag) => typeof tag === "string") &&
+    typeof value.scope === "string" &&
+    (value.followUpAction === undefined || typeof value.followUpAction === "string")
+  );
 }
 
 function createHistoryRecord(id: string) {

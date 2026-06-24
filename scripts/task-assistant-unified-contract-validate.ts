@@ -39,6 +39,7 @@ checkReviewSessionRoutes();
 checkTemporaryReviewAutoSaveContract();
 checkReviewSessionDeleteRestoreContract();
 checkTemporaryReviewUiCopyReadiness();
+checkTaskAssistantAutoSaveProjectWikiUx();
 checkReviewSessionExecutionModePersistence();
 checkTaskAssistantBasicAdvancedMode();
 checkTaskAssistantChromeSidePanelBridge();
@@ -366,6 +367,90 @@ function checkTemporaryReviewUiCopyReadiness() {
   );
 }
 
+function checkTaskAssistantAutoSaveProjectWikiUx() {
+  const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const previewPath = appPath("src/app/preview/assistant/preview-client.tsx");
+  const cssPath = appPath("src/app/globals.css");
+  const panelContent = stripComments(readRequiredFile(panelPath));
+  const previewContent = stripComments(readRequiredFile(previewPath));
+  const cssContent = stripComments(readRequiredFile(cssPath));
+
+  const hasAutoSaveStateMachine = panelContent.includes("type AutoSaveState") &&
+    panelContent.includes('status: "saving"') &&
+    panelContent.includes('status: "saved"; sessionId: string') &&
+    panelContent.includes("retryPayload: SaveReviewSessionPayload") &&
+    panelContent.includes("autoSaveLabel") &&
+    panelContent.includes("autoSaveReviewSession") &&
+    panelContent.includes("retryAutoSaveReviewSession");
+  const autoSaveTriggeredAfterGenerate = sourceWindowAroundContains(panelContent, "setOutput(generatedOutput)", [
+      "buildSaveReviewSessionPayload",
+      "autoSaveReviewSession",
+    ], 0, 900) &&
+    sourceWindowAroundContains(panelContent, "setOutput(generated);", [
+      "buildSaveReviewSessionPayload",
+      "autoSaveReviewSession",
+    ], 0, 900);
+  const manualPrimaryRemoved = !panelContent.includes("검토기록저장") &&
+    !panelContent.includes("saveReviewSession") &&
+    !panelContent.includes("canSaveReviewSession");
+  const hasDeleteUndo = panelContent.includes("임시 검토 기록 삭제") &&
+    panelContent.includes('method: "DELETE"') &&
+    panelContent.includes('"x-architect-request-intent": "mutate"') &&
+    panelContent.includes("showUndoToast") &&
+    panelContent.includes("되돌리기") &&
+    panelContent.includes("/restore");
+  const hasProjectWikiPreviewRegister = panelContent.includes("type ProjectWikiPreviewState") &&
+    panelContent.includes("ProjectWikiRegistrationPreview") &&
+    panelContent.includes("ProjectWikiItem") &&
+    panelContent.includes("/project-wiki/registration-preview") &&
+    panelContent.includes("프로젝트wiki로 등록") &&
+    panelContent.includes("보완 메모 추가") &&
+    panelContent.includes("프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.") &&
+    panelContent.includes("commonizationCaution") &&
+    panelContent.includes("commonCandidateRecordId") &&
+    panelContent.includes('state === "recommended" || state === "caution"');
+  const hasHistoryStatusChips = panelContent.includes("작업기록 승인됨") &&
+    panelContent.includes("프로젝트wiki 등록됨") &&
+    panelContent.includes("savedRecord.cleanupState") &&
+    panelContent.includes("projectWikiState?.registrationState");
+  const previewMocksUpdated = [
+    "/api/assistant/review-sessions",
+    "registration-preview",
+    "project-wiki",
+    "restore",
+    'requestMethod(init) === "DELETE"',
+    "deletedReviewSessions",
+    "createProjectWikiItem",
+  ].every((anchor) => previewContent.includes(anchor));
+  const cssUpdated = /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
+    cssContent.includes(".task-assistant__autosave-badge") &&
+    cssContent.includes(".task-assistant__project-wiki-badge") &&
+    cssContent.includes(".task-assistant__toast") &&
+    cssContent.includes(".task-assistant__icon-button");
+
+  addCheck(
+    "task assistant auto-save, delete undo, and project WIKI UX",
+    hasAutoSaveStateMachine &&
+      autoSaveTriggeredAfterGenerate &&
+      manualPrimaryRemoved &&
+      hasDeleteUndo &&
+      hasProjectWikiPreviewRegister &&
+      hasHistoryStatusChips &&
+      previewMocksUpdated &&
+      cssUpdated,
+    hasAutoSaveStateMachine &&
+      autoSaveTriggeredAfterGenerate &&
+      manualPrimaryRemoved &&
+      hasDeleteUndo &&
+      hasProjectWikiPreviewRegister &&
+      hasHistoryStatusChips &&
+      previewMocksUpdated &&
+      cssUpdated
+      ? "Task 5 UI anchors exist for auto-save, retry, delete/restore undo, project WIKI preview/register, preview mocks, and compact styling"
+      : "missing Task 5 auto-save, retry, delete/restore undo, project WIKI preview/register, preview mock, history chip, or CSS anchor",
+  );
+}
+
 function checkReviewSessionExecutionModePersistence() {
   const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
   const routePath = appPath("src/app/api/assistant/review-sessions/route.ts");
@@ -373,12 +458,21 @@ function checkReviewSessionExecutionModePersistence() {
   const panelContent = stripComments(readRequiredFile(panelPath));
   const routeContent = stripComments(readRequiredFile(routePath));
   const serviceContent = stripComments(readRequiredFile(servicePath));
-  const saveReviewSessionBody = extractFunctionBody(panelContent, "saveReviewSession");
+  const saveReviewSessionBody = [
+    extractFunctionBody(panelContent, "buildSaveReviewSessionPayload"),
+    extractFunctionBody(panelContent, "autoSaveReviewSession"),
+    extractFunctionBody(panelContent, "toSaveReviewSessionRequestBody"),
+  ].join("\n");
   const localCodexGenerateBody = extractFunctionBody(panelContent, "generateLocalCodexReview");
   const saveRecordBody = extractFunctionBody(serviceContent, "saveTaskReviewSessionRecord");
 
-  const clientSendsMode = /executionMode\s*:\s*output\.executionMode/.test(saveReviewSessionBody) &&
-    /runtimeMode\s*:\s*output\.runtimeMode/.test(saveReviewSessionBody);
+  const clientSendsMode = (
+    /executionMode\s*:\s*(?:input\.)?output\.executionMode/.test(saveReviewSessionBody) ||
+    /executionMode\s*:\s*payload\.executionMode/.test(saveReviewSessionBody)
+  ) && (
+    /runtimeMode\s*:\s*(?:input\.)?output\.runtimeMode/.test(saveReviewSessionBody) ||
+    /runtimeMode\s*:\s*payload\.runtimeMode/.test(saveReviewSessionBody)
+  );
   const localOutputHasMode = /executionMode\s*:\s*["'`]local-chatgpt-codex["'`]/.test(localCodexGenerateBody) &&
     /runtimeMode\s*:\s*["'`]extension-native-bridge-in-page["'`]/.test(localCodexGenerateBody);
   const routeAcceptsMode = /isAssistantExecutionMode\(rawBody\.executionMode\)/.test(routeContent) &&
@@ -402,7 +496,7 @@ function checkTaskAssistantBasicAdvancedMode() {
   const panelContent = stripComments(readRequiredFile(panelPath));
   const cssContent = stripComments(readRequiredFile(cssPath));
   const requiredAdvancedLabels = [
-    "최근 검토 기록",
+    "임시 검토 기록",
     "파일 근거",
     "외부 웹/스킬 근거",
     "실행 모드",
@@ -422,27 +516,27 @@ function checkTaskAssistantBasicAdvancedMode() {
   const hasColoredAdvancedCss = /\.task-assistant__advanced\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.1\)/.test(cssContent) &&
     /\.task-assistant__mode-button--advanced\.task-assistant__mode-button--active\s*\{[\s\S]*background:\s*rgba\(44,\s*94,\s*98,\s*0\.16\)/.test(cssContent);
   const hasCompactActionGridCss = /\.task-assistant__panel\s*\{[\s\S]*width:\s*min\(30rem,\s*calc\(100vw - 2rem\)\)/.test(cssContent) &&
-    /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
+    /\.task-assistant__actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(cssContent) &&
     /\.task-assistant__actions\s+\.primary-button,[\s\S]*\.task-assistant__actions\s+\.secondary-button\s*\{[\s\S]*height:\s*2\.36rem[\s\S]*font-size:\s*0\.75rem[\s\S]*white-space:\s*normal/.test(cssContent);
   const removedDeferredSummaryAction = !panelContent.includes("보류 저장") &&
     !panelContent.includes('saveSummary("deferred")') &&
     !panelContent.includes("canDeferSummary");
   const advancedHoverHintAnchors = [
-    'data-hint="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."',
+    'data-hint="생성 후 자동저장된 최근 임시 검토 기록입니다."',
     'data-hint="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."',
     'data-hint="일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."',
     'data-hint="로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."',
     'data-hint="답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다."',
   ];
   const removedAlwaysVisibleAdvancedHints = [
-    '<p className="task-assistant__hint">검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다.</p>',
+    '<p className="task-assistant__hint">생성 후 자동저장된 최근 임시 검토 기록입니다.</p>',
     '<p className="task-assistant__hint">파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다.</p>',
     '<p className="task-assistant__hint">일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다.</p>',
     '<p className="task-assistant__hint">로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다.</p>',
     '<p className="task-assistant__hint">답변 기준은 서비스 기본 검토지침을 사용하며, 사용자는 질문만 조정합니다.</p>',
   ];
   const removedNativeAdvancedTitles = [
-    'title="검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."',
+    'title="생성 후 자동저장된 최근 임시 검토 기록입니다."',
     'title="파일 분석, OCR, 이미지 영역 근거는 필요할 때만 열어 추가합니다."',
     'title="일반 검토 흐름에서는 접어두고, 승인된 웹/스킬 근거를 추가할 때만 엽니다."',
     'title="로컬 연결 세부 상태는 필요할 때만 펼쳐 확인합니다."',
@@ -452,7 +546,7 @@ function checkTaskAssistantBasicAdvancedMode() {
     removedAlwaysVisibleAdvancedHints.every((anchor) => !panelContent.includes(anchor)) &&
     removedNativeAdvancedTitles.every((anchor) => !panelContent.includes(anchor)) &&
     !/title=\{\s*assistantPolicy\?\.enabled/.test(panelContent) &&
-    panelContent.includes('aria-label="최근 검토 기록: 검토기록저장을 누른 항목만 최근 검토 기록에 표시됩니다."') &&
+    panelContent.includes('aria-label="임시 검토 기록: 생성 후 자동저장된 최근 검토 기록입니다."') &&
     /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]::after\s*\{[\s\S]*content:\s*attr\(data-hint\)[\s\S]*opacity:\s*0[\s\S]*visibility:\s*hidden/.test(cssContent) &&
     /\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:hover::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-visible::after,[\s\S]*\.task-assistant__advanced\s+\.task-assistant__section-header\[data-hint\]:focus-within::after\s*\{[\s\S]*opacity:\s*1[\s\S]*visibility:\s*visible/.test(cssContent);
 
@@ -460,8 +554,8 @@ function checkTaskAssistantBasicAdvancedMode() {
     "task assistant basic/advanced mode grouping",
     hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints && removedDeferredSummaryAction,
     hasModeState && hasModeButtons && hasAdvancedWrapper && hasAdvancedLabels && hasColoredAdvancedCss && hasCompactActionGridCss && hasAdvancedHoverHints && removedDeferredSummaryAction
-      ? "basic/advanced mode controls, colored advanced grouping, compact three-action row anchors, advanced title hover hints, and no deferred summary action exist"
-      : "missing basic/advanced mode state, controls, requested advanced labels, non-white advanced styling, compact three-action row styling, advanced title hover hints, or deferred-summary removal",
+      ? "basic/advanced mode controls, colored advanced grouping, compact two-action row anchors, advanced title hover hints, and no deferred summary action exist"
+      : "missing basic/advanced mode state, controls, requested advanced labels, non-white advanced styling, compact two-action row styling, advanced title hover hints, or deferred-summary removal",
   );
 }
 
@@ -632,7 +726,8 @@ function checkTaskAssistantVisibleAnswerUx() {
     panelContent.includes('"주요 근거:"') &&
     panelContent.includes("isExplicitUserFacingReviewBlock") &&
     panelContent.includes("extractVisibleReviewAnswerMarkdownSections");
-  const keepsGeneratedAnswerRawForSave = panelContent.includes("answer: output.answer");
+  const keepsGeneratedAnswerRawForSave = panelContent.includes("answer: input.output.answer") &&
+    panelContent.includes("answer: payload.answer");
   const formatsCurrentAndSavedAnswer = panelContent.includes("<p>{formatVisibleReviewAnswer(output.answer)}</p>") &&
     panelContent.includes("<p>{formatVisibleReviewAnswer(selectedReviewSession.answer)}</p>");
   const noRawAnswerRendering = !panelContent.includes("<p>{output.answer}</p>") &&
