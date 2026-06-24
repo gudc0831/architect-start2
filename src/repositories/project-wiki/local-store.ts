@@ -199,6 +199,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
     const timestamp = nowIso();
     const current = projectWikiItems[index];
     if (current.status === input.status) {
+      await updateLocalCommonWikiCandidateSourceStatus(current, input.status);
       return {
         item: attachActionLogs(current),
         actionLog: null,
@@ -238,6 +239,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
       createdAt: timestamp,
     };
     projectWikiActionLogs.unshift(actionLog);
+    await updateLocalCommonWikiCandidateSourceStatus(item, input.status);
 
     return {
       item: attachActionLogs(item),
@@ -262,6 +264,17 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
 }
 
 export const localProjectWikiRepository = new LocalProjectWikiRepository();
+
+async function updateLocalCommonWikiCandidateSourceStatus(item: ProjectWikiItem, status: ProjectWikiItem["status"]) {
+  if (!item.commonCandidateRecordId) {
+    return;
+  }
+  await assistantRepository.updateCommonWikiCandidateSourceStatus({
+    projectId: item.projectId,
+    recordId: item.commonCandidateRecordId,
+    sourceProjectWikiStatus: status,
+  });
+}
 
 async function loadLocalSourceReview(projectId: string, sourceReviewRecordId: string) {
   const record = await assistantRepository.findRecordById(sourceReviewRecordId);

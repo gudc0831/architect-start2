@@ -205,6 +205,11 @@ export interface AssistantRepository {
     recordId: string;
     projectWikiState: ProjectWikiReviewState;
   }): Promise<AssistantRecord>;
+  updateCommonWikiCandidateSourceStatus(input: {
+    projectId: string;
+    recordId: string;
+    sourceProjectWikiStatus: "active" | "disabled";
+  }): Promise<AssistantRecord | null>;
   createExternalEvidence(input: CreateExternalEvidenceInput): Promise<ExternalEvidenceRecord>;
   saveWorkSummaryDraft(input: SaveAssistantWorkSummaryDraftInput): Promise<AssistantWorkSummaryDraft>;
   reviewKnowledgeCandidate(input: ReviewKnowledgeCandidateInput): Promise<{

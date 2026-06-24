@@ -222,10 +222,24 @@ export type ProjectWikiReviewState = {
   workSummaryDraftId: string | null;
 };
 
+export type CommonWikiCandidateMetadata = {
+  source?: "project-wiki";
+  sourceProjectWikiStatus?: "active" | "disabled";
+  sourceReviewRecordId?: string;
+  sourceWorkSummaryDraftId?: string;
+  sourceProjectWikiItemId?: string;
+  supplementalNote?: string;
+  aiSuitabilityState?: "recommended" | "caution" | "not_recommended";
+  aiSuitabilityReason?: string;
+  commonizationCaution?: string;
+  projectSpecificContext?: boolean;
+};
+
 export type AssistantRecordMetadata = {
   knowledgeReview?: KnowledgeReviewMetadata;
   approvedKnowledgeItem?: ApprovedKnowledgeItem;
   knowledgeCandidateSource?: KnowledgeCandidateSource;
+  commonWikiCandidate?: CommonWikiCandidateMetadata;
   externalEvidence?: ExternalEvidenceRecord;
   taskReview?: {
     source: "assistant-task-review";

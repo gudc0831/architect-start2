@@ -705,6 +705,49 @@ class PostgresAssistantRepository implements AssistantRepository {
     return toRecord(record);
   }
 
+  async updateCommonWikiCandidateSourceStatus(input: {
+    projectId: string;
+    recordId: string;
+    sourceProjectWikiStatus: "active" | "disabled";
+  }) {
+    const current = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    if (!current) {
+      return null;
+    }
+    const currentRecord = toRecord(current);
+    const nextMetadata: AssistantRecordMetadata = {
+      ...currentRecord.metadata,
+      commonWikiCandidate: {
+        ...(currentRecord.metadata.commonWikiCandidate ?? {}),
+        sourceProjectWikiStatus: input.sourceProjectWikiStatus,
+      },
+    };
+    const updateResult = await prisma.assistantTaskRecord.updateMany({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+      data: {
+        metadata: toInputJson(nextMetadata),
+      },
+    });
+    if (updateResult.count !== 1) {
+      return null;
+    }
+    const record = await prisma.assistantTaskRecord.findFirst({
+      where: {
+        id: input.recordId,
+        projectId: input.projectId,
+      },
+    });
+    return record ? toRecord(record) : null;
+  }
+
   async createExternalEvidence(input: CreateExternalEvidenceInput) {
     const timestamp = new Date().toISOString();
     const externalEvidence = {

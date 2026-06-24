@@ -23,6 +23,7 @@ import { badRequest, notFound } from "@/lib/api/errors";
 import { assistantRepository } from "@/repositories/assistant";
 import { adminRepository } from "@/repositories/admin";
 import { taskRepository } from "@/repositories";
+import { projectWikiRepository } from "@/repositories/project-wiki";
 import { structuredKnowledgeRepository } from "@/repositories/knowledge";
 import {
   isStructuredKnowledgeSchemaUnavailable,
@@ -49,6 +50,10 @@ export type KnowledgeCandidateListItem = {
   confidenceScore: number;
   cleanupState: AssistantRecord["cleanupState"];
   reviewedAt: string | null;
+  sourceProjectWiki: {
+    itemId: string | null;
+    status: "active" | "disabled";
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1574,9 +1579,10 @@ async function toCandidateDetail(record: AssistantRecord): Promise<KnowledgeCand
 }
 
 async function toCandidateListItem(record: AssistantRecord): Promise<KnowledgeCandidateListItem> {
-  const [task, project] = await Promise.all([
+  const [task, project, sourceProjectWiki] = await Promise.all([
     taskRepository.findTaskById(record.taskId),
     adminRepository.getProjectById(record.projectId),
+    resolveSourceProjectWiki(record),
   ]);
   const approvedSummary = await assistantRepository.findWorkSummaryDraftByRecordId(record.id);
   const title = buildTitle(record, approvedSummary, task);
@@ -1596,8 +1602,31 @@ async function toCandidateListItem(record: AssistantRecord): Promise<KnowledgeCa
     confidenceScore: record.confidenceScore,
     cleanupState: record.cleanupState,
     reviewedAt: record.metadata.knowledgeReview?.reviewedAt ?? null,
+    sourceProjectWiki,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  };
+}
+
+async function resolveSourceProjectWiki(record: AssistantRecord): Promise<KnowledgeCandidateListItem["sourceProjectWiki"]> {
+  const commonWikiCandidate = record.metadata.commonWikiCandidate;
+  if (!commonWikiCandidate) {
+    return null;
+  }
+
+  const itemId = commonWikiCandidate.sourceProjectWikiItemId ?? null;
+  const metadataStatus = commonWikiCandidate.sourceProjectWikiStatus === "disabled" ? "disabled" : "active";
+  if (!itemId) {
+    return {
+      itemId,
+      status: metadataStatus,
+    };
+  }
+
+  const item = await projectWikiRepository.getProjectWikiItem({ projectId: record.projectId, itemId }).catch(() => null);
+  return {
+    itemId,
+    status: item?.status ?? metadataStatus,
   };
 }
 

@@ -342,6 +342,11 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
         throw notFound("Project WIKI item not found.", "PROJECT_WIKI_ITEM_NOT_FOUND");
       }
       if (normalizeProjectWikiStatus(current.status) === input.status) {
+        await updateCommonWikiCandidateSourceStatus(tx, {
+          projectId: input.projectId,
+          commonCandidateRecordId: current.commonCandidateRecordId,
+          status: input.status,
+        });
         return {
           item: toProjectWikiItemWithLogs(current),
           actionLog: null,
@@ -377,6 +382,11 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
           actorDisplay: input.actorDisplay ?? "",
           reason: input.reason ?? "",
         },
+      });
+      await updateCommonWikiCandidateSourceStatus(tx, {
+        projectId: input.projectId,
+        commonCandidateRecordId: current.commonCandidateRecordId,
+        status: input.status,
       });
       const updated = await tx.projectWikiItem.findFirstOrThrow({
         where: {
@@ -510,6 +520,49 @@ function blockedRegistrationPreview(blockingReason: string): ProjectWikiRegistra
     blockingReason,
     canRegister: false,
   };
+}
+
+async function updateCommonWikiCandidateSourceStatus(
+  tx: Prisma.TransactionClient,
+  input: {
+    projectId: string;
+    commonCandidateRecordId: string | null;
+    status: ProjectWikiStatus;
+  },
+) {
+  if (!input.commonCandidateRecordId) {
+    return;
+  }
+  const commonCandidate = await tx.assistantTaskRecord.findFirst({
+    where: {
+      id: input.commonCandidateRecordId,
+      projectId: input.projectId,
+    },
+    select: {
+      metadata: true,
+    },
+  });
+  if (!commonCandidate) {
+    return;
+  }
+
+  const metadata = asAssistantRecordMetadata(commonCandidate.metadata);
+  const nextMetadata: AssistantRecordMetadata = {
+    ...metadata,
+    commonWikiCandidate: {
+      ...(metadata.commonWikiCandidate ?? {}),
+      sourceProjectWikiStatus: input.status,
+    },
+  };
+  await tx.assistantTaskRecord.updateMany({
+    where: {
+      id: input.commonCandidateRecordId,
+      projectId: input.projectId,
+    },
+    data: {
+      metadata: toInputJson(nextMetadata),
+    },
+  });
 }
 
 function mergeReviewSessionProjectWikiState(

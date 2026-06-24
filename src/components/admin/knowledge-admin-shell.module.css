@@ -606,6 +606,31 @@
   white-space: nowrap;
 }
 
+.sourceDisabledBadge {
+  background: rgba(176, 82, 0, 0.12);
+  border: 1px solid rgba(176, 82, 0, 0.28);
+  border-radius: 999px;
+  color: #8a3f00;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.18rem 0.42rem;
+}
+
+.candidate .sourceDisabledBadge,
+.candidateActive .sourceDisabledBadge,
+.summaryBand .sourceChips .sourceDisabledBadge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(176, 82, 0, 0.12);
+  border: 1px solid rgba(176, 82, 0, 0.28);
+  color: #8a3f00;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);

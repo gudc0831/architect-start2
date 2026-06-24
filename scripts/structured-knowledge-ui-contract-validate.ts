@@ -64,6 +64,8 @@ assertIncludes(shell, "structuredDraftApprovalIssue", "shell blocks approval wit
 assertIncludes(shell, "disabled={busy || Boolean(structuredDraftApprovalIssue)}", "approval button must be disabled by structured draft issue");
 assertIncludes(shell, "structuredDraft: structuredDraftResult.draft", "approval payload must send structured draft");
 assertIncludes(shell, "generationRunId: structuredDraftResult.generationRunId", "approval payload must send generation run id");
+assertIncludes(shell, "원본 비활성화됨", "disabled source project wiki badge");
+assertIncludes(css, "sourceDisabledBadge", "disabled source project wiki badge css");
 
 assertIncludes(tabs, 'export type KnowledgeDraftSubview = "sources" | "reasoning" | "ontology" | "toc" | "sections" | "preview" | "metadata"', "KnowledgeDraftSubview union");
 assertIncludes(tabs, "knowledgeDraftSubviews", "draftSubview allowed values");

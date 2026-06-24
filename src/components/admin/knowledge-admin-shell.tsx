@@ -75,6 +75,10 @@ type CandidateListItem = {
   confidenceScore: number;
   cleanupState: "draft" | "approved" | "deferred";
   reviewedAt: string | null;
+  sourceProjectWiki: {
+    itemId: string | null;
+    status: "active" | "disabled";
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -4088,6 +4092,9 @@ export function KnowledgeAdminShell({
               >
                 <span>{stateLabels[candidate.state]}</span>
                 <strong>{candidate.title}</strong>
+                {candidate.sourceProjectWiki?.status === "disabled" ? (
+                  <span className={styles.sourceDisabledBadge}>원본 비활성화됨</span>
+                ) : null}
                 {candidateQueueCompact ? null : <small>{candidate.projectName} / {candidate.taskIssueId}</small>}
                 <span className={styles.candidateRiskChips}>
                   <span>신뢰도 {readConfidenceBand(candidate.confidenceScore)}</span>
@@ -4137,6 +4144,9 @@ export function KnowledgeAdminShell({
                     <span>현재 단계 {activeCandidateStepNumber}/{knowledgeCandidateTabs.length}</span>
                     <span>경고 {guardrailWarningCount}</span>
                     <span>{approvalReviewItems.length ? `검토 항목 ${approvalReviewItems.length}개` : "필수 검토 항목 없음"}</span>
+                    {detail.sourceProjectWiki?.status === "disabled" ? (
+                      <span className={styles.sourceDisabledBadge}>원본 비활성화됨</span>
+                    ) : null}
                   </div>
                 </div>
                 <aside className={styles.reviewNextAction} aria-label="다음 검토 행동">

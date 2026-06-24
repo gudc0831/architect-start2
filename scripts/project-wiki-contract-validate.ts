@@ -182,6 +182,13 @@ assert.equal(
 );
 
 const contracts = read("src/repositories/project-wiki/contracts.ts");
+const postgresStore = read("src/repositories/project-wiki/postgres-store.ts");
+const localStore = read("src/repositories/project-wiki/local-store.ts");
+const assistantContracts = read("src/repositories/assistant/contracts.ts");
+const assistantIndex = read("src/repositories/assistant/index.ts");
+const assistantLocalStore = read("src/repositories/assistant/local-store.ts");
+const assistantPostgresStore = read("src/repositories/assistant/postgres-store.ts");
+const adminKnowledgeService = read("src/use-cases/admin/knowledge-service.ts");
 assert.equal(
   normalizeTypeDefinition(readObjectType(contracts, "RegisterProjectWikiInput")),
   normalizeTypeDefinition(`export type RegisterProjectWikiInput = {
@@ -200,6 +207,44 @@ assert.match(contracts, /setProjectWikiStatus\(input: SetProjectWikiStatusInput\
 assert.doesNotMatch(readObjectType(contracts, "RegisterProjectWikiInput"), /commonCandidateRecordId/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult = \{[\s\S]*actionLog/);
+assert.match(postgresStore, /updateCommonWikiCandidateSourceStatus/);
+assert.match(postgresStore, /commonWikiCandidate:\s*\{\s*\.\.\.\(metadata\.commonWikiCandidate \?\? \{\}\),\s*sourceProjectWikiStatus: input\.status/s);
+assert.match(postgresStore, /commonCandidateRecordId: current\.commonCandidateRecordId/);
+assert.match(
+  postgresStore,
+  /normalizeProjectWikiStatus\(current\.status\) === input\.status[\s\S]*updateCommonWikiCandidateSourceStatus\(tx,[\s\S]*commonCandidateRecordId: current\.commonCandidateRecordId[\s\S]*actionLog: null/,
+);
+assert.doesNotMatch(
+  postgresStore.slice(
+    postgresStore.indexOf("function updateCommonWikiCandidateSourceStatus"),
+    postgresStore.indexOf("function mergeReviewSessionProjectWikiState"),
+  ),
+  /candidateState/,
+);
+assert.match(localStore, /updateLocalCommonWikiCandidateSourceStatus\(current, input\.status\)[\s\S]*actionLog: null/);
+assert.match(localStore, /updateLocalCommonWikiCandidateSourceStatus\(item, input\.status\)/);
+assert.match(localStore, /assistantRepository\.updateCommonWikiCandidateSourceStatus/);
+assert.match(assistantContracts, /updateCommonWikiCandidateSourceStatus\(input: \{/);
+assert.match(assistantIndex, /updateCommonWikiCandidateSourceStatus\(input\)/);
+assert.match(assistantLocalStore, /async updateCommonWikiCandidateSourceStatus/);
+assert.match(assistantPostgresStore, /async updateCommonWikiCandidateSourceStatus/);
+assert.doesNotMatch(
+  assistantLocalStore.slice(
+    assistantLocalStore.indexOf("async updateCommonWikiCandidateSourceStatus"),
+    assistantLocalStore.indexOf("async createExternalEvidence"),
+  ),
+  /candidateState/,
+);
+assert.doesNotMatch(
+  assistantPostgresStore.slice(
+    assistantPostgresStore.indexOf("async updateCommonWikiCandidateSourceStatus"),
+    assistantPostgresStore.indexOf("async createExternalEvidence"),
+  ),
+  /candidateState/,
+);
+assert.match(adminKnowledgeService, /resolveSourceProjectWiki/);
+assert.match(adminKnowledgeService, /projectWikiRepository\.getProjectWikiItem/);
+assert.match(adminKnowledgeService, /status: item\?\.status \?\? metadataStatus/);
 for (const name of [
   "listProjectWikiItems",
   "getProjectWikiItem",

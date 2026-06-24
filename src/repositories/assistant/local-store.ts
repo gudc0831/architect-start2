@@ -410,6 +410,42 @@ class LocalAssistantRepository implements AssistantRepository {
     return nextRecord;
   }
 
+  async updateCommonWikiCandidateSourceStatus(input: {
+    projectId: string;
+    recordId: string;
+    sourceProjectWikiStatus: "active" | "disabled";
+  }) {
+    const store = await readStore();
+    const timestamp = nowIso();
+    const record = store.records.find((item) => item.id === input.recordId && item.projectId === input.projectId);
+    if (!record) {
+      return null;
+    }
+    const nextRecord: AssistantRecord = {
+      ...record,
+      metadata: {
+        ...record.metadata,
+        commonWikiCandidate: {
+          ...(record.metadata.commonWikiCandidate ?? {}),
+          sourceProjectWikiStatus: input.sourceProjectWikiStatus,
+        },
+      },
+      updatedAt: timestamp,
+    };
+
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        records: store.records.map((item) =>
+          item.id === nextRecord.id && item.projectId === nextRecord.projectId ? nextRecord : item,
+        ),
+      },
+      { reason: "assistant.common-wiki-candidate.source-status.update" },
+    );
+    return nextRecord;
+  }
+
   async createExternalEvidence(input: CreateExternalEvidenceInput) {
     const store = await readStore();
     const timestamp = nowIso();

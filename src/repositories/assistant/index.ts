@@ -59,6 +59,9 @@ export const assistantRepository: AssistantRepository = {
   updateReviewSessionProjectWikiState(input) {
     return getAssistantRepository().updateReviewSessionProjectWikiState(input);
   },
+  updateCommonWikiCandidateSourceStatus(input) {
+    return getAssistantRepository().updateCommonWikiCandidateSourceStatus(input);
+  },
   createExternalEvidence(input) {
     return getAssistantRepository().createExternalEvidence(input);
   },
