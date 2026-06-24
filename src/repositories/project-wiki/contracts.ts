@@ -19,6 +19,11 @@ export type GetProjectWikiItemInput = {
   itemId: string;
 };
 
+export type FindProjectWikiBySourceReviewRecordInput = {
+  projectId: string;
+  sourceReviewRecordId: string;
+};
+
 export type BuildProjectWikiRegistrationPreviewInput = {
   projectId: string;
   sourceReviewRecordId: string;
@@ -65,6 +70,9 @@ export type SetProjectWikiStatusResult = {
 export interface ProjectWikiRepository {
   listProjectWikiItems(input: ListProjectWikiItemsInput): Promise<ProjectWikiItem[]>;
   getProjectWikiItem(input: GetProjectWikiItemInput): Promise<ProjectWikiItem | null>;
+  findProjectWikiBySourceReviewRecord(
+    input: FindProjectWikiBySourceReviewRecordInput,
+  ): Promise<ProjectWikiItem | null>;
   buildProjectWikiRegistrationPreview(
     input: BuildProjectWikiRegistrationPreviewInput,
   ): Promise<ProjectWikiRegistrationPreview>;

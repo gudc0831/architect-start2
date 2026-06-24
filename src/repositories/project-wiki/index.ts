@@ -1,5 +1,6 @@
 export type {
   BuildProjectWikiRegistrationPreviewInput,
+  FindProjectWikiBySourceReviewRecordInput,
   GetProjectWikiItemInput,
   ListProjectWikiItemsInput,
   ProjectWikiRepository,

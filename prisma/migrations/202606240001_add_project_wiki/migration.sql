@@ -75,7 +75,9 @@ create table "project_wiki_action_logs" (
   constraint "project_wiki_action_logs_project_wiki_item_id_fkey"
     foreign key ("project_wiki_item_id") references "project_wiki_items" ("id") on delete cascade on update cascade,
   constraint "project_wiki_action_logs_actor_profile_id_fkey"
-    foreign key ("actor_profile_id") references "profiles" ("id") on delete restrict on update cascade
+    foreign key ("actor_profile_id") references "profiles" ("id") on delete restrict on update cascade,
+  constraint "project_wiki_action_logs_action_check"
+    check ("action" in ('disable', 'restore'))
 );
 
 create index "project_wiki_action_logs_project_id_project_wiki_item_id_created_at_idx"

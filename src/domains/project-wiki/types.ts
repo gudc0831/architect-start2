@@ -4,18 +4,13 @@ export type ProjectWikiRegistrationState = "not_evaluated" | "recommended" | "ca
 export type ProjectWikiSourceBadge = "프로젝트 WIKI" | "공용 WIKI" | "task" | "도면/문서" | "법규" | "외부";
 
 export type ProjectWikiDraft = {
-  sourceTaskId: string;
-  sourceReviewRecordId: string;
-  sourceWorkSummaryDraftId: string;
   title: string;
   summary: string;
   bodyMarkdown: string;
   tags: string[];
-  supplementalNote: string;
   aiSuitabilityState: ProjectWikiSuitabilityState;
   aiSuitabilityReason: string;
   commonizationCaution: string;
-  registrationState: ProjectWikiRegistrationState;
 };
 
 export type ProjectWikiItem = {
@@ -35,6 +30,7 @@ export type ProjectWikiItem = {
   commonizationCaution: string;
   status: ProjectWikiStatus;
   createdBy: string;
+  createdByDisplay: string;
   disabledBy: string | null;
   disabledAt: string | null;
   restoredBy: string | null;
@@ -43,13 +39,11 @@ export type ProjectWikiItem = {
   updatedAt: string;
 };
 
-export type ProjectWikiAction = "registered" | "disabled" | "restored";
-
 export type ProjectWikiActionLog = {
   id: string;
   projectId: string;
   projectWikiItemId: string;
-  action: ProjectWikiAction;
+  action: "disable" | "restore";
   actorProfileId: string;
   actorDisplay: string;
   reason: string;
