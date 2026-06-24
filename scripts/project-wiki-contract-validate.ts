@@ -37,6 +37,7 @@ assert.match(schema, /model ProjectWikiActionLog\s+\{/);
 const assistantTaskRecordModel = readPrismaModel(schema, "AssistantTaskRecord");
 const assistantWorkSummaryDraftModel = readPrismaModel(schema, "AssistantWorkSummaryDraft");
 const projectWikiItemModel = readPrismaModel(schema, "ProjectWikiItem");
+const projectWikiActionLogModel = readPrismaModel(schema, "ProjectWikiActionLog");
 assert.match(schema, /reviewDeletedAt\s+DateTime\?/);
 assert.match(schema, /sourceReviewRecordId\s+String\s+@unique/);
 assert.match(schema, /commonCandidateRecordId\s+String\?\s+@unique/);
@@ -56,6 +57,11 @@ assert.match(
   projectWikiItemModel,
   /commonCandidateRecord\s+AssistantTaskRecord\?\s+@relation\("ProjectWikiCommonCandidateRecord", fields: \[projectId, commonCandidateRecordId\], references: \[projectId, id\], onDelete: NoAction\)/,
 );
+assert.match(projectWikiItemModel, /@@unique\(\[projectId, id\]\)/);
+assert.match(
+  projectWikiActionLogModel,
+  /item\s+ProjectWikiItem\s+@relation\(fields: \[projectId, projectWikiItemId\], references: \[projectId, id\], onDelete: Cascade\)/,
+);
 assert.doesNotMatch(
   projectWikiItemModel,
   /sourceReviewRecord\s+AssistantTaskRecord\s+@relation\("ProjectWikiSourceReviewRecord", fields: \[sourceReviewRecordId\], references: \[id\]/,
@@ -67,6 +73,10 @@ assert.doesNotMatch(
 assert.doesNotMatch(
   projectWikiItemModel,
   /commonCandidateRecord\s+AssistantTaskRecord\?\s+@relation\("ProjectWikiCommonCandidateRecord", fields: \[commonCandidateRecordId\], references: \[id\]/,
+);
+assert.doesNotMatch(
+  projectWikiActionLogModel,
+  /item\s+ProjectWikiItem\s+@relation\(fields: \[projectWikiItemId\], references: \[id\]/,
 );
 assert.match(
   migration,
@@ -88,12 +98,29 @@ assert.match(
   migration,
   /foreign key \("project_id", "common_candidate_record_id"\) references "assistant_task_records" \("project_id", "id"\) on delete set null \("common_candidate_record_id"\) on update cascade/,
 );
+assert.match(
+  migration,
+  /create unique index "project_wiki_items_project_id_id_key"\s+on "project_wiki_items" \("project_id", "id"\)/,
+);
+assert.match(
+  migration,
+  /foreign key \("project_id", "project_wiki_item_id"\) references "project_wiki_items" \("project_id", "id"\) on delete cascade on update cascade/,
+);
 assert.doesNotMatch(migration, /foreign key \("source_review_record_id"\) references "assistant_task_records" \("id"\)/);
 assert.doesNotMatch(
   migration,
   /foreign key \("source_work_summary_draft_id"\) references "assistant_work_summary_drafts" \("id"\)/,
 );
 assert.doesNotMatch(migration, /foreign key \("common_candidate_record_id"\) references "assistant_task_records" \("id"\)/);
+assert.doesNotMatch(migration, /foreign key \("project_wiki_item_id"\) references "project_wiki_items" \("id"\)/);
+assert.match(
+  migration,
+  /constraint "project_wiki_items_status_check"\s+check \("status" in \('active', 'disabled'\)\)/,
+);
+assert.match(
+  migration,
+  /constraint "project_wiki_items_ai_suitability_state_check"\s+check \("ai_suitability_state" in \('recommended', 'caution', 'not_recommended'\)\)/,
+);
 assert.match(migration, /constraint "project_wiki_action_logs_action_check"\s+check \("action" in \('disable', 'restore'\)\)/);
 
 const types = read("src/domains/project-wiki/types.ts");
@@ -155,8 +182,22 @@ assert.equal(
 );
 
 const contracts = read("src/repositories/project-wiki/contracts.ts");
+assert.equal(
+  normalizeTypeDefinition(readObjectType(contracts, "RegisterProjectWikiInput")),
+  normalizeTypeDefinition(`export type RegisterProjectWikiInput = {
+  projectId: string;
+  sourceTaskId: string;
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+  supplementalNote: string;
+  draft: ProjectWikiDraft;
+  actorProfileId: string;
+  actorDisplay?: string;
+};`),
+);
 assert.match(contracts, /registerProjectWiki\(input: RegisterProjectWikiInput\): Promise<ProjectWikiItem>/);
 assert.match(contracts, /setProjectWikiStatus\(input: SetProjectWikiStatusInput\): Promise<SetProjectWikiStatusResult>/);
+assert.doesNotMatch(readObjectType(contracts, "RegisterProjectWikiInput"), /commonCandidateRecordId/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult = \{[\s\S]*actionLog/);
 for (const name of [

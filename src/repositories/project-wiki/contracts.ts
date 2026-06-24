@@ -35,7 +35,7 @@ export type RegisterProjectWikiInput = {
   sourceTaskId: string;
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
-  commonCandidateRecordId?: string | null;
+  supplementalNote: string;
   draft: ProjectWikiDraft;
   actorProfileId: string;
   actorDisplay?: string;

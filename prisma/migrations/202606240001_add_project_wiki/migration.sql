@@ -61,6 +61,9 @@ create unique index "project_wiki_items_source_review_record_id_key"
 create unique index "project_wiki_items_common_candidate_record_id_key"
   on "project_wiki_items" ("common_candidate_record_id");
 
+create unique index "project_wiki_items_project_id_id_key"
+  on "project_wiki_items" ("project_id", "id");
+
 create index "project_wiki_items_project_id_status_updated_at_idx"
   on "project_wiki_items" ("project_id", "status", "updated_at");
 
@@ -79,7 +82,7 @@ create table "project_wiki_action_logs" (
   constraint "project_wiki_action_logs_project_id_fkey"
     foreign key ("project_id") references "projects" ("id") on delete cascade on update cascade,
   constraint "project_wiki_action_logs_project_wiki_item_id_fkey"
-    foreign key ("project_wiki_item_id") references "project_wiki_items" ("id") on delete cascade on update cascade,
+    foreign key ("project_id", "project_wiki_item_id") references "project_wiki_items" ("project_id", "id") on delete cascade on update cascade,
   constraint "project_wiki_action_logs_actor_profile_id_fkey"
     foreign key ("actor_profile_id") references "profiles" ("id") on delete restrict on update cascade,
   constraint "project_wiki_action_logs_action_check"

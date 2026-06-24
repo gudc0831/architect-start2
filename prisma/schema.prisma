@@ -730,6 +730,7 @@ model ProjectWikiItem {
   restorer                 Profile? @relation("ProjectWikiRestoredBy", fields: [restoredBy], references: [id], onDelete: SetNull)
   actionLogs               ProjectWikiActionLog[]
 
+  @@unique([projectId, id])
   @@index([projectId, status, updatedAt])
   @@index([sourceTaskId, createdAt])
   @@map("project_wiki_items")
@@ -745,7 +746,7 @@ model ProjectWikiActionLog {
   reason            String   @default("")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  item              ProjectWikiItem @relation(fields: [projectWikiItemId], references: [id], onDelete: Cascade)
+  item              ProjectWikiItem @relation(fields: [projectId, projectWikiItemId], references: [projectId, id], onDelete: Cascade)
   actor             Profile @relation("ProjectWikiActionLogActor", fields: [actorProfileId], references: [id], onDelete: Restrict)
 
   @@index([projectId, projectWikiItemId, createdAt])
