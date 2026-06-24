@@ -13,30 +13,23 @@ export type ProjectWikiDraft = {
   commonizationCaution: string;
 };
 
-export type ProjectWikiItem = {
+export type ProjectWikiItem = ProjectWikiDraft & {
   id: string;
   projectId: string;
   sourceTaskId: string;
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
-  title: string;
-  summary: string;
-  bodyMarkdown: string;
-  tags: string[];
   supplementalNote: string;
-  aiSuitabilityState: ProjectWikiSuitabilityState;
-  aiSuitabilityReason: string;
-  commonizationCaution: string;
   status: ProjectWikiStatus;
   createdBy: string;
   createdByDisplay: string;
+  createdAt: string;
+  updatedAt: string;
   disabledBy: string | null;
   disabledAt: string | null;
   restoredBy: string | null;
   restoredAt: string | null;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type ProjectWikiActionLog = {
