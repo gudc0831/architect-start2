@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { badRequest } from "@/lib/api/errors";
+import { handleRouteError } from "@/lib/api/route-error";
+import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
+import { requireUser } from "@/lib/auth/require-user";
+import { buildProjectWikiRegistrationPreview } from "@/use-cases/project-wiki-service";
+
+export const runtime = "nodejs";
+export const preferredRegion = "icn1";
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ projectId: string }> },
+) {
+  try {
+    assertRequestIntegrity(request);
+    const user = await requireUser();
+    const { projectId } = await context.params;
+    const body = parseRegistrationPreviewBody(await request.json());
+    const data = await buildProjectWikiRegistrationPreview({
+      projectId,
+      sourceReviewRecordId: body.sourceReviewRecordId,
+      sourceWorkSummaryDraftId: body.sourceWorkSummaryDraftId,
+      user,
+    });
+
+    return NextResponse.json({ data });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+function parseRegistrationPreviewBody(rawBody: unknown) {
+  if (!isRecord(rawBody)) {
+    throw badRequest("Invalid project WIKI registration preview payload.", "PROJECT_WIKI_PREVIEW_PAYLOAD_INVALID");
+  }
+  if (typeof rawBody.sourceReviewRecordId !== "string" || !rawBody.sourceReviewRecordId.trim()) {
+    throw badRequest("sourceReviewRecordId is required.", "PROJECT_WIKI_SOURCE_REVIEW_REQUIRED");
+  }
+  if (typeof rawBody.sourceWorkSummaryDraftId !== "string" || !rawBody.sourceWorkSummaryDraftId.trim()) {
+    throw badRequest("sourceWorkSummaryDraftId is required.", "PROJECT_WIKI_SOURCE_DRAFT_REQUIRED");
+  }
+
+  return {
+    sourceReviewRecordId: rawBody.sourceReviewRecordId,
+    sourceWorkSummaryDraftId: rawBody.sourceWorkSummaryDraftId,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}

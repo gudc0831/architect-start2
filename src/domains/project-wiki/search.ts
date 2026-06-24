@@ -2,6 +2,8 @@ import type {
   ProjectWikiAssistantSearchResult,
   ProjectWikiItem,
   ProjectWikiSourceBadge,
+  ProjectWikiStatus,
+  ProjectWikiSuitabilityState,
 } from "@/domains/project-wiki/types";
 
 export type RankProjectWikiItemsInput = {
@@ -54,8 +56,8 @@ export function scoreProjectWikiItem(item: ProjectWikiItem, query: string) {
   score += scoreTerms(item.bodyMarkdown, terms, 1, matches);
   score += scoreTerms(item.supplementalNote, terms, 1, matches);
 
-  const combinedText = projectWikiSearchText(item).toLowerCase();
-  const normalizedQuery = query.toLowerCase().trim();
+  const combinedText = normalizeProjectWikiKeyword(projectWikiSearchText(item));
+  const normalizedQuery = normalizeProjectWikiKeyword(query);
   if (normalizedQuery.length >= 4 && combinedText.includes(normalizedQuery)) {
     score += 2;
   }
@@ -67,6 +69,48 @@ export function scoreProjectWikiItem(item: ProjectWikiItem, query: string) {
   }
 
   return { score, matchedTerms: [...matches] };
+}
+
+export function normalizeProjectWikiKeyword(value: string) {
+  return value.replace(/\u0000/g, "").replace(/\s+/gu, " ").trim().toLocaleLowerCase("ko-KR");
+}
+
+export function matchesProjectWikiKeyword(item: ProjectWikiItem, keyword: string) {
+  const normalizedKeyword = normalizeProjectWikiKeyword(keyword);
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  const haystack = normalizeProjectWikiKeyword(projectWikiKeywordText(item));
+  if (haystack.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const compactHaystack = haystack.replace(/\s+/gu, "");
+  const compactKeyword = normalizedKeyword.replace(/\s+/gu, "");
+  if (compactKeyword.length >= 2 && compactHaystack.includes(compactKeyword)) {
+    return true;
+  }
+
+  return normalizedKeyword
+    .split(/\s+/u)
+    .filter(Boolean)
+    .every((term) => haystack.includes(term) || compactHaystack.includes(term.replace(/\s+/gu, "")));
+}
+
+export function projectWikiStatusLabel(status: ProjectWikiStatus) {
+  return status === "active" ? "활성" : "비활성";
+}
+
+export function suitabilityBadgeTone(state: ProjectWikiSuitabilityState) {
+  switch (state) {
+    case "recommended":
+      return "green";
+    case "caution":
+      return "amber";
+    case "not_recommended":
+      return "gray";
+  }
 }
 
 export function resolveProjectWikiSourceBadge(input: ProjectWikiSourceBadgeInput): ProjectWikiSourceBadge {
@@ -98,8 +142,7 @@ export function resolveProjectWikiSourceBadge(input: ProjectWikiSourceBadgeInput
 export function tokenizeProjectWikiSearchText(value: string) {
   return [
     ...new Set(
-      value
-        .toLowerCase()
+      normalizeProjectWikiKeyword(value)
         .replace(/[^\p{Letter}\p{Number}\s-]/gu, " ")
         .split(/\s+/u)
         .map((term) => term.trim())
@@ -124,6 +167,10 @@ export function projectWikiSearchText(item: ProjectWikiItem) {
     .trim();
 }
 
+function projectWikiKeywordText(item: ProjectWikiItem) {
+  return [item.title, item.summary, item.bodyMarkdown, item.tags.join(" "), item.supplementalNote].join(" ");
+}
+
 export function compareProjectWikiSearchResults(
   left: ProjectWikiAssistantSearchResult,
   right: ProjectWikiAssistantSearchResult,
@@ -137,7 +184,7 @@ export function compareProjectWikiSearchResults(
 }
 
 function scoreTerms(value: string, terms: string[], weight: number, matches: Set<string>) {
-  const haystack = value.toLowerCase();
+  const haystack = normalizeProjectWikiKeyword(value);
   return terms.reduce((score, term) => {
     if (!haystack.includes(term)) {
       return score;
