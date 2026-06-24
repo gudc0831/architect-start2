@@ -264,6 +264,18 @@ async function assertSourceBoundaries(checks: string[]) {
     "utf8",
   );
   const prismaSchema = await readFile(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
+  const assistantSaasApiModeMigration = await readFile(
+    new URL("../prisma/migrations/202605080002_add_assistant_saas_api_mode/migration.sql", import.meta.url),
+    "utf8",
+  );
+  const previewAssistantClient = await readFile(
+    new URL("../src/app/preview/assistant/preview-client.tsx", import.meta.url),
+    "utf8",
+  );
+  const legalManualSmokeGenerateCapture = await readFile(
+    new URL("../scripts/legal-manual-smoke-generate-capture.ts", import.meta.url),
+    "utf8",
+  );
   const candidateImportService = await readFile(
     new URL("../src/use-cases/admin/verified-legal-candidate-import-service.ts", import.meta.url),
     "utf8",
@@ -334,12 +346,27 @@ async function assertSourceBoundaries(checks: string[]) {
       '@default("[\\"central_knowledge\\",\\"project_wiki\\",\\"regulation\\",\\"task\\",\\"project_document\\",\\"web_or_skill\\"]")',
     ),
   );
+  assert.ok(
+    assistantSaasApiModeMigration.includes(
+      `'["central_knowledge","project_wiki","regulation","task","project_document","web_or_skill"]'::jsonb`,
+    ),
+  );
+  assert.ok(
+    previewAssistantClient.includes(
+      `allowedEvidenceKinds: ["central_knowledge", "project_wiki", "task", "project_document", "web_or_skill"]`,
+    ),
+  );
+  assert.ok(
+    legalManualSmokeGenerateCapture.includes(
+      `allowedEvidenceKinds: ["central_knowledge", "project_wiki", "regulation", "task", "project_document", "web_or_skill"]`,
+    ),
+  );
   assert.doesNotMatch(assistantService, /process\.env\.LAW_OPEN_DATA_OC/);
   assert.doesNotMatch(legalSearchService, /process\.env\.LAW_OPEN_DATA_OC/);
   checks.push("verified legal search is the default path and legacy bundle retrieval is explicit opt-in");
   checks.push("verified legal evidence/search services keep server secret and project-context separation boundaries");
   checks.push("generic assistant records strip client-submitted legal verification claims and skip WIKI candidacy");
-  checks.push("project_wiki remains present in default policy, admin options, Prisma default, and smoke-report normalizers");
+  checks.push("project_wiki remains present in default policy, admin options, Prisma defaults, preview policies, and smoke normalizers");
 
   assert.match(taskAssistantPanel, /postTaskReviewJson/);
   assert.match(taskAssistantPanel, /legalEvidence:\s*review\.evidence\.filter/);

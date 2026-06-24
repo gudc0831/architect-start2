@@ -39,7 +39,7 @@ async function generateReport(input: { appUrl: string; capturesOutputPath?: stri
     maxInputTokens: 12000,
     maxOutputTokens: 2000,
     externalEvidenceAllowed: true,
-    allowedEvidenceKinds: ["central_knowledge", "regulation", "task", "project_document", "web_or_skill"],
+    allowedEvidenceKinds: ["central_knowledge", "project_wiki", "regulation", "task", "project_document", "web_or_skill"],
   });
 
   const captures: SmokeCapture[] = [];

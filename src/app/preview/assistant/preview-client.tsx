@@ -157,7 +157,7 @@ export function AssistantPanelPreviewClient() {
           provider: "mock",
           model: "preview-deterministic",
           externalEvidenceAllowed: true,
-          allowedEvidenceKinds: ["central_knowledge", "task", "project_document", "web_or_skill"],
+          allowedEvidenceKinds: ["central_knowledge", "project_wiki", "task", "project_document", "web_or_skill"],
         });
       }
 

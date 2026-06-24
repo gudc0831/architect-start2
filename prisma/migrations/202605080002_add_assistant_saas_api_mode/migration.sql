@@ -8,7 +8,7 @@ create table "assistant_run_policies" (
   "max_input_tokens" integer not null default 12000,
   "max_output_tokens" integer not null default 2000,
   "external_evidence_allowed" boolean not null default true,
-  "allowed_evidence_kinds" jsonb not null default '["central_knowledge","regulation","task","project_document","web_or_skill"]'::jsonb,
+  "allowed_evidence_kinds" jsonb not null default '["central_knowledge","project_wiki","regulation","task","project_document","web_or_skill"]'::jsonb,
   "retention_days" integer not null default 365,
   "created_by" uuid references "profiles"("id") on delete set null,
   "updated_by" uuid references "profiles"("id") on delete set null,
