@@ -1,5 +1,5 @@
 import type { AuthUser } from "@/domains/auth/types";
-import type { ProjectWikiActionLog, ProjectWikiItem } from "@/domains/project-wiki/types";
+import type { ProjectWikiActionLog, ProjectWikiDraft, ProjectWikiItem } from "@/domains/project-wiki/types";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { requireProjectAccess } from "@/lib/auth/project-guards";
 import { assistantRepository } from "@/repositories/assistant";
@@ -17,7 +17,6 @@ export async function listProjectWiki(input: {
     projectId: input.projectId,
     query,
     status: "active",
-    limit: 100,
   });
   if (!input.includeDisabled) {
     return activeItems;
@@ -27,7 +26,6 @@ export async function listProjectWiki(input: {
     projectId: input.projectId,
     query,
     status: "disabled",
-    limit: 100,
   });
   return [...activeItems, ...disabledItems].sort(compareProjectWikiItems);
 }
@@ -59,11 +57,20 @@ export async function buildProjectWikiRegistrationPreview(input: {
   user: AuthUser;
 }) {
   await requireProjectAccess(input.projectId, input.user);
-  return projectWikiRepository.buildProjectWikiRegistrationPreview({
+  const sourceReviewRecordId = normalizeRequiredText(input.sourceReviewRecordId, "sourceReviewRecordId");
+  const sourceWorkSummaryDraftId = normalizeRequiredText(input.sourceWorkSummaryDraftId, "sourceWorkSummaryDraftId");
+  const preview = await projectWikiRepository.buildProjectWikiRegistrationPreview({
     projectId: input.projectId,
-    sourceReviewRecordId: normalizeRequiredText(input.sourceReviewRecordId, "sourceReviewRecordId"),
-    sourceWorkSummaryDraftId: normalizeRequiredText(input.sourceWorkSummaryDraftId, "sourceWorkSummaryDraftId"),
+    sourceReviewRecordId,
+    sourceWorkSummaryDraftId,
   });
+  await persistProjectWikiPreviewState({
+    projectId: input.projectId,
+    sourceReviewRecordId,
+    sourceWorkSummaryDraftId,
+    preview,
+  });
+  return preview;
 }
 
 export async function registerProjectWiki(input: {
@@ -76,21 +83,31 @@ export async function registerProjectWiki(input: {
   await requireProjectAccess(input.projectId, input.user);
   const sourceReviewRecordId = normalizeRequiredText(input.sourceReviewRecordId, "sourceReviewRecordId");
   const sourceWorkSummaryDraftId = normalizeRequiredText(input.sourceWorkSummaryDraftId, "sourceWorkSummaryDraftId");
-  const preview = await projectWikiRepository.buildProjectWikiRegistrationPreview({
+
+  const existingItem = await projectWikiRepository.findProjectWikiBySourceReviewRecord({
     projectId: input.projectId,
     sourceReviewRecordId,
-    sourceWorkSummaryDraftId,
   });
-  if (preview.existingItem) {
-    return preview.existingItem;
-  }
-  if (!preview.canRegister || !preview.draft) {
-    throw badRequest(preview.blockingReason || "Project WIKI registration is not available.", "PROJECT_WIKI_REGISTER_BLOCKED");
+  if (existingItem) {
+    return existingItem;
   }
 
   const sourceRecord = await assistantRepository.findRecordById(sourceReviewRecordId);
   if (!sourceRecord || sourceRecord.projectId !== input.projectId) {
     throw notFound("Source review record not found.", "PROJECT_WIKI_SOURCE_REVIEW_NOT_FOUND");
+  }
+  const storedPreview = readStoredProjectWikiRegistrationPreview(sourceRecord.metadata.taskReview?.projectWikiState, sourceWorkSummaryDraftId);
+  if (
+    !storedPreview ||
+    !storedPreview.canRegister ||
+    !storedPreview.draft ||
+    !isRegisterableProjectWikiState(storedPreview.state) ||
+    !isRegisterableProjectWikiState(storedPreview.draft.aiSuitabilityState)
+  ) {
+    throw badRequest(
+      storedPreview?.blockingReason || "Project WIKI registration preview must be generated before registration.",
+      "PROJECT_WIKI_PREVIEW_REQUIRED",
+    );
   }
 
   return projectWikiRepository.registerProjectWiki({
@@ -99,7 +116,7 @@ export async function registerProjectWiki(input: {
     sourceReviewRecordId,
     sourceWorkSummaryDraftId,
     supplementalNote: normalizeOptionalText(input.supplementalNote),
-    draft: preview.draft,
+    draft: storedPreview.draft,
     actorProfileId: input.user.id,
     actorDisplay: displayName(input.user),
   });
@@ -160,4 +177,97 @@ function displayName(user: AuthUser) {
 
 function compareProjectWikiItems(left: ProjectWikiItem, right: ProjectWikiItem) {
   return right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id);
+}
+
+async function persistProjectWikiPreviewState(input: {
+  projectId: string;
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+  preview: Awaited<ReturnType<typeof projectWikiRepository.buildProjectWikiRegistrationPreview>>;
+}) {
+  if (input.preview.state === "registered" || !input.preview.draft) {
+    return;
+  }
+  const sourceRecord = await assistantRepository.findRecordById(input.sourceReviewRecordId);
+  if (!sourceRecord || sourceRecord.projectId !== input.projectId) {
+    return;
+  }
+  await assistantRepository.updateReviewSessionProjectWikiState({
+    projectId: input.projectId,
+    recordId: input.sourceReviewRecordId,
+    projectWikiState: {
+      registrationState: input.preview.state,
+      suitabilityReason: input.preview.draft.aiSuitabilityReason || null,
+      projectWikiItemId: null,
+      commonCandidateRecordId: null,
+      workSummaryDraftId: input.sourceWorkSummaryDraftId,
+      previewDraft: input.preview.draft,
+    },
+  });
+}
+
+function isRegisterableProjectWikiState(state: string) {
+  return state === "recommended" || state === "caution";
+}
+
+function readStoredProjectWikiRegistrationPreview(
+  projectWikiState: { registrationState: string; blockingReason?: string | null; workSummaryDraftId: string | null; previewDraft?: unknown } | undefined,
+  sourceWorkSummaryDraftId: string,
+) {
+  if (!projectWikiState || projectWikiState.workSummaryDraftId !== sourceWorkSummaryDraftId) {
+    return null;
+  }
+  const draft = normalizeStoredProjectWikiDraft(projectWikiState.previewDraft);
+  if (!draft) {
+    return null;
+  }
+  const canRegister = isRegisterableProjectWikiState(projectWikiState.registrationState);
+  return {
+    state: projectWikiState.registrationState,
+    draft,
+    blockingReason: canRegister ? "" : "AI 비추천 결과라 프로젝트 WIKI 등록을 진행할 수 없습니다.",
+    canRegister,
+  };
+}
+
+function normalizeStoredProjectWikiDraft(value: unknown): ProjectWikiDraft | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const title = normalizeOptionalText(readString(value.title));
+  const summary = normalizeOptionalText(readString(value.summary));
+  const bodyMarkdown = normalizeMultilineText(readString(value.bodyMarkdown));
+  const aiSuitabilityState = readProjectWikiSuitabilityState(value.aiSuitabilityState);
+  if (!title || !summary || !bodyMarkdown || !aiSuitabilityState) {
+    return null;
+  }
+  return {
+    title,
+    summary,
+    bodyMarkdown,
+    tags: readStringArray(value.tags).slice(0, 8),
+    aiSuitabilityState,
+    aiSuitabilityReason: normalizeOptionalText(readString(value.aiSuitabilityReason)),
+    commonizationCaution: normalizeOptionalText(readString(value.commonizationCaution)),
+  };
+}
+
+function readProjectWikiSuitabilityState(value: unknown): ProjectWikiDraft["aiSuitabilityState"] | null {
+  return value === "recommended" || value === "caution" || value === "not_recommended" ? value : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map(readString).map(normalizeOptionalText).filter(Boolean) : [];
+}
+
+function normalizeMultilineText(value: string) {
+  return value.replace(/\u0000/g, "").replace(/[ \t]+/gu, " ").replace(/\n{3,}/gu, "\n\n").trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

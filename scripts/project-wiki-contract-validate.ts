@@ -155,6 +155,7 @@ assert.equal(
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
+  commonCandidateStatus: ProjectWikiCommonCandidateStatus;
   supplementalNote: string;
   status: ProjectWikiStatus;
   createdBy: string;
@@ -245,6 +246,9 @@ assert.doesNotMatch(
 assert.match(adminKnowledgeService, /resolveSourceProjectWiki/);
 assert.match(adminKnowledgeService, /projectWikiRepository\.getProjectWikiItem/);
 assert.match(adminKnowledgeService, /status: item\?\.status \?\? metadataStatus/);
+assert.match(adminKnowledgeService, /supplementalNote: commonWikiCandidate\.supplementalNote/);
+assert.match(adminKnowledgeService, /commonizationCaution: commonWikiCandidate\.commonizationCaution/);
+assert.match(adminKnowledgeService, /projectSpecificContext: commonWikiCandidate\.projectSpecificContext === true/);
 for (const name of [
   "listProjectWikiItems",
   "getProjectWikiItem",

@@ -65,6 +65,10 @@ assertIncludes(shell, "disabled={busy || Boolean(structuredDraftApprovalIssue)}"
 assertIncludes(shell, "structuredDraft: structuredDraftResult.draft", "approval payload must send structured draft");
 assertIncludes(shell, "generationRunId: structuredDraftResult.generationRunId", "approval payload must send generation run id");
 assertIncludes(shell, "원본 비활성화됨", "disabled source project wiki badge");
+assertIncludes(shell, "프로젝트 WIKI 출처 상태", "project wiki source status in candidate detail");
+assertIncludes(shell, "프로젝트 WIKI AI 적합성", "project wiki suitability in candidate detail");
+assertIncludes(shell, "보완 메모", "project wiki supplemental note in candidate detail");
+assertIncludes(shell, "공용화 주의사항", "project wiki commonization caution in candidate detail");
 assertIncludes(css, "sourceDisabledBadge", "disabled source project wiki badge css");
 
 assertIncludes(tabs, 'export type KnowledgeDraftSubview = "sources" | "reasoning" | "ontology" | "toc" | "sections" | "preview" | "metadata"', "KnowledgeDraftSubview union");

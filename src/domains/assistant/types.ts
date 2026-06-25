@@ -220,6 +220,15 @@ export type ProjectWikiReviewState = {
   projectWikiItemId: string | null;
   commonCandidateRecordId: string | null;
   workSummaryDraftId: string | null;
+  previewDraft?: {
+    title: string;
+    summary: string;
+    bodyMarkdown: string;
+    tags: string[];
+    aiSuitabilityState: "recommended" | "caution" | "not_recommended";
+    aiSuitabilityReason: string;
+    commonizationCaution: string;
+  } | null;
 };
 
 export type CommonWikiCandidateMetadata = {

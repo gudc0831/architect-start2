@@ -55,6 +55,7 @@ type PreviewProjectWikiItem = ReturnType<typeof createProjectWikiDraft> & {
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
+  commonCandidateStatus: "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected" | null;
   supplementalNote: string;
   status: "active" | "disabled";
   createdBy: string;
@@ -633,6 +634,7 @@ function createProjectWikiItem(
     sourceReviewRecordId,
     sourceWorkSummaryDraftId: readString(body.sourceWorkSummaryDraftId),
     commonCandidateRecordId: `preview-common-candidate-${projectWikiItems.length + 1}`,
+    commonCandidateStatus: "candidate",
     supplementalNote: readString(body.supplementalNote),
     status: "active",
     createdBy: "preview-user",

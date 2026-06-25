@@ -78,6 +78,11 @@ type CandidateListItem = {
   sourceProjectWiki: {
     itemId: string | null;
     status: "active" | "disabled";
+    supplementalNote: string;
+    aiSuitabilityState: "recommended" | "caution" | "not_recommended" | null;
+    aiSuitabilityReason: string;
+    commonizationCaution: string;
+    projectSpecificContext: boolean;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -689,6 +694,12 @@ const cleanupStateLabels: Record<CandidateListItem["cleanupState"], string> = {
   draft: "정리 초안",
   approved: "정리 승인됨",
   deferred: "정리 보류",
+};
+
+const projectWikiSuitabilityLabels: Record<"recommended" | "caution" | "not_recommended", string> = {
+  recommended: "AI 추천",
+  caution: "AI 주의",
+  not_recommended: "AI 비추천",
 };
 
 const candidateRiskFilterLabels: Record<CandidateRiskFilter, string> = {
@@ -4147,6 +4158,10 @@ export function KnowledgeAdminShell({
                     {detail.sourceProjectWiki?.status === "disabled" ? (
                       <span className={styles.sourceDisabledBadge}>원본 비활성화됨</span>
                     ) : null}
+                    {detail.sourceProjectWiki?.projectSpecificContext ? <span>프로젝트 WIKI 출처</span> : null}
+                    {detail.sourceProjectWiki?.aiSuitabilityState ? (
+                      <span>{projectWikiSuitabilityLabels[detail.sourceProjectWiki.aiSuitabilityState]}</span>
+                    ) : null}
                   </div>
                 </div>
                 <aside className={styles.reviewNextAction} aria-label="다음 검토 행동">
@@ -4211,6 +4226,31 @@ export function KnowledgeAdminShell({
                       <dt>신뢰도 이유</dt>
                       <dd>{detail.confidenceReason}</dd>
                     </div>
+                    {detail.sourceProjectWiki ? (
+                      <>
+                        <div>
+                          <dt>프로젝트 WIKI 출처 상태</dt>
+                          <dd>{detail.sourceProjectWiki.status === "disabled" ? "원본 비활성" : "원본 활성"}</dd>
+                        </div>
+                        <div>
+                          <dt>프로젝트 WIKI AI 적합성</dt>
+                          <dd>
+                            {detail.sourceProjectWiki.aiSuitabilityState
+                              ? projectWikiSuitabilityLabels[detail.sourceProjectWiki.aiSuitabilityState]
+                              : "적합성 정보 없음"}
+                            {detail.sourceProjectWiki.aiSuitabilityReason ? ` / ${detail.sourceProjectWiki.aiSuitabilityReason}` : ""}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>보완 메모</dt>
+                          <dd>{detail.sourceProjectWiki.supplementalNote || "보완 메모 없음"}</dd>
+                        </div>
+                        <div>
+                          <dt>공용화 주의사항</dt>
+                          <dd>{detail.sourceProjectWiki.commonizationCaution || "공용화 주의사항 없음"}</dd>
+                        </div>
+                      </>
+                    ) : null}
                   </dl>
                   <h4>질문</h4>
                   <p>{detail.question}</p>

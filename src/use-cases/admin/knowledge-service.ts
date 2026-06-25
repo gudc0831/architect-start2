@@ -53,6 +53,11 @@ export type KnowledgeCandidateListItem = {
   sourceProjectWiki: {
     itemId: string | null;
     status: "active" | "disabled";
+    supplementalNote: string;
+    aiSuitabilityState: "recommended" | "caution" | "not_recommended" | null;
+    aiSuitabilityReason: string;
+    commonizationCaution: string;
+    projectSpecificContext: boolean;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -1620,6 +1625,11 @@ async function resolveSourceProjectWiki(record: AssistantRecord): Promise<Knowle
     return {
       itemId,
       status: metadataStatus,
+      supplementalNote: commonWikiCandidate.supplementalNote ?? "",
+      aiSuitabilityState: normalizeProjectWikiSuitabilityState(commonWikiCandidate.aiSuitabilityState),
+      aiSuitabilityReason: commonWikiCandidate.aiSuitabilityReason ?? "",
+      commonizationCaution: commonWikiCandidate.commonizationCaution ?? "",
+      projectSpecificContext: commonWikiCandidate.projectSpecificContext === true,
     };
   }
 
@@ -1627,7 +1637,16 @@ async function resolveSourceProjectWiki(record: AssistantRecord): Promise<Knowle
   return {
     itemId,
     status: item?.status ?? metadataStatus,
+    supplementalNote: commonWikiCandidate.supplementalNote ?? "",
+    aiSuitabilityState: normalizeProjectWikiSuitabilityState(commonWikiCandidate.aiSuitabilityState),
+    aiSuitabilityReason: commonWikiCandidate.aiSuitabilityReason ?? "",
+    commonizationCaution: commonWikiCandidate.commonizationCaution ?? "",
+    projectSpecificContext: commonWikiCandidate.projectSpecificContext === true,
   };
+}
+
+function normalizeProjectWikiSuitabilityState(value: unknown) {
+  return value === "recommended" || value === "caution" || value === "not_recommended" ? value : null;
 }
 
 function buildWikiDraft(record: AssistantRecord, summary: AssistantWorkSummaryDraft | null) {

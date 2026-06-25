@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import type { AssistantRecordMetadata, ProjectWikiReviewState } from "@/domains/assistant/types";
+import type { AssistantCandidateState, AssistantRecordMetadata, ProjectWikiReviewState } from "@/domains/assistant/types";
 import type {
   ProjectWikiActionLog,
   ProjectWikiDraft,
@@ -21,7 +21,7 @@ import type {
   SearchProjectWikiForAssistantInput,
   SetProjectWikiStatusInput,
 } from "@/repositories/project-wiki/contracts";
-import { buildDeterministicProjectWikiDraft } from "@/use-cases/project-wiki-suitability-service";
+import { evaluateProjectWikiSuitability } from "@/use-cases/project-wiki-suitability-service";
 
 type ProjectWikiActionLogRecord = {
   id: string;
@@ -58,6 +58,7 @@ type ProjectWikiItemRecord = {
   createdAt: Date;
   updatedAt: Date;
   creator?: { displayName: string } | null;
+  commonCandidateRecord?: { candidateState: string } | null;
   actionLogs?: ProjectWikiActionLogRecord[];
 };
 
@@ -95,15 +96,16 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
       },
       include: {
         creator: { select: { displayName: true } },
+        commonCandidateRecord: { select: { candidateState: true } },
       },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take: 500,
+      ...(input.limit ? { take: Math.min(Math.max(input.limit, 1), 500) } : {}),
     });
-    const limit = normalizeLimit(input.limit, 100, 500);
+    const limit = normalizeOptionalLimit(input.limit);
     return rows
       .map((row) => toProjectWikiItem(row))
       .filter((item) => matchesProjectWikiKeyword(item, input.query ?? ""))
-      .slice(0, limit);
+      .slice(0, limit ?? undefined);
   }
 
   async getProjectWikiItem(input: GetProjectWikiItemInput) {
@@ -114,6 +116,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
       },
       include: {
         creator: { select: { displayName: true } },
+        commonCandidateRecord: { select: { candidateState: true } },
         actionLogs: {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: 50,
@@ -134,6 +137,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
       },
       include: {
         creator: { select: { displayName: true } },
+        commonCandidateRecord: { select: { candidateState: true } },
       },
     });
     return row ? toProjectWikiItem(row) : null;
@@ -170,13 +174,14 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
       return blockedRegistrationPreview("승인된 work summary draft가 없어 프로젝트 WIKI 등록을 진행할 수 없습니다.");
     }
 
-    const draft = buildDraftFromSource(sourceReview, approvedDraft);
+    const draft = await buildDraftFromSource(input.projectId, sourceReview, approvedDraft);
+    const canRegister = isRegisterableSuitabilityState(draft.aiSuitabilityState);
     return {
       state: draft.aiSuitabilityState,
       draft,
       existingItem: null,
-      blockingReason: "",
-      canRegister: true,
+      blockingReason: canRegister ? "" : "AI 비추천 결과라 프로젝트 WIKI 등록을 진행할 수 없습니다.",
+      canRegister,
     };
   }
 
@@ -218,6 +223,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
           },
           include: {
             creator: { select: { displayName: true } },
+            commonCandidateRecord: { select: { candidateState: true } },
           },
         });
         if (existing) {
@@ -283,6 +289,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
           },
           include: {
             creator: { select: { displayName: true } },
+            commonCandidateRecord: { select: { candidateState: true } },
           },
         });
 
@@ -332,6 +339,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
         },
         include: {
           creator: { select: { displayName: true } },
+          commonCandidateRecord: { select: { candidateState: true } },
           actionLogs: {
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take: 50,
@@ -395,6 +403,7 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
         },
         include: {
           creator: { select: { displayName: true } },
+          commonCandidateRecord: { select: { candidateState: true } },
           actionLogs: {
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take: 50,
@@ -414,7 +423,6 @@ class PostgresProjectWikiRepository implements ProjectWikiRepository {
       projectId: input.projectId,
       status: "active",
       query: input.query,
-      limit: 100,
     });
     return rankProjectWikiItems({
       items,
@@ -442,6 +450,7 @@ function toProjectWikiItem(row: ProjectWikiItemRecord): ProjectWikiItem {
     sourceReviewRecordId: row.sourceReviewRecordId,
     sourceWorkSummaryDraftId: row.sourceWorkSummaryDraftId,
     commonCandidateRecordId: row.commonCandidateRecordId,
+    commonCandidateStatus: normalizeCandidateState(row.commonCandidateRecord?.candidateState),
     title: row.title,
     summary: row.summary,
     bodyMarkdown: row.bodyMarkdown,
@@ -502,13 +511,16 @@ async function loadApprovedWorkSummaryDraft(input: {
   }) as Promise<WorkSummaryDraftRecord | null>;
 }
 
-function buildDraftFromSource(sourceReview: SourceReviewRecord, approvedDraft: WorkSummaryDraftRecord): ProjectWikiDraft {
-  return buildDeterministicProjectWikiDraft({
+async function buildDraftFromSource(projectId: string, sourceReview: SourceReviewRecord, approvedDraft: WorkSummaryDraftRecord): Promise<ProjectWikiDraft> {
+  return evaluateProjectWikiSuitability({
+    projectId,
+    taskId: sourceReview.taskId,
     taskTitle: sourceReview.task?.title || sourceReview.question,
     approvedConclusion: approvedDraft.conclusion,
     approvedScope: approvedDraft.scope,
     approvedFollowUpAction: approvedDraft.followUpAction,
     evidenceTitles: readEvidenceTitles(sourceReview.evidence),
+    userId: sourceReview.profileId,
   });
 }
 
@@ -617,6 +629,20 @@ function normalizeSuitabilityState(value: string): ProjectWikiSuitabilityState {
   return "caution";
 }
 
+function normalizeCandidateState(value: string | undefined): AssistantCandidateState | null {
+  return value === "candidate" ||
+    value === "not_candidate" ||
+    value === "pending_review" ||
+    value === "approved" ||
+    value === "rejected"
+    ? value
+    : null;
+}
+
+function isRegisterableSuitabilityState(state: ProjectWikiSuitabilityState) {
+  return state === "recommended" || state === "caution";
+}
+
 function suitabilityConfidenceScore(state: ProjectWikiSuitabilityState) {
   if (state === "recommended") {
     return 86;
@@ -627,11 +653,11 @@ function suitabilityConfidenceScore(state: ProjectWikiSuitabilityState) {
   return 35;
 }
 
-function normalizeLimit(value: number | undefined, fallback: number, max: number) {
+function normalizeOptionalLimit(value: number | undefined) {
   if (!Number.isFinite(value)) {
-    return fallback;
+    return null;
   }
-  return Math.max(1, Math.min(max, Math.floor(value as number)));
+  return Math.max(1, Math.min(500, Math.floor(value as number)));
 }
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {

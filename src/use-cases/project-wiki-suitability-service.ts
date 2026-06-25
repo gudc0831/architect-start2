@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto";
+import type { AssistantEvidence } from "@/domains/assistant/types";
+import { defaultAssistantRunPolicy } from "@/domains/assistant/saas-api-mode";
 import type { ProjectWikiDraft, ProjectWikiSuitabilityState } from "@/domains/project-wiki/types";
+import { assistantRepository } from "@/repositories/assistant";
+import { runAssistantProviderWithSaasGovernance } from "@/use-cases/assistant-provider-governance-service";
 
 const PROJECT_WIKI_DRAFT_LIMITS = {
   title: 80,
@@ -11,6 +16,7 @@ const PROJECT_WIKI_DRAFT_LIMITS = {
 
 export async function evaluateProjectWikiSuitability(input: {
   projectId: string;
+  taskId: string;
   taskTitle: string;
   approvedConclusion: string;
   approvedScope: string;
@@ -18,7 +24,39 @@ export async function evaluateProjectWikiSuitability(input: {
   evidenceTitles: string[];
   userId: string;
 }): Promise<ProjectWikiDraft> {
-  return buildDeterministicProjectWikiDraft(input);
+  const fallbackDraft = buildDeterministicProjectWikiDraft(input);
+  const policy = (await assistantRepository.getRunPolicy(input.projectId)) ?? defaultAssistantRunPolicy({ projectId: input.projectId });
+  if (!policy.enabled || policy.provider !== "openai") {
+    return fallbackDraft;
+  }
+
+  const promptText = buildProviderPrompt(input);
+  try {
+    const { providerResult } = await runAssistantProviderWithSaasGovernance({
+      projectId: input.projectId,
+      taskId: input.taskId,
+      profileId: input.userId,
+      taskLabel: input.taskTitle || "project-wiki-registration",
+      question: "승인된 작업 기록을 프로젝트 WIKI로 등록해도 되는지 평가하고 등록 초안을 JSON으로 작성하세요.",
+      instruction: [
+        "Return JSON only.",
+        "Use this schema: {\"state\":\"recommended|caution|not_recommended\",\"reason\":\"...\",\"title\":\"...\",\"summary\":\"...\",\"bodyMarkdown\":\"...\",\"tags\":[\"...\"],\"commonizationCaution\":\"...\"}.",
+        "Do not include provider, usage, cost, prompt, credential, token, or request metadata.",
+      ].join("\n"),
+      promptText,
+      evidence: buildProviderEvidence(input.evidenceTitles),
+      requestHash: createSuitabilityRequestHash(input),
+      runtimeMode: "project-wiki-suitability-live-provider",
+      auditEventType: "project_wiki.suitability.success",
+      metadata: {
+        purpose: "project_wiki_suitability",
+        source: "project_wiki_registration_preview",
+      },
+    });
+    return mergeProviderDraft(parseProviderDraft(providerResult.answer), fallbackDraft);
+  } catch {
+    return fallbackDraft;
+  }
 }
 
 export function buildDeterministicProjectWikiDraft(input: {
@@ -106,6 +144,121 @@ function decideSuitability(input: {
     reason: "승인 결론, 적용 범위, 근거 제목이 함께 있어 프로젝트 WIKI 등록에 적합합니다.",
     caution: "공용 WIKI 후보화 시 프로젝트 특정 표현은 한 번 더 제거하세요.",
   };
+}
+
+function buildProviderPrompt(input: {
+  taskTitle: string;
+  approvedConclusion: string;
+  approvedScope: string;
+  approvedFollowUpAction: string;
+  evidenceTitles: string[];
+}) {
+  return [
+    `Task title: ${input.taskTitle}`,
+    `Approved conclusion: ${input.approvedConclusion}`,
+    `Approved scope: ${input.approvedScope}`,
+    `Approved follow-up action: ${input.approvedFollowUpAction}`,
+    "Evidence titles:",
+    input.evidenceTitles.slice(0, 12).map((title, index) => `${index + 1}. ${title}`).join("\n") || "-",
+    "",
+    "Evaluate whether this approved task record should become project-scoped reusable knowledge.",
+    "Use recommended only when it is generally reusable inside this project.",
+    "Use caution when project-specific assumptions need a supplemental note or commonization warning.",
+    "Use not_recommended when the content is one-off, sensitive, private, or too incomplete.",
+  ].join("\n");
+}
+
+function buildProviderEvidence(evidenceTitles: string[]): AssistantEvidence[] {
+  return evidenceTitles.slice(0, 8).map((title, index) => ({
+    id: `project-wiki-suitability:evidence:${index + 1}`,
+    kind: "task",
+    priority: index + 1,
+    title: normalizeDraftText(title) || `근거 ${index + 1}`,
+    excerpt: normalizeDraftText(title) || "제목 없는 저장 근거",
+  }));
+}
+
+function createSuitabilityRequestHash(input: {
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  approvedConclusion: string;
+  approvedScope: string;
+  approvedFollowUpAction: string;
+  evidenceTitles: string[];
+}) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      projectId: input.projectId,
+      taskId: input.taskId,
+      taskTitle: input.taskTitle,
+      approvedConclusion: input.approvedConclusion,
+      approvedScope: input.approvedScope,
+      approvedFollowUpAction: input.approvedFollowUpAction,
+      evidenceTitles: input.evidenceTitles.slice(0, 12),
+    }))
+    .digest("hex");
+}
+
+function parseProviderDraft(answer: string): Partial<ProjectWikiDraft> {
+  const jsonText = extractJsonObjectText(answer);
+  if (!jsonText) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    return {
+      aiSuitabilityState: normalizeSuitabilityState(parsed.state),
+      aiSuitabilityReason: normalizeDraftText(asString(parsed.reason)),
+      title: normalizeDraftText(asString(parsed.title)),
+      summary: normalizeDraftText(asString(parsed.summary)),
+      bodyMarkdown: normalizeMultilineText(asString(parsed.bodyMarkdown)),
+      tags: asStringArray(parsed.tags),
+      commonizationCaution: normalizeDraftText(asString(parsed.commonizationCaution)),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function mergeProviderDraft(providerDraft: Partial<ProjectWikiDraft>, fallbackDraft: ProjectWikiDraft): ProjectWikiDraft {
+  const state = providerDraft.aiSuitabilityState ?? fallbackDraft.aiSuitabilityState;
+  return {
+    title: clampText(providerDraft.title || fallbackDraft.title, PROJECT_WIKI_DRAFT_LIMITS.title),
+    summary: clampText(providerDraft.summary || fallbackDraft.summary, PROJECT_WIKI_DRAFT_LIMITS.summary),
+    bodyMarkdown: clampText(providerDraft.bodyMarkdown || fallbackDraft.bodyMarkdown, PROJECT_WIKI_DRAFT_LIMITS.bodyMarkdown),
+    tags: (providerDraft.tags?.length ? providerDraft.tags : fallbackDraft.tags).slice(0, PROJECT_WIKI_DRAFT_LIMITS.tags),
+    aiSuitabilityState: state,
+    aiSuitabilityReason: clampText(providerDraft.aiSuitabilityReason || fallbackDraft.aiSuitabilityReason, PROJECT_WIKI_DRAFT_LIMITS.reason),
+    commonizationCaution: clampText(providerDraft.commonizationCaution || fallbackDraft.commonizationCaution, PROJECT_WIKI_DRAFT_LIMITS.caution),
+  };
+}
+
+function extractJsonObjectText(value: string) {
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] ?? value;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  return start >= 0 && end > start ? candidate.slice(start, end + 1) : "";
+}
+
+function normalizeSuitabilityState(value: unknown): ProjectWikiSuitabilityState | undefined {
+  return value === "recommended" || value === "caution" || value === "not_recommended" ? value : undefined;
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function asStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(asString).map(normalizeDraftText).filter(Boolean).slice(0, PROJECT_WIKI_DRAFT_LIMITS.tags);
+}
+
+function normalizeMultilineText(value: string) {
+  return value.replace(/\u0000/g, "").replace(/[ \t]+/gu, " ").replace(/\n{3,}/gu, "\n\n").trim();
 }
 
 function buildTags(input: { taskTitle: string; approvedScope: string; evidenceTitles: string[] }) {

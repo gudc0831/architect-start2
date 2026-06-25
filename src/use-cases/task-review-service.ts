@@ -312,13 +312,26 @@ export async function saveTaskReviewSessionRecord(
   return toTaskReviewSessionSummary(record, title);
 }
 
-export async function listTaskReviewSessions(taskId: string): Promise<TaskReviewSessionSummary[]> {
+export async function listTaskReviewSessions(
+  taskId: string,
+  input: { includeSessionId?: string | null; includeWorkSummaryDraftId?: string | null } = {},
+): Promise<TaskReviewSessionSummary[]> {
   const task = await requireTaskInSelectedProject(normalizeRequiredSessionText(taskId, "taskId"));
   const records = (await assistantRepository.listRecordsByTask(task.id)).filter(isSavedTaskReviewRecord);
   const titleBySessionId = await readReviewSessionTitleOverrides(task.projectId);
-  return records
-    .slice(0, 6)
-    .map((record) => toTaskReviewSessionSummary(record, titleBySessionId.get(record.id)));
+  const includeSessionId = normalizeOptionalSessionText(input.includeSessionId);
+  const includeWorkSummaryDraftId = normalizeOptionalSessionText(input.includeWorkSummaryDraftId);
+  const linkedRecord = records.find(
+    (record) =>
+      (includeSessionId && record.id === includeSessionId) ||
+      (includeWorkSummaryDraftId && record.metadata.taskReview?.projectWikiState?.workSummaryDraftId === includeWorkSummaryDraftId),
+  );
+  const visibleRecords = [
+    ...(linkedRecord ? [linkedRecord] : []),
+    ...records.filter((record) => record.id !== linkedRecord?.id).slice(0, 6),
+  ].slice(0, linkedRecord ? 7 : 6);
+
+  return visibleRecords.map((record) => toTaskReviewSessionSummary(record, titleBySessionId.get(record.id)));
 }
 
 export async function getTaskReviewSessionDetail(
@@ -820,6 +833,10 @@ function normalizeRequiredSessionText(value: string, field: string) {
     throw badRequest(`${field} is required`, `TASK_REVIEW_${field.toUpperCase()}_REQUIRED`);
   }
   return normalized;
+}
+
+function normalizeOptionalSessionText(value: string | null | undefined) {
+  return value?.replace(/\u0000/g, "").trim() ?? "";
 }
 
 function buildStructuredReviewPreview(

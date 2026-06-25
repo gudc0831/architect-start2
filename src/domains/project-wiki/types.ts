@@ -1,7 +1,10 @@
+import type { AssistantCandidateState } from "@/domains/assistant/types";
+
 export type ProjectWikiStatus = "active" | "disabled";
 export type ProjectWikiSuitabilityState = "recommended" | "caution" | "not_recommended";
 export type ProjectWikiRegistrationState = "not_evaluated" | "recommended" | "caution" | "not_recommended" | "registered";
 export type ProjectWikiSourceBadge = "프로젝트 WIKI" | "공용 WIKI" | "task" | "도면/문서" | "법규" | "외부";
+export type ProjectWikiCommonCandidateStatus = AssistantCandidateState | null;
 
 export type ProjectWikiDraft = {
   title: string;
@@ -20,6 +23,7 @@ export type ProjectWikiItem = ProjectWikiDraft & {
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
+  commonCandidateStatus: ProjectWikiCommonCandidateStatus;
   supplementalNote: string;
   status: ProjectWikiStatus;
   createdBy: string;

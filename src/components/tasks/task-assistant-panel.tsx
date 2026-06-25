@@ -487,9 +487,11 @@ type ProjectWikiReviewState = {
   projectWikiItemId: string | null;
   commonCandidateRecordId: string | null;
   workSummaryDraftId: string | null;
+  previewDraft?: ProjectWikiDraft | null;
 };
 
 type ProjectWikiSuitabilityState = "recommended" | "caution" | "not_recommended";
+type ProjectWikiCommonCandidateStatus = "candidate" | "not_candidate" | "pending_review" | "approved" | "rejected" | null;
 
 type ProjectWikiDraft = {
   title: string;
@@ -508,6 +510,7 @@ type ProjectWikiItem = ProjectWikiDraft & {
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
+  commonCandidateStatus: ProjectWikiCommonCandidateStatus;
   supplementalNote: string;
   status: "active" | "disabled";
   createdBy: string;
@@ -615,6 +618,8 @@ type TaskAssistantPanelProps = {
   selectedTask: TaskRecord | null;
   defaultOpen?: boolean;
   defaultExecutionMode?: AssistantExecutionMode;
+  initialReviewSessionId?: string | null;
+  initialWorkSummaryDraftId?: string | null;
 };
 
 const defaultInstruction =
@@ -639,8 +644,11 @@ export function TaskAssistantPanel({
   selectedTask,
   defaultOpen = false,
   defaultExecutionMode = DEFAULT_ASSISTANT_EXECUTION_MODE,
+  initialReviewSessionId = null,
+  initialWorkSummaryDraftId = null,
 }: TaskAssistantPanelProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const hasInitialReviewLink = Boolean(initialReviewSessionId || initialWorkSummaryDraftId);
+  const [isOpen, setIsOpen] = useState(defaultOpen || hasInitialReviewLink);
   const [question, setQuestion] = useState("");
   const [instruction, setInstruction] = useState(defaultInstruction);
   const [retrieveResult, setRetrieveResult] = useState<RetrieveResponse | null>(null);
@@ -703,6 +711,8 @@ export function TaskAssistantPanel({
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
   const reviewRequestSeqRef = useRef(0);
+  const initialReviewOpenKeyRef = useRef<string | null>(null);
+  const openReviewSessionByIdRef = useRef<(sessionId: string) => void>(() => undefined);
 
   const selectedTaskLabel = useMemo(() => (selectedTask ? formatTaskDisplayId(selectedTask) : ""), [selectedTask]);
   const sidePanelSelectionTaskIdRef = useRef<string | null>(null);
@@ -907,7 +917,7 @@ export function TaskAssistantPanel({
     setExecutionMode(defaultExecutionMode);
     setAssistantPolicy(null);
     setExternalEvidence([]);
-    setHistoryExpanded(false);
+    setHistoryExpanded(hasInitialReviewLink);
     setFilesExpanded(false);
     setDiagnosticsExpanded(false);
     setExternalExpanded(false);
@@ -948,7 +958,14 @@ export function TaskAssistantPanel({
         }),
       );
     }
-  }, [defaultExecutionMode, selectedTask, selectedTaskLabel]);
+  }, [defaultExecutionMode, hasInitialReviewLink, selectedTask, selectedTaskLabel]);
+
+  useEffect(() => {
+    if (hasInitialReviewLink) {
+      setIsOpen(true);
+      setHistoryExpanded(true);
+    }
+  }, [hasInitialReviewLink]);
 
   useEffect(() => {
     if (!isOpen || !selectedTask) {
@@ -960,7 +977,15 @@ export function TaskAssistantPanel({
     setFilesLoading(true);
     setExternalLoading(true);
 
-    getJson<AssistantReviewSessionItem[]>(`/api/assistant/review-sessions?taskId=${encodeURIComponent(selectedTask.id)}`)
+    const reviewSessionQuery = new URLSearchParams({ taskId: selectedTask.id });
+    if (initialReviewSessionId) {
+      reviewSessionQuery.set("includeSessionId", initialReviewSessionId);
+    }
+    if (initialWorkSummaryDraftId) {
+      reviewSessionQuery.set("includeWorkSummaryDraftId", initialWorkSummaryDraftId);
+    }
+
+    getJson<AssistantReviewSessionItem[]>(`/api/assistant/review-sessions?${reviewSessionQuery.toString()}`)
       .then((items) => {
         if (!cancelled) {
           setRecordHistory(items);
@@ -1028,7 +1053,7 @@ export function TaskAssistantPanel({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedTask]);
+  }, [initialReviewSessionId, initialWorkSummaryDraftId, isOpen, selectedTask]);
 
   async function runAssistantReview() {
     if (!selectedTask || !question.trim()) {
@@ -1305,14 +1330,30 @@ export function TaskAssistantPanel({
   }
 
   async function openReviewSession(session: AssistantReviewSessionItem) {
+    await openReviewSessionById(session.id);
+  }
+
+  async function openReviewSessionById(sessionId: string) {
     setRecordHistoryLoading(true);
     try {
       const detail = await getJson<AssistantReviewSessionDetail>(
-        `/api/assistant/review-sessions/${encodeURIComponent(session.id)}`,
+        `/api/assistant/review-sessions/${encodeURIComponent(sessionId)}`,
       );
       setSelectedReviewSession(detail);
-      setRecord(detail.savedRecord);
-      setStatus("저장된 검토 세션을 열었습니다. 질문을 수정해 추가 질의를 실행할 수 있습니다.");
+      restoreReviewSessionToActiveFlow(detail);
+      setStatus("저장된 검토 세션을 열었습니다. 작업 기록 승인과 프로젝트wiki 등록 흐름을 이어갈 수 있습니다.");
+      if (
+        selectedTask &&
+        detail.savedRecord.cleanupState === "approved" &&
+        detail.projectWikiState?.workSummaryDraftId &&
+        detail.projectWikiState.registrationState !== "registered"
+      ) {
+        await loadProjectWikiRegistrationPreview({
+          projectId: selectedTask.projectId,
+          sourceReviewRecordId: detail.id,
+          sourceWorkSummaryDraftId: detail.projectWikiState.workSummaryDraftId,
+        });
+      }
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -1342,6 +1383,64 @@ export function TaskAssistantPanel({
       setRecordHistoryLoading(false);
     }
   }
+  openReviewSessionByIdRef.current = (sessionId) => {
+    void openReviewSessionById(sessionId);
+  };
+
+  function restoreReviewSessionToActiveFlow(detail: AssistantReviewSessionDetail) {
+    const restoredDraft = detail.savedRecord.draftSummary ?? buildFallbackDraftSummary(detail);
+    const restoredRetrieval = selectedTask ? buildReviewSessionRetrieval(detail, selectedTask) : null;
+    setQuestion(detail.question);
+    setRetrieveResult(restoredRetrieval);
+    setOutput({
+      answer: detail.answer,
+      draftSummary: restoredDraft,
+      retrieval: restoredRetrieval ?? undefined,
+      executionMode: restoreExecutionMode(detail.savedRecord.executionMode),
+      runtimeMode: detail.savedRecord.runtimeMode || "restored-review-session",
+    });
+    setRecord(detail.savedRecord);
+    setSummaryDraft(restoredDraft);
+    setSummaryTagsInput(restoredDraft.tags.join(", "));
+    setSummaryEditorExpanded(false);
+    setClosureAcknowledged(false);
+    setSummarySaveState(detail.savedRecord.cleanupState === "approved" ? "approved" : null);
+    setApprovedSummaryDraftId(detail.projectWikiState?.workSummaryDraftId ?? "");
+    setProjectWikiSource(
+      detail.projectWikiState?.workSummaryDraftId
+        ? {
+            sourceReviewRecordId: detail.id,
+            sourceWorkSummaryDraftId: detail.projectWikiState.workSummaryDraftId,
+          }
+        : null,
+    );
+    setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiSupplementalNote("");
+  }
+
+  useEffect(() => {
+    if (!selectedTask || !isOpen || recordHistoryLoading || (!initialReviewSessionId && !initialWorkSummaryDraftId)) {
+      return;
+    }
+    const openKey = `${selectedTask.id}:${initialReviewSessionId ?? ""}:${initialWorkSummaryDraftId ?? ""}`;
+    if (initialReviewOpenKeyRef.current === openKey) {
+      return;
+    }
+    const linkedSession =
+      (initialReviewSessionId ? recordHistory.find((item) => item.id === initialReviewSessionId) : null) ??
+      (initialWorkSummaryDraftId
+        ? recordHistory.find((item) => item.projectWikiState?.workSummaryDraftId === initialWorkSummaryDraftId)
+        : null);
+    initialReviewOpenKeyRef.current = openKey;
+    setHistoryExpanded(true);
+    if (linkedSession) {
+      openReviewSessionByIdRef.current(linkedSession.id);
+      return;
+    }
+    if (initialReviewSessionId) {
+      openReviewSessionByIdRef.current(initialReviewSessionId);
+    }
+  }, [initialReviewSessionId, initialWorkSummaryDraftId, isOpen, recordHistory, recordHistoryLoading, selectedTask]);
 
   function removeSessionFromList(sessionId: string) {
     setRecordHistory((items) => items.filter((item) => item.id !== sessionId));
@@ -2165,8 +2264,6 @@ export function TaskAssistantPanel({
               <textarea disabled={!selectedTask || busy} onChange={(event) => setQuestion(event.target.value)} rows={3} value={question} />
             </label>
 
-            {assistantPanelMode === "advanced" ? (
-              <div className="task-assistant__advanced" aria-label="고급 모드">
             {selectedTask ? (
               <section className="task-assistant__section">
                 <div
@@ -2215,6 +2312,19 @@ export function TaskAssistantPanel({
                           <div className="task-assistant__history-tags">
                             {item.savedRecord.cleanupState === "approved" ? <span>작업기록 승인됨</span> : null}
                             {item.projectWikiState?.registrationState === "registered" ? <span>프로젝트wiki 등록됨</span> : null}
+                            {item.projectWikiState?.projectWikiItemId ? (
+                              <a className="task-assistant__subtle-link" href={`/materials?view=wiki&projectWikiItemId=${encodeURIComponent(item.projectWikiState.projectWikiItemId)}`}>
+                                프로젝트 WIKI 열기
+                              </a>
+                            ) : null}
+                            {item.projectWikiState?.commonCandidateRecordId ? (
+                              <a
+                                className="task-assistant__subtle-link"
+                                href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(item.projectWikiState.commonCandidateRecordId)}`}
+                              >
+                                공용wiki 후보 열기
+                              </a>
+                            ) : null}
                             <button className="task-assistant__subtle-button" onClick={() => void openReviewSession(item)} type="button">
                               세션 열기
                             </button>
@@ -2233,6 +2343,19 @@ export function TaskAssistantPanel({
                         </small>
                         <p>질문: {selectedReviewSession.question}</p>
                         <p>{formatVisibleReviewAnswer(selectedReviewSession.answer)}</p>
+                        {selectedReviewSession.projectWikiState?.projectWikiItemId ? (
+                          <a className="task-assistant__subtle-link" href={`/materials?view=wiki&projectWikiItemId=${encodeURIComponent(selectedReviewSession.projectWikiState.projectWikiItemId)}`}>
+                            등록된 프로젝트 WIKI 열기
+                          </a>
+                        ) : null}
+                        {selectedReviewSession.projectWikiState?.commonCandidateRecordId ? (
+                          <a
+                            className="task-assistant__subtle-link"
+                            href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(selectedReviewSession.projectWikiState.commonCandidateRecordId)}`}
+                          >
+                            연결된 공용wiki 후보 열기
+                          </a>
+                        ) : null}
                       </article>
                     ) : null}
                   </>
@@ -2465,6 +2588,8 @@ export function TaskAssistantPanel({
               </section>
             ) : null}
 
+            {assistantPanelMode === "advanced" ? (
+              <div className="task-assistant__advanced" aria-label="고급 모드">
             {selectedTask ? (
               <section className="task-assistant__section">
                 <div
@@ -3784,6 +3909,43 @@ function assistantOutputFromSavePayload(payload: SaveReviewSessionPayload): Assi
 
 function isRegisterableProjectWikiState(state: ProjectWikiRegistrationPreview["state"]) {
   return state === "recommended" || state === "caution";
+}
+
+function restoreExecutionMode(value: SavedAssistantRecord["executionMode"]): AssistantOutput["executionMode"] {
+  if (value === "saas-api" || value === "local-chatgpt-codex") {
+    return value;
+  }
+  return "mock";
+}
+
+function buildFallbackDraftSummary(detail: AssistantReviewSessionDetail): DraftSummary {
+  return {
+    conclusion: detail.answerPreview || detail.title,
+    tags: [],
+    scope: detail.title,
+    followUpAction: "",
+  };
+}
+
+function buildReviewSessionRetrieval(detail: AssistantReviewSessionDetail, selectedTask: TaskRecord): RetrieveResponse {
+  const evidence = detail.savedEvidenceSnapshot;
+  return {
+    taskContext: {
+      taskId: selectedTask.id,
+      projectId: selectedTask.projectId,
+      title: selectedTask.issueTitle,
+      description: selectedTask.issueDetailNote,
+      status: selectedTask.status,
+      issueId: selectedTask.issueId,
+      projectName: "",
+    },
+    evidence,
+    legalEvidence: evidence.filter((item) => Boolean(item.legal)),
+    projectContextChunks: [],
+    unavailableEvidenceKinds: [],
+    evidenceReadinessWarnings: [],
+    conversationMemory: "",
+  };
 }
 
 function projectWikiSuitabilityLabel(state: ProjectWikiRegistrationPreview["state"]) {

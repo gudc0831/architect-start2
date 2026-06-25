@@ -19,7 +19,10 @@ export async function GET(request: Request) {
     const user = await requireUser();
     await requireCurrentProjectAccess(user);
     const { searchParams } = new URL(request.url);
-    const data = await listTaskReviewSessions(searchParams.get("taskId") ?? "");
+    const data = await listTaskReviewSessions(searchParams.get("taskId") ?? "", {
+      includeSessionId: searchParams.get("includeSessionId"),
+      includeWorkSummaryDraftId: searchParams.get("includeWorkSummaryDraftId"),
+    });
 
     return NextResponse.json({ data });
   } catch (error) {

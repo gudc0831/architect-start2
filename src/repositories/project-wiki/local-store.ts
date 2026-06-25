@@ -8,6 +8,7 @@ import type {
 } from "@/domains/assistant/types";
 import type {
   ProjectWikiActionLog,
+  ProjectWikiCommonCandidateStatus,
   ProjectWikiDraft,
   ProjectWikiItem,
   ProjectWikiRegistrationPreview,
@@ -23,33 +24,34 @@ import type {
   SearchProjectWikiForAssistantInput,
   SetProjectWikiStatusInput,
 } from "@/repositories/project-wiki/contracts";
-import { buildDeterministicProjectWikiDraft } from "@/use-cases/project-wiki-suitability-service";
+import { evaluateProjectWikiSuitability } from "@/use-cases/project-wiki-suitability-service";
 
 const projectWikiItems: ProjectWikiItem[] = [];
 const projectWikiActionLogs: ProjectWikiActionLog[] = [];
 
 class LocalProjectWikiRepository implements ProjectWikiRepository {
   async listProjectWikiItems(input: ListProjectWikiItemsInput) {
-    const limit = normalizeLimit(input.limit, 100, 500);
-    return projectWikiItems
+    const limit = normalizeOptionalLimit(input.limit);
+    const items = projectWikiItems
       .filter((item) => item.projectId === input.projectId)
       .filter((item) => item.status === (input.status ?? "active"))
       .filter((item) => matchesProjectWikiKeyword(item, input.query ?? ""))
       .sort(compareProjectWikiItems)
-      .slice(0, limit);
+      .slice(0, limit ?? undefined);
+    return Promise.all(items.map(withCurrentCommonCandidateStatus));
   }
 
   async getProjectWikiItem(input: { projectId: string; itemId: string }) {
     const item = projectWikiItems.find((candidate) => candidate.projectId === input.projectId && candidate.id === input.itemId);
-    return item ? attachActionLogs(item) : null;
+    return item ? attachActionLogs(await withCurrentCommonCandidateStatus(item)) : null;
   }
 
   async findProjectWikiBySourceReviewRecord(input: { projectId: string; sourceReviewRecordId: string }) {
-    return (
+    const item =
       projectWikiItems.find(
         (item) => item.projectId === input.projectId && item.sourceReviewRecordId === input.sourceReviewRecordId,
-      ) ?? null
-    );
+      ) ?? null;
+    return item ? withCurrentCommonCandidateStatus(item) : null;
   }
 
   async buildProjectWikiRegistrationPreview(
@@ -82,13 +84,14 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
       return blockedRegistrationPreview("승인된 work summary draft가 없어 프로젝트 WIKI 등록을 진행할 수 없습니다.");
     }
 
-    const draft = buildDraftFromSource(sourceReview, approvedDraft);
+    const draft = await buildDraftFromSource(input.projectId, sourceReview, approvedDraft);
+    const canRegister = isRegisterableSuitabilityState(draft.aiSuitabilityState);
     return {
       state: draft.aiSuitabilityState,
       draft,
       existingItem: null,
-      blockingReason: "",
-      canRegister: true,
+      blockingReason: canRegister ? "" : "AI 비추천 결과라 프로젝트 WIKI 등록을 진행할 수 없습니다.",
+      canRegister,
     };
   }
 
@@ -175,6 +178,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
       sourceReviewRecordId: sourceReview.id,
       sourceWorkSummaryDraftId: approvedDraft.id,
       commonCandidateRecordId: commonCandidate.id,
+      commonCandidateStatus: "candidate",
       supplementalNote: input.supplementalNote,
       status: "active",
       createdBy: input.actorProfileId,
@@ -201,7 +205,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
     if (current.status === input.status) {
       await updateLocalCommonWikiCandidateSourceStatus(current, input.status);
       return {
-        item: attachActionLogs(current),
+        item: attachActionLogs(await withCurrentCommonCandidateStatus(current)),
         actionLog: null,
       };
     }
@@ -242,7 +246,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
     await updateLocalCommonWikiCandidateSourceStatus(item, input.status);
 
     return {
-      item: attachActionLogs(item),
+      item: attachActionLogs(await withCurrentCommonCandidateStatus(item)),
       actionLog,
     };
   }
@@ -252,7 +256,6 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
       projectId: input.projectId,
       status: "active",
       query: input.query,
-      limit: 100,
     });
     return rankProjectWikiItems({
       items,
@@ -274,6 +277,27 @@ async function updateLocalCommonWikiCandidateSourceStatus(item: ProjectWikiItem,
     recordId: item.commonCandidateRecordId,
     sourceProjectWikiStatus: status,
   });
+}
+
+async function withCurrentCommonCandidateStatus(item: ProjectWikiItem): Promise<ProjectWikiItem> {
+  const commonCandidateStatus = await readCurrentCommonCandidateStatus(item);
+  if (commonCandidateStatus === item.commonCandidateStatus) {
+    return item;
+  }
+  const updated = { ...item, commonCandidateStatus };
+  const index = projectWikiItems.findIndex((candidate) => candidate.id === item.id && candidate.projectId === item.projectId);
+  if (index >= 0) {
+    projectWikiItems[index] = updated;
+  }
+  return updated;
+}
+
+async function readCurrentCommonCandidateStatus(item: ProjectWikiItem): Promise<ProjectWikiCommonCandidateStatus> {
+  if (!item.commonCandidateRecordId) {
+    return null;
+  }
+  const record = await assistantRepository.findRecordById(item.commonCandidateRecordId);
+  return record?.projectId === item.projectId ? record.candidateState : item.commonCandidateStatus;
 }
 
 async function loadLocalSourceReview(projectId: string, sourceReviewRecordId: string) {
@@ -307,14 +331,21 @@ async function loadLocalApprovedDraft(input: {
   return draft;
 }
 
-function buildDraftFromSource(sourceReview: AssistantRecord, approvedDraft: AssistantWorkSummaryDraft): ProjectWikiDraft {
-  return buildDeterministicProjectWikiDraft({
+async function buildDraftFromSource(projectId: string, sourceReview: AssistantRecord, approvedDraft: AssistantWorkSummaryDraft): Promise<ProjectWikiDraft> {
+  return evaluateProjectWikiSuitability({
+    projectId,
+    taskId: sourceReview.taskId,
     taskTitle: sourceReview.metadata.taskReview?.reviewSessionTitle || sourceReview.question,
     approvedConclusion: approvedDraft.conclusion,
     approvedScope: approvedDraft.scope,
     approvedFollowUpAction: approvedDraft.followUpAction,
     evidenceTitles: readEvidenceTitles(sourceReview.evidence),
+    userId: sourceReview.profileId,
   });
+}
+
+function isRegisterableSuitabilityState(state: ProjectWikiDraft["aiSuitabilityState"]) {
+  return state === "recommended" || state === "caution";
 }
 
 function blockedRegistrationPreview(blockingReason: string): ProjectWikiRegistrationPreview {
@@ -354,11 +385,11 @@ function suitabilityConfidenceScore(state: ProjectWikiDraft["aiSuitabilityState"
   return 35;
 }
 
-function normalizeLimit(value: number | undefined, fallback: number, max: number) {
+function normalizeOptionalLimit(value: number | undefined) {
   if (!Number.isFinite(value)) {
-    return fallback;
+    return null;
   }
-  return Math.max(1, Math.min(max, Math.floor(value as number)));
+  return Math.max(1, Math.min(500, Math.floor(value as number)));
 }
 
 function nowIso() {

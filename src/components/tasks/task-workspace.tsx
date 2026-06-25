@@ -863,6 +863,8 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   const basePath = isPreview ? "/preview" : "";
   const searchParams = useSearchParams();
   const focusTaskId = searchParams.get("taskId");
+  const focusAssistantReviewSessionId = searchParams.get("assistantReviewSessionId");
+  const focusWorkSummaryDraftId = searchParams.get("workSummaryDraftId");
   const calendarMonthQuery = searchParams.get("month");
   const {
     currentProjectId,
@@ -7840,7 +7842,13 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
             </aside>
           ) : null}
 
-          {mode === "daily" && !isPreviewDaily ? <TaskAssistantPanel selectedTask={selectedTaskIsOptimistic ? null : selectedTask} /> : null}
+          {mode === "daily" && !isPreviewDaily ? (
+            <TaskAssistantPanel
+              initialReviewSessionId={focusAssistantReviewSessionId}
+              initialWorkSummaryDraftId={focusWorkSummaryDraftId}
+              selectedTask={selectedTaskIsOptimistic ? null : selectedTask}
+            />
+          ) : null}
         </div>
       )}
     </section>

@@ -369,9 +369,11 @@ function checkTemporaryReviewUiCopyReadiness() {
 
 function checkTaskAssistantAutoSaveProjectWikiUx() {
   const panelPath = appPath("src/components/tasks/task-assistant-panel.tsx");
+  const workspacePath = appPath("src/components/tasks/task-workspace.tsx");
   const previewPath = appPath("src/app/preview/assistant/preview-client.tsx");
   const cssPath = appPath("src/app/globals.css");
   const panelContent = stripComments(readRequiredFile(panelPath));
+  const workspaceContent = stripComments(readRequiredFile(workspacePath));
   const previewContent = stripComments(readRequiredFile(previewPath));
   const cssContent = stripComments(readRequiredFile(cssPath));
 
@@ -416,6 +418,20 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
     panelContent.includes("프로젝트wiki 등록됨") &&
     panelContent.includes("savedRecord.cleanupState") &&
     panelContent.includes("projectWikiState?.registrationState");
+  const historyIndex = panelContent.indexOf('aria-label="임시 검토 기록: 생성 후 자동저장된 최근 임시 검토 기록입니다."');
+  const advancedIndex = panelContent.indexOf('{assistantPanelMode === "advanced" ? (');
+  const hasBasicHistoryAccess = historyIndex >= 0 && advancedIndex >= 0 && historyIndex < advancedIndex;
+  const hasReviewSessionRestore = panelContent.includes("restoreReviewSessionToActiveFlow") &&
+    panelContent.includes("buildReviewSessionRetrieval") &&
+    panelContent.includes("openReviewSessionById") &&
+    panelContent.includes("includeSessionId") &&
+    panelContent.includes("includeWorkSummaryDraftId") &&
+    panelContent.includes("initialReviewSessionId") &&
+    panelContent.includes("initialWorkSummaryDraftId") &&
+    panelContent.includes("프로젝트 WIKI 열기") &&
+    panelContent.includes("공용wiki 후보 열기") &&
+    workspaceContent.includes("assistantReviewSessionId") &&
+    workspaceContent.includes("initialWorkSummaryDraftId={focusWorkSummaryDraftId}");
   const previewMocksUpdated = [
     "/api/assistant/review-sessions",
     "registration-preview",
@@ -429,7 +445,8 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
     cssContent.includes(".task-assistant__autosave-badge") &&
     cssContent.includes(".task-assistant__project-wiki-badge") &&
     cssContent.includes(".task-assistant__toast") &&
-    cssContent.includes(".task-assistant__icon-button");
+    cssContent.includes(".task-assistant__icon-button") &&
+    cssContent.includes(".task-assistant__subtle-link");
 
   addCheck(
     "task assistant auto-save, delete undo, and project WIKI UX",
@@ -439,6 +456,8 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
       hasDeleteUndo &&
       hasProjectWikiPreviewRegister &&
       hasHistoryStatusChips &&
+      hasBasicHistoryAccess &&
+      hasReviewSessionRestore &&
       previewMocksUpdated &&
       cssUpdated,
     hasAutoSaveStateMachine &&
@@ -447,10 +466,12 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
       hasDeleteUndo &&
       hasProjectWikiPreviewRegister &&
       hasHistoryStatusChips &&
+      hasBasicHistoryAccess &&
+      hasReviewSessionRestore &&
       previewMocksUpdated &&
       cssUpdated
-      ? "Task 5 UI anchors exist for auto-save, retry, delete/restore undo, project WIKI preview/register, preview mocks, and compact styling"
-      : "missing Task 5 auto-save, retry, delete/restore undo, project WIKI preview/register, preview mock, history chip, or CSS anchor",
+      ? "Task 5 UI anchors exist for auto-save, retry, delete/restore undo, basic temporary history, project WIKI preview/register, preview mocks, and compact styling"
+      : "missing Task 5 auto-save, retry, delete/restore undo, basic temporary history, project WIKI preview/register, preview mock, history chip, or CSS anchor",
   );
 }
 

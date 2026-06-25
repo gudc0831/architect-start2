@@ -22,6 +22,7 @@ const item: ProjectWikiItem = {
   sourceReviewRecordId: "review-1",
   sourceWorkSummaryDraftId: "draft-1",
   commonCandidateRecordId: "candidate-1",
+  commonCandidateStatus: "candidate",
   title: "방화 구획 검토 기록",
   summary: "피난층 인접 구획의 방화 성능을 확인했다.",
   bodyMarkdown: "## 결론\n건축법 검토 결과 주요 방화구획 기준은 충족한다.",
@@ -71,6 +72,15 @@ assert.equal(suitabilityBadgeTone("caution"), "amber");
 assert.equal(suitabilityBadgeTone("not_recommended"), "gray");
 
 const postgresStore = read("src/repositories/project-wiki/postgres-store.ts");
+const projectWikiService = read("src/use-cases/project-wiki-service.ts");
+const suitabilityService = read("src/use-cases/project-wiki-suitability-service.ts");
+const registerProjectWikiSource = projectWikiService.slice(
+  projectWikiService.indexOf("export async function registerProjectWiki"),
+  projectWikiService.indexOf("export async function setProjectWikiStatus"),
+);
+const postgresAssistantSearch = postgresStore.slice(postgresStore.indexOf("async searchProjectWikiForAssistant"));
+const localStore = read("src/repositories/project-wiki/local-store.ts");
+const localAssistantSearch = localStore.slice(localStore.indexOf("async searchProjectWikiForAssistant"));
 assert.match(
   postgresStore,
   /catch \(error\) \{[\s\S]*isUniqueConstraintError\(error\)[\s\S]*findProjectWikiBySourceReviewRecord[\s\S]*return existing;/,
@@ -81,10 +91,23 @@ assert.match(
   /normalizeProjectWikiStatus\(current\.status\) === input\.status[\s\S]*actionLog: null/,
 );
 
-const localStore = read("src/repositories/project-wiki/local-store.ts");
 assert.match(localStore, /current\.status === input\.status[\s\S]*actionLog: null/);
 assert.match(localStore, /searchProjectWikiForAssistant[\s\S]*status:\s*"active"/);
 assert.match(postgresStore, /searchProjectWikiForAssistant[\s\S]*status:\s*"active"/);
+assert.doesNotMatch(postgresAssistantSearch, /limit:\s*100/);
+assert.doesNotMatch(localAssistantSearch, /limit:\s*100/);
+assert.match(localStore, /withCurrentCommonCandidateStatus/);
+assert.match(localStore, /assistantRepository\.findRecordById\(item\.commonCandidateRecordId\)/);
+assert.match(projectWikiService, /persistProjectWikiPreviewState/);
+assert.match(projectWikiService, /previewDraft:\s*input\.preview\.draft/);
+assert.match(registerProjectWikiSource, /readStoredProjectWikiRegistrationPreview/);
+assert.doesNotMatch(registerProjectWikiSource, /buildProjectWikiRegistrationPreview/);
+assert.match(registerProjectWikiSource, /isRegisterableProjectWikiState\(storedPreview\.state\)/);
+assert.match(suitabilityService, /runAssistantProviderWithSaasGovernance/);
+assert.match(suitabilityService, /auditEventType:\s*"project_wiki\.suitability\.success"/);
+assert.match(suitabilityService, /policy\.provider !== "openai"/);
+assert.match(postgresStore, /canRegister\s*=\s*isRegisterableSuitabilityState\(draft\.aiSuitabilityState\)/);
+assert.match(postgresStore, /commonCandidateRecord:\s*\{\s*select:\s*\{\s*candidateState:\s*true\s*\}/);
 
 const contracts = read("src/repositories/project-wiki/contracts.ts");
 assert.match(contracts, /actionLog: ProjectWikiActionLog \| null;/);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { ProjectWikiActionLog, ProjectWikiItem, ProjectWikiStatus, ProjectWikiSuitabilityState } from "@/domains/project-wiki/types";
 import { projectWikiStatusLabel, suitabilityBadgeTone } from "@/domains/project-wiki/search";
 import styles from "./project-materials-page.module.css";
@@ -36,6 +37,7 @@ const PREVIEW_PROJECT_WIKI_ITEMS: ProjectWikiItem[] = [
     sourceReviewRecordId: "preview-review-fire-escape",
     sourceWorkSummaryDraftId: "preview-work-summary-fire-escape",
     commonCandidateRecordId: "preview-common-candidate-fire-escape",
+    commonCandidateStatus: "candidate",
     title: "방화 구획 검토 기준",
     summary: "지하층 방화 구획은 용도와 피난 동선을 함께 확인해 승인한다.",
     bodyMarkdown: "방화 구획 검토 시 방화문 위치, 피난 동선, 설비 관통부 마감 기준을 같이 확인한다.",
@@ -61,6 +63,7 @@ const PREVIEW_PROJECT_WIKI_ITEMS: ProjectWikiItem[] = [
     sourceReviewRecordId: "preview-review-old-standard",
     sourceWorkSummaryDraftId: "preview-work-summary-old-standard",
     commonCandidateRecordId: null,
+    commonCandidateStatus: null,
     title: "방화 셔터 기존 운영 기준",
     summary: "현장 조건 변경 전 검토 기준으로 현재는 재사용하지 않는다.",
     bodyMarkdown: "2026년 5월 이전 현장 운영 기준입니다. 현재 도면 기준과 달라 비활성화했습니다.",
@@ -97,6 +100,8 @@ const PREVIEW_ACTION_LOGS: Record<string, ProjectWikiActionLog[]> = {
 };
 
 export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageProps) {
+  const searchParams = useSearchParams();
+  const initialItemId = searchParams.get("projectWikiItemId");
   const [query, setQuery] = useState("");
   const [includeDisabled, setIncludeDisabled] = useState(false);
   const [items, setItems] = useState<ProjectWikiItem[]>([]);
@@ -176,10 +181,15 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
       setDetail(null);
       return;
     }
-    if (!visibleItems.some((item) => item.id === selectedItemId)) {
-      setSelectedItemId(visibleItems[0]?.id ?? "");
+    const preferredItemId = initialItemId && visibleItems.some((item) => item.id === initialItemId) ? initialItemId : "";
+    if (preferredItemId && selectedItemId !== preferredItemId) {
+      setSelectedItemId(preferredItemId);
+      return;
     }
-  }, [selectedItemId, visibleItems]);
+    if (!visibleItems.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(preferredItemId || visibleItems[0]?.id || "");
+    }
+  }, [initialItemId, selectedItemId, visibleItems]);
 
   useEffect(() => {
     if (preview) {
@@ -379,12 +389,16 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                 </div>
                 <div>
                   <dt>source temporary review record</dt>
-                  <dd>{selectedDetail.item.sourceReviewRecordId}</dd>
+                  <dd>
+                    <a href={`/daily?taskId=${encodeURIComponent(selectedDetail.item.sourceTaskId)}&assistantReviewSessionId=${encodeURIComponent(selectedDetail.item.sourceReviewRecordId)}`}>
+                      {selectedDetail.item.sourceReviewRecordId}
+                    </a>
+                  </dd>
                 </div>
                 <div>
                   <dt>approved work record link</dt>
                   <dd>
-                    <a href={`/daily?taskId=${encodeURIComponent(selectedDetail.item.sourceTaskId)}&workSummaryDraftId=${encodeURIComponent(selectedDetail.item.sourceWorkSummaryDraftId)}`}>
+                    <a href={`/daily?taskId=${encodeURIComponent(selectedDetail.item.sourceTaskId)}&assistantReviewSessionId=${encodeURIComponent(selectedDetail.item.sourceReviewRecordId)}&workSummaryDraftId=${encodeURIComponent(selectedDetail.item.sourceWorkSummaryDraftId)}`}>
                       {selectedDetail.item.sourceWorkSummaryDraftId}
                     </a>
                   </dd>
@@ -529,7 +543,20 @@ function suitabilityLabel(state: ProjectWikiSuitabilityState) {
 }
 
 function commonCandidateStatus(item: ProjectWikiItem) {
-  return item.commonCandidateRecordId ? "후보 생성됨" : "후보 없음";
+  switch (item.commonCandidateStatus) {
+    case "candidate":
+      return "후보";
+    case "pending_review":
+      return "SaaS 검토 대기";
+    case "approved":
+      return "승인됨";
+    case "rejected":
+      return "반려됨";
+    case "not_candidate":
+      return "후보 아님";
+    default:
+      return item.commonCandidateRecordId ? "후보 상태 확인 필요" : "후보 없음";
+  }
 }
 
 function commonCandidateLink(item: ProjectWikiItem) {
@@ -538,7 +565,7 @@ function commonCandidateLink(item: ProjectWikiItem) {
   }
   return (
     <a href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(item.commonCandidateRecordId)}`}>
-      후보 {shortId(item.commonCandidateRecordId)}
+      {commonCandidateStatus(item)} {shortId(item.commonCandidateRecordId)}
     </a>
   );
 }
