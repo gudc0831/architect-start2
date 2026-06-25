@@ -31,32 +31,28 @@ export async function evaluateProjectWikiSuitability(input: {
   }
 
   const promptText = buildProviderPrompt(input);
-  try {
-    const { providerResult } = await runAssistantProviderWithSaasGovernance({
-      projectId: input.projectId,
-      taskId: input.taskId,
-      profileId: input.userId,
-      taskLabel: input.taskTitle || "project-wiki-registration",
-      question: "승인된 작업 기록을 프로젝트 WIKI로 등록해도 되는지 평가하고 등록 초안을 JSON으로 작성하세요.",
-      instruction: [
-        "Return JSON only.",
-        "Use this schema: {\"state\":\"recommended|caution|not_recommended\",\"reason\":\"...\",\"title\":\"...\",\"summary\":\"...\",\"bodyMarkdown\":\"...\",\"tags\":[\"...\"],\"commonizationCaution\":\"...\"}.",
-        "Do not include provider, usage, cost, prompt, credential, token, or request metadata.",
-      ].join("\n"),
-      promptText,
-      evidence: buildProviderEvidence(input.evidenceTitles),
-      requestHash: createSuitabilityRequestHash(input),
-      runtimeMode: "project-wiki-suitability-live-provider",
-      auditEventType: "project_wiki.suitability.success",
-      metadata: {
-        purpose: "project_wiki_suitability",
-        source: "project_wiki_registration_preview",
-      },
-    });
-    return mergeProviderDraft(parseProviderDraft(providerResult.answer), fallbackDraft);
-  } catch {
-    return fallbackDraft;
-  }
+  const { providerResult } = await runAssistantProviderWithSaasGovernance({
+    projectId: input.projectId,
+    taskId: input.taskId,
+    profileId: input.userId,
+    taskLabel: input.taskTitle || "project-wiki-registration",
+    question: "승인된 작업 기록을 프로젝트 WIKI로 등록해도 되는지 평가하고 등록 초안을 JSON으로 작성하세요.",
+    instruction: [
+      "Return JSON only.",
+      "Use this schema: {\"state\":\"recommended|caution|not_recommended\",\"reason\":\"...\",\"title\":\"...\",\"summary\":\"...\",\"bodyMarkdown\":\"...\",\"tags\":[\"...\"],\"commonizationCaution\":\"...\"}.",
+      "Do not include provider, usage, cost, prompt, credential, token, or request metadata.",
+    ].join("\n"),
+    promptText,
+    evidence: buildProviderEvidence(input.evidenceTitles),
+    requestHash: createSuitabilityRequestHash(input),
+    runtimeMode: "project-wiki-suitability-live-provider",
+    auditEventType: "project_wiki.suitability.success",
+    metadata: {
+      purpose: "project_wiki_suitability",
+      source: "project_wiki_registration_preview",
+    },
+  });
+  return mergeProviderDraft(parseProviderDraft(providerResult.answer), fallbackDraft);
 }
 
 export function buildDeterministicProjectWikiDraft(input: {

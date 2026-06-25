@@ -1,0 +1,4 @@
+Req: Close only the remaining Task Assistant project WIKI plan/implementation gaps: common candidate source links, deleted temporary review link handling, and live provider fallback policy.
+Diff: Added common WIKI candidate source links to project WIKI, temporary review, and approved work records; added Project WIKI detail source review availability and deleted-review copy; limited deterministic suitability fallback to disabled/non-OpenAI provider policies.
+Why: Match the plan/spec lineage and failure semantics without broadening scope, pushing, or deploying.
+Verify: npm run structured-knowledge:ui-contract:validate; npm run project-wiki:validate; npm run project-wiki:behavior:validate; npm run task-assistant:unified:validate; npm run typecheck; npm run lint; npm run build; PROJECT_WIKI_SMOKE_URL=http://localhost:3024/preview/materials?view=wiki npm run project-wiki:preview-smoke.

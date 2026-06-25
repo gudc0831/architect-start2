@@ -52,6 +52,10 @@ export type KnowledgeCandidateListItem = {
   reviewedAt: string | null;
   sourceProjectWiki: {
     itemId: string | null;
+    sourceProjectWikiItemId: string | null;
+    sourceTaskId: string | null;
+    sourceReviewRecordId: string | null;
+    sourceWorkSummaryDraftId: string | null;
     status: "active" | "disabled";
     supplementalNote: string;
     aiSuitabilityState: "recommended" | "caution" | "not_recommended" | null;
@@ -1621,9 +1625,15 @@ async function resolveSourceProjectWiki(record: AssistantRecord): Promise<Knowle
 
   const itemId = commonWikiCandidate.sourceProjectWikiItemId ?? null;
   const metadataStatus = commonWikiCandidate.sourceProjectWikiStatus === "disabled" ? "disabled" : "active";
+  const sourceReviewRecordId = commonWikiCandidate.sourceReviewRecordId ?? null;
+  const sourceWorkSummaryDraftId = commonWikiCandidate.sourceWorkSummaryDraftId ?? null;
   if (!itemId) {
     return {
       itemId,
+      sourceProjectWikiItemId: itemId,
+      sourceTaskId: record.taskId,
+      sourceReviewRecordId,
+      sourceWorkSummaryDraftId,
       status: metadataStatus,
       supplementalNote: commonWikiCandidate.supplementalNote ?? "",
       aiSuitabilityState: normalizeProjectWikiSuitabilityState(commonWikiCandidate.aiSuitabilityState),
@@ -1636,6 +1646,10 @@ async function resolveSourceProjectWiki(record: AssistantRecord): Promise<Knowle
   const item = await projectWikiRepository.getProjectWikiItem({ projectId: record.projectId, itemId }).catch(() => null);
   return {
     itemId,
+    sourceProjectWikiItemId: item?.id ?? itemId,
+    sourceTaskId: item?.sourceTaskId ?? record.taskId,
+    sourceReviewRecordId: item?.sourceReviewRecordId ?? sourceReviewRecordId,
+    sourceWorkSummaryDraftId: item?.sourceWorkSummaryDraftId ?? sourceWorkSummaryDraftId,
     status: item?.status ?? metadataStatus,
     supplementalNote: commonWikiCandidate.supplementalNote ?? "",
     aiSuitabilityState: normalizeProjectWikiSuitabilityState(commonWikiCandidate.aiSuitabilityState),

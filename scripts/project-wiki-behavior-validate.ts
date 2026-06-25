@@ -81,6 +81,7 @@ const registerProjectWikiSource = projectWikiService.slice(
 const postgresAssistantSearch = postgresStore.slice(postgresStore.indexOf("async searchProjectWikiForAssistant"));
 const localStore = read("src/repositories/project-wiki/local-store.ts");
 const localAssistantSearch = localStore.slice(localStore.indexOf("async searchProjectWikiForAssistant"));
+const projectWikiPage = read("src/components/project-context/project-wiki-page.tsx");
 assert.match(
   postgresStore,
   /catch \(error\) \{[\s\S]*isUniqueConstraintError\(error\)[\s\S]*findProjectWikiBySourceReviewRecord[\s\S]*return existing;/,
@@ -100,12 +101,23 @@ assert.match(localStore, /withCurrentCommonCandidateStatus/);
 assert.match(localStore, /assistantRepository\.findRecordById\(item\.commonCandidateRecordId\)/);
 assert.match(projectWikiService, /persistProjectWikiPreviewState/);
 assert.match(projectWikiService, /previewDraft:\s*input\.preview\.draft/);
+assert.match(projectWikiService, /readSourceReviewAvailability/);
+assert.match(projectWikiService, /assistantRepository\.findRecordById\(input\.sourceReviewRecordId\)/);
+assert.match(projectWikiService, /available:\s*!sourceRecord\.reviewDeletedAt/);
+assert.match(projectWikiService, /deletedAt:\s*sourceRecord\.reviewDeletedAt \?\? null/);
 assert.match(registerProjectWikiSource, /readStoredProjectWikiRegistrationPreview/);
 assert.doesNotMatch(registerProjectWikiSource, /buildProjectWikiRegistrationPreview/);
 assert.match(registerProjectWikiSource, /isRegisterableProjectWikiState\(storedPreview\.state\)/);
+assert.match(projectWikiPage, /sourceReview:\s*\{\s*available:\s*boolean;\s*deletedAt:\s*string \| null;/);
+assert.match(projectWikiPage, /임시 검토 기록 삭제됨/);
+assert.match(projectWikiPage, /function approvedWorkRecordHref/);
+assert.match(projectWikiPage, /if \(detail\.sourceReview\.available\) \{[\s\S]*assistantReviewSessionId/);
+assert.match(projectWikiPage, /삭제된 임시 검토 기록과 별도 승인 기록/);
 assert.match(suitabilityService, /runAssistantProviderWithSaasGovernance/);
 assert.match(suitabilityService, /auditEventType:\s*"project_wiki\.suitability\.success"/);
+assert.match(suitabilityService, /!policy\.enabled \|\| policy\.provider !== "openai"/);
 assert.match(suitabilityService, /policy\.provider !== "openai"/);
+assert.doesNotMatch(suitabilityService, /catch\s*\{[\s\S]*return fallbackDraft;/);
 assert.match(postgresStore, /canRegister\s*=\s*isRegisterableSuitabilityState\(draft\.aiSuitabilityState\)/);
 assert.match(postgresStore, /commonCandidateRecord:\s*\{\s*select:\s*\{\s*candidateState:\s*true\s*\}/);
 

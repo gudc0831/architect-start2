@@ -43,9 +43,14 @@ export async function getProjectWikiDetail(input: {
   if (!item) {
     throw notFound("Project WIKI item not found.", "PROJECT_WIKI_ITEM_NOT_FOUND");
   }
+  const sourceReview = await readSourceReviewAvailability({
+    projectId: input.projectId,
+    sourceReviewRecordId: item.sourceReviewRecordId,
+  });
 
   return {
     item: stripActionLogs(item),
+    sourceReview,
     actionLogs: readActionLogs(item),
   };
 }
@@ -150,6 +155,23 @@ function readActionLogs(item: ProjectWikiItem): ProjectWikiActionLog[] {
 function stripActionLogs(item: ProjectWikiItem): ProjectWikiItem {
   const { actionLogs: _actionLogs, ...rest } = item as ProjectWikiItem & { actionLogs?: ProjectWikiActionLog[] };
   return rest;
+}
+
+async function readSourceReviewAvailability(input: {
+  projectId: string;
+  sourceReviewRecordId: string;
+}) {
+  const sourceRecord = await assistantRepository.findRecordById(input.sourceReviewRecordId);
+  if (!sourceRecord || sourceRecord.projectId !== input.projectId) {
+    return {
+      available: false,
+      deletedAt: null,
+    };
+  }
+  return {
+    available: !sourceRecord.reviewDeletedAt,
+    deletedAt: sourceRecord.reviewDeletedAt ?? null,
+  };
 }
 
 function normalizeStatusAction(value: string) {

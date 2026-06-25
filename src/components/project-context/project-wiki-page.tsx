@@ -13,6 +13,10 @@ type ProjectWikiPageProps = {
 
 type ProjectWikiDetail = {
   item: ProjectWikiItem;
+  sourceReview: {
+    available: boolean;
+    deletedAt: string | null;
+  };
   actionLogs: ProjectWikiActionLog[];
 };
 
@@ -126,7 +130,13 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
       return null;
     }
     const item = previewItems.find((candidate) => candidate.id === selectedItemId);
-    return item ? { item, actionLogs: previewActionLogs[item.id] ?? [] } : null;
+    return item
+      ? {
+          item,
+          sourceReview: previewSourceReviewAvailability(item),
+          actionLogs: previewActionLogs[item.id] ?? [],
+        }
+      : null;
   }, [preview, previewActionLogs, previewItems, selectedItemId]);
 
   const refreshList = useCallback(async () => {
@@ -272,6 +282,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
         current && current.item.id === nextItem.id
           ? {
               item: nextItem,
+              sourceReview: current.sourceReview,
               actionLogs: payload.data?.actionLog ? [payload.data.actionLog, ...current.actionLogs] : current.actionLogs,
             }
           : current,
@@ -389,18 +400,17 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                 </div>
                 <div>
                   <dt>source temporary review record</dt>
-                  <dd>
-                    <a href={`/daily?taskId=${encodeURIComponent(selectedDetail.item.sourceTaskId)}&assistantReviewSessionId=${encodeURIComponent(selectedDetail.item.sourceReviewRecordId)}`}>
-                      {selectedDetail.item.sourceReviewRecordId}
-                    </a>
-                  </dd>
+                  <dd>{sourceReviewRecordLink(selectedDetail)}</dd>
                 </div>
                 <div>
                   <dt>approved work record link</dt>
                   <dd>
-                    <a href={`/daily?taskId=${encodeURIComponent(selectedDetail.item.sourceTaskId)}&assistantReviewSessionId=${encodeURIComponent(selectedDetail.item.sourceReviewRecordId)}&workSummaryDraftId=${encodeURIComponent(selectedDetail.item.sourceWorkSummaryDraftId)}`}>
+                    <a href={approvedWorkRecordHref(selectedDetail)}>
                       {selectedDetail.item.sourceWorkSummaryDraftId}
                     </a>
+                    {!selectedDetail.sourceReview.available ? (
+                      <span> 삭제된 임시 검토 기록과 별도 승인 기록</span>
+                    ) : null}
                   </dd>
                 </div>
                 <div>
@@ -568,6 +578,46 @@ function commonCandidateLink(item: ProjectWikiItem) {
       {commonCandidateStatus(item)} {shortId(item.commonCandidateRecordId)}
     </a>
   );
+}
+
+function sourceReviewRecordLink(detail: ProjectWikiDetail) {
+  if (!detail.sourceReview.available) {
+    return (
+      <span>
+        임시 검토 기록 삭제됨
+        {detail.sourceReview.deletedAt ? ` (${formatDate(detail.sourceReview.deletedAt)})` : ""}
+      </span>
+    );
+  }
+  return (
+    <a href={`/daily?taskId=${encodeURIComponent(detail.item.sourceTaskId)}&assistantReviewSessionId=${encodeURIComponent(detail.item.sourceReviewRecordId)}`}>
+      {detail.item.sourceReviewRecordId}
+    </a>
+  );
+}
+
+function approvedWorkRecordHref(detail: ProjectWikiDetail) {
+  const params = new URLSearchParams({
+    taskId: detail.item.sourceTaskId,
+    workSummaryDraftId: detail.item.sourceWorkSummaryDraftId,
+  });
+  if (detail.sourceReview.available) {
+    params.set("assistantReviewSessionId", detail.item.sourceReviewRecordId);
+  }
+  return `/daily?${params.toString()}`;
+}
+
+function previewSourceReviewAvailability(item: ProjectWikiItem): ProjectWikiDetail["sourceReview"] {
+  if (item.sourceReviewRecordId === "preview-review-old-standard") {
+    return {
+      available: false,
+      deletedAt: "2026-06-23T08:05:00.000Z",
+    };
+  }
+  return {
+    available: true,
+    deletedAt: null,
+  };
 }
 
 function formatDate(value: string) {

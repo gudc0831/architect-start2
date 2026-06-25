@@ -77,6 +77,10 @@ type CandidateListItem = {
   reviewedAt: string | null;
   sourceProjectWiki: {
     itemId: string | null;
+    sourceProjectWikiItemId: string | null;
+    sourceTaskId: string | null;
+    sourceReviewRecordId: string | null;
+    sourceWorkSummaryDraftId: string | null;
     status: "active" | "disabled";
     supplementalNote: string;
     aiSuitabilityState: "recommended" | "caution" | "not_recommended" | null;
@@ -4233,6 +4237,55 @@ export function KnowledgeAdminShell({
                           <dd>{detail.sourceProjectWiki.status === "disabled" ? "원본 비활성" : "원본 활성"}</dd>
                         </div>
                         <div>
+                          <dt>원본 프로젝트 WIKI</dt>
+                          <dd>
+                            {detail.sourceProjectWiki.sourceProjectWikiItemId ? (
+                              <a href={createProjectWikiSourceHref(detail.sourceProjectWiki.sourceProjectWikiItemId)}>
+                                원본 프로젝트 WIKI
+                              </a>
+                            ) : (
+                              "프로젝트 WIKI 항목 링크 없음"
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>원본 임시 검토 기록</dt>
+                          <dd>
+                            {detail.sourceProjectWiki.sourceTaskId && detail.sourceProjectWiki.sourceReviewRecordId ? (
+                              <a
+                                href={createAssistantReviewSourceHref({
+                                  taskId: detail.sourceProjectWiki.sourceTaskId,
+                                  assistantReviewSessionId: detail.sourceProjectWiki.sourceReviewRecordId,
+                                })}
+                              >
+                                원본 임시 검토 기록
+                              </a>
+                            ) : (
+                              "임시 검토 기록 링크 없음"
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>승인 작업 기록</dt>
+                          <dd>
+                            {detail.sourceProjectWiki.sourceTaskId &&
+                            detail.sourceProjectWiki.sourceReviewRecordId &&
+                            detail.sourceProjectWiki.sourceWorkSummaryDraftId ? (
+                              <a
+                                href={createAssistantReviewSourceHref({
+                                  taskId: detail.sourceProjectWiki.sourceTaskId,
+                                  assistantReviewSessionId: detail.sourceProjectWiki.sourceReviewRecordId,
+                                  workSummaryDraftId: detail.sourceProjectWiki.sourceWorkSummaryDraftId,
+                                })}
+                              >
+                                승인 작업 기록
+                              </a>
+                            ) : (
+                              "승인 작업 기록 링크 없음"
+                            )}
+                          </dd>
+                        </div>
+                        <div>
                           <dt>프로젝트 WIKI AI 적합성</dt>
                           <dd>
                             {detail.sourceProjectWiki.aiSuitabilityState
@@ -8224,4 +8277,27 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function createProjectWikiSourceHref(projectWikiItemId: string) {
+  const params = new URLSearchParams({
+    view: "wiki",
+    projectWikiItemId,
+  });
+  return `/materials?${params.toString()}`;
+}
+
+function createAssistantReviewSourceHref(input: {
+  taskId: string;
+  assistantReviewSessionId: string;
+  workSummaryDraftId?: string;
+}) {
+  const params = new URLSearchParams({
+    taskId: input.taskId,
+    assistantReviewSessionId: input.assistantReviewSessionId,
+  });
+  if (input.workSummaryDraftId) {
+    params.set("workSummaryDraftId", input.workSummaryDraftId);
+  }
+  return `/daily?${params.toString()}`;
 }
