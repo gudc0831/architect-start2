@@ -71,9 +71,11 @@ assertIncludes(shell, "sourceReviewRecordId", "project wiki source review record
 assertIncludes(shell, "sourceWorkSummaryDraftId", "project wiki source work summary draft id field");
 assertIncludes(shell, "프로젝트 WIKI 출처 상태", "project wiki source status in candidate detail");
 assertIncludes(shell, "원본 프로젝트 WIKI", "project wiki source item link in candidate detail");
+assertIncludes(shell, "원본 작업", "project wiki source task link in candidate detail");
 assertIncludes(shell, "원본 임시 검토 기록", "project wiki source review link in candidate detail");
 assertIncludes(shell, "승인 작업 기록", "project wiki approved work link in candidate detail");
 assertIncludes(shell, "createProjectWikiSourceHref", "project wiki source item href builder");
+assertIncludes(shell, "createTaskSourceHref", "project wiki source task href builder");
 assertIncludes(shell, "createAssistantReviewSourceHref", "project wiki source daily href builder");
 assertIncludes(shell, "projectWikiItemId", "project wiki source item id query param");
 assertIncludes(shell, "assistantReviewSessionId", "project wiki source review query param");

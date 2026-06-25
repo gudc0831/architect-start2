@@ -316,7 +316,7 @@ async function loadLocalSourceReview(projectId: string, sourceReviewRecordId: st
 async function loadLocalApprovedDraft(input: {
   projectId: string;
   sourceReviewRecordId: string;
-  sourceWorkSummaryDraftId?: string;
+  sourceWorkSummaryDraftId: string;
 }) {
   const draft = await assistantRepository.findWorkSummaryDraftByRecordId(input.sourceReviewRecordId);
   if (
@@ -324,7 +324,7 @@ async function loadLocalApprovedDraft(input: {
     draft.projectId !== input.projectId ||
     draft.recordId !== input.sourceReviewRecordId ||
     draft.status !== "approved" ||
-    (input.sourceWorkSummaryDraftId && draft.id !== input.sourceWorkSummaryDraftId)
+    draft.id !== input.sourceWorkSummaryDraftId
   ) {
     return null;
   }

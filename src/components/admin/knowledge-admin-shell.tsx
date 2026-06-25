@@ -4249,6 +4249,18 @@ export function KnowledgeAdminShell({
                           </dd>
                         </div>
                         <div>
+                          <dt>원본 작업</dt>
+                          <dd>
+                            {detail.sourceProjectWiki.sourceTaskId ? (
+                              <a href={createTaskSourceHref(detail.sourceProjectWiki.sourceTaskId)}>
+                                원본 작업
+                              </a>
+                            ) : (
+                              "작업 링크 없음"
+                            )}
+                          </dd>
+                        </div>
+                        <div>
                           <dt>원본 임시 검토 기록</dt>
                           <dd>
                             {detail.sourceProjectWiki.sourceTaskId && detail.sourceProjectWiki.sourceReviewRecordId ? (
@@ -8285,6 +8297,13 @@ function createProjectWikiSourceHref(projectWikiItemId: string) {
     projectWikiItemId,
   });
   return `/materials?${params.toString()}`;
+}
+
+function createTaskSourceHref(taskId: string) {
+  const params = new URLSearchParams({
+    taskId,
+  });
+  return `/daily?${params.toString()}`;
 }
 
 function createAssistantReviewSourceHref(input: {

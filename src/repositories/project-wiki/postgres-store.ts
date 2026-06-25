@@ -499,14 +499,14 @@ async function loadSourceReviewRecord(projectId: string, sourceReviewRecordId: s
 async function loadApprovedWorkSummaryDraft(input: {
   projectId: string;
   sourceReviewRecordId: string;
-  sourceWorkSummaryDraftId?: string;
+  sourceWorkSummaryDraftId: string;
 }) {
   return prisma.assistantWorkSummaryDraft.findFirst({
     where: {
       projectId: input.projectId,
       recordId: input.sourceReviewRecordId,
       status: "approved",
-      ...(input.sourceWorkSummaryDraftId ? { id: input.sourceWorkSummaryDraftId } : {}),
+      id: input.sourceWorkSummaryDraftId,
     },
   }) as Promise<WorkSummaryDraftRecord | null>;
 }

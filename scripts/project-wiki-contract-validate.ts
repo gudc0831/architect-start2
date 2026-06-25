@@ -203,6 +203,14 @@ assert.equal(
   actorDisplay?: string;
 };`),
 );
+assert.equal(
+  normalizeTypeDefinition(readObjectType(contracts, "BuildProjectWikiRegistrationPreviewInput")),
+  normalizeTypeDefinition(`export type BuildProjectWikiRegistrationPreviewInput = {
+  projectId: string;
+  sourceReviewRecordId: string;
+  sourceWorkSummaryDraftId: string;
+};`),
+);
 assert.match(contracts, /registerProjectWiki\(input: RegisterProjectWikiInput\): Promise<ProjectWikiItem>/);
 assert.match(contracts, /setProjectWikiStatus\(input: SetProjectWikiStatusInput\): Promise<SetProjectWikiStatusResult>/);
 assert.doesNotMatch(readObjectType(contracts, "RegisterProjectWikiInput"), /commonCandidateRecordId/);

@@ -10,6 +10,28 @@
 
 ---
 
+## Closeout Status
+
+**Status:** implementation closed on 2026-06-25.
+
+This plan is no longer an open implementation plan. The implementation work was completed on `codex/multi-user-transition`, followed by plan-alignment fixes for project-scoped lineage, mandatory approved work-summary draft selection, common WIKI candidate source links, deleted temporary-review handling, live provider fallback policy, and registration-preview reuse.
+
+Durable worklogs:
+
+- `docs/worklogs/2026-06-24-task-assistant-autosave-project-wiki-implementation.md`
+- `docs/worklogs/2026-06-25-project-wiki-plan-alignment-gaps.md`
+- `docs/worklogs/2026-06-25-task-assistant-project-wiki-plan-alignment-fixes.md`
+- `docs/worklogs/2026-06-25-task-assistant-project-wiki-plan-closeout-push.md`
+
+Final closeout requires only post-push Preview proof for the user-facing deployment target:
+
+- branch parity: local `HEAD` equals `origin/codex/multi-user-transition`
+- Vercel Preview deployment is `Ready`
+- canonical Preview alias points to the intended deployment
+- `/preview/materials?view=wiki` and `/preview/daily` respond successfully
+
+---
+
 ## Source Requirements
 
 Implement against `docs/superpowers/specs/2026-06-24-task-assistant-autosave-project-wiki-design.md`.
@@ -97,6 +119,8 @@ Coordinator rules:
 Agent A defines these exact TypeScript unions in `src/domains/project-wiki/types.ts`:
 
 ```ts
+import type { AssistantCandidateState } from "@/domains/assistant/types";
+
 export type ProjectWikiStatus = "active" | "disabled";
 
 export type ProjectWikiSuitabilityState = "recommended" | "caution" | "not_recommended";
@@ -109,6 +133,8 @@ export type ProjectWikiRegistrationState =
   | "registered";
 
 export type ProjectWikiSourceBadge = "프로젝트 WIKI" | "공용 WIKI" | "task" | "도면/문서" | "법규" | "외부";
+
+export type ProjectWikiCommonCandidateStatus = AssistantCandidateState | null;
 
 export type ProjectWikiDraft = {
   title: string;
@@ -127,6 +153,7 @@ export type ProjectWikiItem = ProjectWikiDraft & {
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   commonCandidateRecordId: string | null;
+  commonCandidateStatus: ProjectWikiCommonCandidateStatus;
   supplementalNote: string;
   status: ProjectWikiStatus;
   createdBy: string;
@@ -308,6 +335,7 @@ Add these fields to `AssistantTaskRecord`:
   reviewRestoredBy String?   @map("review_restored_by") @db.Uuid
   projectWikiSourceItems ProjectWikiItem[] @relation("ProjectWikiSourceReviewRecord")
   projectWikiCommonCandidateItems ProjectWikiItem[] @relation("ProjectWikiCommonCandidateRecord")
+  @@unique([projectId, id])
 ```
 
 Add relation arrays:
@@ -328,6 +356,7 @@ Add relation arrays:
 
 // AssistantWorkSummaryDraft
   projectWikiItems ProjectWikiItem[]
+  @@unique([projectId, id])
 ```
 
 Add these models after `AssistantWorkSummaryDraft`:
@@ -358,14 +387,18 @@ model ProjectWikiItem {
   updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sourceTask               Task     @relation("ProjectWikiSourceTask", fields: [projectId, sourceTaskId], references: [projectId, id], onDelete: Cascade)
-  sourceReviewRecord       AssistantTaskRecord @relation("ProjectWikiSourceReviewRecord", fields: [sourceReviewRecordId], references: [id], onDelete: Restrict)
-  sourceWorkSummaryDraft   AssistantWorkSummaryDraft @relation(fields: [sourceWorkSummaryDraftId], references: [id], onDelete: Restrict)
-  commonCandidateRecord    AssistantTaskRecord? @relation("ProjectWikiCommonCandidateRecord", fields: [commonCandidateRecordId], references: [id], onDelete: SetNull)
+  sourceReviewRecord       AssistantTaskRecord @relation("ProjectWikiSourceReviewRecord", fields: [projectId, sourceReviewRecordId], references: [projectId, id], onDelete: Restrict)
+  sourceWorkSummaryDraft   AssistantWorkSummaryDraft @relation(fields: [projectId, sourceWorkSummaryDraftId], references: [projectId, id], onDelete: Restrict)
+  /// DB invariant: migration enforces the common candidate relation as a scoped composite FK
+  /// with ON DELETE SET NULL for common_candidate_record_id only. Prisma cannot express
+  /// column-list SetNull when projectId is shared and required, so NoAction mirrors the scope.
+  commonCandidateRecord    AssistantTaskRecord? @relation("ProjectWikiCommonCandidateRecord", fields: [projectId, commonCandidateRecordId], references: [projectId, id], onDelete: NoAction)
   creator                  Profile @relation("ProjectWikiCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
   disabler                 Profile? @relation("ProjectWikiDisabledBy", fields: [disabledBy], references: [id], onDelete: SetNull)
   restorer                 Profile? @relation("ProjectWikiRestoredBy", fields: [restoredBy], references: [id], onDelete: SetNull)
   actionLogs               ProjectWikiActionLog[]
 
+  @@unique([projectId, id])
   @@index([projectId, status, updatedAt])
   @@index([sourceTaskId, createdAt])
   @@map("project_wiki_items")
@@ -381,7 +414,7 @@ model ProjectWikiActionLog {
   reason            String   @default("")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  item              ProjectWikiItem @relation(fields: [projectWikiItemId], references: [id], onDelete: Cascade)
+  item              ProjectWikiItem @relation(fields: [projectId, projectWikiItemId], references: [projectId, id], onDelete: Cascade)
   actor             Profile @relation("ProjectWikiActionLogActor", fields: [actorProfileId], references: [id], onDelete: Restrict)
 
   @@index([projectId, projectWikiItemId, createdAt])
@@ -392,7 +425,7 @@ model ProjectWikiActionLog {
 
 - [ ] **Step 4: Add SQL migration**
 
-Create `prisma/migrations/202606240001_add_project_wiki/migration.sql` with SQL matching the Prisma schema. Include:
+Create `prisma/migrations/202606240001_add_project_wiki/migration.sql` with SQL matching the Prisma schema. Include project-scoped composite foreign keys so project WIKI lineage cannot cross project boundaries:
 
 ```sql
 alter table "assistant_task_records"
@@ -401,13 +434,19 @@ alter table "assistant_task_records"
   add column if not exists "review_restored_at" timestamptz,
   add column if not exists "review_restored_by" uuid;
 
+create unique index if not exists "assistant_task_records_project_id_id_key"
+  on "assistant_task_records" ("project_id", "id");
+
+create unique index if not exists "assistant_work_summary_drafts_project_id_id_key"
+  on "assistant_work_summary_drafts" ("project_id", "id");
+
 create table if not exists "project_wiki_items" (
   "id" uuid primary key default gen_random_uuid(),
   "project_id" uuid not null references "projects"("id") on delete cascade,
   "source_task_id" uuid not null,
-  "source_review_record_id" uuid not null unique references "assistant_task_records"("id") on delete restrict,
-  "source_work_summary_draft_id" uuid not null references "assistant_work_summary_drafts"("id") on delete restrict,
-  "common_candidate_record_id" uuid unique references "assistant_task_records"("id") on delete set null,
+  "source_review_record_id" uuid not null unique,
+  "source_work_summary_draft_id" uuid not null,
+  "common_candidate_record_id" uuid unique,
   "title" text not null,
   "summary" text not null,
   "body_markdown" text not null,
@@ -426,9 +465,18 @@ create table if not exists "project_wiki_items" (
   "updated_at" timestamptz not null default now(),
   constraint "project_wiki_items_source_task_fk"
     foreign key ("project_id", "source_task_id") references "tasks"("project_id", "id") on delete cascade,
+  constraint "project_wiki_items_source_review_fk"
+    foreign key ("project_id", "source_review_record_id") references "assistant_task_records"("project_id", "id") on delete restrict,
+  constraint "project_wiki_items_source_work_summary_fk"
+    foreign key ("project_id", "source_work_summary_draft_id") references "assistant_work_summary_drafts"("project_id", "id") on delete restrict,
+  constraint "project_wiki_items_common_candidate_fk"
+    foreign key ("project_id", "common_candidate_record_id") references "assistant_task_records"("project_id", "id") on delete set null ("common_candidate_record_id"),
   constraint "project_wiki_items_status_check" check ("status" in ('active', 'disabled')),
   constraint "project_wiki_items_suitability_check" check ("ai_suitability_state" in ('recommended', 'caution', 'not_recommended'))
 );
+
+create unique index if not exists "project_wiki_items_project_id_id_key"
+  on "project_wiki_items" ("project_id", "id");
 
 create index if not exists "project_wiki_items_project_status_updated_idx"
   on "project_wiki_items" ("project_id", "status", "updated_at");
@@ -439,12 +487,14 @@ create index if not exists "project_wiki_items_source_task_created_idx"
 create table if not exists "project_wiki_action_logs" (
   "id" uuid primary key default gen_random_uuid(),
   "project_id" uuid not null references "projects"("id") on delete cascade,
-  "project_wiki_item_id" uuid not null references "project_wiki_items"("id") on delete cascade,
+  "project_wiki_item_id" uuid not null,
   "action" text not null,
   "actor_profile_id" uuid not null references "profiles"("id") on delete restrict,
   "actor_display" text not null default '',
   "reason" text not null default '',
   "created_at" timestamptz not null default now(),
+  constraint "project_wiki_action_logs_item_fk"
+    foreign key ("project_id", "project_wiki_item_id") references "project_wiki_items"("project_id", "id") on delete cascade,
   constraint "project_wiki_action_logs_action_check" check ("action" in ('disable', 'restore'))
 );
 

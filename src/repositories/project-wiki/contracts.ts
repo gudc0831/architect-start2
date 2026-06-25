@@ -27,7 +27,7 @@ export type FindProjectWikiBySourceReviewRecordInput = {
 export type BuildProjectWikiRegistrationPreviewInput = {
   projectId: string;
   sourceReviewRecordId: string;
-  sourceWorkSummaryDraftId?: string;
+  sourceWorkSummaryDraftId: string;
 };
 
 export type RegisterProjectWikiInput = {

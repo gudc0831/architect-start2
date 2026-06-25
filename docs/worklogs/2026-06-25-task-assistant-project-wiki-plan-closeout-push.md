@@ -1,0 +1,4 @@
+Req: Close the Task Assistant auto-save Project WIKI plan, record missing closeout/worklog state, then commit and push the Preview branch.
+Diff: Marked the implementation plan closed, kept plan/code alignment fixes for mandatory approved draft lineage and common-candidate source task links, and added this closeout worklog.
+Why: The implementation and follow-up gap fixes were already recorded, but the plan itself still read as an open execution plan and the final push/deployment verification had not been performed.
+Verify: npm run project-wiki:validate; npm run project-wiki:behavior:validate; npm run structured-knowledge:ui-contract:validate; npm run task-assistant:unified:validate; npm run task-review:validate; npm run project-context:validate; npm run typecheck; npm run lint; npm run build; PROJECT_WIKI_SMOKE_URL=http://localhost:3024/preview/materials?view=wiki npm run project-wiki:preview-smoke.
