@@ -31,12 +31,6 @@ type ProjectWikiStatusResult = {
   actionLog: ProjectWikiActionLog | null;
 };
 
-const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
-  dateStyle: "medium",
-  timeZone: "Asia/Seoul",
-  timeStyle: "short",
-});
-
 const previewNow = "2026-06-24T09:00:00.000Z";
 
 const PREVIEW_PROJECT_WIKI_ITEMS: ProjectWikiItem[] = [
@@ -674,7 +668,16 @@ function statusControlHint(detail: ProjectWikiDetail, reason: string) {
 
 function formatDate(value: string) {
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? dateFormatter.format(new Date(timestamp)) : value;
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+  const kstDate = new Date(timestamp + 9 * 60 * 60 * 1000);
+  const year = kstDate.getUTCFullYear();
+  const month = kstDate.getUTCMonth() + 1;
+  const day = kstDate.getUTCDate();
+  const hours = String(kstDate.getUTCHours()).padStart(2, "0");
+  const minutes = String(kstDate.getUTCMinutes()).padStart(2, "0");
+  return `${year}. ${month}. ${day}. ${hours}:${minutes} KST`;
 }
 
 function shortId(value: string) {
