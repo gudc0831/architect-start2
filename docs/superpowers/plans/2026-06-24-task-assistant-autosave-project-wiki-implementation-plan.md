@@ -23,12 +23,23 @@ Durable worklogs:
 - `docs/worklogs/2026-06-25-task-assistant-project-wiki-plan-alignment-fixes.md`
 - `docs/worklogs/2026-06-25-task-assistant-project-wiki-plan-closeout-push.md`
 
-Final closeout requires only post-push Preview proof for the user-facing deployment target:
+Original closeout requires post-push Preview proof for the user-facing deployment target:
 
 - branch parity: local `HEAD` equals `origin/codex/multi-user-transition`
 - Vercel Preview deployment is `Ready`
 - canonical Preview alias points to the intended deployment
 - `/preview/materials?view=wiki` and `/preview/daily` respond successfully
+
+2026-06-26 UX correction follow-up must also prove the user-facing workflow, not only deployment reflection:
+
+- Task Assistant generation auto-saves an `임시 검토 기록` and keeps the answer visible if auto-save fails.
+- Temporary records are shown as grouped review history with version count instead of only a flat latest-record list.
+- `작업 기록 승인` remains separate from temporary save.
+- `프로젝트wiki로 등록` creates both `프로젝트wiki` and `공용wiki 후보` atomically without a separate user checkbox.
+- Registration preview allows optional title, summary, body, and tag edits before immediate project reuse.
+- Registration success shows both `프로젝트wiki 등록됨` and `공용wiki 후보 생성됨`.
+- Disable/restore is available only to the project WIKI creator, project manager, or project admin; disable requires a short reason.
+- Disabled `프로젝트wiki` is excluded from Task Assistant retrieval, while the linked `공용wiki 후보` remains with `원본 비활성화됨`.
 
 ---
 
@@ -45,6 +56,14 @@ Scope terms are fixed:
 - `공용wiki`: approved shared knowledge, still controlled by the existing admin WIKI approval path.
 
 If a discussion or code comment says only `wiki` and the target is unclear, stop and ask whether it means `프로젝트wiki`, `공용wiki 후보`, or `공용wiki`.
+
+UX correction policy:
+
+- `공용wiki 후보` creation is always coupled to `프로젝트wiki` registration and is not user-selectable.
+- Do not add a separate checkbox or confirmation modal for `공용wiki 후보`; make the automatic result visible through concise helper copy and success states.
+- Registration preview is ready-to-register by default but allows optional title, summary, body, and tag edits.
+- Use `프로젝트wiki로 등록하면 공용wiki 후보도 자동 생성됩니다.` as the primary helper copy.
+- Use `공용wiki 후보는 관리자 검토 전까지 공용wiki로 재사용되지 않습니다.` to preserve the trust boundary without asking for extra user confirmation.
 
 ## Multi-Agent Execution Model
 
@@ -83,9 +102,9 @@ Coordinator rules:
 - `src/use-cases/project-wiki-service.ts`: project membership scoped use-case layer.
 - `src/use-cases/project-wiki-suitability-service.ts`: AI suitability and commonization caution generation.
 - `src/app/api/projects/[projectId]/project-wiki/route.ts`: list/search and register project wiki.
-- `src/app/api/projects/[projectId]/project-wiki/registration-preview/route.ts`: read-only registration preview and AI suitability result.
+- `src/app/api/projects/[projectId]/project-wiki/registration-preview/route.ts`: editable registration preview defaults and AI suitability result.
 - `src/app/api/projects/[projectId]/project-wiki/[itemId]/route.ts`: item detail.
-- `src/app/api/projects/[projectId]/project-wiki/[itemId]/status/route.ts`: disable/restore with optional reason.
+- `src/app/api/projects/[projectId]/project-wiki/[itemId]/status/route.ts`: disable with required reason and restore with optional reason.
 - `src/app/api/assistant/review-sessions/[sessionId]/restore/route.ts`: undo restore for a soft-deleted temporary review record.
 - `src/components/project-context/project-wiki-page.tsx`: project wiki management surface inside project materials.
 - `scripts/project-wiki-contract-validate.ts`: static contract validator for models, routes, repository methods, UI copy, and package scripts.
@@ -998,10 +1017,10 @@ Every function must call `requireProjectAccess(user, projectId)` or the existing
 Route behavior:
 
 - `GET /api/projects/[projectId]/project-wiki?query=&includeDisabled=1`: list keyword matches.
-- `POST /api/projects/[projectId]/project-wiki/registration-preview`: return read-only preview.
+- `POST /api/projects/[projectId]/project-wiki/registration-preview`: return editable registration preview defaults.
 - `POST /api/projects/[projectId]/project-wiki`: register project wiki and linked common candidate.
 - `GET /api/projects/[projectId]/project-wiki/[itemId]`: detail with logs.
-- `PATCH /api/projects/[projectId]/project-wiki/[itemId]/status`: body `{ "action": "disable" | "restore", "reason": "optional" }`.
+- `PATCH /api/projects/[projectId]/project-wiki/[itemId]/status`: body `{ "action": "disable" | "restore", "reason": "required for disable, optional for restore" }`.
 
 All write routes must call `assertRequestIntegrity(request)`.
 
@@ -1214,9 +1233,11 @@ Change `최근 검토 기록` to `임시 검토 기록`.
 
 List behavior:
 
-- show newest 6 records.
+- show newest 6 review groups, grouped by review question/run context where possible.
+- each group shows the latest record, version count, and newest generated-at timestamp.
 - show `작업기록 승인됨` if `savedRecord.cleanupState === "approved"`.
 - show `프로젝트wiki 등록됨` when `projectWikiState.registrationState === "registered"`.
+- show `공용wiki 후보 생성됨` when `projectWikiState.commonCandidateRecordId` exists.
 - each row has a small delete icon button with accessible label `임시 검토 기록 삭제`.
 
 - [ ] **Step 4: Add delete and undo toast**
@@ -1269,13 +1290,15 @@ After `작업 기록 승인` succeeds:
    - `주의`: amber
    - `비추천`: gray
 4. Show `프로젝트wiki로 등록` only for `recommended` and `caution`.
-5. Show read-only title, summary, body, tags, and commonization caution.
+5. Show title, summary, body, and tags as ready-to-register editable fields.
 6. Keep supplemental note collapsed behind `보완 메모 추가`.
+7. Show commonization caution and the automatic candidate helper copy near the registration action.
 
 Helper copy:
 
 ```text
-프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.
+프로젝트wiki로 등록하면 공용wiki 후보도 자동 생성됩니다.
+공용wiki 후보는 관리자 검토 전까지 공용wiki로 재사용되지 않습니다.
 ```
 
 - [ ] **Step 7: Register project wiki**
@@ -1287,6 +1310,10 @@ POST /api/projects/${projectId}/project-wiki
 {
   sourceReviewRecordId,
   sourceWorkSummaryDraftId,
+  title,
+  summary,
+  bodyMarkdown,
+  tags,
   supplementalNote
 }
 ```
@@ -1295,7 +1322,9 @@ Success state:
 
 - set preview state to `registered`.
 - update matching temporary record row with `프로젝트wiki 등록됨`.
+- update matching temporary record row with `공용wiki 후보 생성됨` when `commonCandidateRecordId` is returned.
 - show common candidate link/status if returned.
+- do not show or require a separate common-candidate checkbox.
 
 Repeated click behavior: if API returns existing item, display it as registered without error.
 
@@ -1382,7 +1411,9 @@ When `view === "wiki"`, render:
 - created date
 - common candidate status
 - detail panel with body, supplemental note, AI suitability, commonization caution, action logs, disable/restore controls
-- optional reason input inside the disable/restore control area
+- disable/restore controls only when the current user is the project WIKI creator, project manager, or project admin
+- required short reason input for disable
+- optional reason input for restore
 
 Do not split results by status. Use badges only.
 
@@ -1410,7 +1441,7 @@ PATCH /api/projects/${projectId}/project-wiki/${itemId}/status
 }
 ```
 
-Restore uses `"action": "restore"`.
+Restore uses `"action": "restore"` and may send an empty reason.
 
 - [ ] **Step 4: Add preview smoke script**
 
@@ -1610,6 +1641,15 @@ Expected:
 project-wiki-preview-smoke: ok
 ```
 
+The smoke must cover these UX conditions:
+
+- `/preview/daily` can generate an answer and show `임시 기록 자동저장됨`.
+- grouped `임시 검토 기록` shows version count for repeated generation.
+- after `작업 기록 승인`, registration preview shows editable title, summary, body, and tags.
+- `프로젝트wiki로 등록` completes without a separate common-candidate checkbox.
+- success state shows both `프로젝트wiki 등록됨` and `공용wiki 후보 생성됨`.
+- `/preview/materials?view=wiki` shows active project WIKI, and disabling with a short reason removes it from the default active list.
+
 - [ ] **Step 4: Write implementation worklog**
 
 Create `docs/worklogs/2026-06-24-task-assistant-autosave-project-wiki-implementation.md`:
@@ -1662,6 +1702,7 @@ Proof required in final deployment report:
 - alias URL if used
 - smoke route: `/preview/materials?view=wiki` and `/preview/daily`
 - HTTP status or browser smoke result
+- UX smoke result for auto-save, grouped temporary records, editable registration preview, automatic common-candidate creation, and disable/restore eligibility
 - any unverified condition
 
 ## Completion Criteria
@@ -1670,17 +1711,22 @@ Implementation is complete only when all conditions below are true:
 
 - Successful generation auto-saves a temporary review record.
 - Auto-save failure keeps the generated answer visible and offers retry without regenerating.
-- Temporary review list shows latest 6 records and can reopen records.
+- Temporary review list shows latest 6 review groups, version count, and can reopen records.
 - Temporary delete uses soft delete, supports undo restore, and preserves linked work approval/project wiki/common candidate artifacts.
 - Work summary approval remains separate from temporary save.
 - AI suitability produces `recommended`, `caution`, or `not_recommended`.
 - Project wiki registration is available only for `recommended` and `caution`.
 - Registration creates one project wiki and one linked common WIKI candidate atomically.
+- Registration does not require a separate common-candidate checkbox or confirmation.
+- Registration preview allows optional title, summary, body, and tag edits before immediate project reuse.
+- Successful registration visibly shows both `프로젝트wiki 등록됨` and `공용wiki 후보 생성됨`.
 - Repeated registration clicks do not create duplicates.
 - Active project wiki is retrieved by Task Assistant and shown with a small `프로젝트 WIKI` badge.
 - Disabled project wiki is excluded from Task Assistant retrieval.
 - `/materials` contains a `프로젝트 WIKI` view with keyword-only search and `비활성 포함`.
-- Project participants can disable/restore and logs contain actor id, display/email, timestamp, action, and optional reason.
+- Only the project WIKI creator, project manager, or project admin can disable/restore.
+- Disable requires a short reason; restore allows an optional reason.
+- Disable/restore logs contain actor id, display/email, timestamp, action, and reason state.
 - Common WIKI candidate remains after project wiki disable and shows a small `원본 비활성화됨` badge.
 - `npm run typecheck`, `npm run lint`, `npm run build`, and all feature validators pass.
 
@@ -1691,7 +1737,7 @@ Spec coverage:
 - Auto-save and retry: Task 2, Task 5.
 - Temporary reload/delete/undo: Task 2, Task 5.
 - Work approval separation: Task 2, Task 5.
-- AI suitability and read-only preview: Task 3, Task 5.
+- AI suitability and editable registration preview: Task 3, Task 5.
 - Atomic project wiki plus common candidate: Task 3.
 - Project participant management page: Task 6.
 - Keyword-only search and disabled toggle: Task 3, Task 6.
@@ -1699,6 +1745,7 @@ Spec coverage:
 - Disabled retrieval exclusion: Task 4.
 - Common candidate disabled-source badge: Task 7.
 - Validation and Preview proof path: Task 8, Task 9.
+- UX correction proof for grouped temporary records, automatic common-candidate creation, editable preview, and scoped disable/restore: Task 5, Task 6, Task 8, Task 9.
 
 Type consistency:
 
