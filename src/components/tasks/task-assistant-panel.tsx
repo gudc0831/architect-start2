@@ -1886,7 +1886,7 @@ export function TaskAssistantPanel({
     };
     setRecordHistory((items) =>
       items.map((session) =>
-        session.id === item.sourceReviewRecordId
+        isProjectWikiSourceSession(session, item)
           ? {
               ...session,
               projectWikiState,
@@ -1895,7 +1895,7 @@ export function TaskAssistantPanel({
       ),
     );
     setSelectedReviewSession((current) =>
-      current?.id === item.sourceReviewRecordId
+      current && isProjectWikiSourceSession(current, item)
         ? {
             ...current,
             projectWikiState,
@@ -4067,6 +4067,17 @@ function groupReviewSessionHistory(items: AssistantReviewSessionItem[]) {
       };
     })
     .sort((left, right) => timestampValue(right.latestTimestamp) - timestampValue(left.latestTimestamp));
+}
+
+function isProjectWikiSourceSession(
+  session: AssistantReviewSessionItem | AssistantReviewSessionDetail,
+  item: ProjectWikiItem,
+) {
+  return (
+    session.id === item.sourceReviewRecordId ||
+    session.savedRecord.id === item.sourceReviewRecordId ||
+    session.projectWikiState?.workSummaryDraftId === item.sourceWorkSummaryDraftId
+  );
 }
 
 function reviewSessionGroupKey(item: AssistantReviewSessionItem) {

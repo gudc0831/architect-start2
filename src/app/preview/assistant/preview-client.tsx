@@ -690,7 +690,13 @@ function updatePreviewReviewSessionProjectWikiState(
   reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
   item: PreviewProjectWikiItem,
 ) {
-  const detail = reviewSessionDetails.get(item.sourceReviewRecordId);
+  const detail =
+    reviewSessionDetails.get(item.sourceReviewRecordId) ??
+    Array.from(reviewSessionDetails.values()).find(
+      (candidate) =>
+        candidate.savedRecord.id === item.sourceReviewRecordId ||
+        candidate.projectWikiState?.workSummaryDraftId === item.sourceWorkSummaryDraftId,
+    );
   if (!detail) {
     return;
   }
@@ -706,7 +712,7 @@ function updatePreviewReviewSessionProjectWikiState(
     projectWikiState,
     updatedAt: previewNow,
   };
-  reviewSessionDetails.set(item.sourceReviewRecordId, updated);
+  reviewSessionDetails.set(detail.id, updated);
   upsertReviewSessionItem(reviewSessions, toReviewSessionItem(updated));
 }
 
