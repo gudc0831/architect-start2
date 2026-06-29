@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
 import type { TaskRecord } from "@/domains/task/types";
@@ -648,6 +648,7 @@ export function TaskAssistantPanel({
   initialWorkSummaryDraftId = null,
 }: TaskAssistantPanelProps) {
   const hasInitialReviewLink = Boolean(initialReviewSessionId || initialWorkSummaryDraftId);
+  const stableSidePanelRequestId = `architect-side-panel-${useId().replace(/:/g, "")}`;
   const [isOpen, setIsOpen] = useState(defaultOpen || hasInitialReviewLink);
   const [question, setQuestion] = useState("");
   const [instruction, setInstruction] = useState(defaultInstruction);
@@ -668,6 +669,8 @@ export function TaskAssistantPanel({
   const [approvedSummaryDraftId, setApprovedSummaryDraftId] = useState("");
   const [projectWikiPreviewState, setProjectWikiPreviewState] = useState<ProjectWikiPreviewState>({ status: "idle" });
   const [projectWikiSource, setProjectWikiSource] = useState<ProjectWikiSourceState | null>(null);
+  const [projectWikiDraftEditor, setProjectWikiDraftEditor] = useState<ProjectWikiDraft | null>(null);
+  const [projectWikiTagsInput, setProjectWikiTagsInput] = useState("");
   const [projectWikiSupplementalNote, setProjectWikiSupplementalNote] = useState("");
   const [projectWikiNoteExpanded, setProjectWikiNoteExpanded] = useState(false);
   const [toast, setToast] = useState<InPanelToast | null>(null);
@@ -706,7 +709,7 @@ export function TaskAssistantPanel({
   const [localCodexHealth, setLocalCodexHealth] = useState<LocalCodexHealthReport | null>(null);
   const [usageRecordState, setUsageRecordState] = useState<LocalCodexUsageRecordState | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
-  const [sidePanelRequestId, setSidePanelRequestId] = useState(() => makeSidePanelRequestId());
+  const [sidePanelRequestId, setSidePanelRequestId] = useState(stableSidePanelRequestId);
   const [sidePanelOpening, setSidePanelOpening] = useState(false);
   const [status, setStatus] = useState("task를 선택하면 assistant가 해당 task에 반응합니다.");
   const [busy, setBusy] = useState(false);
@@ -779,10 +782,35 @@ export function TaskAssistantPanel({
     taskUpdateProposal && !busy && !taskUpdateApplied && (!taskUpdateProposal.alreadyRecorded || taskUpdateProposal.statusChanged),
   );
   const canCreateFollowUpTask = Boolean(followUpTaskProposal && !busy && !followUpTaskCreated);
+  const projectWikiEditedDraft = useMemo(
+    () =>
+      projectWikiDraftEditor
+        ? {
+            ...projectWikiDraftEditor,
+            tags: parseProjectWikiTags(projectWikiTagsInput),
+          }
+        : null,
+    [projectWikiDraftEditor, projectWikiTagsInput],
+  );
+  const projectWikiDraftValidationMessage = projectWikiEditedDraft
+    ? projectWikiDraftRequiredMessage(projectWikiEditedDraft)
+    : "프로젝트wiki 등록 초안이 없습니다.";
+  const reviewHistoryGroups = useMemo(() => groupReviewSessionHistory(recordHistory), [recordHistory]);
+  const canShowProjectWikiRegistrationActions = Boolean(
+    projectWikiPreviewState.status === "ready" &&
+      projectWikiPreviewState.preview.canRegister &&
+      projectWikiPreviewState.preview.draft &&
+      projectWikiEditedDraft &&
+      isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
+      projectWikiSource?.sourceReviewRecordId &&
+      (projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId),
+  );
   const canRegisterProjectWiki = Boolean(
     projectWikiPreviewState.status === "ready" &&
       projectWikiPreviewState.preview.canRegister &&
       projectWikiPreviewState.preview.draft &&
+      projectWikiEditedDraft &&
+      !projectWikiDraftValidationMessage &&
       isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
       projectWikiSource?.sourceReviewRecordId &&
       (projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId) &&
@@ -792,6 +820,8 @@ export function TaskAssistantPanel({
     projectWikiPreviewState.status === "failed" &&
       projectWikiPreviewState.preview?.canRegister &&
       projectWikiPreviewState.preview.draft &&
+      projectWikiEditedDraft &&
+      !projectWikiDraftValidationMessage &&
       isRegisterableProjectWikiState(projectWikiPreviewState.preview.state) &&
       projectWikiSource?.sourceReviewRecordId &&
       (projectWikiSource.sourceWorkSummaryDraftId || approvedSummaryDraftId) &&
@@ -896,6 +926,8 @@ export function TaskAssistantPanel({
     setApprovedSummaryDraftId("");
     setProjectWikiPreviewState({ status: "idle" });
     setProjectWikiSource(null);
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
     setProjectWikiNoteExpanded(false);
     setToast(null);
@@ -1083,6 +1115,8 @@ export function TaskAssistantPanel({
     setApprovedSummaryDraftId("");
     setProjectWikiPreviewState({ status: "idle" });
     setProjectWikiSource(null);
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
     setProjectWikiNoteExpanded(false);
     setStatus("근거를 조회하고 검토 의견을 생성하는 중입니다.");
@@ -1415,6 +1449,8 @@ export function TaskAssistantPanel({
         : null,
     );
     setProjectWikiPreviewState({ status: "idle" });
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
   }
 
@@ -1466,7 +1502,7 @@ export function TaskAssistantPanel({
       removeSessionFromList(session.id);
       showUndoToast({
         message: session.projectWikiState?.projectWikiItemId
-          ? "임시 검토 기록을 삭제했습니다. 연결된 프로젝트wiki와 공용wiki 후보는 유지됩니다."
+          ? "임시 검토 기록을 삭제했습니다. 연결된 프로젝트wiki와 공용WIKI 후보는 유지됩니다."
           : "임시 검토 기록을 삭제했습니다.",
         actionLabel: "되돌리기",
         onAction: () => void restoreReviewSession(session.id),
@@ -1736,6 +1772,8 @@ export function TaskAssistantPanel({
       sourceReviewRecordId: input.sourceReviewRecordId,
       sourceWorkSummaryDraftId: input.sourceWorkSummaryDraftId,
     });
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
     setProjectWikiNoteExpanded(false);
     setProjectWikiPreviewState({ status: "loading" });
@@ -1749,12 +1787,16 @@ export function TaskAssistantPanel({
         },
       );
       if (preview.existingItem) {
+        setProjectWikiDraftEditor(null);
+        setProjectWikiTagsInput("");
         setProjectWikiPreviewState({ status: "registered", item: preview.existingItem });
         updateReviewSessionProjectWikiRegistered(preview.existingItem);
         setStatus("이미 프로젝트wiki로 등록된 검토입니다.");
         return;
       }
 
+      setProjectWikiDraftEditor(preview.draft ? cloneProjectWikiDraft(preview.draft) : null);
+      setProjectWikiTagsInput(preview.draft?.tags.join(", ") ?? "");
       setProjectWikiPreviewState({ status: "ready", preview });
       setStatus("프로젝트wiki 등록 미리보기를 준비했습니다.");
     } catch (error) {
@@ -1762,6 +1804,17 @@ export function TaskAssistantPanel({
       setProjectWikiPreviewState({ status: "failed", message });
       setStatus(message);
     }
+  }
+
+  function updateProjectWikiDraftEditor(field: "title" | "summary" | "bodyMarkdown", value: string) {
+    setProjectWikiDraftEditor((current) =>
+      current
+        ? {
+            ...current,
+            [field]: value,
+          }
+        : current,
+    );
   }
 
   async function registerProjectWiki() {
@@ -1775,6 +1828,10 @@ export function TaskAssistantPanel({
       setStatus("프로젝트wiki 등록에 필요한 승인 요약 ID가 없습니다.");
       return;
     }
+    if (!projectWikiEditedDraft || projectWikiDraftValidationMessage) {
+      setStatus(projectWikiDraftValidationMessage);
+      return;
+    }
 
     setBusy(true);
     try {
@@ -1783,12 +1840,13 @@ export function TaskAssistantPanel({
         {
           sourceReviewRecordId: projectWikiSource.sourceReviewRecordId,
           sourceWorkSummaryDraftId,
+          draft: projectWikiEditedDraft,
           supplementalNote: projectWikiSupplementalNote,
         },
       );
       setProjectWikiPreviewState({ status: "registered", item });
       updateReviewSessionProjectWikiRegistered(item);
-      setStatus("프로젝트wiki로 등록했습니다. 공용wiki 후보 검토에도 올라갔습니다.");
+      setStatus("프로젝트wiki로 등록했습니다. 공용WIKI 후보도 자동 생성했습니다.");
     } catch (error) {
       const message = errorMessage(error);
       const retryPreview =
@@ -1811,6 +1869,8 @@ export function TaskAssistantPanel({
   function cancelProjectWikiRegistration() {
     setProjectWikiPreviewState({ status: "idle" });
     setProjectWikiSource(null);
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
     setProjectWikiNoteExpanded(false);
     setStatus("프로젝트wiki 등록을 취소했습니다.");
@@ -2143,6 +2203,8 @@ export function TaskAssistantPanel({
     setApprovedSummaryDraftId("");
     setProjectWikiPreviewState({ status: "idle" });
     setProjectWikiSource(null);
+    setProjectWikiDraftEditor(null);
+    setProjectWikiTagsInput("");
     setProjectWikiSupplementalNote("");
     setProjectWikiNoteExpanded(false);
   }
@@ -2279,7 +2341,7 @@ export function TaskAssistantPanel({
                     onClick={() => setHistoryExpanded((current) => !current)}
                     type="button"
                   >
-                    {historyExpanded ? "접기" : recordHistoryLoading ? "불러오는 중" : `보기 ${recordHistory.length}`}
+                    {historyExpanded ? "접기" : recordHistoryLoading ? "불러오는 중" : `보기 ${reviewHistoryGroups.length}`}
                   </button>
                 </div>
                 {!historyExpanded ? (
@@ -2287,18 +2349,18 @@ export function TaskAssistantPanel({
                 ) : recordHistory.length ? (
                   <>
                     <div className="task-assistant__history-list">
-                      {recordHistory.slice(0, 6).map((item) => (
-                        <article className="task-assistant__history-item task-assistant__history-item--saas" key={item.id}>
+                      {reviewHistoryGroups.slice(0, 6).map((group) => (
+                        <article className="task-assistant__history-item task-assistant__history-item--saas" key={group.key}>
                           <header>
-                            <button className="task-assistant__link-button" onClick={() => void openReviewSession(item)} type="button">
-                              {item.title}
+                            <button className="task-assistant__link-button" onClick={() => void openReviewSession(group.latest)} type="button">
+                              {group.latest.title}
                             </button>
                             <div className="task-assistant__history-row-actions">
-                              <span>{item.savedRecord.confidenceScore}%</span>
+                              <span>{group.latest.savedRecord.confidenceScore}%</span>
                               <button
                                 aria-label="임시 검토 기록 삭제"
                                 className="task-assistant__icon-button"
-                                onClick={() => void deleteReviewSession(item)}
+                                onClick={() => void deleteReviewSession(group.latest)}
                                 type="button"
                               >
                                 ×
@@ -2306,29 +2368,35 @@ export function TaskAssistantPanel({
                             </div>
                           </header>
                           <small>
-                            {formatRecordDate(item.savedAt)} / {item.verdict ?? "판정 없음"} / {item.conclusionMayChange ? "추가확인필요 후보" : "후보 영향 낮음"}
+                            최신 기록 {formatRecordDate(group.latestTimestamp)} / 버전 {group.versionCount}개 / 최신 생성 시각{" "}
+                            {formatRecordDate(group.latestGeneratedAt)}
                           </small>
-                          <p>{item.answerPreview}</p>
+                          <small>
+                            질문: {group.questionLabel} / 실행: {group.runContextLabel} / {group.latest.verdict ?? "판정 없음"} /{" "}
+                            {group.latest.conclusionMayChange ? "추가확인필요 후보" : "후보 영향 낮음"}
+                          </small>
+                          <p>{group.latest.answerPreview}</p>
                           <div className="task-assistant__history-tags">
-                            {item.savedRecord.cleanupState === "approved" ? <span>작업기록 승인됨</span> : null}
-                            {item.projectWikiState?.registrationState === "registered" ? <span>프로젝트wiki 등록됨</span> : null}
-                            {item.projectWikiState?.projectWikiItemId ? (
-                              <a className="task-assistant__subtle-link" href={`/materials?view=wiki&projectWikiItemId=${encodeURIComponent(item.projectWikiState.projectWikiItemId)}`}>
+                            {group.hasApprovedWorkRecord ? <span>작업기록 승인됨</span> : null}
+                            {group.hasRegisteredProjectWiki ? <span>프로젝트wiki 등록됨</span> : null}
+                            {group.projectWikiItemId ? (
+                              <a className="task-assistant__subtle-link" href={`/materials?view=wiki&projectWikiItemId=${encodeURIComponent(group.projectWikiItemId)}`}>
                                 프로젝트 WIKI 열기
                               </a>
                             ) : null}
-                            {item.projectWikiState?.commonCandidateRecordId ? (
+                            {group.commonCandidateRecordId ? <span>공용WIKI 후보 생성</span> : null}
+                            {group.commonCandidateRecordId ? (
                               <a
                                 className="task-assistant__subtle-link"
-                                href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(item.projectWikiState.commonCandidateRecordId)}`}
+                                href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(group.commonCandidateRecordId)}`}
                               >
-                                공용wiki 후보 열기
+                                공용WIKI 후보 열기
                               </a>
                             ) : null}
-                            <button className="task-assistant__subtle-button" onClick={() => void openReviewSession(item)} type="button">
+                            <button className="task-assistant__subtle-button" onClick={() => void openReviewSession(group.latest)} type="button">
                               세션 열기
                             </button>
-                            <button className="task-assistant__subtle-button" onClick={() => void renameReviewSession(item)} type="button">
+                            <button className="task-assistant__subtle-button" onClick={() => void renameReviewSession(group.latest)} type="button">
                               이름 변경
                             </button>
                           </div>
@@ -2353,7 +2421,7 @@ export function TaskAssistantPanel({
                             className="task-assistant__subtle-link"
                             href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(selectedReviewSession.projectWikiState.commonCandidateRecordId)}`}
                           >
-                            연결된 공용wiki 후보 열기
+                            연결된 공용WIKI 후보 열기
                           </a>
                         ) : null}
                       </article>
@@ -3030,7 +3098,7 @@ export function TaskAssistantPanel({
                         </span>
                       ) : projectWikiPreviewState.status === "registered" ? (
                         <span className="task-assistant__project-wiki-badge task-assistant__project-wiki-badge--recommended">
-                          등록됨
+                          프로젝트wiki 등록됨
                         </span>
                       ) : null}
                     </div>
@@ -3055,41 +3123,64 @@ export function TaskAssistantPanel({
                     ) : null}
                     {projectWikiPreviewState.status === "ready" ? (
                       <>
-                        {projectWikiPreviewState.preview.draft ? (
+                        {projectWikiDraftEditor ? (
                           <div className="task-assistant__project-wiki-preview">
-                            <dl>
-                              <div>
-                                <dt>제목</dt>
-                                <dd>{projectWikiPreviewState.preview.draft.title}</dd>
-                              </div>
-                              <div>
-                                <dt>요약</dt>
-                                <dd>{projectWikiPreviewState.preview.draft.summary}</dd>
-                              </div>
-                              <div>
-                                <dt>본문</dt>
-                                <dd>{projectWikiStateBody(projectWikiPreviewState.preview.draft.bodyMarkdown)}</dd>
-                              </div>
-                              <div>
-                                <dt>태그</dt>
-                                <dd>{projectWikiPreviewState.preview.draft.tags.join(", ") || "태그 없음"}</dd>
-                              </div>
-                              <div>
-                                <dt>공용화 주의</dt>
-                                <dd>{projectWikiPreviewState.preview.draft.commonizationCaution || "공용화 주의 문구 없음"}</dd>
-                              </div>
-                            </dl>
+                            <label className="task-assistant__field task-assistant__field--plain">
+                              <span>제목</span>
+                              <input
+                                disabled={busy}
+                                onChange={(event) => updateProjectWikiDraftEditor("title", event.target.value)}
+                                value={projectWikiDraftEditor.title}
+                              />
+                            </label>
+                            <label className="task-assistant__field task-assistant__field--plain">
+                              <span>요약</span>
+                              <textarea
+                                disabled={busy}
+                                onChange={(event) => updateProjectWikiDraftEditor("summary", event.target.value)}
+                                rows={3}
+                                value={projectWikiDraftEditor.summary}
+                              />
+                            </label>
+                            <label className="task-assistant__field task-assistant__field--plain">
+                              <span>본문 Markdown</span>
+                              <textarea
+                                disabled={busy}
+                                onChange={(event) => updateProjectWikiDraftEditor("bodyMarkdown", event.target.value)}
+                                rows={8}
+                                value={projectWikiDraftEditor.bodyMarkdown}
+                              />
+                            </label>
+                            <label className="task-assistant__field task-assistant__field--plain">
+                              <span>태그</span>
+                              <input
+                                disabled={busy}
+                                onChange={(event) => setProjectWikiTagsInput(event.target.value)}
+                                placeholder="쉼표로 구분"
+                                value={projectWikiTagsInput}
+                              />
+                            </label>
+                            <div className="task-assistant__summary-preview">
+                              <strong>공용화 주의</strong>
+                              <p>{projectWikiDraftEditor.commonizationCaution || "공용화 주의 문구 없음"}</p>
+                            </div>
+                            {projectWikiDraftValidationMessage ? (
+                              <p className="task-assistant__diagnostic task-assistant__diagnostic--fail">
+                                {projectWikiDraftValidationMessage}
+                              </p>
+                            ) : null}
                           </div>
                         ) : (
                           <p className="task-assistant__hint">
                             {projectWikiPreviewState.preview.blockingReason || "프로젝트wiki 등록 초안을 만들 수 없습니다."}
                           </p>
                         )}
-                        {canRegisterProjectWiki ? (
+                        {canShowProjectWikiRegistrationActions ? (
                           <div className="task-assistant__project-wiki-actions">
-                            <p className="task-assistant__hint">
-                              프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.
-                            </p>
+                            <div className="task-assistant__summary-preview">
+                              <p>프로젝트wiki로 등록하면 공용WIKI 후보도 자동 생성됩니다.</p>
+                              <p>공용WIKI 후보는 관리자 검토 전까지 공용WIKI로 재사용되지 않습니다.</p>
+                            </div>
                             <button
                               aria-expanded={projectWikiNoteExpanded}
                               className="task-assistant__subtle-button"
@@ -3126,6 +3217,10 @@ export function TaskAssistantPanel({
                     ) : null}
                     {projectWikiPreviewState.status === "registered" ? (
                       <div className="task-assistant__project-wiki-registered">
+                        <div className="task-assistant__history-tags">
+                          <span>프로젝트wiki 등록됨</span>
+                          {projectWikiPreviewState.item.commonCandidateRecordId ? <span>공용WIKI 후보 생성</span> : null}
+                        </div>
                         <strong>{projectWikiPreviewState.item.title}</strong>
                         <p>{projectWikiPreviewState.item.summary}</p>
                         <small>프로젝트wiki ID {projectWikiPreviewState.item.id}</small>
@@ -3133,10 +3228,10 @@ export function TaskAssistantPanel({
                           <a
                             href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(projectWikiPreviewState.item.commonCandidateRecordId)}`}
                           >
-                            공용wiki 후보 열기
+                            공용WIKI 후보 열기
                           </a>
                         ) : (
-                          <small>공용wiki 후보 상태: 생성 정보 없음</small>
+                          <small>공용WIKI 후보 상태: 생성 정보 없음</small>
                         )}
                       </div>
                     ) : null}
@@ -3911,6 +4006,131 @@ function isRegisterableProjectWikiState(state: ProjectWikiRegistrationPreview["s
   return state === "recommended" || state === "caution";
 }
 
+function cloneProjectWikiDraft(draft: ProjectWikiDraft): ProjectWikiDraft {
+  return {
+    ...draft,
+    tags: [...draft.tags],
+  };
+}
+
+function parseProjectWikiTags(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\n]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 8);
+}
+
+function projectWikiDraftRequiredMessage(draft: ProjectWikiDraft) {
+  if (!draft.title.trim()) {
+    return "프로젝트wiki 제목을 입력하세요.";
+  }
+  if (!draft.summary.trim()) {
+    return "프로젝트wiki 요약을 입력하세요.";
+  }
+  if (!draft.bodyMarkdown.trim()) {
+    return "프로젝트wiki 본문 Markdown을 입력하세요.";
+  }
+  return "";
+}
+
+function groupReviewSessionHistory(items: AssistantReviewSessionItem[]) {
+  const grouped = new Map<string, AssistantReviewSessionItem[]>();
+  for (const item of items) {
+    const key = reviewSessionGroupKey(item);
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([key, groupItems]) => {
+      const sortedItems = [...groupItems].sort(compareReviewSessionItemsByNewest);
+      const latest = sortedItems[0];
+      const projectWikiItem = sortedItems.find((item) => item.projectWikiState?.projectWikiItemId);
+      const commonCandidate = sortedItems.find((item) => item.projectWikiState?.commonCandidateRecordId);
+      return {
+        key,
+        latest,
+        versionCount: sortedItems.length,
+        latestTimestamp: latestReviewSessionTimestamp(latest),
+        latestGeneratedAt: generatedOrCreatedReviewSessionTimestamp(latest),
+        questionLabel: compactHistoryLabel(latest.question || latest.title || "질문 없음", 96),
+        runContextLabel: reviewSessionRunContextLabel(latest),
+        hasApprovedWorkRecord: sortedItems.some((item) => item.savedRecord.cleanupState === "approved"),
+        hasRegisteredProjectWiki: sortedItems.some(
+          (item) => item.projectWikiState?.registrationState === "registered" || Boolean(item.projectWikiState?.projectWikiItemId),
+        ),
+        projectWikiItemId: projectWikiItem?.projectWikiState?.projectWikiItemId ?? null,
+        commonCandidateRecordId: commonCandidate?.projectWikiState?.commonCandidateRecordId ?? null,
+      };
+    })
+    .sort((left, right) => timestampValue(right.latestTimestamp) - timestampValue(left.latestTimestamp));
+}
+
+function reviewSessionGroupKey(item: AssistantReviewSessionItem) {
+  const questionKey = normalizeHistoryGroupText(item.question) || `session:${item.id}`;
+  return [
+    item.taskId,
+    questionKey,
+    item.savedRecord.executionMode ?? "unknown-execution",
+    item.savedRecord.runtimeMode ?? "unknown-runtime",
+  ].join("::");
+}
+
+function reviewSessionRunContextLabel(item: AssistantReviewSessionItem) {
+  return [
+    executionModeLabel(item.savedRecord.executionMode ?? "unavailable"),
+    runtimeModeLabel(item.savedRecord.runtimeMode ?? ""),
+  ].join(" / ");
+}
+
+function compareReviewSessionItemsByNewest(left: AssistantReviewSessionItem, right: AssistantReviewSessionItem) {
+  return timestampValue(latestReviewSessionTimestamp(right)) - timestampValue(latestReviewSessionTimestamp(left));
+}
+
+function latestReviewSessionTimestamp(item: AssistantReviewSessionItem) {
+  return latestTimestamp([
+    item.savedRecord.updatedAt,
+    item.updatedAt,
+    item.savedAt,
+    item.savedRecord.createdAt,
+  ]);
+}
+
+function generatedOrCreatedReviewSessionTimestamp(item: AssistantReviewSessionItem) {
+  return latestTimestamp([item.savedRecord.createdAt, item.savedAt, item.updatedAt]);
+}
+
+function latestTimestamp(values: Array<string | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => timestampValue(right) - timestampValue(left))[0] ?? ""
+  );
+}
+
+function timestampValue(value: string | undefined) {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function normalizeHistoryGroupText(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function compactHistoryLabel(value: string, limit: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) {
+    return normalized || "질문 없음";
+  }
+  return `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
 function restoreExecutionMode(value: SavedAssistantRecord["executionMode"]): AssistantOutput["executionMode"] {
   if (value === "saas-api" || value === "local-chatgpt-codex") {
     return value;
@@ -3969,14 +4189,6 @@ function projectWikiSuitabilityTone(state: ProjectWikiRegistrationPreview["state
     return "caution";
   }
   return "not-recommended";
-}
-
-function projectWikiStateBody(value: string) {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "본문 없음";
-  }
-  return normalized.length > 700 ? `${normalized.slice(0, 700)}...` : normalized;
 }
 
 function normalizeGeneratedRetrieval(value: unknown): RetrieveResponse | undefined {

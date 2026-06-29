@@ -410,12 +410,28 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
     panelContent.includes("프로젝트wiki 등록 재시도") &&
     panelContent.includes("canRetryProjectWikiRegistration") &&
     panelContent.includes("보완 메모 추가") &&
-    panelContent.includes("프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.") &&
+    !panelContent.includes("프로젝트wiki로 즉시 등록되고, 공용wiki 후보 검토에도 올라갑니다.") &&
+    panelContent.includes("projectWikiDraftEditor") &&
+    panelContent.includes("projectWikiEditedDraft") &&
+    panelContent.includes("updateProjectWikiDraftEditor") &&
+    panelContent.includes("parseProjectWikiTags") &&
+    panelContent.includes("projectWikiDraftRequiredMessage") &&
+    panelContent.includes("draft: projectWikiEditedDraft") &&
+    panelContent.includes("공용WIKI 후보 생성") &&
     panelContent.includes("commonizationCaution") &&
     panelContent.includes("commonCandidateRecordId") &&
     panelContent.includes('state === "recommended" || state === "caution"');
+  const hasGroupedTemporaryHistory = panelContent.includes("reviewHistoryGroups") &&
+    panelContent.includes("groupReviewSessionHistory") &&
+    panelContent.includes("reviewSessionGroupKey") &&
+    panelContent.includes("versionCount") &&
+    panelContent.includes("버전 {group.versionCount}개") &&
+    panelContent.includes("questionLabel") &&
+    panelContent.includes("runContextLabel") &&
+    !panelContent.includes("recordHistory.slice(0, 6).map");
   const hasHistoryStatusChips = panelContent.includes("작업기록 승인됨") &&
     panelContent.includes("프로젝트wiki 등록됨") &&
+    panelContent.includes("공용WIKI 후보 생성") &&
     panelContent.includes("savedRecord.cleanupState") &&
     panelContent.includes("projectWikiState?.registrationState");
   const historyIndex = panelContent.indexOf('aria-label="임시 검토 기록: 생성 후 자동저장된 최근 임시 검토 기록입니다."');
@@ -429,7 +445,7 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
     panelContent.includes("initialReviewSessionId") &&
     panelContent.includes("initialWorkSummaryDraftId") &&
     panelContent.includes("프로젝트 WIKI 열기") &&
-    panelContent.includes("공용wiki 후보 열기") &&
+    panelContent.includes("공용WIKI 후보 열기") &&
     workspaceContent.includes("assistantReviewSessionId") &&
     workspaceContent.includes("initialWorkSummaryDraftId={focusWorkSummaryDraftId}");
   const previewMocksUpdated = [
@@ -455,6 +471,7 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
       manualPrimaryRemoved &&
       hasDeleteUndo &&
       hasProjectWikiPreviewRegister &&
+      hasGroupedTemporaryHistory &&
       hasHistoryStatusChips &&
       hasBasicHistoryAccess &&
       hasReviewSessionRestore &&
@@ -465,13 +482,14 @@ function checkTaskAssistantAutoSaveProjectWikiUx() {
       manualPrimaryRemoved &&
       hasDeleteUndo &&
       hasProjectWikiPreviewRegister &&
+      hasGroupedTemporaryHistory &&
       hasHistoryStatusChips &&
       hasBasicHistoryAccess &&
       hasReviewSessionRestore &&
       previewMocksUpdated &&
       cssUpdated
-      ? "Task 5 UI anchors exist for auto-save, retry, delete/restore undo, basic temporary history, project WIKI preview/register, preview mocks, and compact styling"
-      : "missing Task 5 auto-save, retry, delete/restore undo, basic temporary history, project WIKI preview/register, preview mock, history chip, or CSS anchor",
+      ? "Task 5 UI anchors exist for auto-save, retry, delete/restore undo, grouped temporary history, editable project WIKI preview/register, explicit common candidate status, preview mocks, and compact styling"
+      : "missing Task 5 auto-save, retry, delete/restore undo, grouped temporary history, editable project WIKI preview/register, preview mock, history chip, explicit common candidate status, or CSS anchor",
   );
 }
 

@@ -273,7 +273,7 @@ export function AssistantPanelPreviewClient() {
       if (url.pathname === "/api/assistant/summaries" && requestMethod(init) === "POST") {
         const body = await readJsonBody(init);
         const draft = createWorkSummaryDraft(body);
-        markPreviewReviewSessionApproved(reviewSessions, reviewSessionDetails, readString(body.recordId));
+        markPreviewReviewSessionApproved(reviewSessions, reviewSessionDetails, readString(body.recordId), draft);
         return jsonResponse(draft, 201);
       }
 
@@ -445,6 +445,10 @@ function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map(readString).filter(Boolean) : [];
+}
+
 function readNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -533,8 +537,10 @@ function markPreviewReviewSessionApproved(
   reviewSessions: ReturnType<typeof createReviewSessionItem>[],
   reviewSessionDetails: Map<string, ReturnType<typeof createReviewSessionDetail>>,
   recordId: string,
+  draft: ReturnType<typeof createWorkSummaryDraft>,
 ) {
-  const detail = reviewSessionDetails.get(recordId);
+  const detail = reviewSessionDetails.get(recordId) ??
+    Array.from(reviewSessionDetails.values()).find((candidate) => candidate.savedRecord.id === recordId);
   if (!detail) {
     return;
   }
@@ -543,6 +549,12 @@ function markPreviewReviewSessionApproved(
     savedRecord: {
       ...detail.savedRecord,
       cleanupState: "approved",
+      draftSummary: {
+        conclusion: draft.conclusion,
+        tags: draft.tags,
+        scope: draft.scope,
+        followUpAction: draft.followUpAction,
+      },
     },
     updatedAt: previewNow,
   };
@@ -625,7 +637,8 @@ function createProjectWikiItem(
   }
 
   const detail = reviewSessionDetails.get(sourceReviewRecordId);
-  const draft = detail ? createProjectWikiDraft(detail) : createProjectWikiDraft(createReviewSessionDetail(createReviewSessionItem(sourceReviewRecordId, {}), {}));
+  const baseDraft = detail ? createProjectWikiDraft(detail) : createProjectWikiDraft(createReviewSessionDetail(createReviewSessionItem(sourceReviewRecordId, {}), {}));
+  const draft = readProjectWikiDraftBody(body, baseDraft);
   return {
     ...draft,
     id: `preview-project-wiki-${projectWikiItems.length + 1}`,
@@ -645,6 +658,18 @@ function createProjectWikiItem(
     disabledAt: null,
     restoredBy: null,
     restoredAt: null,
+  };
+}
+
+function readProjectWikiDraftBody(body: Record<string, unknown>, fallback: ReturnType<typeof createProjectWikiDraft>) {
+  const draftBody = isPlainObject(body.draft) ? body.draft : body;
+  const tags = readStringArray(draftBody.tags);
+  return {
+    ...fallback,
+    title: readString(draftBody.title) || fallback.title,
+    summary: readString(draftBody.summary) || fallback.summary,
+    bodyMarkdown: readString(draftBody.bodyMarkdown) || fallback.bodyMarkdown,
+    tags: tags.length ? tags : fallback.tags,
   };
 }
 

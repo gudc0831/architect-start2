@@ -78,10 +78,16 @@ const registerProjectWikiSource = projectWikiService.slice(
   projectWikiService.indexOf("export async function registerProjectWiki"),
   projectWikiService.indexOf("export async function setProjectWikiStatus"),
 );
+const setProjectWikiStatusSource = projectWikiService.slice(
+  projectWikiService.indexOf("export async function setProjectWikiStatus"),
+  projectWikiService.indexOf("function readActionLogs"),
+);
 const postgresAssistantSearch = postgresStore.slice(postgresStore.indexOf("async searchProjectWikiForAssistant"));
 const localStore = read("src/repositories/project-wiki/local-store.ts");
 const localAssistantSearch = localStore.slice(localStore.indexOf("async searchProjectWikiForAssistant"));
 const projectWikiPage = read("src/components/project-context/project-wiki-page.tsx");
+const projectWikiRoute = read("src/app/api/projects/[projectId]/project-wiki/route.ts");
+const projectWikiStatusRoute = read("src/app/api/projects/[projectId]/project-wiki/[itemId]/status/route.ts");
 assert.match(
   postgresStore,
   /catch \(error\) \{[\s\S]*isUniqueConstraintError\(error\)[\s\S]*findProjectWikiBySourceReviewRecord[\s\S]*return existing;/,
@@ -108,11 +114,35 @@ assert.match(projectWikiService, /deletedAt:\s*sourceRecord\.reviewDeletedAt \?\
 assert.match(registerProjectWikiSource, /readStoredProjectWikiRegistrationPreview/);
 assert.doesNotMatch(registerProjectWikiSource, /buildProjectWikiRegistrationPreview/);
 assert.match(registerProjectWikiSource, /isRegisterableProjectWikiState\(storedPreview\.state\)/);
+assert.match(projectWikiRoute, /readOptionalDraft\(rawBody\)/);
+assert.match(projectWikiRoute, /draft\?\.title/);
+assert.match(projectWikiRoute, /draft\?\.summary/);
+assert.match(projectWikiRoute, /draft\?\.bodyMarkdown/);
+assert.match(projectWikiRoute, /draft\?\.tags/);
+assert.match(registerProjectWikiSource, /applyProjectWikiDraftEdits\(storedPreview\.draft/);
+assert.match(registerProjectWikiSource, /draft,\s*actorProfileId/s);
+assert.doesNotMatch(registerProjectWikiSource, /draft: storedPreview\.draft/);
+assert.match(setProjectWikiStatusSource, /projectWikiRepository\.getProjectWikiItem/);
+assert.match(setProjectWikiStatusSource, /buildProjectWikiStatusControl/);
+assert.match(setProjectWikiStatusSource, /forbidden\(statusControl\.reason, "PROJECT_WIKI_STATUS_FORBIDDEN"\)/);
+assert.match(setProjectWikiStatusSource, /normalizeStatusReason\(action, input\.reason\)/);
+assert.match(projectWikiService, /action === "disable" && !reason/);
+assert.match(projectWikiService, /PROJECT_WIKI_DISABLE_REASON_REQUIRED/);
+assert.match(projectWikiService, /input\.user\.role === "admin"/);
+assert.match(projectWikiService, /input\.projectRole === "manager"/);
+assert.match(projectWikiService, /input\.item\.createdBy === input\.user\.id/);
+assert.match(projectWikiStatusRoute, /action: body\.action/);
+assert.match(projectWikiStatusRoute, /reason: body\.reason/);
 assert.match(projectWikiPage, /sourceReview:\s*\{\s*available:\s*boolean;\s*deletedAt:\s*string \| null;/);
 assert.match(projectWikiPage, /임시 검토 기록 삭제됨/);
 assert.match(projectWikiPage, /function approvedWorkRecordHref/);
 assert.match(projectWikiPage, /if \(detail\.sourceReview\.available\) \{[\s\S]*assistantReviewSessionId/);
 assert.match(projectWikiPage, /삭제된 임시 검토 기록과 별도 승인 기록/);
+assert.match(projectWikiPage, /canChangeStatus:\s*boolean/);
+assert.match(projectWikiPage, /if \(action === "disable" && !normalizedReason\)/);
+assert.match(projectWikiPage, /비활성화 사유 필수/);
+assert.match(projectWikiPage, /isStatusControlDisabled/);
+assert.match(projectWikiPage, /복원 사유는 선택 입력입니다/);
 assert.match(suitabilityService, /runAssistantProviderWithSaasGovernance/);
 assert.match(suitabilityService, /auditEventType:\s*"project_wiki\.suitability\.success"/);
 assert.match(suitabilityService, /!policy\.enabled \|\| policy\.provider !== "openai"/);

@@ -190,6 +190,10 @@ const assistantIndex = read("src/repositories/assistant/index.ts");
 const assistantLocalStore = read("src/repositories/assistant/local-store.ts");
 const assistantPostgresStore = read("src/repositories/assistant/postgres-store.ts");
 const adminKnowledgeService = read("src/use-cases/admin/knowledge-service.ts");
+const projectWikiService = read("src/use-cases/project-wiki-service.ts");
+const projectWikiRoute = read("src/app/api/projects/[projectId]/project-wiki/route.ts");
+const projectWikiStatusRoute = read("src/app/api/projects/[projectId]/project-wiki/[itemId]/status/route.ts");
+const projectWikiPage = read("src/components/project-context/project-wiki-page.tsx");
 assert.equal(
   normalizeTypeDefinition(readObjectType(contracts, "RegisterProjectWikiInput")),
   normalizeTypeDefinition(`export type RegisterProjectWikiInput = {
@@ -216,6 +220,31 @@ assert.match(contracts, /setProjectWikiStatus\(input: SetProjectWikiStatusInput\
 assert.doesNotMatch(readObjectType(contracts, "RegisterProjectWikiInput"), /commonCandidateRecordId/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult/);
 assert.doesNotMatch(contracts, /RegisterProjectWikiResult = \{[\s\S]*actionLog/);
+assert.match(projectWikiRoute, /const draft = readOptionalDraft\(rawBody\)/);
+assert.match(projectWikiRoute, /title: readOptionalString\(rawBody, "title"\) \?\? draft\?\.title/);
+assert.match(projectWikiRoute, /summary: readOptionalString\(rawBody, "summary"\) \?\? draft\?\.summary/);
+assert.match(projectWikiRoute, /bodyMarkdown: readOptionalString\(rawBody, "bodyMarkdown"\) \?\? draft\?\.bodyMarkdown/);
+assert.match(projectWikiRoute, /tags: readOptionalStringArray\(rawBody, "tags"\) \?\? draft\?\.tags/);
+assert.match(projectWikiRoute, /badRequest\("draft must be an object\.", "PROJECT_WIKI_DRAFT_INVALID"\)/);
+assert.match(projectWikiService, /title\?: string;/);
+assert.match(projectWikiService, /summary\?: string;/);
+assert.match(projectWikiService, /bodyMarkdown\?: string;/);
+assert.match(projectWikiService, /tags\?: string\[\];/);
+assert.match(projectWikiService, /const draft = applyProjectWikiDraftEdits\(storedPreview\.draft/);
+assert.match(projectWikiService, /draft,\s*actorProfileId/s);
+assert.doesNotMatch(projectWikiService, /draft: storedPreview\.draft/);
+assert.match(projectWikiService, /PROJECT_WIKI_STATUS_PERMISSION_REASON/);
+assert.match(projectWikiService, /input\.user\.role === "admin"/);
+assert.match(projectWikiService, /input\.projectRole === "manager"/);
+assert.match(projectWikiService, /input\.item\.createdBy === input\.user\.id/);
+assert.match(projectWikiService, /forbidden\(statusControl\.reason, "PROJECT_WIKI_STATUS_FORBIDDEN"\)/);
+assert.match(projectWikiService, /normalizeStatusReason\(action, input\.reason\)/);
+assert.match(projectWikiService, /PROJECT_WIKI_DISABLE_REASON_REQUIRED/);
+assert.match(projectWikiStatusRoute, /reason: typeof rawBody\.reason === "string" \? rawBody\.reason : ""/);
+assert.match(projectWikiPage, /statusControl:\s*\{\s*canChangeStatus:\s*boolean;/);
+assert.match(projectWikiPage, /placeholder=\{selectedDetail\.item\.status === "active" \? "비활성화 사유 필수" : "복원 사유 선택 입력"\}/);
+assert.match(projectWikiPage, /disabled=\{isStatusControlDisabled\(selectedDetail, busy, reason\)\}/);
+assert.match(projectWikiPage, /statusControl\.reason/);
 assert.match(postgresStore, /updateCommonWikiCandidateSourceStatus/);
 assert.match(postgresStore, /commonWikiCandidate:\s*\{\s*\.\.\.\(metadata\.commonWikiCandidate \?\? \{\}\),\s*sourceProjectWikiStatus: input\.status/s);
 assert.match(postgresStore, /commonCandidateRecordId: current\.commonCandidateRecordId/);

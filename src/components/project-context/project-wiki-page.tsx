@@ -18,6 +18,12 @@ type ProjectWikiDetail = {
     deletedAt: string | null;
   };
   actionLogs: ProjectWikiActionLog[];
+  statusControl: {
+    canChangeStatus: boolean;
+    reason: string;
+    disableReasonRequired: boolean;
+    restoreReasonRequired: boolean;
+  };
 };
 
 type ProjectWikiStatusResult = {
@@ -135,6 +141,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
           item,
           sourceReview: previewSourceReviewAvailability(item),
           actionLogs: previewActionLogs[item.id] ?? [],
+          statusControl: previewStatusControl(),
         }
       : null;
   }, [preview, previewActionLogs, previewItems, selectedItemId]);
@@ -243,11 +250,24 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
     };
   }, [preview, projectId, selectedItemId, selectedPreviewDetail]);
 
+  const selectedDetail = preview ? selectedPreviewDetail : detail;
+
   async function changeStatus(item: ProjectWikiItem) {
     const action = item.status === "active" ? "disable" : "restore";
+    const selectedStatusControl =
+      selectedDetail?.item.id === item.id ? selectedDetail.statusControl : null;
+    if (selectedStatusControl && !selectedStatusControl.canChangeStatus) {
+      setStatusText(selectedStatusControl.reason || "프로젝트 WIKI 상태를 변경할 권한이 없습니다.");
+      return;
+    }
+    const normalizedReason = reason.trim();
+    if (action === "disable" && !normalizedReason) {
+      setStatusText("비활성화 사유를 입력하세요.");
+      return;
+    }
     if (preview) {
-      const updated = updatePreviewItemStatus(item, action, reason);
-      const actionLog = createPreviewActionLog(updated, action, reason);
+      const updated = updatePreviewItemStatus(item, action, normalizedReason);
+      const actionLog = createPreviewActionLog(updated, action, normalizedReason);
       setPreviewItems((current) => current.map((candidate) => (candidate.id === item.id ? updated : candidate)));
       setPreviewActionLogs((current) => ({
         ...current,
@@ -270,7 +290,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
           "Content-Type": "application/json",
           "x-architect-request-intent": "mutate",
         },
-        body: JSON.stringify({ action, reason }),
+        body: JSON.stringify({ action, reason: normalizedReason }),
       });
       const payload = await response.json().catch(() => ({})) as { data?: ProjectWikiStatusResult; error?: { message?: string } };
       if (!response.ok || !payload.data) {
@@ -284,6 +304,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
               item: nextItem,
               sourceReview: current.sourceReview,
               actionLogs: payload.data?.actionLog ? [payload.data.actionLog, ...current.actionLogs] : current.actionLogs,
+              statusControl: current.statusControl,
             }
           : current,
       );
@@ -295,8 +316,6 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
       setBusy(false);
     }
   }
-
-  const selectedDetail = preview ? selectedPreviewDetail : detail;
 
   return (
     <section className={styles.wikiShell} aria-busy={busy} aria-label="프로젝트 WIKI">
@@ -357,7 +376,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                     <dd>{formatDate(item.createdAt)}</dd>
                   </div>
                   <div>
-                    <dt>common candidate status</dt>
+                    <dt>공용WIKI 후보 상태</dt>
                     <dd>{commonCandidateStatus(item)}</dd>
                   </div>
                 </dl>
@@ -418,7 +437,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                   <dd>{selectedDetail.item.aiSuitabilityReason || "사유 없음"}</dd>
                 </div>
                 <div>
-                  <dt>common WIKI candidate link/status</dt>
+                  <dt>공용WIKI 후보 상태</dt>
                   <dd>{commonCandidateLink(selectedDetail.item)}</dd>
                 </div>
                 <div>
@@ -448,15 +467,22 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                 <label className={styles.searchField}>
                   <span>사유</span>
                   <input
+                    disabled={busy || !selectedDetail.statusControl.canChangeStatus}
                     onChange={(event) => setReason(event.target.value)}
-                    placeholder="선택 입력"
+                    placeholder={selectedDetail.item.status === "active" ? "비활성화 사유 필수" : "복원 사유 선택 입력"}
                     type="text"
                     value={reason}
                   />
                 </label>
-                <button className="secondary-button" disabled={busy} onClick={() => void changeStatus(selectedDetail.item)} type="button">
+                <button
+                  className="secondary-button"
+                  disabled={isStatusControlDisabled(selectedDetail, busy, reason)}
+                  onClick={() => void changeStatus(selectedDetail.item)}
+                  type="button"
+                >
                   {selectedDetail.item.status === "active" ? "비활성화" : "복원"}
                 </button>
+                <p className={styles.empty}>{statusControlHint(selectedDetail, reason)}</p>
               </section>
             </>
           ) : (
@@ -555,7 +581,7 @@ function suitabilityLabel(state: ProjectWikiSuitabilityState) {
 function commonCandidateStatus(item: ProjectWikiItem) {
   switch (item.commonCandidateStatus) {
     case "candidate":
-      return "후보";
+      return "공용WIKI 후보 생성";
     case "pending_review":
       return "SaaS 검토 대기";
     case "approved":
@@ -565,13 +591,13 @@ function commonCandidateStatus(item: ProjectWikiItem) {
     case "not_candidate":
       return "후보 아님";
     default:
-      return item.commonCandidateRecordId ? "후보 상태 확인 필요" : "후보 없음";
+      return item.commonCandidateRecordId ? "공용WIKI 후보 상태 확인 필요" : "공용WIKI 후보 없음";
   }
 }
 
 function commonCandidateLink(item: ProjectWikiItem) {
   if (!item.commonCandidateRecordId) {
-    return "공용 WIKI 후보 없음";
+    return "공용WIKI 후보 없음";
   }
   return (
     <a href={`/admin/knowledge?work=candidates&candidateId=${encodeURIComponent(item.commonCandidateRecordId)}`}>
@@ -618,6 +644,32 @@ function previewSourceReviewAvailability(item: ProjectWikiItem): ProjectWikiDeta
     available: true,
     deletedAt: null,
   };
+}
+
+function previewStatusControl(): ProjectWikiDetail["statusControl"] {
+  return {
+    canChangeStatus: true,
+    reason: "",
+    disableReasonRequired: true,
+    restoreReasonRequired: false,
+  };
+}
+
+function isStatusControlDisabled(detail: ProjectWikiDetail, busy: boolean, reason: string) {
+  if (busy || !detail.statusControl.canChangeStatus) {
+    return true;
+  }
+  return detail.item.status === "active" && !reason.trim();
+}
+
+function statusControlHint(detail: ProjectWikiDetail, reason: string) {
+  if (!detail.statusControl.canChangeStatus) {
+    return detail.statusControl.reason || "프로젝트 WIKI 상태를 변경할 권한이 없습니다.";
+  }
+  if (detail.item.status === "active") {
+    return reason.trim() ? "비활성화 사유는 action log에 기록됩니다." : "비활성화 사유를 입력하세요.";
+  }
+  return "복원 사유는 선택 입력입니다.";
 }
 
 function formatDate(value: string) {

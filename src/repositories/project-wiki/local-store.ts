@@ -126,7 +126,7 @@ class LocalProjectWikiRepository implements ProjectWikiRepository {
       projectId: input.projectId,
       taskId: sourceReview.taskId,
       profileId: input.actorProfileId,
-      question: `Project WIKI common candidate: ${input.draft.title}`,
+      question: `공용WIKI 후보 생성: ${input.draft.title}`,
       answer: input.draft.bodyMarkdown,
       evidence: sourceReview.evidence,
       confidenceScore: suitabilityConfidenceScore(input.draft.aiSuitabilityState),

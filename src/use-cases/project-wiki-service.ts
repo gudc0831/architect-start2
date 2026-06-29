@@ -1,9 +1,28 @@
+import type { ProjectMembershipRole } from "@/domains/admin/types";
 import type { AuthUser } from "@/domains/auth/types";
 import type { ProjectWikiActionLog, ProjectWikiDraft, ProjectWikiItem } from "@/domains/project-wiki/types";
-import { badRequest, notFound } from "@/lib/api/errors";
+import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { requireProjectAccess } from "@/lib/auth/project-guards";
 import { assistantRepository } from "@/repositories/assistant";
 import { projectWikiRepository } from "@/repositories/project-wiki";
+
+const PROJECT_WIKI_EDIT_LIMITS = {
+  title: 80,
+  summary: 220,
+  bodyMarkdown: 2400,
+  tags: 8,
+  statusReason: 200,
+} as const;
+
+const PROJECT_WIKI_STATUS_PERMISSION_REASON =
+  "프로젝트 WIKI 생성자, 프로젝트 매니저 또는 관리자만 비활성화/복원할 수 있습니다.";
+
+type ProjectWikiStatusControl = {
+  canChangeStatus: boolean;
+  reason: string;
+  disableReasonRequired: true;
+  restoreReasonRequired: false;
+};
 
 export async function listProjectWiki(input: {
   projectId: string;
@@ -35,7 +54,7 @@ export async function getProjectWikiDetail(input: {
   itemId: string;
   user: AuthUser;
 }) {
-  await requireProjectAccess(input.projectId, input.user);
+  const access = await requireProjectAccess(input.projectId, input.user);
   const item = await projectWikiRepository.getProjectWikiItem({
     projectId: input.projectId,
     itemId: normalizeRequiredText(input.itemId, "itemId"),
@@ -52,6 +71,11 @@ export async function getProjectWikiDetail(input: {
     item: stripActionLogs(item),
     sourceReview,
     actionLogs: readActionLogs(item),
+    statusControl: buildProjectWikiStatusControl({
+      item,
+      user: access.user,
+      projectRole: access.membership?.role ?? null,
+    }),
   };
 }
 
@@ -83,6 +107,10 @@ export async function registerProjectWiki(input: {
   sourceReviewRecordId: string;
   sourceWorkSummaryDraftId: string;
   supplementalNote?: string;
+  title?: string;
+  summary?: string;
+  bodyMarkdown?: string;
+  tags?: string[];
   user: AuthUser;
 }) {
   await requireProjectAccess(input.projectId, input.user);
@@ -114,6 +142,12 @@ export async function registerProjectWiki(input: {
       "PROJECT_WIKI_PREVIEW_REQUIRED",
     );
   }
+  const draft = applyProjectWikiDraftEdits(storedPreview.draft, {
+    title: input.title,
+    summary: input.summary,
+    bodyMarkdown: input.bodyMarkdown,
+    tags: input.tags,
+  });
 
   return projectWikiRepository.registerProjectWiki({
     projectId: input.projectId,
@@ -121,7 +155,7 @@ export async function registerProjectWiki(input: {
     sourceReviewRecordId,
     sourceWorkSummaryDraftId,
     supplementalNote: normalizeOptionalText(input.supplementalNote),
-    draft: storedPreview.draft,
+    draft,
     actorProfileId: input.user.id,
     actorDisplay: displayName(input.user),
   });
@@ -134,16 +168,32 @@ export async function setProjectWikiStatus(input: {
   reason?: string;
   user: AuthUser;
 }) {
-  await requireProjectAccess(input.projectId, input.user);
+  const access = await requireProjectAccess(input.projectId, input.user);
   const itemId = normalizeRequiredText(input.itemId, "itemId");
   const action = normalizeStatusAction(input.action);
+  const item = await projectWikiRepository.getProjectWikiItem({
+    projectId: input.projectId,
+    itemId,
+  });
+  if (!item) {
+    throw notFound("Project WIKI item not found.", "PROJECT_WIKI_ITEM_NOT_FOUND");
+  }
+  const statusControl = buildProjectWikiStatusControl({
+    item,
+    user: access.user,
+    projectRole: access.membership?.role ?? null,
+  });
+  if (!statusControl.canChangeStatus) {
+    throw forbidden(statusControl.reason, "PROJECT_WIKI_STATUS_FORBIDDEN");
+  }
+
   return projectWikiRepository.setProjectWikiStatus({
     projectId: input.projectId,
     itemId,
     status: action === "disable" ? "disabled" : "active",
     actorProfileId: input.user.id,
     actorDisplay: displayName(input.user),
-    reason: normalizeOptionalText(input.reason),
+    reason: normalizeStatusReason(action, input.reason),
   });
 }
 
@@ -181,6 +231,20 @@ function normalizeStatusAction(value: string) {
   throw badRequest("action must be disable or restore.", "PROJECT_WIKI_STATUS_ACTION_INVALID");
 }
 
+function normalizeStatusReason(action: "disable" | "restore", value: string | undefined) {
+  const reason = normalizeOptionalText(value);
+  if (action === "disable" && !reason) {
+    throw badRequest("비활성화 사유를 입력하세요.", "PROJECT_WIKI_DISABLE_REASON_REQUIRED");
+  }
+  if (reason.length > PROJECT_WIKI_EDIT_LIMITS.statusReason) {
+    throw badRequest(
+      `사유는 ${PROJECT_WIKI_EDIT_LIMITS.statusReason}자 이내로 입력하세요.`,
+      "PROJECT_WIKI_STATUS_REASON_TOO_LONG",
+    );
+  }
+  return reason;
+}
+
 function normalizeRequiredText(value: string | undefined, field: string) {
   const normalized = value?.trim() ?? "";
   if (!normalized) {
@@ -191,6 +255,88 @@ function normalizeRequiredText(value: string | undefined, field: string) {
 
 function normalizeOptionalText(value: string | undefined) {
   return value?.replace(/\u0000/g, "").replace(/\s+/gu, " ").trim() ?? "";
+}
+
+function applyProjectWikiDraftEdits(
+  draft: ProjectWikiDraft,
+  edits: {
+    title?: string;
+    summary?: string;
+    bodyMarkdown?: string;
+    tags?: string[];
+  },
+): ProjectWikiDraft {
+  return {
+    ...draft,
+    title:
+      edits.title === undefined
+        ? draft.title
+        : normalizeEditedRequiredText(edits.title, "title", "제목", PROJECT_WIKI_EDIT_LIMITS.title),
+    summary:
+      edits.summary === undefined
+        ? draft.summary
+        : normalizeEditedRequiredText(edits.summary, "summary", "요약", PROJECT_WIKI_EDIT_LIMITS.summary),
+    bodyMarkdown:
+      edits.bodyMarkdown === undefined
+        ? draft.bodyMarkdown
+        : normalizeEditedRequiredMultilineText(
+            edits.bodyMarkdown,
+            "bodyMarkdown",
+            "본문",
+            PROJECT_WIKI_EDIT_LIMITS.bodyMarkdown,
+          ),
+    tags: edits.tags === undefined ? draft.tags : normalizeEditedTags(edits.tags),
+  };
+}
+
+function normalizeEditedRequiredText(value: string, field: string, label: string, maxLength: number) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    throw badRequest(`프로젝트 WIKI ${label}을 입력하세요.`, `PROJECT_WIKI_${field.toUpperCase()}_REQUIRED`);
+  }
+  if (normalized.length > maxLength) {
+    throw badRequest(
+      `프로젝트 WIKI ${label}은 ${maxLength}자 이내로 입력하세요.`,
+      `PROJECT_WIKI_${field.toUpperCase()}_TOO_LONG`,
+    );
+  }
+  return normalized;
+}
+
+function normalizeEditedRequiredMultilineText(value: string, field: string, label: string, maxLength: number) {
+  const normalized = normalizeMultilineText(value);
+  if (!normalized) {
+    throw badRequest(`프로젝트 WIKI ${label}을 입력하세요.`, `PROJECT_WIKI_${field.toUpperCase()}_REQUIRED`);
+  }
+  if (normalized.length > maxLength) {
+    throw badRequest(
+      `프로젝트 WIKI ${label}은 ${maxLength}자 이내로 입력하세요.`,
+      `PROJECT_WIKI_${field.toUpperCase()}_TOO_LONG`,
+    );
+  }
+  return normalized;
+}
+
+function normalizeEditedTags(tags: string[]) {
+  const normalizedTags = tags.map(normalizeOptionalText).filter(Boolean);
+  return [...new Set(normalizedTags)].slice(0, PROJECT_WIKI_EDIT_LIMITS.tags);
+}
+
+function buildProjectWikiStatusControl(input: {
+  item: ProjectWikiItem;
+  user: AuthUser;
+  projectRole: ProjectMembershipRole | null;
+}): ProjectWikiStatusControl {
+  const canChangeStatus =
+    input.user.role === "admin" ||
+    input.projectRole === "manager" ||
+    input.item.createdBy === input.user.id;
+  return {
+    canChangeStatus,
+    reason: canChangeStatus ? "" : PROJECT_WIKI_STATUS_PERMISSION_REASON,
+    disableReasonRequired: true,
+    restoreReasonRequired: false,
+  };
 }
 
 function displayName(user: AuthUser) {

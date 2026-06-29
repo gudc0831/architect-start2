@@ -28,13 +28,19 @@ async function main() {
     await page.getByRole("heading", { name: "방화 구획 검토 기준" }).waitFor();
     await page.getByText("source temporary review record").waitFor();
     await page.getByText("approved work record link").waitFor();
-    await page.getByText("common WIKI candidate link/status").waitFor();
+    await page.getByText("공용WIKI 후보 상태").first().waitFor();
+    await page.getByText("공용WIKI 후보 생성", { exact: true }).first().waitFor();
     await page.getByLabel("프로젝트 WIKI action log").getByText("상태 변경 기록이 없습니다.").waitFor();
 
-    await page.getByPlaceholder("선택 입력").fill("smoke 상태 변경 확인");
-    await page.getByRole("button", { name: "비활성화" }).click();
+    const disableButton = page.getByRole("button", { name: "비활성화" });
+    await expectDisabled(disableButton);
+    await page.getByText("비활성화 사유를 입력하세요.").waitFor();
+    await page.getByPlaceholder("비활성화 사유 필수").fill("smoke 상태 변경 확인");
+    await expectEnabled(disableButton);
+    await disableButton.click();
     await page.getByLabel("프로젝트 WIKI action log").getByText("Preview User").waitFor();
     await page.getByLabel("프로젝트 WIKI action log").getByText("smoke 상태 변경 확인").waitFor();
+    await page.getByPlaceholder("복원 사유 선택 입력").waitFor();
 
     assert.equal(errors.length, 0, errors.join("\n\n"));
     await page.screenshot({ path: "test-results/project-wiki-preview-smoke.png", fullPage: true });
@@ -46,3 +52,11 @@ async function main() {
 }
 
 void main();
+
+async function expectDisabled(locator: import("playwright").Locator) {
+  assert.equal(await locator.isDisabled(), true);
+}
+
+async function expectEnabled(locator: import("playwright").Locator) {
+  assert.equal(await locator.isEnabled(), true);
+}
