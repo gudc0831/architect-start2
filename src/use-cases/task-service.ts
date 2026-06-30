@@ -150,7 +150,10 @@ export async function createTask(
   const recordTiming = options.recordTiming;
   const project = selectedProject ?? (await timeStage(recordTiming, "service.selectedProject", () => getSelectedTaskProject()));
   const shouldResolveParent = hasParentTaskReference(input);
-  const activeTasksPromise = shouldResolveParent
+  const requestedSiblingOrder =
+    typeof input.siblingOrder === "number" && Number.isFinite(input.siblingOrder) ? Math.trunc(input.siblingOrder) : undefined;
+  const shouldInsertBeforeExistingSiblings = requestedSiblingOrder !== undefined && requestedSiblingOrder < 0;
+  const activeTasksPromise = shouldResolveParent || shouldInsertBeforeExistingSiblings
     ? timeStage(recordTiming, "service.activeTasksForParent", () => taskRepository.listActiveTasks(project.id))
     : Promise.resolve([]);
   const [activeTasks, effectiveCategories, foundationSettings, assignee] = await Promise.all([
@@ -164,8 +167,6 @@ export async function createTask(
     : null;
   const parent = parentTaskId ? activeTasks.find((task) => task.id === parentTaskId) ?? null : null;
   const status = timeStageSync(recordTiming, "service.inputNormalization", () => normalizeStatus(input.status));
-  const requestedSiblingOrder =
-    typeof input.siblingOrder === "number" && Number.isFinite(input.siblingOrder) ? input.siblingOrder : undefined;
 
   const createInput = timeStageSync(recordTiming, "service.repositoryInputBuild", () => ({
     projectId: project.id,
@@ -213,14 +214,38 @@ export async function createTask(
     parentTaskId,
     rootTaskId: parent ? parent.rootTaskId : undefined,
     depth: parent ? parent.depth + 1 : 0,
-    siblingOrder: requestedSiblingOrder ?? (shouldResolveParent ? nextSiblingOrder(activeTasks, parentTaskId) : undefined),
+    siblingOrder:
+      requestedSiblingOrder !== undefined
+        ? Math.max(0, requestedSiblingOrder)
+        : shouldResolveParent
+          ? nextSiblingOrder(activeTasks, parentTaskId)
+          : undefined,
     createdBy: userId ?? null,
     updatedBy: userId ?? null,
   }));
 
-  const task = await timeStage(recordTiming, "service.repositoryCreate", () =>
+  let task = await timeStage(recordTiming, "service.repositoryCreate", () =>
     taskRepository.createTask(createInput, { recordTiming }),
   );
+
+  if (shouldInsertBeforeExistingSiblings) {
+    const reorderedTasks = await timeStage(recordTiming, "service.createSiblingOrderRebase", () =>
+      taskRepository.setTaskSiblingOrder?.({
+        projectId: project.id,
+        parentTaskId,
+        orderedTaskIds: [
+          task.id,
+          ...activeTasks
+            .filter((candidate) => (candidate.parentTaskId ?? null) === parentTaskId)
+            .sort(compareTasksBySiblingOrder)
+            .map((candidate) => candidate.id),
+        ],
+        siblingOrderStart: 0,
+        updatedBy: userId ?? null,
+      }) ?? Promise.resolve([]),
+    );
+    task = reorderedTasks.find((candidate) => candidate.id === task.id) ?? task;
+  }
 
   return timeStageSync(recordTiming, "service.applyFoundationSettings", () => applyFoundationSettingsToTask(task, foundationSettings));
 }

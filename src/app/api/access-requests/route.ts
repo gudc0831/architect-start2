@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/api/route-error";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
+import { backendMode } from "@/lib/backend-mode";
 import { listAccessRequests, submitAccessRequest } from "@/use-cases/access-request-service";
 
 export async function GET(request: Request) {
   try {
     const user = await requireUser();
     const requestUrl = new URL(request.url);
+    if (backendMode !== "cloud") {
+      return NextResponse.json({ data: [] });
+    }
     const data = await listAccessRequests({
       actor: user,
       projectId: requestUrl.searchParams.get("projectId"),

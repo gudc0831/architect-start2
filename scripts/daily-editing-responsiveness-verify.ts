@@ -522,6 +522,14 @@ assert.match(taskWorkspaceSource, /const isDailyManualReorderDisabled = hasActiv
 assert.match(taskWorkspaceSource, /if \(!canReorderDailyTasks\) \{\s*setErrorMessage\(t\("errors\.workspaceReadOnly"\)\);/);
 assert.match(taskWorkspaceSource, /canReorderRows=\{canReorderDailyTasks\}/);
 assert.match(taskUpdateRouteSource, /export const maxDuration = 30/);
+assert.match(taskWorkspaceSource, /dailyCellDocumentsEnabled && isTextCellDocumentField\(field\) && !isOptimisticTaskId\(currentTask\.id\)/);
+assert.match(taskWorkspaceSource, /readTextCellDocumentUpdatePatchEntries\(payload as Partial<TaskRecord>\)/);
+assert.match(taskWorkspaceSource, /clientMutationId: createDailyMutationId\(\)/);
+assert.match(taskWorkspaceSource, /readTextCellDocumentUpdatePatchEntries\(payload\.patch\)/);
+assert.match(taskWorkspaceSource, /flushDailyTextCellDocumentMutation\(\{/);
+assert.match(taskWorkspaceSource, /fieldKey === "version"/);
+assert.match(taskWorkspaceSource, /\/api\/task-cell-documents\/\$\{encodeURIComponent\(input\.taskId\)\}\/\$\{encodeURIComponent\(fieldKey\)\}\/updates/);
+assert.match(taskWorkspaceSource, /publishCellDocumentUpdateEvent\(\{/);
 assert.match(taskTrashRouteSource, /export const maxDuration = 30/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_MAX = process\.env\.VERCEL \? 1 : 3/);
 assert.match(prismaSource, /const DEFAULT_DATABASE_POOL_IDLE_TIMEOUT_MS = process\.env\.VERCEL \? 2_000 : 10_000/);

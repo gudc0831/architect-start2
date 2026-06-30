@@ -44,6 +44,12 @@ import { createTaskGridDomRegistry, createTaskGridCellKey } from "@/components/t
 import { createTaskListRowMetricsStore } from "@/components/tasks/task-grid-metrics-store";
 import { TaskInlineEditorOverlay } from "@/components/tasks/task-inline-editor-overlay";
 import { TaskCellEditor } from "@/components/tasks/cell-documents/task-cell-editor";
+import {
+  createTaskCellYDocument,
+  replaceTaskCellYText,
+  uint8ArrayToBase64,
+} from "@/components/tasks/cell-documents/cell-document-store";
+import { publishCellDocumentUpdateEvent } from "@/components/tasks/cell-documents/cell-document-transport";
 import { TaskListCategoricalHeaderFilter as TaskListCategoricalHeaderFilterPopover } from "@/components/tasks/task-list-categorical-header-filter";
 import { TaskListOrderHeaderMenu } from "@/components/tasks/task-list-order-header-menu";
 import {
@@ -4183,6 +4189,27 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       const currentTask =
         dashboardStateByScopeRef.current.active.tasks.find((task) => task.id === taskId) ??
         dashboardStateByScopeRef.current.trash.tasks.find((task) => task.id === taskId);
+      const textCellDocumentPatchEntries = dailyCellDocumentsEnabled
+        ? readTextCellDocumentUpdatePatchEntries(payload.patch)
+        : null;
+      if (textCellDocumentPatchEntries) {
+        await flushDailyTextCellDocumentMutation({
+          clientMutationId: operation.clientMutationId,
+          patchEntries: textCellDocumentPatchEntries,
+          taskId,
+        });
+        clearTaskPendingPatchValues(taskId, payload.patch);
+        if (currentTask) {
+          const patch = Object.fromEntries(textCellDocumentPatchEntries) as Partial<TaskRecord>;
+          applyTaskClientUpdate(
+            applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...patch })),
+            textCellDocumentPatchEntries.map(([fieldKey]) => fieldKey),
+          );
+        }
+        await markDailyMutationSynced(operation);
+        return;
+      }
+
       const version = currentTask?.version ?? payload.baseVersion;
       const buildUpdateRequest = (nextVersion: number) =>
         fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}`, {
@@ -4511,6 +4538,22 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
           withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...optimisticPayload }),
           dirtyFields.filter((field) => field !== "parentTaskNumber"),
         );
+      }
+
+      const textCellDocumentPatchEntries = dailyCellDocumentsEnabled
+        ? readTextCellDocumentUpdatePatchEntries(payload as Partial<TaskRecord>)
+        : null;
+      if (textCellDocumentPatchEntries) {
+        await flushDailyTextCellDocumentMutation({
+          clientMutationId: createDailyMutationId(),
+          patchEntries: textCellDocumentPatchEntries,
+          taskId: currentDraft.id,
+        });
+        if (previousTaskBeforeSave) {
+          const patch = Object.fromEntries(textCellDocumentPatchEntries) as Partial<TaskRecord>;
+          applyTaskClientUpdate(withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...patch }), dirtyFields);
+        }
+        return true;
       }
 
       const response = await fetch(`/api/tasks/${encodeURIComponent(currentDraft.id)}`, {
@@ -5154,6 +5197,33 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         return null;
       }
 
+      const textCellDocumentPatchEntries = dailyCellDocumentsEnabled
+        ? readTextCellDocumentUpdatePatchEntries(payload)
+        : null;
+      if (textCellDocumentPatchEntries) {
+        await flushDailyTextCellDocumentMutation({
+          clientMutationId: createDailyMutationId(),
+          patchEntries: textCellDocumentPatchEntries,
+          taskId: task.id,
+        });
+        const currentTask =
+          (selectedTaskRef.current?.id === task.id ? selectedTaskRef.current : null) ??
+          dashboardStateByScopeRef.current.active.tasks.find((candidate) => candidate.id === task.id) ??
+          dashboardStateByScopeRef.current.trash.tasks.find((candidate) => candidate.id === task.id) ??
+          null;
+        if (!currentTask) {
+          return null;
+        }
+
+        const patch = Object.fromEntries(textCellDocumentPatchEntries) as Partial<TaskRecord>;
+        const updatedTask = withEmptyTaskFileSummary({ ...currentTask, ...patch });
+        if (options.applyServerUpdate !== false) {
+          applyTaskClientUpdate(updatedTask, options.clearedDirtyFields ?? []);
+          setTaskListSelection(task.id);
+        }
+        return updatedTask;
+      }
+
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -5176,7 +5246,15 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       }
       return json.data;
     },
-    [applyTaskServerUpdate, isWorkspaceReadOnly, refreshScope, setErrorMessage, setTaskListSelection],
+    [
+      applyTaskClientUpdate,
+      applyTaskServerUpdate,
+      dailyCellDocumentsEnabled,
+      isWorkspaceReadOnly,
+      refreshScope,
+      setErrorMessage,
+      setTaskListSelection,
+    ],
   );
   const addTaskPendingPatchValues = useCallback((taskId: string, payload: Partial<TaskRecord>) => {
     taskPendingPatchValuesRef.current[taskId] = mergePendingTaskPatchValues(
@@ -5416,6 +5494,16 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         );
       }
 
+      if (dailyCellDocumentsEnabled && isTextCellDocumentField(field) && !isOptimisticTaskId(currentTask.id)) {
+        clearDraftDirtyFields(clearedDirtyFields);
+        applyTaskClientUpdate(withEmptyTaskFileSummary({ ...currentTask, ...payload }), clearedDirtyFields);
+        releaseActiveTaskListEditLease();
+        activeTaskListInlineEditCellRef.current = null;
+        setTaskListActiveInlineEditCell(null);
+        setPendingTaskListFocusCell(null);
+        return;
+      }
+
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
       addTaskPendingPatchValues(currentTask.id, payload);
       const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
@@ -5472,6 +5560,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       applyTaskPendingPatchValues,
       clearDraftDirtyFields,
       clearTaskPendingPatchValues,
+      dailyCellDocumentsEnabled,
       dailyMutationScope,
       flushDailyMutationJournal,
       queueTaskPatch,
@@ -11320,6 +11409,96 @@ function readDailyMutationFlushErrorInfo(error: unknown): DailyMutationFlushErro
   }
 
   return { status: null, code: null, isNetworkError: false };
+}
+
+type TaskCellDocumentSnapshotResponse = {
+  data: {
+    projectId: string;
+    taskId: string;
+    fieldKey: TextCellDocumentFieldKey;
+    plainText: string;
+    yStateBase64: string | null;
+  };
+};
+
+function readTextCellDocumentUpdatePatchEntries(
+  patch: Partial<TaskRecord>,
+): Array<[TextCellDocumentFieldKey, string]> | null {
+  const entries = Object.entries(patch);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const textEntries: Array<[TextCellDocumentFieldKey, string]> = [];
+  for (const [fieldKey, value] of entries) {
+    if (fieldKey === "version") {
+      continue;
+    }
+
+    if (!isTextCellDocumentField(fieldKey)) {
+      return null;
+    }
+
+    textEntries.push([fieldKey, String(value ?? "")]);
+  }
+
+  return textEntries.length > 0 ? textEntries : null;
+}
+
+async function flushDailyTextCellDocumentMutation(input: {
+  taskId: string;
+  clientMutationId: string;
+  patchEntries: Array<[TextCellDocumentFieldKey, string]>;
+}) {
+  for (const [fieldKey, nextText] of input.patchEntries) {
+    const snapshotResponse = await fetchDailyMutationRequest(
+      `/api/task-cell-documents/${encodeURIComponent(input.taskId)}/${encodeURIComponent(fieldKey)}`,
+      { cache: "no-store" },
+    );
+    if (!snapshotResponse.ok) {
+      throw await readApiError(snapshotResponse, "updateTaskFailed");
+    }
+
+    const snapshotJson = (await snapshotResponse.json()) as TaskCellDocumentSnapshotResponse;
+    const snapshot = snapshotJson.data;
+    if (snapshot.plainText === nextText) {
+      continue;
+    }
+
+    const cellDocument = createTaskCellYDocument({
+      plainText: snapshot.plainText,
+      yStateBase64: snapshot.yStateBase64,
+    });
+    const update = replaceTaskCellYText(cellDocument, nextText);
+    if (update.byteLength === 0) {
+      continue;
+    }
+
+    const clientUpdateId = `${input.clientMutationId}:${fieldKey}`;
+    const updateBase64 = uint8ArrayToBase64(update);
+    const response = await fetchDailyMutationRequest(
+      `/api/task-cell-documents/${encodeURIComponent(input.taskId)}/${encodeURIComponent(fieldKey)}/updates`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientUpdateId,
+          updateBase64,
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw await readApiError(response, "updateTaskFailed");
+    }
+
+    publishCellDocumentUpdateEvent({
+      projectId: snapshot.projectId,
+      taskId: snapshot.taskId,
+      fieldKey: snapshot.fieldKey,
+      clientUpdateId,
+      updateBase64,
+    });
+  }
 }
 
 function downloadBlob(blob: Blob, filename: string) {

@@ -3,6 +3,7 @@ import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
+import { backendMode } from "@/lib/backend-mode";
 import { listProjectContextUploads } from "@/use-cases/project-context-approval-service";
 import { processProjectContextUpload } from "@/use-cases/project-context-processing-service";
 import { createProjectContextUpload } from "@/use-cases/project-context-upload-service";
@@ -14,6 +15,9 @@ export async function GET(
   try {
     const user = await requireUser();
     const { projectId } = await context.params;
+    if (backendMode !== "cloud") {
+      return NextResponse.json({ data: { items: [], canApprove: user.role === "admin" } });
+    }
     const data = await listProjectContextUploads({ projectId, user });
     return NextResponse.json({ data });
   } catch (error) {

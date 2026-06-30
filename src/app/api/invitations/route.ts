@@ -4,6 +4,7 @@ import { handleRouteError } from "@/lib/api/route-error";
 import { isAssignableProjectRole } from "@/lib/auth/project-capabilities";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
+import { backendMode } from "@/lib/backend-mode";
 import { createProjectInvitation, listProjectInvitations } from "@/use-cases/invitation-service";
 
 export async function GET(request: Request) {
@@ -15,6 +16,9 @@ export async function GET(request: Request) {
       throw badRequest("projectId is required", "PROJECT_ID_REQUIRED");
     }
 
+    if (backendMode !== "cloud") {
+      return NextResponse.json({ data: [] });
+    }
     const data = await listProjectInvitations({ projectId, actor: user });
     return NextResponse.json({ data });
   } catch (error) {
