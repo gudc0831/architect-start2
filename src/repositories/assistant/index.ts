@@ -80,6 +80,9 @@ export const assistantRepository: AssistantRepository = {
   createUsageEvent(input) {
     return getAssistantRepository().createUsageEvent(input);
   },
+  updateUsageEvent(input) {
+    return getAssistantRepository().updateUsageEvent(input);
+  },
   listUsageEvents(input) {
     return getAssistantRepository().listUsageEvents(input);
   },

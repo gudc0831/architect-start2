@@ -25,6 +25,7 @@ import {
   type LocalScanRange,
 } from "@/components/ai-settings/local-usage-cache";
 import { UsageChart } from "@/components/ai-settings/usage-chart";
+import { t } from "@/lib/ui-copy";
 import styles from "./ai-settings.module.css";
 
 type AiSettingsClientProps = {
@@ -514,7 +515,7 @@ function localStatusLabel(status: LocalCodexStatus | null, state: LoadState) {
     return "확인 중";
   }
   if (status?.available) {
-    return "연결됨";
+    return t("system.configured");
   }
   if (state === "idle") {
     return "확인 대기";

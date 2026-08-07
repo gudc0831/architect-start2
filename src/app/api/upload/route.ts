@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveCanonicalUploadContentType } from "@/domains/file/content-security";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireCurrentProjectEditor } from "@/lib/auth/project-guards";
@@ -19,9 +20,26 @@ export async function POST(request: Request) {
       throw badRequest("file and taskId are required");
     }
 
-    const record = await attachUploadedFile({ taskId, file, userId: user.id });
+    const record = await attachUploadedFile({
+      taskId,
+      file: withCanonicalUploadContentType(file),
+      userId: user.id,
+    });
     return NextResponse.json({ data: record }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
   }
+}
+
+function withCanonicalUploadContentType(file: File) {
+  const contentType = resolveCanonicalUploadContentType(file.name);
+
+  if (file.type === contentType) {
+    return file;
+  }
+
+  return new File([file], file.name, {
+    type: contentType,
+    lastModified: file.lastModified,
+  });
 }

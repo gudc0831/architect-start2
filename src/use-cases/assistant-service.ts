@@ -26,6 +26,10 @@ import {
   isExternalEvidenceSourceType,
   type ExternalEvidenceSourceType,
 } from "@/domains/assistant/external-evidence";
+import {
+  hasLegalChangeEvidenceImpact,
+  inspectLegalChangeEvidence,
+} from "@/domains/assistant/legal-change-impact";
 import { getFileAnalysisEntries } from "@/domains/file/analysis";
 import type { FileAnalysisEntry, FileAnalysisSourceType } from "@/domains/file/analysis";
 import type { AuthUser } from "@/domains/auth/types";
@@ -373,11 +377,13 @@ function readLegalEvidenceReadinessWarnings(evidence: AssistantEvidence[]): Evid
   const warnings: EvidenceReadinessWarning[] = [];
   const seen = new Set<string>();
   for (const item of evidence) {
-    if (!item.legal) {
+    const legal = inspectLegalChangeEvidence(item);
+    if (!legal.present) {
       continue;
     }
-    if (item.legal.stale) {
-      const key = `stale:${item.legal.sourceId}`;
+    const sourceId = legal.sourceId || item.id;
+    if (legal.stale) {
+      const key = `stale:${sourceId}`;
       if (!seen.has(key)) {
         seen.add(key);
         warnings.push({
@@ -386,13 +392,23 @@ function readLegalEvidenceReadinessWarnings(evidence: AssistantEvidence[]): Evid
         });
       }
     }
-    if (item.legal.legalChangeWarnings.length > 0) {
-      const key = `change:${item.legal.sourceId}:${item.legal.legalChangeWarnings.join(",")}`;
+    if (legal.warnings.length > 0) {
+      const key = `change:${sourceId}:${legal.warnings.join(",")}`;
       if (!seen.has(key)) {
         seen.add(key);
         warnings.push({
           code: "VERIFIED_LEGAL_CHANGE_WARNING",
-          message: `Legal evidence "${item.title}" has legal-change warnings: ${item.legal.legalChangeWarnings.join(", ")}.`,
+          message: `Legal evidence "${item.title}" has legal-change warnings: ${legal.warnings.join(", ")}.`,
+        });
+      }
+    }
+    if (legal.malformed) {
+      const key = `malformed:${sourceId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        warnings.push({
+          code: "VERIFIED_LEGAL_METADATA_INVALID",
+          message: `Legal evidence "${item.title}" has incomplete legal-change metadata and requires review.`,
         });
       }
     }
@@ -1400,10 +1416,6 @@ function buildConfidenceReason(score: number, evidence: AssistantEvidence[]) {
 
 function normalizeLegalChangeConfidence(score: number, evidence: AssistantEvidence[]) {
   return hasLegalChangeEvidenceImpact(evidence) ? Math.min(score, 45) : score;
-}
-
-function hasLegalChangeEvidenceImpact(evidence: AssistantEvidence[]) {
-  return evidence.some((item) => item.legal?.stale || (item.legal?.legalChangeWarnings.length ?? 0) > 0);
 }
 
 function normalizeExecutionMode(value: unknown): AssistantExecutionMode {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deflateRawSync, deflateSync } from "node:zlib";
 import {
   buildProjectContextProcessingPlan,
   createProjectContextChunkDrafts,
@@ -129,5 +130,159 @@ async function main() {
   assert.equal(extracted.extractionKind, "text");
   assert.match(extracted.extractedText, /project note condition/);
 
+  const safeDocx = buildStoredZip([
+    {
+      name: "word/document.xml",
+      data: Buffer.from(
+        "<w:document><w:body><w:p><w:r><w:t>Safe DOCX project condition</w:t></w:r></w:p></w:body></w:document>",
+        "utf8",
+      ),
+    },
+  ]);
+  const extractedDocx = await extractProjectContextUploadText({
+    uploadId: "00000000-0000-0000-0000-000000000003",
+    projectId: "00000000-0000-0000-0000-000000000002",
+    originalFilename: "safe.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    fileSizeBytes: safeDocx.byteLength,
+    bytes: safeDocx,
+  });
+  assert.match(extractedDocx.extractedText, /Safe DOCX project condition/);
+
+  const zipBomb = buildStoredZip([
+    {
+      name: "word/document.xml",
+      data: Buffer.from("x"),
+      declaredUncompressedSize: 100 * 1024 * 1024,
+    },
+  ]);
+  await assert.rejects(
+    () =>
+      extractProjectContextUploadText({
+        uploadId: "00000000-0000-0000-0000-000000000004",
+        projectId: "00000000-0000-0000-0000-000000000002",
+        originalFilename: "bomb.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        fileSizeBytes: zipBomb.byteLength,
+        bytes: zipBomb,
+      }),
+    isExtractionResourceLimit,
+  );
+
+  const deceptiveZipBomb = buildStoredZip([
+    {
+      name: "word/document.xml",
+      data: Buffer.alloc(17 * 1024 * 1024, 0x41),
+      declaredUncompressedSize: 1,
+      compressionMethod: 8,
+    },
+  ]);
+  await assert.rejects(
+    () =>
+      extractProjectContextUploadText({
+        uploadId: "00000000-0000-0000-0000-000000000007",
+        projectId: "00000000-0000-0000-0000-000000000002",
+        originalFilename: "deceptive-bomb.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        fileSizeBytes: deceptiveZipBomb.byteLength,
+        bytes: deceptiveZipBomb,
+      }),
+    isExtractionResourceLimit,
+  );
+
+  const safePdf = buildCompressedPdf(Buffer.from("BT (Safe PDF project condition) Tj ET", "latin1"));
+  const extractedPdf = await extractProjectContextUploadText({
+    uploadId: "00000000-0000-0000-0000-000000000005",
+    projectId: "00000000-0000-0000-0000-000000000002",
+    originalFilename: "safe.pdf",
+    mimeType: "application/pdf",
+    fileSizeBytes: safePdf.byteLength,
+    bytes: safePdf,
+  });
+  assert.match(extractedPdf.extractedText, /Safe PDF project condition/);
+
+  const pdfBomb = buildCompressedPdf(Buffer.alloc(9 * 1024 * 1024, 0x41));
+  await assert.rejects(
+    () =>
+      extractProjectContextUploadText({
+        uploadId: "00000000-0000-0000-0000-000000000006",
+        projectId: "00000000-0000-0000-0000-000000000002",
+        originalFilename: "bomb.pdf",
+        mimeType: "application/pdf",
+        fileSizeBytes: pdfBomb.byteLength,
+        bytes: pdfBomb,
+      }),
+    isExtractionResourceLimit,
+  );
+
   console.log(JSON.stringify({ status: "passed", processing: "project_context" }));
+}
+
+function buildStoredZip(
+  entries: Array<{
+    name: string;
+    data: Buffer;
+    declaredUncompressedSize?: number;
+    compressionMethod?: 0 | 8;
+  }>,
+) {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let localOffset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const compressionMethod = entry.compressionMethod ?? 0;
+    const payload = compressionMethod === 8 ? deflateRawSync(entry.data) : entry.data;
+    const declaredUncompressedSize = entry.declaredUncompressedSize ?? entry.data.byteLength;
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(compressionMethod, 8);
+    localHeader.writeUInt32LE(payload.byteLength, 18);
+    localHeader.writeUInt32LE(declaredUncompressedSize, 22);
+    localHeader.writeUInt16LE(name.byteLength, 26);
+
+    const localPart = Buffer.concat([localHeader, name, payload]);
+    localParts.push(localPart);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(compressionMethod, 10);
+    centralHeader.writeUInt32LE(payload.byteLength, 20);
+    centralHeader.writeUInt32LE(declaredUncompressedSize, 24);
+    centralHeader.writeUInt16LE(name.byteLength, 28);
+    centralHeader.writeUInt32LE(localOffset, 42);
+    centralParts.push(Buffer.concat([centralHeader, name]));
+    localOffset += localPart.byteLength;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDirectory.byteLength, 12);
+  eocd.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...localParts, centralDirectory, eocd]);
+}
+
+function buildCompressedPdf(streamContent: Buffer) {
+  const compressed = deflateSync(streamContent);
+  return Buffer.concat([
+    Buffer.from("%PDF-1.7\n1 0 obj\n<< /Filter /FlateDecode >>\nstream\n", "latin1"),
+    compressed,
+    Buffer.from("\nendstream\nendobj\n%%EOF", "latin1"),
+  ]);
+}
+
+function isExtractionResourceLimit(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "FILE_AUTO_EXTRACTION_RESOURCE_LIMIT",
+  );
 }

@@ -41,8 +41,25 @@ export type FileAnalysisEntry = {
   updatedAt: string;
 };
 
+export type FilePurgeObject = {
+  storageBucket: string;
+  objectPath: string;
+};
+
+export type FilePurgeState = {
+  operationId: string;
+  state: "pending" | "retryable" | "completed";
+  objects: FilePurgeObject[];
+  deletedObjectKeys: string[];
+  attemptCount: number;
+  requestedAt: string;
+  updatedAt: string;
+  lastError: string | null;
+};
+
 export type FileMetadata = {
   analysis?: FileAnalysisEntry[];
+  purge?: FilePurgeState;
 };
 
 const sourceTypes = new Set<FileAnalysisSourceType>(["document_text", "manual_text", "ocr_text", "image_region"]);
@@ -57,8 +74,12 @@ export function normalizeFileMetadata(value: unknown): FileMetadata {
   const analysis = Array.isArray(value.analysis)
     ? value.analysis.map(normalizeFileAnalysisEntry).filter((entry): entry is FileAnalysisEntry => Boolean(entry))
     : [];
+  const purge = normalizeFilePurgeState(value.purge);
 
-  return analysis.length > 0 ? { analysis } : {};
+  return {
+    ...(analysis.length > 0 ? { analysis } : {}),
+    ...(purge ? { purge } : {}),
+  };
 }
 
 export function getFileAnalysisEntries(value: FileMetadata | unknown): FileAnalysisEntry[] {
@@ -201,6 +222,66 @@ function normalizeFileAnalysisEntry(value: unknown): FileAnalysisEntry | null {
     createdBy: typeof value.createdBy === "string" && value.createdBy ? value.createdBy : null,
     createdAt,
     updatedAt,
+  };
+}
+
+function normalizeFilePurgeState(value: unknown): FilePurgeState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const operationId = normalizeString(value.operationId);
+  const requestedAt = normalizeString(value.requestedAt);
+  const updatedAt = normalizeString(value.updatedAt);
+  const state =
+    value.state === "pending" || value.state === "retryable" || value.state === "completed"
+      ? value.state
+      : null;
+  const attemptCount = Number(value.attemptCount);
+  if (
+    !operationId ||
+    !requestedAt ||
+    !updatedAt ||
+    !state ||
+    !Number.isInteger(attemptCount) ||
+    attemptCount < 0 ||
+    !Array.isArray(value.objects)
+  ) {
+    return undefined;
+  }
+
+  const objects = value.objects
+    .map((candidate) => {
+      if (!isRecord(candidate)) {
+        return null;
+      }
+      const storageBucket = normalizeString(candidate.storageBucket);
+      const objectPath = normalizeString(candidate.objectPath);
+      return storageBucket && objectPath ? { storageBucket, objectPath } : null;
+    })
+    .filter((candidate): candidate is FilePurgeObject => Boolean(candidate));
+  if (objects.length !== value.objects.length || objects.length === 0) {
+    return undefined;
+  }
+  const objectKeys = new Set(objects.map((object) => `${object.storageBucket}:${object.objectPath}`));
+  const deletedObjectKeys = Array.isArray(value.deletedObjectKeys)
+    ? [
+        ...new Set(
+          value.deletedObjectKeys
+            .map(normalizeString)
+            .filter((key) => key && objectKeys.has(key)),
+        ),
+      ]
+    : [];
+
+  return {
+    operationId,
+    state,
+    objects,
+    deletedObjectKeys,
+    attemptCount,
+    requestedAt,
+    updatedAt,
+    lastError: typeof value.lastError === "string" ? value.lastError.slice(0, 500) : null,
   };
 }
 

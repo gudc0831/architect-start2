@@ -64,15 +64,22 @@ import {
   deleteDailyMutationOperation,
   getDailyCreateClientMutationIdFromTempTaskId,
   isDailyReorderMutationSatisfiedByServerState,
+  isDailyMutationOperationAttemptCurrent,
   listDailyMutationOperations,
+  mergeDailyMutationOperationsIntoActiveFiles,
   mergeDailyMutationOperationsIntoActiveTasks,
+  mergeDailyMutationOperationsIntoTrashFiles,
   mergeDailyMutationOperationsIntoTrashTasks,
   putDailyMutationOperation,
+  rebaseDailySelectionDeleteMutationOperation,
   rebaseDailyReorderMutationOperation,
   rebaseDailyUpdateMutationOperation,
   reconcileDailyMutationCreateSuccess,
   shouldContinueRetryingDailyMutation,
   shouldMarkDailyDeleteMutationSyncedFromServerState,
+  shouldMarkDailyFileTrashMutationSyncedFromServerState,
+  shouldMarkDailyFileRestoreMutationSyncedFromServerState,
+  shouldMarkDailyRestoreMutationSyncedFromServerState,
   shouldMarkDailyTrashMutationSyncedFromServerState,
   shouldRecoverLegacyFailedDailyMutation,
   shouldResetDailyMutationSyncingOperation,
@@ -984,7 +991,10 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   const localFirstActiveTasksRef = useRef<TaskRecord[]>([]);
   const dailyMutationFlushTimerRef = useRef<number | null>(null);
   const dailyMutationFlushRunningRef = useRef(false);
+  const dailyMutationFlushRequestedRef = useRef(false);
+  const dailyMutationManualFlushRequestedRef = useRef(false);
   const dailyMutationRemoteRefreshSuppressFlushUntilRef = useRef(0);
+  const flushDailyMutationJournalRef = useRef<(options?: { manual?: boolean }) => Promise<void>>(async () => undefined);
   const flushDailyMutationOperationRef = useRef<(operation: DailyMutationOperation) => Promise<void>>(async () => undefined);
   const settleDailyFailedReorderIfServerSatisfiedRef = useRef<
     (operation: DailyMutationOperation, now: number) => Promise<boolean>
@@ -1046,7 +1056,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     viewportWidth < MOBILE_BREAKPOINT ? "stacked" : viewportWidth < TABLET_BREAKPOINT ? "wrapped" : "strip";
   const isLocalAuthPlaceholder = authUser?.id === "local-auth-placeholder";
   const dailyMutationScope = useMemo<DailyMutationScope | null>(() => {
-    if (mode !== "daily" || isPreview || !currentProjectId || !authUser?.id || isLocalAuthPlaceholder) {
+    if ((mode !== "daily" && mode !== "trash") || isPreview || !currentProjectId || !authUser?.id || isLocalAuthPlaceholder) {
       return null;
     }
 
@@ -1060,7 +1070,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   const isInlineSaving = Object.values(inlineSavingFields).some(Boolean);
   const isExportDisabled = !canExportTasks || loading || saving || isExporting || isInlineSaving || isReorderingTasks;
   const dailyMutationStatusLabel = useMemo(() => {
-    if (mode !== "daily") {
+    if (mode !== "daily" && mode !== "trash") {
       return null;
     }
 
@@ -1086,7 +1096,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     mode,
   ]);
   const dailyMutationStatusDebug = useMemo(() => {
-    if (mode !== "daily") {
+    if (mode !== "daily" && mode !== "trash") {
       return null;
     }
 
@@ -1460,7 +1470,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       await Promise.all(
         staleSyncingOperations.map((operation) =>
           updateDailyMutationOperation(operation.operationId, (current) =>
-            shouldResetDailyMutationSyncingOperation(current)
+            isDailyMutationOperationAttemptCurrent(current, operation) && shouldResetDailyMutationSyncingOperation(current)
               ? {
                   ...current,
                   status: "pending",
@@ -1478,7 +1488,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       await Promise.all(
         legacyFailedOperations.map((operation) =>
           updateDailyMutationOperation(operation.operationId, (current) =>
-            shouldRecoverLegacyFailedDailyMutation(current)
+            isDailyMutationOperationAttemptCurrent(current, operation) && shouldRecoverLegacyFailedDailyMutation(current)
               ? {
                   ...current,
                   status: "pending",
@@ -2627,11 +2637,16 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   }, [ensureLoaded]);
 
   const localFirstTasks = useMemo(() => {
-    if (mode !== "daily" || !dailyMutationJournalReady || dailyMutationOperations.length === 0) {
+    if (!dailyMutationJournalReady || dailyMutationOperations.length === 0) {
       return tasks;
     }
 
-    const next = mergeDailyMutationOperationsIntoActiveTasks(tasks, dailyMutationOperations);
+    const next =
+      mode === "daily"
+        ? mergeDailyMutationOperationsIntoActiveTasks(tasks, dailyMutationOperations)
+        : mode === "trash"
+          ? mergeDailyMutationOperationsIntoTrashTasks(tasks, dailyMutationOperations)
+          : tasks;
     return areTaskCollectionsEquivalent(tasks, next) ? tasks : next;
   }, [dailyMutationJournalReady, dailyMutationOperations, mode, tasks]);
 
@@ -3807,7 +3822,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   );
 
   useEffect(() => {
-    if (mode !== "daily" || !dailyMutationJournalReady || dailyMutationOperations.length === 0) {
+    if ((mode !== "daily" && mode !== "trash") || !dailyMutationJournalReady || dailyMutationOperations.length === 0) {
       return;
     }
 
@@ -3824,6 +3839,15 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         return areTaskCollectionsEquivalent(previous, next) ? previous : next;
       });
     }
+
+    setDashboardScopeFiles("active", (previous) => {
+      const next = mergeDailyMutationOperationsIntoActiveFiles(previous, dailyMutationOperations);
+      return areFileCollectionsEquivalent(previous, next) ? previous : next;
+    });
+    setDashboardScopeFiles("trash", (previous) => {
+      const next = mergeDailyMutationOperationsIntoTrashFiles(previous, dailyMutationOperations);
+      return areFileCollectionsEquivalent(previous, next) ? previous : next;
+    });
   }, [
     dailyMutationJournalReady,
     dailyMutationOperations,
@@ -3832,17 +3856,25 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     dashboardStateByScope.trash.loaded,
     dashboardStateByScope.trash.tasks,
     mode,
+    setDashboardScopeFiles,
     setDashboardScopeTasks,
   ]);
 
   const flushDailyMutationJournal = useCallback(
     async (options: { manual?: boolean } = {}) => {
       const scope = dailyMutationScopeRef.current;
-      if (!scope || dailyMutationFlushRunningRef.current || (!canEditWorkspace && !canReorderDailyTasks)) {
+      if (!scope || (!canEditWorkspace && !canReorderDailyTasks)) {
+        return;
+      }
+      if (dailyMutationFlushRunningRef.current) {
+        dailyMutationFlushRequestedRef.current = true;
+        dailyMutationManualFlushRequestedRef.current ||= Boolean(options.manual);
         return;
       }
 
       dailyMutationFlushRunningRef.current = true;
+      dailyMutationFlushRequestedRef.current = false;
+      dailyMutationManualFlushRequestedRef.current = false;
       try {
         const now = Date.now();
         const operations = await refreshDailyMutationJournal();
@@ -3875,16 +3907,27 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
             continue;
           }
 
-          await updateDailyMutationOperation(operation.operationId, (current) => ({
-            ...current,
-            status: "syncing",
-            updatedAt: new Date().toISOString(),
-            lastAttemptedAt: new Date().toISOString(),
-            lastError: null,
-            lastHttpStatus: null,
-            lastErrorCode: null,
-            failureKind: null,
-          }));
+          let didClaimOperation = false;
+          await updateDailyMutationOperation(operation.operationId, (current) => {
+            if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+              dailyMutationFlushRequestedRef.current = true;
+              return current;
+            }
+            didClaimOperation = true;
+            return {
+              ...current,
+              status: "syncing",
+              updatedAt: new Date().toISOString(),
+              lastAttemptedAt: new Date().toISOString(),
+              lastError: null,
+              lastHttpStatus: null,
+              lastErrorCode: null,
+              failureKind: null,
+            };
+          });
+          if (!didClaimOperation) {
+            continue;
+          }
           await refreshDailyMutationJournal();
 
           try {
@@ -3895,19 +3938,27 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
             const retryCount = operation.retryCount + 1;
             const shouldRetry = failure.retryable && shouldContinueRetryingDailyMutation(retryCount);
             const nextRetryAt = shouldRetry ? new Date(Date.now() + computeDailyMutationRetryDelayMs(retryCount)).toISOString() : null;
-            await updateDailyMutationOperation(operation.operationId, (current) => ({
-              ...current,
-              status: shouldRetry ? "pending" : "failed",
-              retryCount,
-              nextRetryAt,
-              updatedAt: new Date().toISOString(),
-              lastAttemptedAt: new Date().toISOString(),
-              lastHttpStatus: errorInfo.status,
-              lastErrorCode: errorInfo.code,
-              failureKind: failure.kind,
-              lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
-            }));
-            if (dailyMutationScopeRef.current) {
+            let didRecordFailure = false;
+            await updateDailyMutationOperation(operation.operationId, (current) => {
+              if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+                dailyMutationFlushRequestedRef.current = true;
+                return current;
+              }
+              didRecordFailure = true;
+              return {
+                ...current,
+                status: shouldRetry ? "pending" : "failed",
+                retryCount,
+                nextRetryAt,
+                updatedAt: new Date().toISOString(),
+                lastAttemptedAt: new Date().toISOString(),
+                lastHttpStatus: errorInfo.status,
+                lastErrorCode: errorInfo.code,
+                failureKind: failure.kind,
+                lastError: error instanceof Error ? error.message : localizeError({ fallbackKey: "updateTaskFailed" }),
+              };
+            });
+            if (didRecordFailure && dailyMutationScopeRef.current) {
               publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-failed", operation);
             }
           }
@@ -3915,13 +3966,23 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       } finally {
         dailyMutationFlushRunningRef.current = false;
         await refreshDailyMutationJournal();
+        const shouldFlushAgain = dailyMutationFlushRequestedRef.current;
+        const shouldFlushManually = dailyMutationManualFlushRequestedRef.current;
+        dailyMutationFlushRequestedRef.current = false;
+        dailyMutationManualFlushRequestedRef.current = false;
+        if (shouldFlushAgain) {
+          queueMicrotask(() => {
+            void flushDailyMutationJournalRef.current({ manual: shouldFlushManually });
+          });
+        }
       }
     },
     [canEditWorkspace, canReorderDailyTasks, refreshDailyMutationJournal],
   );
+  flushDailyMutationJournalRef.current = flushDailyMutationJournal;
 
   useEffect(() => {
-    if (!dailyMutationScope || mode !== "daily") {
+    if (!dailyMutationScope || (mode !== "daily" && mode !== "trash")) {
       return;
     }
 
@@ -3998,6 +4059,20 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     return json.data.map(withEmptyTaskFileSummary);
   }, []);
 
+  const fetchDailySyncFiles = useCallback(async (syncScope: DashboardScope) => {
+    const fileParams = new URLSearchParams();
+    fileParams.set("scope", syncScope);
+    const response = await fetchDailyMutationRequest(`/api/files?${fileParams.toString()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw await readApiError(response, "loadFilesFailed");
+    }
+
+    const json = (await response.json()) as { data: FileRecord[] };
+    return json.data;
+  }, []);
+
   const refreshDailyServerTaskStateForSync = useCallback(
     async (options: { includeTrash?: boolean } = {}) => {
       const [activeTasks, trashTasks] = await Promise.all([
@@ -4015,7 +4090,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   );
 
   useEffect(() => {
-    if (!dailyMutationScope || mode !== "daily") {
+    if (!dailyMutationScope || (mode !== "daily" && mode !== "trash")) {
       return;
     }
 
@@ -4050,7 +4125,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
   }, [dailyMutationScope, mode, refreshDailyMutationJournal, refreshDailyServerTaskStateForSync, setDashboardScopeTasks]);
 
   useEffect(() => {
-    if (isPreview || mode !== "daily" || !currentProjectId || !hasSupabaseClientConfig()) {
+    if (isPreview || (mode !== "daily" && mode !== "trash") || !currentProjectId || !hasSupabaseClientConfig()) {
       return;
     }
 
@@ -4080,13 +4155,17 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     try {
       const latestState = await refreshDailyServerTaskStateForSync();
       if (isDailyReorderMutationSatisfiedByServerState(operation, latestState.activeTasks)) {
-        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
-        await markDailyMutationSynced(operation);
-        return true;
+        const didMarkSynced = await markDailyMutationSynced(operation);
+        if (didMarkSynced) {
+          removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+          return true;
+        }
+        dailyMutationFlushRequestedRef.current = true;
+        return false;
       }
 
       await updateDailyMutationOperation(operation.operationId, (current) =>
-        current.status === "failed"
+        isDailyMutationOperationAttemptCurrent(current, operation) && current.status === "failed"
           ? {
               ...current,
               nextRetryAt,
@@ -4098,7 +4177,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     } catch (error) {
       const errorInfo = readDailyMutationFlushErrorInfo(error);
       await updateDailyMutationOperation(operation.operationId, (current) =>
-        current.status === "failed"
+        isDailyMutationOperationAttemptCurrent(current, operation) && current.status === "failed"
           ? {
               ...current,
               nextRetryAt,
@@ -4123,10 +4202,35 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return;
     }
 
-    await Promise.all(failedOperations.map((operation) => deleteDailyMutationOperation(operation.operationId)));
+    for (const operation of failedOperations) {
+      const payload = operation.payload;
+      if (payload.kind === "file-trash") {
+        removeFileIdsFromDashboardScope("trash", [payload.fileId]);
+        upsertFilesIntoDashboardScope("active", [{ ...payload.affectedFile, deletedAt: null }]);
+      }
+      if (payload.kind === "restore" && payload.affectedFile) {
+        removeFileIdsFromDashboardScope("active", [payload.affectedFile.id]);
+        upsertFilesIntoDashboardScope("trash", [payload.affectedFile]);
+      }
+      if (payload.kind === "delete" && payload.affectedFiles?.length) {
+        upsertFilesIntoDashboardScope("trash", payload.affectedFiles);
+      }
+    }
+    await Promise.all(
+      failedOperations.map((operation) =>
+        updateDailyMutationOperation(operation.operationId, (current) =>
+          isDailyMutationOperationAttemptCurrent(current, operation) ? null : current,
+        ),
+      ),
+    );
     await refreshDailyMutationJournal();
     await refreshDailyServerTaskStateForSync({ includeTrash: true });
-  }, [refreshDailyMutationJournal, refreshDailyServerTaskStateForSync]);
+  }, [
+    refreshDailyMutationJournal,
+    refreshDailyServerTaskStateForSync,
+    removeFileIdsFromDashboardScope,
+    upsertFilesIntoDashboardScope,
+  ]);
 
   function resetSelectedTaskDraft() {
     if (!selectedTask) return;
@@ -4271,12 +4375,151 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return;
     }
 
-    if (payload.kind === "delete") {
+    if (payload.kind === "file-trash") {
+      const fileId = payload.fileId;
+      const response = await fetchDailyMutationRequest(`/api/files/${encodeURIComponent(fileId)}/trash`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const error = await readApiError(response, "moveFileToTrashFailed");
+        if (error.status === 404) {
+          const [activeFiles, trashFiles] = await Promise.all([
+            fetchDailySyncFiles("active"),
+            fetchDailySyncFiles("trash"),
+          ]);
+          if (shouldMarkDailyFileTrashMutationSyncedFromServerState(operation, activeFiles, trashFiles)) {
+            removeFileIdsFromDashboardScope("active", [fileId]);
+            const serverTrashFile = trashFiles.find((file) => file.id === fileId);
+            if (serverTrashFile) {
+              upsertFilesIntoDashboardScope("trash", [serverTrashFile]);
+            } else {
+              removeFileIdsFromDashboardScope("trash", [fileId]);
+            }
+            await markDailyMutationSynced(operation);
+            return;
+          }
+        }
+        throw error;
+      }
+
+      const json = (await response.json()) as { data: FileRecord };
+      removeFileIdsFromDashboardScope("active", [fileId]);
+      upsertFilesIntoDashboardScope("trash", [json.data]);
+      await markDailyMutationSynced(operation);
+      return;
+    }
+
+    if (payload.kind === "restore") {
+      if (payload.affectedFile) {
+        const fileId = payload.affectedFile.id;
+        const response = await fetchDailyMutationRequest(`/api/files/${encodeURIComponent(fileId)}/restore`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          const error = await readApiError(response, "restoreFileFailed");
+          if (error.status === 404) {
+            const [activeFiles, trashFiles] = await Promise.all([
+              fetchDailySyncFiles("active"),
+              fetchDailySyncFiles("trash"),
+            ]);
+            if (shouldMarkDailyFileRestoreMutationSyncedFromServerState(operation, activeFiles, trashFiles)) {
+              removeFileIdsFromDashboardScope("trash", [fileId]);
+              upsertFilesIntoDashboardScope("active", activeFiles.filter((file) => file.id === fileId));
+              await markDailyMutationSynced(operation);
+              return;
+            }
+          }
+          throw error;
+        }
+
+        const json = (await response.json()) as { data: FileRecord };
+        removeFileIdsFromDashboardScope("trash", [fileId]);
+        upsertFilesIntoDashboardScope("active", [json.data]);
+        await markDailyMutationSynced(operation);
+        return;
+      }
+
       const taskId = resolveDailyMutationServerTaskId(payload.taskId);
-      const response = await fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      const response = await fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId)}/restore`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const error = await readApiError(response, "restoreTaskFailed");
+        if (error.status === 404) {
+          const latestState = await refreshDailyServerTaskStateForSync({ includeTrash: true });
+          if (shouldMarkDailyRestoreMutationSyncedFromServerState(operation, latestState.activeTasks, latestState.trashTasks)) {
+            await markDailyMutationSynced(operation);
+            return;
+          }
+        }
+        throw error;
+      }
+
+      const json = (await response.json()) as { data?: TaskSubtreeMutationPayload | TaskRecord };
+      const affectedTasks = readTaskSubtreeMutationTasks(json.data);
+      const affectedTaskIds = new Set((affectedTasks.length > 0 ? affectedTasks : payload.affectedTasks).map((task) => task.id));
+      removeTaskIdsFromDashboardScope("trash", affectedTaskIds);
+      upsertTasksIntoLoadedDashboardScope("active", affectedTasks);
+      await markDailyMutationSynced(operation);
+      return;
+    }
+
+    if (payload.kind === "delete") {
+      const request = payload.request ?? { target: "task" as const, taskId: payload.taskId };
+      const taskId = request.target === "task" ? resolveDailyMutationServerTaskId(request.taskId) : null;
+      const response =
+        request.target === "task"
+          ? await fetchDailyMutationRequest(`/api/tasks/${encodeURIComponent(taskId ?? "")}`, { method: "DELETE" })
+          : request.target === "file"
+            ? await fetchDailyMutationRequest(`/api/files/${encodeURIComponent(request.fileId)}`, { method: "DELETE" })
+            : await fetchDailyMutationRequest("/api/trash/bulk-delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ taskIds: request.taskIds, fileIds: request.fileIds }),
+              });
       if (!response.ok) {
         const error = await readApiError(response, "deleteTaskFailed");
         if (error.status === 404) {
+          if (request.target === "file") {
+            await markDailyMutationSynced(operation);
+            return;
+          }
+          if (request.target === "selection") {
+            const [latestState, activeFiles, trashFiles] = await Promise.all([
+              refreshDailyServerTaskStateForSync({ includeTrash: true }),
+              fetchDailySyncFiles("active"),
+              fetchDailySyncFiles("trash"),
+            ]);
+            const existingTaskIds = new Set(
+              [...latestState.activeTasks, ...latestState.trashTasks].map((task) => task.id),
+            );
+            const existingFileIds = new Set([...activeFiles, ...trashFiles].map((file) => file.id));
+            const rebasedOperation = rebaseDailySelectionDeleteMutationOperation(
+              operation,
+              existingTaskIds,
+              existingFileIds,
+            );
+            if (!rebasedOperation) {
+              await markDailyMutationSynced(operation);
+              return;
+            }
+            if (rebasedOperation !== operation) {
+              let didRebaseOperation = false;
+              await updateDailyMutationOperation(operation.operationId, (current) => {
+                if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+                  dailyMutationFlushRequestedRef.current = true;
+                  return current;
+                }
+                didRebaseOperation = true;
+                return rebasedOperation;
+              });
+              if (didRebaseOperation) {
+                dailyMutationFlushRequestedRef.current = true;
+                await refreshDailyMutationJournal();
+                return;
+              }
+            }
+          }
           const latestState = await refreshDailyServerTaskStateForSync({ includeTrash: true });
           if (shouldMarkDailyDeleteMutationSyncedFromServerState(operation, latestState.activeTasks, latestState.trashTasks)) {
             await markDailyMutationSynced(operation);
@@ -4287,7 +4530,23 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       }
 
       const json = (await response.json().catch(() => null)) as { data?: PermanentTaskDeletePayload } | null;
-      const deletedTaskIds = new Set(json?.data?.deletedTaskIds?.length ? json.data.deletedTaskIds : [taskId]);
+      const requestedTaskIds =
+        request.target === "task"
+          ? taskId
+            ? [taskId]
+            : []
+          : request.target === "selection"
+            ? request.taskIds
+            : [];
+      const deletedTaskIds = new Set(
+        json?.data?.deletedTaskIds?.length
+          ? json.data.deletedTaskIds
+          : payload.affectedTaskIds?.length
+            ? payload.affectedTaskIds
+            : payload.affectedTasks.length > 0
+              ? payload.affectedTasks.map((task) => task.id)
+              : requestedTaskIds,
+      );
       removeTaskIdsFromDashboardScope("trash", deletedTaskIds);
       removeFileIdsFromDashboardScope("trash", json?.data?.deletedFileIds ?? payload.affectedFileIds);
       upsertTasksIntoLoadedDashboardScope("trash", json?.data?.updatedTasks ?? []);
@@ -4314,8 +4573,12 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         const latestState = await refreshDailyServerTaskStateForSync();
         currentTasks = latestState.activeTasks;
         if (isDailyReorderMutationSatisfiedByServerState(operation, currentTasks)) {
-          removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
-          await markDailyMutationSynced(operation);
+          const didMarkSynced = await markDailyMutationSynced(operation);
+          if (didMarkSynced) {
+            removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+          } else {
+            dailyMutationFlushRequestedRef.current = true;
+          }
           return;
         }
       }
@@ -4326,13 +4589,28 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         const latestState = await refreshDailyServerTaskStateForSync();
         currentTasks = latestState.activeTasks;
         if (isDailyReorderMutationSatisfiedByServerState(operation, currentTasks)) {
-          removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
-          await markDailyMutationSynced(operation);
+          const didMarkSynced = await markDailyMutationSynced(operation);
+          if (didMarkSynced) {
+            removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+          } else {
+            dailyMutationFlushRequestedRef.current = true;
+          }
           return;
         }
 
         const rebasedOperation = rebaseDailyReorderMutationOperation(operation, currentTasks);
-        await updateDailyMutationOperation(operation.operationId, () => rebasedOperation);
+        let didPersistRebase = false;
+        await updateDailyMutationOperation(operation.operationId, (current) => {
+          if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+            dailyMutationFlushRequestedRef.current = true;
+            return current;
+          }
+          didPersistRebase = true;
+          return rebasedOperation;
+        });
+        if (!didPersistRebase) {
+          return;
+        }
         response = await buildReorderRequest(currentTasks, rebasedOperation);
       }
 
@@ -4341,11 +4619,15 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       }
 
       const json = (await response.json()) as { data: TaskRecord[] };
+      const didMarkSynced = await markDailyMutationSynced(operation);
       setActiveTasksForContinuousReorder((current) =>
-        mergeTaskReorderServerAcknowledgement(current, json.data, { preserveLocalOrderFields: false }),
+        mergeTaskReorderServerAcknowledgement(current, json.data, { preserveLocalOrderFields: !didMarkSynced }),
       );
-      removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
-      await markDailyMutationSynced(operation);
+      if (didMarkSynced) {
+        removePendingTaskReorderFromStorage(taskReorderStorageKeyRef.current);
+      } else {
+        dailyMutationFlushRequestedRef.current = true;
+      }
     }
   }
 
@@ -4355,37 +4637,50 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     operation: DailyMutationOperation,
     values: { serverTaskId?: string | null } = {},
   ) {
-    await updateDailyMutationOperation(operation.operationId, (current) => ({
-      ...current,
-      status: "synced",
-      serverTaskId: values.serverTaskId ?? current.serverTaskId,
-      updatedAt: new Date().toISOString(),
-      lastError: null,
-      lastHttpStatus: null,
-      lastErrorCode: null,
-      failureKind: null,
-      lastAttemptedAt: current.lastAttemptedAt,
-      nextRetryAt: null,
-    }));
+    let didMarkSynced = false;
+    await updateDailyMutationOperation(operation.operationId, (current) => {
+      if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+        dailyMutationFlushRequestedRef.current = true;
+        return current;
+      }
+      didMarkSynced = true;
+      return {
+        ...current,
+        status: "synced",
+        serverTaskId: values.serverTaskId ?? current.serverTaskId,
+        updatedAt: new Date().toISOString(),
+        lastError: null,
+        lastHttpStatus: null,
+        lastErrorCode: null,
+        failureKind: null,
+        lastAttemptedAt: current.lastAttemptedAt,
+        nextRetryAt: null,
+      };
+    });
     await refreshDailyMutationJournal();
-    if (dailyMutationScopeRef.current) {
+    if (didMarkSynced && dailyMutationScopeRef.current) {
       publishDailyRowSyncOperationEvent(dailyMutationScopeRef.current, "task-synced", {
         ...operation,
         serverTaskId: values.serverTaskId ?? operation.serverTaskId,
       });
     }
+    return didMarkSynced;
   }
 
   async function markDailyMutationPending(operation: DailyMutationOperation) {
-    await updateDailyMutationOperation(operation.operationId, (current) => ({
-      ...current,
-      status: "pending",
-      updatedAt: new Date().toISOString(),
-      lastHttpStatus: null,
-      lastErrorCode: null,
-      failureKind: null,
-      nextRetryAt: new Date(Date.now() + computeDailyMutationRetryDelayMs(current.retryCount)).toISOString(),
-    }));
+    await updateDailyMutationOperation(operation.operationId, (current) =>
+      isDailyMutationOperationAttemptCurrent(current, operation)
+        ? {
+            ...current,
+            status: "pending",
+            updatedAt: new Date().toISOString(),
+            lastHttpStatus: null,
+            lastErrorCode: null,
+            failureKind: null,
+            nextRetryAt: new Date(Date.now() + computeDailyMutationRetryDelayMs(current.retryCount)).toISOString(),
+          }
+        : current,
+    );
     await refreshDailyMutationJournal();
   }
 
@@ -4533,13 +4828,6 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     try {
       const payload = buildTaskPatchPayloadFromDraft(currentDraft, draftDirtyFieldsRef.current, parentTaskNumberDraftRef.current);
       const optimisticPayload = buildOptimisticTaskPatchPayload(payload);
-      if (previousTaskBeforeSave && Object.keys(optimisticPayload).length > 0) {
-        applyTaskClientUpdate(
-          withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...optimisticPayload }),
-          dirtyFields.filter((field) => field !== "parentTaskNumber"),
-        );
-      }
-
       const textCellDocumentPatchEntries = dailyCellDocumentsEnabled
         ? readTextCellDocumentUpdatePatchEntries(payload as Partial<TaskRecord>)
         : null;
@@ -4554,6 +4842,38 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
           applyTaskClientUpdate(withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...patch }), dirtyFields);
         }
         return true;
+      }
+
+      if (dailyMutationScope) {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "update",
+            payload: {
+              kind: "update",
+              taskId: currentDraft.id,
+              baseVersion: currentDraft.version,
+              patch: payload as Partial<TaskRecord>,
+            },
+          }),
+        );
+        if (previousTaskBeforeSave && Object.keys(optimisticPayload).length > 0) {
+          addTaskPendingPatchValues(currentDraft.id, optimisticPayload);
+          applyTaskClientUpdate(
+            applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...optimisticPayload })),
+            dirtyFields.filter((field) => field !== "parentTaskNumber"),
+          );
+        }
+        void flushDailyMutationJournal();
+        shouldRollbackSave = false;
+        return true;
+      }
+
+      if (previousTaskBeforeSave && Object.keys(optimisticPayload).length > 0) {
+        applyTaskClientUpdate(
+          withEmptyTaskFileSummary({ ...previousTaskBeforeSave, ...optimisticPayload }),
+          dirtyFields.filter((field) => field !== "parentTaskNumber"),
+        );
       }
 
       const response = await fetch(`/api/tasks/${encodeURIComponent(currentDraft.id)}`, {
@@ -4920,6 +5240,26 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         ? localFirstActiveTasksRef.current
         : dashboardStateByScopeRef.current.active.tasks;
       const optimisticTasks = buildOptimisticReorderedTasks(previousTasks, command);
+      const persistCommand = buildTaskReorderPersistCommand(command, previousTasks, optimisticTasks);
+      let journalQueued = false;
+      if (dailyMutationScope) {
+        try {
+          await putDailyJournalOperation(
+            buildCoalescedDailyReorderOperation({
+              scope: dailyMutationScope,
+              command: persistCommand,
+              desiredTasks: optimisticTasks,
+            }),
+          );
+          journalQueued = true;
+        } catch (error) {
+          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+          taskDragStateRef.current = null;
+          setTaskDropState(null);
+          return false;
+        }
+      }
+
       taskReorderRetryAttemptRef.current = 0;
       setActiveTasksForContinuousReorder(() => optimisticTasks);
       startTransition(() => {
@@ -4932,33 +5272,17 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       const queueState = taskReorderQueueRef.current;
       const requestId = queueState.latestRequestId + 1;
       queueState.latestRequestId = requestId;
-      const persistCommand = buildTaskReorderPersistCommand(command, previousTasks, optimisticTasks);
       taskReorderUnloadPersistCommandRef.current = persistCommand;
       taskReorderUnloadPersistAttemptedRef.current = false;
       writePendingTaskReorderToStorage(
         taskReorderStorageKeyRef.current,
         withTaskReorderExpectedVersions(persistCommand, previousTasks),
       );
-      let journalQueued = false;
-      if (dailyMutationScope) {
-        try {
-          await putDailyJournalOperation(
-            buildCoalescedDailyReorderOperation({
-              scope: dailyMutationScope,
-              command: persistCommand,
-              desiredTasks: optimisticTasks,
-            }),
-          );
-          journalQueued = true;
-          void flushDailyMutationJournal();
-        } catch (error) {
-          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
-        }
-      }
       setIsTaskOrderMenuOpen(false);
       taskDragStateRef.current = null;
       setTaskDropState(null);
       if (journalQueued) {
+        void flushDailyMutationJournal();
         return true;
       }
 
@@ -5145,7 +5469,7 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
           auxiliaryToggleChecked={hideIssueIdOverdueBadge}
           auxiliaryToggleLabel={t("workspace.hideIssueIdOverdueBadge")}
           isOpen={isTaskOrderMenuOpen}
-          modeLabel={taskSortMode === "manual" ? "수동" : "자동"}
+          modeLabel={taskSortMode === "manual" ? "수동" : t("workspace.autoValue")}
           onClose={() => setIsTaskOrderMenuOpen(false)}
           onToggleAuxiliaryToggle={() => setHideIssueIdOverdueBadge((previous) => !previous)}
           onToggleOpen={() => setIsTaskOrderMenuOpen((previous) => !previous)}
@@ -5406,18 +5730,11 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     }
 
     const previousValue = currentDraft.calendarLinked;
-    draftRef.current = { ...currentDraft, calendarLinked: nextValue };
-    setDraft((previous) => (previous && previous.id === currentDraft.id ? { ...previous, calendarLinked: nextValue } : previous));
-    clearDraftDirtyFields(["calendarLinked"]);
     setInlineSavingFields((previous) => ({ ...previous, calendarLinked: true }));
     setErrorMessage(null);
 
     if (dailyMutationScope) {
       const payload = { calendarLinked: nextValue };
-      addTaskPendingPatchValues(currentTask.id, payload);
-      applyTaskClientUpdate(applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload })), [
-        "calendarLinked",
-      ]);
       try {
         await putDailyJournalOperation(
           buildDailyMutationOperation({
@@ -5431,12 +5748,17 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
             },
           }),
         );
+        draftRef.current = { ...currentDraft, calendarLinked: nextValue };
+        setDraft((previous) =>
+          previous && previous.id === currentDraft.id ? { ...previous, calendarLinked: nextValue } : previous,
+        );
+        clearDraftDirtyFields(["calendarLinked"]);
+        addTaskPendingPatchValues(currentTask.id, payload);
+        applyTaskClientUpdate(applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload })), [
+          "calendarLinked",
+        ]);
         void flushDailyMutationJournal();
       } catch (error) {
-        clearTaskPendingPatchValues(currentTask.id, payload);
-        applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
-        draftRef.current = { ...currentDraft, calendarLinked: previousValue };
-        setDraft((previous) => (previous && previous.id === currentDraft.id ? { ...previous, calendarLinked: previousValue } : previous));
         setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
       } finally {
         setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, "calendarLinked"));
@@ -5444,6 +5766,9 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return;
     }
 
+    draftRef.current = { ...currentDraft, calendarLinked: nextValue };
+    setDraft((previous) => (previous && previous.id === currentDraft.id ? { ...previous, calendarLinked: nextValue } : previous));
+    clearDraftDirtyFields(["calendarLinked"]);
     try {
       const updated = await patchTask(currentDraft, { calendarLinked: nextValue }, { clearedDirtyFields: ["calendarLinked"] });
       if (updated) {
@@ -5505,40 +5830,44 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       }
 
       setInlineSavingFields((previous) => ({ ...previous, [columnKey]: true }));
-      addTaskPendingPatchValues(currentTask.id, payload);
       const optimisticTask = applyTaskPendingPatchValues(withEmptyTaskFileSummary({ ...currentTask, ...payload }));
+
+      if (dailyMutationScope) {
+        try {
+          await putDailyJournalOperation(
+            buildDailyMutationOperation({
+              scope: dailyMutationScope,
+              type: "update",
+              payload: {
+                kind: "update",
+                taskId: currentTask.id,
+                baseVersion: currentTask.version,
+                patch: payload,
+              },
+            }),
+          );
+          addTaskPendingPatchValues(currentTask.id, payload);
+          applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
+          releaseActiveTaskListEditLease();
+          activeTaskListInlineEditCellRef.current = null;
+          setTaskListActiveInlineEditCell(null);
+          setPendingTaskListFocusCell(null);
+          void flushDailyMutationJournal();
+        } catch (error) {
+          setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+        } finally {
+          setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
+        }
+        return;
+      }
+
+      addTaskPendingPatchValues(currentTask.id, payload);
       applyTaskClientUpdate(optimisticTask, clearedDirtyFields);
       releaseActiveTaskListEditLease();
       activeTaskListInlineEditCellRef.current = null;
       setTaskListActiveInlineEditCell(null);
       setPendingTaskListFocusCell(null);
-
       void (async () => {
-        if (dailyMutationScope) {
-          try {
-            await putDailyJournalOperation(
-              buildDailyMutationOperation({
-                scope: dailyMutationScope,
-                type: "update",
-                payload: {
-                  kind: "update",
-                  taskId: currentTask.id,
-                  baseVersion: currentTask.version,
-                  patch: payload,
-                },
-              }),
-            );
-            void flushDailyMutationJournal();
-          } catch (error) {
-            clearTaskPendingPatchValues(currentTask.id, payload);
-            applyTaskClientUpdate(applyTaskPendingPatchValues(currentTask));
-            setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
-          } finally {
-            setInlineSavingFields((previous) => clearInlineSavingFieldMap(previous, columnKey));
-          }
-          return;
-        }
-
         try {
           const updatedTask = await queueTaskPatch(currentTask, payload, { clearedDirtyFields });
           if (!updatedTask) {
@@ -5612,6 +5941,30 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     if (nextIndex < 0 || nextIndex >= statusOrder.length) return;
     const nextStatus = statusOrder[nextIndex];
     const optimisticTask = withEmptyTaskFileSummary({ ...task, status: nextStatus });
+
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "update",
+            payload: {
+              kind: "update",
+              taskId: task.id,
+              baseVersion: task.version,
+              patch: { status: nextStatus },
+            },
+          }),
+        );
+        addTaskPendingPatchValues(task.id, { status: nextStatus });
+        applyTaskClientUpdate(optimisticTask);
+        void flushDailyMutationJournal();
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
+      }
+      return;
+    }
+
     applyTaskClientUpdate(optimisticTask);
 
     if (mode === "board") {
@@ -5631,30 +5984,6 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         [nextStatus]: getBoardPageForTask(optimisticTaskTree, optimisticTask.id, nextStatus, boardPageSize),
       }));
       setExpandedBoardTaskId(optimisticTask.id);
-    }
-
-    if (dailyMutationScope) {
-      addTaskPendingPatchValues(task.id, { status: nextStatus });
-      try {
-        await putDailyJournalOperation(
-          buildDailyMutationOperation({
-            scope: dailyMutationScope,
-            type: "update",
-            payload: {
-              kind: "update",
-              taskId: task.id,
-              baseVersion: task.version,
-              patch: { status: nextStatus },
-            },
-          }),
-        );
-        void flushDailyMutationJournal();
-      } catch (error) {
-        clearTaskPendingPatchValues(task.id, { status: nextStatus });
-        applyTaskClientUpdate(task);
-        setErrorMessage(formatMutationNetworkError(error, "updateTaskFailed"));
-      }
-      return;
     }
 
     let shouldRollbackStatus = true;
@@ -5764,6 +6093,30 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         : previousSelectedTaskId;
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "restore",
+            payload: {
+              kind: "restore",
+              taskId,
+              affectedTasks: subtree.length > 0 ? subtree : previousTrashTasks.filter((task) => task.id === taskId),
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "restoreTaskFailed"));
+        return;
+      }
+
+      removeTaskIdsFromDashboardScope("trash", optimisticRemovedIds);
+      setTaskListSelection(nextSelectedTaskId);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeTaskIdsFromDashboardScope("trash", optimisticRemovedIds);
     setTaskListSelection(nextSelectedTaskId);
 
@@ -5888,11 +6241,35 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
       return;
     }
 
-    const previousActiveFiles = dashboardStateByScopeRef.current.active.files;
-    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
     const optimisticTrashFile = { ...sourceFile, deletedAt: new Date().toISOString() };
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "file-trash",
+            payload: {
+              kind: "file-trash",
+              fileId,
+              affectedFile: sourceFile,
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "moveFileToTrashFailed"));
+        return;
+      }
+
+      removeFileIdsFromDashboardScope("active", [fileId]);
+      upsertFilesIntoDashboardScope("trash", [optimisticTrashFile]);
+      void flushDailyMutationJournal();
+      return;
+    }
+
+    const previousActiveFiles = dashboardStateByScopeRef.current.active.files;
+    const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
     removeFileIdsFromDashboardScope("active", [fileId]);
     upsertFilesIntoDashboardScope("trash", [optimisticTrashFile]);
 
@@ -5925,6 +6302,31 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     const optimisticActiveFile = { ...sourceFile, deletedAt: null };
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "restore",
+            payload: {
+              kind: "restore",
+              taskId: sourceFile.taskId,
+              affectedTasks: [],
+              affectedFile: sourceFile,
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "restoreFileFailed"));
+        return;
+      }
+
+      removeFileIdsFromDashboardScope("trash", [fileId]);
+      upsertFilesIntoDashboardScope("active", [optimisticActiveFile]);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeFileIdsFromDashboardScope("trash", [fileId]);
     upsertFilesIntoDashboardScope("active", [optimisticActiveFile]);
 
@@ -5957,10 +6359,13 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
 
     const previousTrashTasks = dashboardStateByScopeRef.current.trash.tasks;
     const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
+    const optimisticDeletedTaskIds = new Set([task.id]);
     const optimisticDeletedFileIds = previousTrashFiles.filter((file) => file.taskId === task.id).map((file) => file.id);
     const previousSelectedTaskId = taskListRowInteractionStore.getState().selectedTaskId;
     const nextSelectedTaskId =
-      previousSelectedTaskId === task.id ? previousTrashTasks.find((candidate) => candidate.id !== task.id)?.id ?? null : previousSelectedTaskId;
+      previousSelectedTaskId && optimisticDeletedTaskIds.has(previousSelectedTaskId)
+        ? previousTrashTasks.find((candidate) => !optimisticDeletedTaskIds.has(candidate.id))?.id ?? null
+        : previousSelectedTaskId;
 
     setErrorMessage(null);
     if (dailyMutationScope) {
@@ -5973,7 +6378,10 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
               kind: "delete",
               taskId: task.id,
               affectedTasks: [task],
+              affectedTaskIds: [...optimisticDeletedTaskIds],
               affectedFileIds: optimisticDeletedFileIds,
+              affectedFiles: previousTrashFiles.filter((file) => optimisticDeletedFileIds.includes(file.id)),
+              request: { target: "task", taskId: task.id },
             },
           }),
         );
@@ -5982,14 +6390,14 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
         return;
       }
 
-      removeTaskIdsFromDashboardScope("trash", [task.id]);
+      removeTaskIdsFromDashboardScope("trash", optimisticDeletedTaskIds);
       removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
       setTaskListSelection(nextSelectedTaskId);
       void flushDailyMutationJournal();
       return;
     }
 
-    removeTaskIdsFromDashboardScope("trash", [task.id]);
+    removeTaskIdsFromDashboardScope("trash", optimisticDeletedTaskIds);
     removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
     setTaskListSelection(nextSelectedTaskId);
 
@@ -6025,6 +6433,33 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
 
     const previousTrashFiles = dashboardStateByScopeRef.current.trash.files;
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "delete",
+            payload: {
+              kind: "delete",
+              taskId: file.taskId,
+              affectedTasks: [],
+              affectedTaskIds: [],
+              affectedFileIds: [file.id],
+              affectedFiles: [file],
+              request: { target: "file", fileId: file.id },
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "deleteFileFailed"));
+        return;
+      }
+
+      removeFileIdsFromDashboardScope("trash", [file.id]);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeFileIdsFromDashboardScope("trash", [file.id]);
 
     const response = await fetch(`/api/files/${encodeURIComponent(file.id)}`, { method: "DELETE" });
@@ -6066,6 +6501,40 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     }
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "delete",
+            payload: {
+              kind: "delete",
+              taskId: taskIdsToDelete[0] ?? "",
+              affectedTasks: [],
+              affectedTaskIds: [...optimisticDeletedTaskIds],
+              affectedFileIds: [...optimisticDeletedFileIds],
+              affectedFiles: previousTrashFiles.filter((file) => optimisticDeletedFileIds.has(file.id)),
+              request: {
+                target: "selection",
+                taskIds: taskIdsToDelete,
+                fileIds: fileIdsToDelete,
+              },
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "deleteSelectedFailed"));
+        return;
+      }
+
+      removeTaskIdsFromDashboardScope("trash", optimisticDeletedTaskIds);
+      removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
+      setSelectedTrashTaskIds([]);
+      setSelectedTrashFileIds([]);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     removeTaskIdsFromDashboardScope("trash", optimisticDeletedTaskIds);
     removeFileIdsFromDashboardScope("trash", optimisticDeletedFileIds);
     setSelectedTrashTaskIds([]);
@@ -6113,6 +6582,40 @@ function TaskWorkspaceContent({ mode: routeMode, pathnameMode }: TaskWorkspaceCo
     const deletedFileIds = previousTrashFiles.map((file) => file.id);
 
     setErrorMessage(null);
+    if (dailyMutationScope) {
+      try {
+        await putDailyJournalOperation(
+          buildDailyMutationOperation({
+            scope: dailyMutationScope,
+            type: "delete",
+            payload: {
+              kind: "delete",
+              taskId: deletedTaskIds[0] ?? "",
+              affectedTasks: [],
+              affectedTaskIds: deletedTaskIds,
+              affectedFileIds: deletedFileIds,
+              affectedFiles: previousTrashFiles,
+              request: {
+                target: "selection",
+                taskIds: deletedTaskIds,
+                fileIds: deletedFileIds,
+              },
+            },
+          }),
+        );
+      } catch (error) {
+        setErrorMessage(formatMutationNetworkError(error, "emptyTrashFailed"));
+        return;
+      }
+
+      setSelectedTrashTaskIds([]);
+      setSelectedTrashFileIds([]);
+      setDashboardScopeTasks("trash", () => []);
+      setDashboardScopeFiles("trash", () => []);
+      void flushDailyMutationJournal();
+      return;
+    }
+
     setSelectedTrashTaskIds([]);
     setSelectedTrashFileIds([]);
     setDashboardScopeTasks("trash", () => []);
@@ -9651,6 +10154,23 @@ function areTaskCollectionsEquivalent(left: readonly TaskRecord[], right: readon
   });
 }
 
+function areFileCollectionsEquivalent(left: readonly FileRecord[], right: readonly FileRecord[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftFile, index) => {
+    const rightFile = right[index];
+    return (
+      rightFile?.id === leftFile.id &&
+      rightFile.taskId === leftFile.taskId &&
+      rightFile.version === leftFile.version &&
+      rightFile.deletedAt === leftFile.deletedAt &&
+      rightFile.purgedAt === leftFile.purgedAt
+    );
+  });
+}
+
 function shouldRetainPendingTaskReorderAfterFailure(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
@@ -10899,7 +11419,7 @@ function resolveTaskDeadlineBadge(task: TaskRecord, referenceDay: string) {
   }
 
   if (isTaskDueToday(task, referenceDay)) {
-    return { label: "오늘", tone: "accent" as const };
+    return { label: t("workspace.calendarToday"), tone: "accent" as const };
   }
 
   if (isTaskDueSoon(task, referenceDay)) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ProjectWikiActionLog, ProjectWikiItem, ProjectWikiStatus, ProjectWikiSuitabilityState } from "@/domains/project-wiki/types";
 import { projectWikiStatusLabel, suitabilityBadgeTone } from "@/domains/project-wiki/search";
+import { t } from "@/lib/ui-copy";
 import styles from "./project-materials-page.module.css";
 
 type ProjectWikiPageProps = {
@@ -448,7 +449,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                   <ol>
                     {selectedDetail.actionLogs.map((log) => (
                       <li key={log.id}>
-                        <strong>{log.action === "disable" ? "비활성화" : "복원"}</strong>
+                        <strong>{log.action === "disable" ? "비활성화" : t("actions.restore")}</strong>
                         <span>{log.actorDisplay} / {formatDate(log.createdAt)}</span>
                         <p>{log.reason || "사유 없음"}</p>
                       </li>
@@ -474,7 +475,7 @@ export function ProjectWikiPage({ preview = false, projectId }: ProjectWikiPageP
                   onClick={() => void changeStatus(selectedDetail.item)}
                   type="button"
                 >
-                  {selectedDetail.item.status === "active" ? "비활성화" : "복원"}
+                  {selectedDetail.item.status === "active" ? "비활성화" : t("actions.restore")}
                 </button>
                 <p className={styles.empty}>{statusControlHint(selectedDetail, reason)}</p>
               </section>

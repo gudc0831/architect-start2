@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import type { AuthUser } from "@/domains/auth/types";
 import type {
   AssistantEvidence,
@@ -7,6 +8,7 @@ import type {
   AssistantWorkSummaryDraft,
 } from "@/domains/assistant/types";
 import { readAssistantAction, toAssistantActionAuditRecord } from "@/domains/assistant/action-audit";
+import { hasLegalChangeEvidenceImpact } from "@/domains/assistant/legal-change-impact";
 import {
   buildAssistantPromptText,
   defaultAssistantRunPolicy,
@@ -20,7 +22,7 @@ import {
   type AssistantRunPolicy,
   type AssistantUsageEvent,
 } from "@/domains/assistant/saas-api-mode";
-import { badRequest, conflict, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
+import { AppError, badRequest, conflict, forbidden, notFound, serviceUnavailable } from "@/lib/api/errors";
 import {
   AssistantProviderError,
   estimateCostCents,
@@ -28,6 +30,8 @@ import {
   runAssistantProvider,
 } from "@/lib/assistant/saas-provider-adapter";
 import { requireCurrentProjectAccess, requireProjectAccess } from "@/lib/auth/project-guards";
+import { backendMode } from "@/lib/backend-mode";
+import { prisma } from "@/lib/prisma";
 import { assistantRepository } from "@/repositories/assistant";
 import { taskRepository } from "@/repositories";
 import { formatTaskDisplayId } from "@/domains/task/daily-list";
@@ -47,6 +51,38 @@ type UpdateAssistantRunPolicyInput = {
   allowedEvidenceKinds?: unknown;
   retentionDays?: unknown;
 };
+
+type AssistantBudgetReservation = {
+  backend: "cloud" | "local";
+  id: string;
+  projectId: string;
+  taskId: string;
+  profileId: string;
+  provider: AssistantPolicyProvider;
+  model: string;
+  inputTokens: number;
+  reservedCostCents: number;
+  month: string;
+  requestHash: string;
+};
+
+type AssistantBudgetReservationInput = {
+  policy: AssistantRunPolicy;
+  taskId: string;
+  profileId: string;
+  evidence: AssistantEvidence[];
+  inputTokens: number;
+  requestHash: string;
+};
+
+const ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE = "saas-api-budget-reservation";
+const ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE = "saas-api-provider-cost-uncertain";
+export const ASSISTANT_BUDGET_RESERVATION_TTL_MS = 15 * 60 * 1000;
+const assistantProviderFailuresWithoutUsage = new Set([
+  "ASSISTANT_PROVIDER_NOT_CONFIGURED",
+  "ASSISTANT_PROVIDER_REQUEST_FAILED",
+]);
+let localAssistantBudgetReservationQueue: Promise<void> = Promise.resolve();
 
 type GenerateAssistantInput = {
   taskId?: unknown;
@@ -485,6 +521,11 @@ export async function getAssistantUsageSummary(input: { projectId?: string | nul
   const successfulEvents = events.filter((event) => event.status === "success");
   const blockedEvents = events.filter((event) => event.status === "blocked");
   const failedEvents = events.filter((event) => event.status === "failed");
+  const budgetedEvents = events.filter(
+    (event) =>
+      event.status === "success" ||
+      (event.status === "failed" && event.runtimeMode === ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE),
+  );
 
   return {
     projectId,
@@ -495,7 +536,7 @@ export async function getAssistantUsageSummary(input: { projectId?: string | nul
     failedCount: failedEvents.length,
     inputTokens: sumBy(events, "inputTokens"),
     outputTokens: sumBy(events, "outputTokens"),
-    estimatedCostCents: sumBy(successfulEvents, "estimatedCostCents"),
+    estimatedCostCents: sumBy(budgetedEvents, "estimatedCostCents"),
     events,
   };
 }
@@ -1392,14 +1433,32 @@ export async function generateAssistantWithVerifiedEvidence(
     officialLawStatus: input.officialLawStatus,
   });
 
-  await enforcePolicy({
+  const policyInput: AssistantBudgetReservationInput = {
     policy,
     taskId: taskContext.taskId,
     profileId: user.id,
     evidence: promptEvidence,
     inputTokens,
     requestHash,
-  });
+  };
+  await assertAssistantRequestPolicy(policyInput);
+  const replayedResponse = await findCompletedAssistantResponse(taskContext.projectId, requestHash);
+  if (replayedResponse) {
+    return replayedResponse;
+  }
+
+  let budgetReservation: AssistantBudgetReservation;
+  try {
+    budgetReservation = await reserveAssistantPolicyBudget(policyInput);
+  } catch (error) {
+    if (error instanceof AppError && error.code === "ASSISTANT_REQUEST_ALREADY_PROCESSED") {
+      const completedResponse = await findCompletedAssistantResponse(taskContext.projectId, requestHash);
+      if (completedResponse) {
+        return completedResponse;
+      }
+    }
+    throw error;
+  }
 
   const taskLabel = taskContext.issueId || taskContext.taskId;
   const providerResult = await runProviderOrRecordFailure({
@@ -1413,55 +1472,9 @@ export async function generateAssistantWithVerifiedEvidence(
     evidence: promptEvidence,
     inputTokens,
     requestHash,
-  });
+  }, budgetReservation);
 
-  await assistantRepository.createUsageEvent({
-    projectId: policy.projectId,
-    taskId: taskContext.taskId,
-    profileId: user.id,
-    executionMode: "saas-api",
-    runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
-    provider: policy.provider,
-    model: policy.model,
-    inputTokens: providerResult.inputTokens,
-    outputTokens: providerResult.outputTokens,
-    estimatedCostCents: providerResult.estimatedCostCents,
-    status: "success",
-    policyDecision: "allowed",
-    requestHash,
-    metadata: {
-      evidenceCount: promptEvidence.length,
-      evidenceKinds: [...new Set(promptEvidence.map((item) => item.kind))],
-      evidenceDigest: input.evidenceDigest,
-      officialLawDigest: input.officialLawDigest,
-      officialLawStatus: input.officialLawStatus,
-      providerCallMode: providerResult.callMode,
-      providerRequestId: providerResult.providerRequestId,
-      ...providerResult.metadata,
-    },
-  });
-  await assistantRepository.createAuditEvent({
-    projectId: policy.projectId,
-    profileId: user.id,
-    eventType: "assistant.generate.success",
-    targetType: "task",
-    targetId: taskContext.taskId,
-    metadata: {
-      executionMode: "saas-api",
-      requestHash,
-      evidenceCount: promptEvidence.length,
-      evidenceDigest: input.evidenceDigest,
-      officialLawDigest: input.officialLawDigest,
-      officialLawStatus: input.officialLawStatus,
-      provider: policy.provider,
-      model: policy.model,
-      providerCallMode: providerResult.callMode,
-      providerRequestId: providerResult.providerRequestId,
-      estimatedCostCents: providerResult.estimatedCostCents,
-    },
-  });
-
-  return {
+  const response: AssistantGenerateResult = {
     answer: appendLegalChangeReviewNotice(providerResult.answer, retrievalSnapshot),
     suggestedDraftSummary: providerResult.suggestedDraftSummary,
     citations: promptEvidence.slice(0, 8).map((item) => ({
@@ -1490,6 +1503,52 @@ export async function generateAssistantWithVerifiedEvidence(
     },
     retrieval: retrievalSnapshot,
   };
+
+  await settleAssistantBudgetReservationSuccess(budgetReservation, {
+    runtimeMode: providerResult.callMode === "live" ? "saas-api-live-provider" : "saas-api-mock-provider",
+    inputTokens: providerResult.inputTokens,
+    outputTokens: providerResult.outputTokens,
+    estimatedCostCents: providerResult.estimatedCostCents,
+    metadata: {
+      evidenceCount: promptEvidence.length,
+      evidenceKinds: [...new Set(promptEvidence.map((item) => item.kind))],
+      evidenceDigest: input.evidenceDigest,
+      officialLawDigest: input.officialLawDigest,
+      officialLawStatus: input.officialLawStatus,
+      providerCallMode: providerResult.callMode,
+      providerRequestId: providerResult.providerRequestId,
+      responseSnapshot: toJsonSafeValue(response),
+      ...providerResult.metadata,
+    },
+  });
+  try {
+    await assistantRepository.createAuditEvent({
+      projectId: policy.projectId,
+      profileId: user.id,
+      eventType: "assistant.generate.success",
+      targetType: "task",
+      targetId: taskContext.taskId,
+      metadata: {
+        executionMode: "saas-api",
+        requestHash,
+        evidenceCount: promptEvidence.length,
+        evidenceDigest: input.evidenceDigest,
+        officialLawDigest: input.officialLawDigest,
+        officialLawStatus: input.officialLawStatus,
+        provider: policy.provider,
+        model: policy.model,
+        providerCallMode: providerResult.callMode,
+        providerRequestId: providerResult.providerRequestId,
+        estimatedCostCents: providerResult.estimatedCostCents,
+      },
+    });
+  } catch (error) {
+    console.warn("[assistant-audit] success event persistence failed after usage settlement", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+
+  return response;
 }
 
 export function toAssistantGenerateRetrievalSnapshot(input: {
@@ -1547,7 +1606,7 @@ function appendLegalChangeReviewNotice(answer: string, retrieval: AssistantRetri
 
 function hasLegalChangeImpactWarning(retrieval: AssistantRetrievedEvidenceSnapshot): boolean {
   return retrieval.evidenceReadinessWarnings.some((warning) => /LEGAL_CHANGE|STALE/i.test(`${warning.code} ${warning.message}`)) ||
-    retrieval.evidence.some((item) => item.legal?.stale || (item.legal?.legalChangeWarnings.length ?? 0) > 0);
+    hasLegalChangeEvidenceImpact(retrieval.evidence);
 }
 
 async function runProviderOrRecordFailure(input: {
@@ -1561,7 +1620,7 @@ async function runProviderOrRecordFailure(input: {
   evidence: AssistantEvidence[];
   inputTokens: number;
   requestHash: string;
-}) {
+}, reservation: AssistantBudgetReservation) {
   try {
     return await runAssistantProvider({
       policy: input.policy,
@@ -1574,23 +1633,24 @@ async function runProviderOrRecordFailure(input: {
       requestHash: input.requestHash,
     });
   } catch (error) {
-    if (error instanceof AssistantProviderError) {
-      await recordFailedUsage(input, error);
-      throw serviceUnavailable(error.message, error.code);
-    }
-
-    throw error;
+    const providerError =
+      error instanceof AssistantProviderError
+        ? error
+        : new AssistantProviderError(
+            "Assistant provider request failed before a valid response was received.",
+            "ASSISTANT_PROVIDER_TRANSPORT_ERROR",
+            {
+              provider: input.policy.provider,
+              model: input.policy.model,
+              errorType: error instanceof Error ? error.name : "UnknownError",
+            },
+          );
+    await recordFailedUsage(input, providerError, reservation);
+    throw serviceUnavailable(providerError.message, providerError.code);
   }
 }
 
-async function enforcePolicy(input: {
-  policy: AssistantRunPolicy;
-  taskId: string;
-  profileId: string;
-  evidence: AssistantEvidence[];
-  inputTokens: number;
-  requestHash: string;
-}) {
+async function assertAssistantRequestPolicy(input: AssistantBudgetReservationInput) {
   if (!input.policy.enabled) {
     await recordBlockedUsage(input, "disabled", "ASSISTANT_SAAS_API_DISABLED", "SaaS API Mode is disabled for this project.");
     throw forbidden("SaaS API Mode is disabled for this project.", "ASSISTANT_SAAS_API_DISABLED");
@@ -1616,17 +1676,512 @@ async function enforcePolicy(input: {
     );
     throw forbidden(`Evidence kind ${disallowed.kind} is not allowed for SaaS API Mode.`, "ASSISTANT_EVIDENCE_KIND_DISALLOWED");
   }
+}
 
-  const month = normalizeMonth(null);
-  const usage = await assistantRepository.listUsageEvents({ projectId: input.policy.projectId, month });
-  const spentCents = usage
-    .filter((event) => event.status === "success")
-    .reduce((total, event) => total + event.estimatedCostCents, 0);
-  const projectedCostCents = estimateCostCents(input.inputTokens, Math.min(800, input.policy.maxOutputTokens));
-  if (spentCents + projectedCostCents > input.policy.monthlyBudgetCents) {
+async function reserveAssistantPolicyBudget(
+  input: AssistantBudgetReservationInput,
+): Promise<AssistantBudgetReservation> {
+  const projectedCostCents = estimateCostCents(input.inputTokens, input.policy.maxOutputTokens);
+  const reservation = await reserveAssistantBudget(input, projectedCostCents);
+  if (!reservation) {
     await recordBlockedUsage(input, "budget_exceeded", "ASSISTANT_BUDGET_EXCEEDED", "Monthly assistant budget would be exceeded.");
     throw forbidden("Monthly SaaS API Mode budget would be exceeded.", "ASSISTANT_BUDGET_EXCEEDED");
   }
+
+  return reservation;
+}
+
+export function isAssistantBudgetReservationAllowed(input: {
+  spentCents: number;
+  reservedCents: number;
+  projectedCostCents: number;
+  monthlyBudgetCents: number;
+}) {
+  return input.spentCents + input.reservedCents + input.projectedCostCents <= input.monthlyBudgetCents;
+}
+
+async function findCompletedAssistantResponse(
+  projectId: string,
+  requestHash: string,
+): Promise<AssistantGenerateResult | null> {
+  const metadata =
+    backendMode === "cloud"
+      ? (
+          await prisma.assistantUsageEvent.findFirst({
+            where: {
+              projectId,
+              requestHash,
+              executionMode: "saas-api",
+              status: "success",
+            },
+            orderBy: { createdAt: "desc" },
+            select: { metadata: true },
+          })
+        )?.metadata
+      : (
+          await assistantRepository.listUsageEvents({ projectId })
+        ).find(
+          (event) =>
+            event.executionMode === "saas-api" &&
+            event.requestHash === requestHash &&
+            event.status === "success",
+        )?.metadata;
+  const snapshot = asUnknownRecord(metadata)?.responseSnapshot;
+  return isAssistantGenerateResultSnapshot(snapshot) ? snapshot : null;
+}
+
+function isAssistantGenerateResultSnapshot(value: unknown): value is AssistantGenerateResult {
+  const record = asUnknownRecord(value);
+  const usage = asUnknownRecord(record?.usage);
+  const policy = asUnknownRecord(record?.policy);
+  const provider = asUnknownRecord(record?.provider);
+  const retrieval = asUnknownRecord(record?.retrieval);
+  return Boolean(
+    record &&
+      typeof record.answer === "string" &&
+      asUnknownRecord(record.suggestedDraftSummary) &&
+      Array.isArray(record.citations) &&
+      record.executionMode === "saas-api" &&
+      record.policyDecision === "allowed" &&
+      usage &&
+      typeof usage.inputTokens === "number" &&
+      typeof usage.outputTokens === "number" &&
+      typeof usage.estimatedCostCents === "number" &&
+      policy &&
+      provider &&
+      retrieval,
+  );
+}
+
+function asUnknownRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function toJsonSafeValue(value: AssistantGenerateResult): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+async function reserveAssistantBudget(
+  input: AssistantBudgetReservationInput,
+  projectedCostCents: number,
+): Promise<AssistantBudgetReservation | null> {
+  return backendMode === "cloud"
+    ? reserveCloudAssistantBudget(input, projectedCostCents)
+    : reserveLocalAssistantBudget(input, projectedCostCents);
+}
+
+async function reserveCloudAssistantBudget(
+  input: AssistantBudgetReservationInput,
+  projectedCostCents: number,
+): Promise<AssistantBudgetReservation | null> {
+  const month = normalizeMonth(null);
+  const { start, end } = getAssistantBudgetMonthRange(month);
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`
+      select pg_advisory_xact_lock(
+        148733,
+        hashtext(${`${input.policy.projectId}:${month}`})
+      )
+    `);
+
+    const staleBefore = new Date(Date.now() - ASSISTANT_BUDGET_RESERVATION_TTL_MS);
+    await tx.assistantUsageEvent.updateMany({
+      where: {
+        projectId: input.policy.projectId,
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+        status: "cancelled",
+        createdAt: { lt: staleBefore },
+      },
+      data: {
+        runtimeMode: "saas-api-budget-reservation-expired",
+        estimatedCostCents: 0,
+        status: "failed",
+        errorCode: "ASSISTANT_BUDGET_RESERVATION_EXPIRED",
+        metadata: {
+          reservationState: "expired",
+        },
+      },
+    });
+
+    const duplicateReservation = await tx.assistantUsageEvent.findFirst({
+      where: {
+        projectId: input.policy.projectId,
+        requestHash: input.requestHash,
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+        status: "cancelled",
+        createdAt: { gte: staleBefore },
+      },
+      select: { id: true },
+    });
+    if (duplicateReservation) {
+      throw conflict("An identical assistant request is already in progress.", "ASSISTANT_REQUEST_IN_PROGRESS");
+    }
+    const completedRequest = await tx.assistantUsageEvent.findFirst({
+      where: {
+        projectId: input.policy.projectId,
+        requestHash: input.requestHash,
+        executionMode: "saas-api",
+        OR: [
+          { status: "success" },
+          {
+            status: "failed",
+            runtimeMode: ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE,
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    if (completedRequest) {
+      throw conflict("This assistant request was already processed.", "ASSISTANT_REQUEST_ALREADY_PROCESSED");
+    }
+
+    const totals = await tx.assistantUsageEvent.aggregate({
+      where: {
+        projectId: input.policy.projectId,
+        createdAt: { gte: start, lt: end },
+        OR: [
+          { status: "success" },
+          {
+            status: "failed",
+            runtimeMode: ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE,
+          },
+          {
+            status: "cancelled",
+            runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+            createdAt: { gte: staleBefore },
+          },
+        ],
+      },
+      _sum: { estimatedCostCents: true },
+    });
+    const committedAndReservedCents = totals._sum.estimatedCostCents ?? 0;
+    if (
+      !isAssistantBudgetReservationAllowed({
+        spentCents: committedAndReservedCents,
+        reservedCents: 0,
+        projectedCostCents,
+        monthlyBudgetCents: input.policy.monthlyBudgetCents,
+      })
+    ) {
+      return null;
+    }
+
+    const reservation = await tx.assistantUsageEvent.create({
+      data: {
+        projectId: input.policy.projectId,
+        taskId: input.taskId,
+        profileId: input.profileId,
+        executionMode: "saas-api",
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+        provider: input.policy.provider,
+        model: input.policy.model,
+        inputTokens: input.inputTokens,
+        outputTokens: 0,
+        estimatedCostCents: projectedCostCents,
+        status: "cancelled",
+        policyDecision: "allowed",
+        requestHash: input.requestHash,
+        metadata: {
+          reservationState: "pending",
+        },
+      },
+      select: { id: true },
+    });
+
+    return {
+      backend: "cloud" as const,
+      id: reservation.id,
+      projectId: input.policy.projectId,
+      taskId: input.taskId,
+      profileId: input.profileId,
+      provider: input.policy.provider,
+      model: input.policy.model,
+      inputTokens: input.inputTokens,
+      reservedCostCents: projectedCostCents,
+      month,
+      requestHash: input.requestHash,
+    };
+  });
+}
+
+async function reserveLocalAssistantBudget(
+  input: AssistantBudgetReservationInput,
+  projectedCostCents: number,
+): Promise<AssistantBudgetReservation | null> {
+  return withLocalAssistantBudgetLock(async () => {
+    const month = normalizeMonth(null);
+    const staleBefore = Date.now() - ASSISTANT_BUDGET_RESERVATION_TTL_MS;
+    const usage = await assistantRepository.listUsageEvents({ projectId: input.policy.projectId });
+    const completedRequestHashes = new Set(
+      usage
+        .filter(
+          (event) =>
+            event.executionMode === "saas-api" &&
+            isAssistantRequestTerminalEvent(event) &&
+            event.requestHash,
+        )
+        .map((event) => event.requestHash as string),
+    );
+    if (
+      completedRequestHashes.has(input.requestHash)
+    ) {
+      throw conflict("This assistant request was already processed.", "ASSISTANT_REQUEST_ALREADY_PROCESSED");
+    }
+    const activeReservations = usage.filter(
+      (event) =>
+        event.executionMode === "saas-api" &&
+        event.runtimeMode === ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE &&
+        event.status === "cancelled" &&
+        event.requestHash &&
+        Date.parse(event.createdAt) >= staleBefore &&
+        !completedRequestHashes.has(event.requestHash),
+    );
+    if (activeReservations.some((event) => event.requestHash === input.requestHash)) {
+      throw conflict("An identical assistant request is already in progress.", "ASSISTANT_REQUEST_IN_PROGRESS");
+    }
+
+    const spentCents = usage
+      .filter(
+        (event) =>
+          event.createdAt.startsWith(`${month}-`) &&
+          (event.status === "success" ||
+            (event.status === "failed" && event.runtimeMode === ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE)),
+      )
+      .reduce((total, event) => total + event.estimatedCostCents, 0);
+    const reservedCents = activeReservations
+      .filter((event) => event.createdAt.startsWith(`${month}-`))
+      .reduce((total, event) => total + event.estimatedCostCents, 0);
+    if (
+      !isAssistantBudgetReservationAllowed({
+        spentCents,
+        reservedCents,
+        projectedCostCents,
+        monthlyBudgetCents: input.policy.monthlyBudgetCents,
+      })
+    ) {
+      return null;
+    }
+
+    const reservationEvent = await assistantRepository.createUsageEvent({
+      projectId: input.policy.projectId,
+      taskId: input.taskId,
+      profileId: input.profileId,
+      executionMode: "saas-api",
+      runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+      provider: input.policy.provider,
+      model: input.policy.model,
+      inputTokens: input.inputTokens,
+      outputTokens: 0,
+      estimatedCostCents: projectedCostCents,
+      status: "cancelled",
+      policyDecision: "allowed",
+      requestHash: input.requestHash,
+      metadata: {
+        reservationState: "pending",
+      },
+    });
+    return {
+      backend: "local",
+      id: reservationEvent.id,
+      projectId: input.policy.projectId,
+      taskId: input.taskId,
+      profileId: input.profileId,
+      provider: input.policy.provider,
+      model: input.policy.model,
+      inputTokens: input.inputTokens,
+      reservedCostCents: projectedCostCents,
+      month,
+      requestHash: input.requestHash,
+    };
+  });
+}
+
+async function settleAssistantBudgetReservationSuccess(
+  reservation: AssistantBudgetReservation,
+  input: {
+    runtimeMode: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostCents: number;
+    metadata: Record<string, unknown>;
+  },
+) {
+  if (reservation.backend === "cloud") {
+    const settled = await prisma.assistantUsageEvent.updateMany({
+      where: {
+        id: reservation.id,
+        status: "cancelled",
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+      },
+      data: {
+        runtimeMode: input.runtimeMode,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        estimatedCostCents: input.estimatedCostCents,
+        status: "success",
+        metadata: input.metadata as Prisma.InputJsonObject,
+      },
+    });
+    if (settled.count !== 1) {
+      throw conflict("Assistant budget reservation is no longer active.", "ASSISTANT_BUDGET_RESERVATION_STALE");
+    }
+    return;
+  }
+
+  await withLocalAssistantBudgetLock(async () => {
+    await assertLocalAssistantBudgetReservationActive(reservation);
+    await assistantRepository.updateUsageEvent({
+      id: reservation.id,
+      runtimeMode: input.runtimeMode,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
+      estimatedCostCents: input.estimatedCostCents,
+      status: "success",
+      metadata: input.metadata,
+    });
+  });
+}
+
+async function settleAssistantBudgetReservationFailure(
+  reservation: AssistantBudgetReservation,
+  input: { errorCode: string; reason: string; metadata: Record<string, unknown> },
+) {
+  if (reservation.backend === "cloud") {
+    const settled = await prisma.assistantUsageEvent.updateMany({
+      where: {
+        id: reservation.id,
+        status: "cancelled",
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+      },
+      data: {
+        runtimeMode: "saas-api-provider-failed",
+        outputTokens: 0,
+        estimatedCostCents: 0,
+        status: "failed",
+        errorCode: input.errorCode,
+        metadata: { reason: input.reason, ...input.metadata },
+      },
+    });
+    if (settled.count !== 1) {
+      throw conflict("Assistant budget reservation is no longer active.", "ASSISTANT_BUDGET_RESERVATION_STALE");
+    }
+    return;
+  }
+
+  await withLocalAssistantBudgetLock(async () => {
+    await assertLocalAssistantBudgetReservationActive(reservation);
+    await assistantRepository.updateUsageEvent({
+      id: reservation.id,
+      runtimeMode: "saas-api-provider-failed",
+      inputTokens: reservation.inputTokens,
+      outputTokens: 0,
+      estimatedCostCents: 0,
+      status: "failed",
+      errorCode: input.errorCode,
+      metadata: { reason: input.reason, ...input.metadata },
+    });
+  });
+}
+
+async function markAssistantBudgetReservationCostUncertain(
+  reservation: AssistantBudgetReservation,
+  input: { errorCode: string; reason: string },
+) {
+  if (reservation.backend === "cloud") {
+    const marked = await prisma.assistantUsageEvent.updateMany({
+      where: {
+        id: reservation.id,
+        status: "cancelled",
+        runtimeMode: ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE,
+      },
+      data: {
+        runtimeMode: ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE,
+        status: "failed",
+        errorCode: input.errorCode,
+        metadata: {
+          reservationState: "cost_uncertain",
+          reason: input.reason,
+        },
+      },
+    });
+    if (marked.count !== 1) {
+      throw conflict("Assistant budget reservation is no longer active.", "ASSISTANT_BUDGET_RESERVATION_STALE");
+    }
+    return;
+  }
+
+  await withLocalAssistantBudgetLock(async () => {
+    await assertLocalAssistantBudgetReservationActive(reservation);
+    await assistantRepository.updateUsageEvent({
+      id: reservation.id,
+      runtimeMode: ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE,
+      inputTokens: reservation.inputTokens,
+      outputTokens: 0,
+      estimatedCostCents: reservation.reservedCostCents,
+      status: "failed",
+      errorCode: input.errorCode,
+      metadata: {
+        reservationState: "cost_uncertain",
+        reason: input.reason,
+      },
+    });
+  });
+}
+
+async function assertLocalAssistantBudgetReservationActive(reservation: AssistantBudgetReservation) {
+  const usage = await assistantRepository.listUsageEvents({ projectId: reservation.projectId });
+  const staleBefore = Date.now() - ASSISTANT_BUDGET_RESERVATION_TTL_MS;
+  const activeReservation = usage.some(
+    (event) =>
+      event.id === reservation.id &&
+      event.runtimeMode === ASSISTANT_BUDGET_RESERVATION_RUNTIME_MODE &&
+      event.status === "cancelled" &&
+      Date.parse(event.createdAt) >= staleBefore,
+  );
+  const completedRequest = usage.some(
+    (event) =>
+      event.executionMode === "saas-api" &&
+      event.requestHash === reservation.requestHash &&
+      isAssistantRequestTerminalEvent(event),
+  );
+  if (!activeReservation || completedRequest) {
+    throw conflict("Assistant budget reservation is no longer active.", "ASSISTANT_BUDGET_RESERVATION_STALE");
+  }
+}
+
+function isAssistantRequestTerminalEvent(event: AssistantUsageEvent) {
+  return (
+    event.status === "success" ||
+    (event.status === "failed" && event.runtimeMode === ASSISTANT_BUDGET_COST_UNCERTAIN_RUNTIME_MODE)
+  );
+}
+
+async function withLocalAssistantBudgetLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = localAssistantBudgetReservationQueue;
+  let release!: () => void;
+  localAssistantBudgetReservationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+function getAssistantBudgetMonthRange(month: string) {
+  const [yearText, monthText] = month.split("-");
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  return {
+    start: new Date(Date.UTC(year, monthIndex, 1)),
+    end: new Date(Date.UTC(year, monthIndex + 1, 1)),
+  };
 }
 
 async function recordBlockedUsage(
@@ -1688,29 +2243,25 @@ async function recordFailedUsage(
     requestHash: string;
   },
   error: AssistantProviderError,
+  reservation: AssistantBudgetReservation,
 ) {
-  await assistantRepository.createUsageEvent({
-    projectId: input.policy.projectId,
-    taskId: input.taskId,
-    profileId: input.profileId,
-    executionMode: "saas-api",
-    runtimeMode: "saas-api-provider-failed",
-    provider: input.policy.provider,
-    model: input.policy.model,
-    inputTokens: input.inputTokens,
-    outputTokens: 0,
-    estimatedCostCents: 0,
-    status: "failed",
-    policyDecision: "allowed",
-    requestHash: input.requestHash,
-    errorCode: error.code,
-    metadata: {
+  if (assistantProviderFailuresWithoutUsage.has(error.code)) {
+    await settleAssistantBudgetReservationFailure(reservation, {
+      errorCode: error.code,
       reason: error.message,
-      evidenceCount: input.evidence.length,
-      evidenceKinds: [...new Set(input.evidence.map((item) => item.kind))],
-      ...error.metadata,
-    },
-  });
+      metadata: {
+        reason: error.message,
+        evidenceCount: input.evidence.length,
+        evidenceKinds: [...new Set(input.evidence.map((item) => item.kind))],
+        ...error.metadata,
+      },
+    });
+  } else {
+    await markAssistantBudgetReservationCostUncertain(reservation, {
+      errorCode: error.code,
+      reason: error.message,
+    });
+  }
   await assistantRepository.createAuditEvent({
     projectId: input.policy.projectId,
     profileId: input.profileId,

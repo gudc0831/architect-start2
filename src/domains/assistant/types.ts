@@ -258,6 +258,7 @@ export type AssistantRecordMetadata = {
     providerCallMode: "mock" | "live";
     executionMode?: AssistantExecutionMode;
     runtimeMode?: string;
+    answerBinding?: "unverified_client_submission";
     savedByOrchestrator?: true;
     savedBy?: "auto" | "user" | "orchestrator";
     reviewRecordKind?: "temporary" | "manual";

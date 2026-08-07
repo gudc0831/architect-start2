@@ -14,11 +14,20 @@ import {
 import { extractTextFromStoredFile } from "@/domains/file/text-extraction";
 import { resolveFileContentType } from "@/domains/file/metadata";
 import type { FileAnalysisArtifact, FileAnalysisEntry } from "@/domains/file/analysis";
+import {
+  buildFileOwnedArtifactStoragePrefix,
+  resolveCanonicalFileStorageBucket,
+  resolveCanonicalUploadContentType,
+  validateFileOwnedArtifactStorage,
+  validateTaskOwnedStorageObject,
+  validateUploadedStorageObjectPath,
+} from "@/domains/file/content-security";
 import type { FileRecord } from "@/domains/task/types";
 import { allowedUploadExtensions, maxUploadSizeBytes } from "@/lib/runtime-config";
 import { badRequest, conflict } from "@/lib/api/errors";
 import { fileRepository, taskRepository } from "@/repositories";
 import { storageProvider } from "@/storage";
+import type { StoredObject } from "@/storage/contracts";
 import { getSupabaseStorageBucket } from "@/lib/supabase/config";
 import { requireFileInSelectedProject, requireTaskInSelectedProject } from "@/use-cases/project-scope-guard";
 import { getSelectedTaskProject } from "@/use-cases/task-project-context";
@@ -92,6 +101,7 @@ export async function createFileUploadIntent(input: FileUploadIntentInput): Prom
   validateUploadDescriptor(originalName, input.sizeBytes);
   const storageBucket = resolveUploadStorageBucket();
   const objectPath = buildObjectPath(task.projectId, task.id, originalName);
+  const canonicalMimeType = resolveCanonicalUploadContentType(originalName);
 
   const sourceFileId = normalizeOptionalId(input.fileId);
   if (!sourceFileId) {
@@ -105,7 +115,7 @@ export async function createFileUploadIntent(input: FileUploadIntentInput): Prom
       fileGroupId: randomUUID(),
       nextVersion: 1,
       originalName,
-      mimeType: normalizeMimeType(input.mimeType),
+      mimeType: canonicalMimeType,
       sizeBytes: input.sizeBytes,
     };
   }
@@ -130,7 +140,7 @@ export async function createFileUploadIntent(input: FileUploadIntentInput): Prom
     fileGroupId: sourceFile.fileGroupId,
     nextVersion,
     originalName,
-    mimeType: normalizeMimeType(input.mimeType),
+    mimeType: canonicalMimeType,
     sizeBytes: input.sizeBytes,
   };
 }
@@ -139,6 +149,7 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
   const task = await requireTaskInSelectedProject(input.taskId.trim());
   const originalName = normalizeOriginalName(input.originalName);
   validateUploadDescriptor(originalName, input.sizeBytes);
+  const canonicalMimeType = resolveCanonicalUploadContentType(originalName);
 
   if (task.projectId !== input.projectId) {
     throw badRequest("projectId does not match the selected task", "FILE_PROJECT_SCOPE_INVALID");
@@ -146,10 +157,16 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
 
   const storageBucket = normalizeStorageBucket(input.storageBucket);
   const objectPath = normalizeObjectPath(input.objectPath);
-  const expectedPrefix = `projects/${task.projectId}/tasks/${task.id}/`;
-  if (!objectPath.startsWith(expectedPrefix)) {
-    throw badRequest("objectPath is invalid", "FILE_OBJECT_PATH_INVALID");
+  requireTaskOwnedStorageObject(
+    { projectId: task.projectId, taskId: task.id },
+    { storageBucket, objectPath },
+  );
+
+  const fileGroupId = normalizeOptionalId(input.fileGroupId);
+  if (!fileGroupId) {
+    throw badRequest("fileGroupId is required", "FILE_GROUP_ID_REQUIRED");
   }
+  const nextVersion = normalizePositiveInteger(input.nextVersion, "nextVersion");
 
   const sourceFileId = normalizeOptionalId(input.sourceFileId);
   if (sourceFileId) {
@@ -160,9 +177,27 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
     if (sourceFile.deletedAt) {
       throw badRequest("Only active files can create a new version", "FILE_NOT_ACTIVE");
     }
-    if (sourceFile.fileGroupId !== input.fileGroupId) {
+    if (sourceFile.fileGroupId !== fileGroupId) {
       throw badRequest("fileGroupId does not match the source file", "FILE_GROUP_INVALID");
     }
+  }
+
+  const taskFiles = await fileRepository.listFilesByTask(task.id);
+  const objectOwner = taskFiles.find((file) => file.objectPath === objectPath && !file.purgedAt);
+  if (objectOwner) {
+    if (objectOwner.fileGroupId === fileGroupId && objectOwner.version === nextVersion) {
+      return objectOwner;
+    }
+    throw conflict(
+      "Uploaded object is already attached to another file record.",
+      "FILE_UPLOAD_OBJECT_ALREADY_ATTACHED",
+    );
+  }
+  const existing = taskFiles.find(
+    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion,
+  );
+  if (existing) {
+    throw fileVersionConflict();
   }
 
   const metadata = await storageProvider.getObjectMetadata({
@@ -175,25 +210,10 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
   }
 
   if (metadata.sizeBytes !== input.sizeBytes) {
-    throw conflict("Uploaded object size does not match the declared size", "FILE_UPLOAD_SIZE_MISMATCH");
-  }
-
-  const fileGroupId = normalizeOptionalId(input.fileGroupId);
-  if (!fileGroupId) {
-    throw badRequest("fileGroupId is required", "FILE_GROUP_ID_REQUIRED");
-  }
-
-  const nextVersion = normalizePositiveInteger(input.nextVersion, "nextVersion");
-  const existing = (await fileRepository.listFilesByTask(task.id)).find(
-    (file) => file.fileGroupId === fileGroupId && file.version === nextVersion,
-  );
-
-  if (existing) {
-    if (existing.objectPath === objectPath) {
-      return existing;
-    }
-
-    throw fileVersionConflict();
+    throw conflict(
+      "Uploaded object size does not match the declared size",
+      "FILE_UPLOAD_SIZE_MISMATCH",
+    );
   }
 
   try {
@@ -203,36 +223,33 @@ export async function commitFileUpload(input: FileUploadCommitInput) {
       fileGroupId,
       version: nextVersion,
       originalName,
-      mimeType: metadata.mimeType ?? normalizeMimeType(input.mimeType),
+      mimeType: canonicalMimeType,
       sizeBytes: metadata.sizeBytes,
       storageBucket,
       objectPath,
       uploadedBy: input.uploadedBy ?? null,
     });
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw fileVersionConflict();
+    const attached = await readBackFileAfterFailedMetadataWrite(task.id, objectPath, error);
+    if (attached) {
+      if (attached.fileGroupId === fileGroupId && attached.version === nextVersion) {
+        return attached;
+      }
+      throw conflict(
+        "Uploaded object was attached to another file record while commit was pending.",
+        "FILE_UPLOAD_OBJECT_ALREADY_ATTACHED",
+      );
     }
-
-    throw error;
+    throw isUniqueConstraintError(error) ? fileVersionConflict() : error;
   }
 }
 
 export async function createFileDownloadUrl(fileId: string) {
   const file = await requireFileInSelectedProject(fileId);
-  const storageBucket = normalizeStorageBucket(file.storageBucket);
-  const objectPath = normalizeObjectPath(file.objectPath);
-
-  const signedUrl = await storageProvider.createSignedDownloadUrl({
-    storageBucket,
-    objectPath,
-    expiresInSeconds: 60 * 10,
+  requireTaskOwnedStorageObject(file, {
+    storageBucket: normalizeStorageBucket(file.storageBucket),
+    objectPath: normalizeObjectPath(file.objectPath),
   });
-
-  if (signedUrl) {
-    return signedUrl;
-  }
-
   return buildFallbackDownloadUrl(file.id, file.deletedAt !== null);
 }
 
@@ -245,23 +262,38 @@ export async function attachUploadedFile(input: { taskId: string; file: File; us
   validateUploadDescriptor(input.file.name, input.file.size);
   const task = await requireTaskInSelectedProject(taskId);
   const storageBucket = resolveUploadStorageBucket();
+  const canonicalMimeType = resolveCanonicalUploadContentType(input.file.name);
 
+  const objectPath = buildObjectPath(task.projectId, task.id, input.file.name);
   const stored = await storageProvider.upload({
     file: input.file,
-    objectPath: buildObjectPath(task.projectId, task.id, input.file.name),
-    contentType: input.file.type || null,
+    objectPath,
+    contentType: canonicalMimeType,
   });
+  requireTaskOwnedStorageObject(
+    { projectId: task.projectId, taskId: task.id },
+    stored,
+  );
+  requireFreshUploadPath(stored, objectPath);
 
-  return fileRepository.attachFile({
-    taskId: task.id,
-    projectId: task.projectId,
-    originalName: input.file.name,
-    mimeType: input.file.type || null,
-    sizeBytes: input.file.size,
-    storageBucket: stored.storageBucket || storageBucket,
-    objectPath: stored.objectPath,
-    uploadedBy: input.userId ?? null,
-  });
+  try {
+    return await fileRepository.attachFile({
+      taskId: task.id,
+      projectId: task.projectId,
+      originalName: input.file.name,
+      mimeType: canonicalMimeType,
+      sizeBytes: input.file.size,
+      storageBucket: stored.storageBucket || storageBucket,
+      objectPath: stored.objectPath,
+      uploadedBy: input.userId ?? null,
+    });
+  } catch (error) {
+    const attached = await readBackFileAfterFailedMetadataWrite(task.id, stored.objectPath, error);
+    if (attached) {
+      return attached;
+    }
+    return compensateUploadedObject(stored, error, task.id);
+  }
 }
 
 export async function attachNextFileVersion(input: { fileId: string; file: File; userId?: string | null }) {
@@ -275,11 +307,15 @@ export async function attachNextFileVersion(input: { fileId: string; file: File;
   const siblings = await fileRepository.listActiveFiles(source.taskId);
   const sameGroup = siblings.filter((file) => file.fileGroupId === source.fileGroupId);
   const nextVersion = sameGroup.reduce((max, file) => Math.max(max, file.version), source.version) + 1;
+  const canonicalMimeType = resolveCanonicalUploadContentType(input.file.name);
+  const objectPath = buildObjectPath(source.projectId, source.taskId, input.file.name);
   const stored = await storageProvider.upload({
     file: input.file,
-    objectPath: buildObjectPath(source.projectId, source.taskId, input.file.name),
-    contentType: input.file.type || null,
+    objectPath,
+    contentType: canonicalMimeType,
   });
+  requireTaskOwnedStorageObject(source, stored);
+  requireFreshUploadPath(stored, objectPath);
 
   try {
     return await fileRepository.attachFile({
@@ -288,18 +324,22 @@ export async function attachNextFileVersion(input: { fileId: string; file: File;
       fileGroupId: source.fileGroupId,
       version: nextVersion,
       originalName: input.file.name,
-      mimeType: input.file.type || null,
+      mimeType: canonicalMimeType,
       sizeBytes: input.file.size,
       storageBucket: stored.storageBucket,
       objectPath: stored.objectPath,
       uploadedBy: input.userId ?? null,
     });
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw fileVersionConflict();
+    const attached = await readBackFileAfterFailedMetadataWrite(source.taskId, stored.objectPath, error);
+    if (attached) {
+      return attached;
     }
-
-    throw error;
+    return compensateUploadedObject(
+      stored,
+      isUniqueConstraintError(error) ? fileVersionConflict() : error,
+      source.taskId,
+    );
   }
 }
 
@@ -331,6 +371,7 @@ export async function readFileContent(fileId: string, options?: { allowDeleted?:
 
   const storageBucket = normalizeStorageBucket(file.storageBucket);
   const objectPath = normalizeObjectPath(file.objectPath);
+  requireTaskOwnedStorageObject(file, { storageBucket, objectPath });
 
   const content = await storageProvider.download({ storageBucket, objectPath });
   return {
@@ -355,16 +396,17 @@ export async function readFileAnalysisArtifact(fileId: string, analysisId: strin
   if (!analysis?.artifact) {
     throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
   }
+  const artifact = requireFileOwnedArtifact(file, analysis.artifact);
 
   const content = await storageProvider.download({
-    storageBucket: normalizeStorageBucket(analysis.artifact.storageBucket),
-    objectPath: normalizeObjectPath(analysis.artifact.objectPath),
+    storageBucket: artifact.storageBucket,
+    objectPath: artifact.objectPath,
   });
 
   return {
     file,
     analysis,
-    artifact: analysis.artifact,
+    artifact,
     content,
   };
 }
@@ -381,10 +423,11 @@ export async function deleteFileAnalysisArtifact(fileId: string, analysisId: str
   if (!targetAnalysis?.artifact) {
     throw badRequest("analysis artifact was not found", "FILE_ANALYSIS_ARTIFACT_NOT_FOUND");
   }
+  const artifact = requireFileOwnedArtifact(file, targetAnalysis.artifact);
 
   await storageProvider.delete({
-    storageBucket: normalizeStorageBucket(targetAnalysis.artifact.storageBucket),
-    objectPath: normalizeObjectPath(targetAnalysis.artifact.objectPath),
+    storageBucket: artifact.storageBucket,
+    objectPath: artifact.objectPath,
   });
 
   const timestamp = new Date().toISOString();
@@ -430,6 +473,7 @@ export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: st
   if (!extractedText && !summary) {
     throw badRequest("analysis text or summary is required", "FILE_ANALYSIS_TEXT_REQUIRED");
   }
+  const artifact = await resolveFileAnalysisArtifactInput(file, input.artifact);
 
   const timestamp = new Date().toISOString();
   const analysis: FileAnalysisEntry = {
@@ -445,7 +489,7 @@ export async function saveFileAnalysis(input: FileAnalysisSaveInput, userId?: st
       ? { providerStatus: input.providerStatus }
       : {}),
     ...(normalizeFileAnalysisRegion(input.region) ? { region: normalizeFileAnalysisRegion(input.region) } : {}),
-    ...(normalizeFileAnalysisArtifact(input.artifact) ? { artifact: normalizeFileAnalysisArtifact(input.artifact) } : {}),
+    ...(artifact ? { artifact } : {}),
     createdBy: userId ?? null,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -464,10 +508,12 @@ export async function autoExtractFileAnalysis(fileId: string, userId?: string | 
     throw badRequest("Only active files can be analyzed", "FILE_NOT_ACTIVE");
   }
 
-  const content = await storageProvider.download({
+  const storageObject = {
     storageBucket: normalizeStorageBucket(file.storageBucket),
     objectPath: normalizeObjectPath(file.objectPath),
-  });
+  };
+  requireTaskOwnedStorageObject(file, storageObject);
+  const content = await storageProvider.download(storageObject);
   const extracted = await extractTextFromStoredFile(file, content);
 
   return saveFileAnalysis(
@@ -506,15 +552,6 @@ function normalizeOriginalName(value: string) {
   }
 
   return normalized;
-}
-
-function normalizeMimeType(value?: string | null) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.trim();
-  return normalized ? normalized : null;
 }
 
 export function normalizeStorageBucket(value: string) {
@@ -575,7 +612,14 @@ function normalizePositiveInteger(value: number, fieldName: string) {
 }
 
 function resolveUploadStorageBucket() {
-  return storageProvider.name === "supabase-storage" ? getSupabaseStorageBucket() : "local-dev";
+  const storageBucket = resolveCanonicalFileStorageBucket(
+    storageProvider.name,
+    getSupabaseStorageBucket(),
+  );
+  if (!storageBucket) {
+    throw new Error(`Unsupported file storage provider: ${storageProvider.name}`);
+  }
+  return storageBucket;
 }
 
 function resolveUploadMode(): FileUploadIntent["uploadMode"] {
@@ -611,9 +655,150 @@ function isUniqueConstraintError(error: unknown) {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "P2002");
 }
 
+async function findFileByObjectPath(taskId: string, objectPath: string) {
+  const files = await fileRepository.listFilesByTask(taskId);
+  return files.find((file) => file.objectPath === objectPath && !file.purgedAt) ?? null;
+}
+
+async function readBackFileAfterFailedMetadataWrite(
+  taskId: string,
+  objectPath: string,
+  originalError: unknown,
+) {
+  try {
+    return await findFileByObjectPath(taskId, objectPath);
+  } catch (readbackError) {
+    throw new AggregateError(
+      [originalError, readbackError],
+      `File metadata write outcome is ambiguous; uploaded object was retained for safe reconciliation: ${objectPath}.`,
+    );
+  }
+}
+
+async function compensateUploadedObject(
+  stored: StoredObject,
+  originalError: unknown,
+  taskId?: string,
+): Promise<never> {
+  if (taskId) {
+    const attached = await readBackFileAfterFailedMetadataWrite(
+      taskId,
+      stored.objectPath,
+      originalError,
+    );
+    if (attached) {
+      throw originalError;
+    }
+  }
+
+  try {
+    await storageProvider.delete({
+      storageBucket: stored.storageBucket,
+      objectPath: stored.objectPath,
+    });
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [originalError, cleanupError],
+      `File metadata write failed and uploaded object compensation also failed for ${stored.objectPath}.`,
+    );
+  }
+
+  throw originalError;
+}
+
 function buildObjectPath(projectId: string, taskId: string, originalName: string) {
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "-");
   return `projects/${projectId}/tasks/${taskId}/${randomUUID()}-${safeName}`;
+}
+
+function buildArtifactObjectPath(
+  file: Pick<FileRecord, "id" | "projectId" | "taskId">,
+  originalName: string,
+) {
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return `${buildFileOwnedArtifactStoragePrefix(file)}${randomUUID()}-${safeName}`;
+}
+
+function requireTaskOwnedStorageObject(
+  owner: Pick<FileRecord, "projectId" | "taskId">,
+  object: { storageBucket: string; objectPath: string },
+) {
+  const ownership = validateTaskOwnedStorageObject({
+    owner,
+    object,
+    canonicalStorageBucket: resolveUploadStorageBucket(),
+  });
+  if (!ownership.ok) {
+    throw badRequest(ownership.message, ownership.code);
+  }
+  return ownership.value;
+}
+
+function requireFreshUploadPath(
+  object: { storageBucket: string; objectPath: string },
+  expectedObjectPath: string,
+) {
+  const pathMatch = validateUploadedStorageObjectPath({
+    object,
+    expectedObjectPath,
+  });
+  if (!pathMatch.ok) {
+    throw conflict(pathMatch.message, pathMatch.code);
+  }
+  return pathMatch.value;
+}
+
+function requireFileOwnedArtifact(
+  file: Pick<FileRecord, "id" | "projectId" | "taskId">,
+  artifact: FileAnalysisArtifact,
+) {
+  const ownership = validateFileOwnedArtifactStorage({
+    owner: file,
+    artifact,
+    canonicalStorageBucket: resolveUploadStorageBucket(),
+  });
+  if (!ownership.ok) {
+    throw badRequest(ownership.message, ownership.code);
+  }
+  return ownership.value;
+}
+
+async function resolveFileAnalysisArtifactInput(
+  file: Pick<FileRecord, "id" | "projectId" | "taskId">,
+  value: unknown,
+) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const artifact = normalizeFileAnalysisArtifact(value);
+  if (!artifact) {
+    throw badRequest(
+      "Analysis artifact metadata is invalid.",
+      "FILE_ANALYSIS_ARTIFACT_INVALID",
+    );
+  }
+  const ownedArtifact = requireFileOwnedArtifact(file, artifact);
+  const metadata = await storageProvider.getObjectMetadata({
+    storageBucket: ownedArtifact.storageBucket,
+    objectPath: ownedArtifact.objectPath,
+  });
+  if (!metadata) {
+    throw badRequest(
+      "Analysis artifact object was not found.",
+      "FILE_ANALYSIS_ARTIFACT_OBJECT_MISSING",
+    );
+  }
+  if (
+    metadata.sizeBytes !== ownedArtifact.sizeBytes ||
+    (metadata.mimeType !== null && metadata.mimeType !== ownedArtifact.mimeType)
+  ) {
+    throw conflict(
+      "Analysis artifact metadata does not match the stored object.",
+      "FILE_ANALYSIS_ARTIFACT_METADATA_MISMATCH",
+    );
+  }
+  return ownedArtifact;
 }
 
 export function decodeImageDataUrl(value: string | null | undefined):
@@ -653,14 +838,16 @@ export async function saveAnalysisImageCrop(
   image: { bytes: Uint8Array; mimeType: "image/png" | "image/jpeg"; extension: "png" | "jpg" },
   metadata: { sourceUrl?: string | null; sourceTitle?: string | null; capturedAt?: string | null },
 ): Promise<FileAnalysisArtifact> {
-  const objectPath = buildObjectPath(file.projectId, file.taskId, `analysis-crop-${file.id}.${image.extension}`);
+  const originalName = `analysis-crop-${file.id}.${image.extension}`;
+  const objectPath = buildArtifactObjectPath(file, originalName);
   const stored = await storageProvider.upload({
-    file: new File([Buffer.from(image.bytes)], `analysis-crop-${file.id}.${image.extension}`, { type: image.mimeType }),
+    file: new File([Buffer.from(image.bytes)], originalName, { type: image.mimeType }),
     objectPath,
     contentType: image.mimeType,
   });
+  requireFreshUploadPath(stored, objectPath);
 
-  return {
+  return requireFileOwnedArtifact(file, {
     kind: "image_crop",
     storageBucket: stored.storageBucket,
     objectPath: stored.objectPath,
@@ -669,5 +856,5 @@ export async function saveAnalysisImageCrop(
     ...(normalizeAnalysisText(metadata.sourceUrl, 500) ? { sourceUrl: normalizeAnalysisText(metadata.sourceUrl, 500) } : {}),
     ...(normalizeAnalysisText(metadata.sourceTitle, 200) ? { sourceTitle: normalizeAnalysisText(metadata.sourceTitle, 200) } : {}),
     ...(normalizeAnalysisText(metadata.capturedAt, 80) ? { capturedAt: normalizeAnalysisText(metadata.capturedAt, 80) } : {}),
-  };
+  });
 }

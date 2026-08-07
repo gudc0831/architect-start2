@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "baselineSql": "preview-baseline.sql",
+  "resolvedMigrations": [
+    "202603160001_add_profile_preferences",
+    "202603180001_add_task_list_layout_preferences",
+    "202603300001_generalize_task_category_definitions",
+    "202604030001_task_status_model_rename",
+    "202604030002_add_detail_panel_width_preference",
+    "202604070001_add_purged_at_retention",
+    "202604070002_add_theme_preference"
+  ],
+  "firstDeployMigration": "202604240001_add_file_project_policy_index"
+}

@@ -15,7 +15,8 @@ async function appendStorageDeleteAuditEvent(input: {
       storageBucket: input.storageBucket,
       objectPath: input.objectPath,
       metadata: input.metadata,
-      restoreLimitation: "Supabase Storage object deletes remove the object body. Cloud JSON backups keep bucket/path metadata only and cannot reconstruct object bytes.",
+      restoreLimitation:
+        "Cloud data-guard backups include Storage object bytes and checksums for verification. Database apply remains blocked until a transactionally restorable pg_dump/pg_restore artifact and restore drill are available.",
     });
   } catch {
     // Best effort only: the audit trail should not turn a requested storage delete into an undeletable object.

@@ -40,6 +40,8 @@ type OpenAIResponsePayload = {
   } | null;
 };
 
+export const ASSISTANT_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
+
 export class AssistantProviderError extends Error {
   readonly code: string;
   readonly status: number;
@@ -102,6 +104,7 @@ async function runOpenAIProvider(input: ProviderInput): Promise<AssistantProvide
   // codeql[js/file-access-to-http]
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
+    signal: AbortSignal.timeout(ASSISTANT_PROVIDER_TIMEOUT_MS),
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",

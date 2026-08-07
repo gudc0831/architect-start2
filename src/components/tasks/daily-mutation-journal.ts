@@ -1,9 +1,9 @@
 "use client";
 
-import type { TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
 
-export type DailyMutationOperationType = "create" | "update" | "trash" | "delete" | "reorder";
+export type DailyMutationOperationType = "create" | "update" | "trash" | "file-trash" | "restore" | "delete" | "reorder";
 export type DailyMutationStatus = "pending" | "syncing" | "synced" | "failed";
 export type DailyMutationFailureKind =
   | "network_or_database"
@@ -68,10 +68,27 @@ export type DailyMutationPayload =
       affectedTasks: TaskRecord[];
     }
   | {
+      kind: "file-trash";
+      fileId: string;
+      affectedFile: FileRecord;
+    }
+  | {
+      kind: "restore";
+      taskId: string;
+      affectedTasks: TaskRecord[];
+      affectedFile?: FileRecord | null;
+    }
+  | {
       kind: "delete";
       taskId: string;
       affectedTasks: TaskRecord[];
+      affectedTaskIds?: string[];
       affectedFileIds: string[];
+      affectedFiles?: FileRecord[];
+      request?:
+        | { target: "task"; taskId: string }
+        | { target: "file"; fileId: string }
+        | { target: "selection"; taskIds: string[]; fileIds: string[] };
     }
   | {
       kind: "reorder";
@@ -218,6 +235,13 @@ export function summarizeDailyMutationOperations(operations: readonly DailyMutat
   );
 }
 
+export function isDailyMutationOperationAttemptCurrent(
+  current: Pick<DailyMutationOperation, "operationId" | "clientMutationId">,
+  attempted: Pick<DailyMutationOperation, "operationId" | "clientMutationId">,
+) {
+  return current.operationId === attempted.operationId && current.clientMutationId === attempted.clientMutationId;
+}
+
 export function mergeDailyMutationOperationsIntoActiveTasks(
   tasks: readonly TaskRecord[],
   operations: readonly DailyMutationOperation[],
@@ -253,6 +277,26 @@ export function mergeDailyMutationOperationsIntoActiveTasks(
         next = next.filter((task) => !affectedIds.has(task.id));
         break;
       }
+      case "file-trash":
+        break;
+      case "restore": {
+        if (payload.affectedFile) {
+          break;
+        }
+        const existingIds = new Set(next.map((task) => task.id));
+        for (const task of payload.affectedTasks) {
+          const taskId = serverIdByTempId[task.id] ?? task.id;
+          const restoredTask = { ...task, id: taskId, deletedAt: null, purgedAt: null };
+          const existingIndex = next.findIndex((candidate) => candidate.id === taskId);
+          if (existingIndex >= 0) {
+            next[existingIndex] = restoredTask;
+          } else if (!existingIds.has(taskId)) {
+            next.push(restoredTask);
+            existingIds.add(taskId);
+          }
+        }
+        break;
+      }
       case "delete":
         break;
       case "reorder":
@@ -285,12 +329,81 @@ export function mergeDailyMutationOperationsIntoTrashTasks(
       }
     }
 
+    if (payload.kind === "restore" && !payload.affectedFile) {
+      const restoredIds = new Set(payload.affectedTasks.map((task) => task.id));
+      if (restoredIds.size === 0 && payload.taskId) {
+        restoredIds.add(payload.taskId);
+      }
+      next = next.filter((task) => !restoredIds.has(task.id));
+    }
+
     if (payload.kind === "delete") {
-      const deletedIds = new Set(payload.affectedTasks.map((task) => task.id));
+      const deletedIds = readDailyDeleteAffectedTaskIds(payload);
       next = next.filter((task) => !deletedIds.has(task.id));
     }
   }
 
+  return next;
+}
+
+export function mergeDailyMutationOperationsIntoActiveFiles(
+  files: readonly FileRecord[],
+  operations: readonly DailyMutationOperation[],
+) {
+  let next = [...files];
+  for (const operation of operations) {
+    if (operation.status === "synced") {
+      continue;
+    }
+
+    const payload = operation.payload;
+    if (payload.kind === "file-trash") {
+      next = next.filter((file) => file.id !== payload.fileId);
+    }
+    if (payload.kind === "restore" && payload.affectedFile) {
+      const restoredFile = { ...payload.affectedFile, deletedAt: null, purgedAt: null };
+      const existingIndex = next.findIndex((file) => file.id === restoredFile.id);
+      if (existingIndex >= 0) {
+        next[existingIndex] = restoredFile;
+      } else {
+        next.push(restoredFile);
+      }
+    }
+  }
+  return next;
+}
+
+export function mergeDailyMutationOperationsIntoTrashFiles(
+  files: readonly FileRecord[],
+  operations: readonly DailyMutationOperation[],
+) {
+  let next = [...files];
+  for (const operation of operations) {
+    if (operation.status === "synced") {
+      continue;
+    }
+
+    const payload = operation.payload;
+    if (payload.kind === "file-trash") {
+      const trashedFile = {
+        ...payload.affectedFile,
+        deletedAt: payload.affectedFile.deletedAt ?? operation.createdAt,
+      };
+      const existingIndex = next.findIndex((file) => file.id === payload.fileId);
+      if (existingIndex >= 0) {
+        next[existingIndex] = trashedFile;
+      } else {
+        next.push(trashedFile);
+      }
+    }
+    if (payload.kind === "restore" && payload.affectedFile) {
+      next = next.filter((file) => file.id !== payload.affectedFile?.id);
+    }
+    if (payload.kind === "delete") {
+      const deletedFileIds = new Set(payload.affectedFileIds);
+      next = next.filter((file) => !deletedFileIds.has(file.id));
+    }
+  }
   return next;
 }
 
@@ -360,7 +473,13 @@ export function classifyDailyMutationFlushFailure(
     return { kind: "reorder_conflict", retryable: true };
   }
 
-  if ((operation.payload.kind === "trash" || operation.payload.kind === "delete") && error.status === 404) {
+  if (
+    (operation.payload.kind === "trash" ||
+      operation.payload.kind === "file-trash" ||
+      operation.payload.kind === "restore" ||
+      operation.payload.kind === "delete") &&
+    error.status === 404
+  ) {
     return { kind: "not_found_desired_state_check", retryable: true };
   }
 
@@ -433,6 +552,53 @@ export function rebaseDailyReorderMutationOperation(
   };
 }
 
+export function rebaseDailySelectionDeleteMutationOperation(
+  operation: DailyMutationOperation,
+  existingTaskIds: ReadonlySet<string>,
+  existingFileIds: ReadonlySet<string>,
+): DailyMutationOperation | null {
+  if (operation.payload.kind !== "delete" || operation.payload.request?.target !== "selection") {
+    return operation;
+  }
+
+  const taskIds = operation.payload.request.taskIds.filter((taskId) => existingTaskIds.has(taskId));
+  const fileIds = operation.payload.request.fileIds.filter((fileId) => existingFileIds.has(fileId));
+  if (taskIds.length === 0 && fileIds.length === 0) {
+    return null;
+  }
+
+  if (
+    taskIds.length === operation.payload.request.taskIds.length &&
+    fileIds.length === operation.payload.request.fileIds.length
+  ) {
+    return operation;
+  }
+
+  const payload: DailyMutationPayload = {
+    ...operation.payload,
+    request: {
+      target: "selection",
+      taskIds,
+      fileIds,
+    },
+  };
+  const payloadSize = getJsonByteLength(payload);
+  assertDailyMutationPayloadSize(payloadSize);
+
+  return {
+    ...operation,
+    status: "pending",
+    updatedAt: new Date().toISOString(),
+    lastError: null,
+    lastHttpStatus: null,
+    lastErrorCode: null,
+    failureKind: null,
+    nextRetryAt: null,
+    payloadSize,
+    payload,
+  };
+}
+
 export function shouldMarkDailyTrashMutationSyncedFromServerState(
   operation: DailyMutationOperation,
   activeTasks: readonly TaskRecord[],
@@ -468,14 +634,68 @@ export function shouldMarkDailyDeleteMutationSyncedFromServerState(
     return false;
   }
 
-  const affectedIds = new Set(operation.payload.affectedTasks.map((task) => task.id));
-  if (affectedIds.size === 0) {
+  const affectedIds = readDailyDeleteAffectedTaskIds(operation.payload);
+  if (affectedIds.size === 0 && operation.payload.taskId) {
     affectedIds.add(operation.payload.taskId);
   }
 
   const activeIds = new Set(activeTasks.map((task) => task.id));
   const trashIds = new Set(trashTasks.map((task) => task.id));
   return [...affectedIds].every((taskId) => !activeIds.has(taskId) && !trashIds.has(taskId));
+}
+
+export function shouldMarkDailyRestoreMutationSyncedFromServerState(
+  operation: DailyMutationOperation,
+  activeTasks: readonly TaskRecord[],
+  trashTasks: readonly TaskRecord[],
+) {
+  if (operation.payload.kind !== "restore" || operation.payload.affectedFile) {
+    return false;
+  }
+
+  const affectedIds = new Set(operation.payload.affectedTasks.map((task) => task.id));
+  if (affectedIds.size === 0 && operation.payload.taskId) {
+    affectedIds.add(operation.payload.taskId);
+  }
+  if (affectedIds.size === 0) {
+    return false;
+  }
+
+  const activeIds = new Set(activeTasks.map((task) => task.id));
+  const trashIds = new Set(trashTasks.map((task) => task.id));
+  return [...affectedIds].every((taskId) => activeIds.has(taskId) && !trashIds.has(taskId));
+}
+
+export function shouldMarkDailyFileRestoreMutationSyncedFromServerState(
+  operation: DailyMutationOperation,
+  activeFiles: readonly FileRecord[],
+  trashFiles: readonly FileRecord[],
+) {
+  if (operation.payload.kind !== "restore" || !operation.payload.affectedFile) {
+    return false;
+  }
+
+  const fileId = operation.payload.affectedFile.id;
+  return activeFiles.some((file) => file.id === fileId) && trashFiles.every((file) => file.id !== fileId);
+}
+
+export function shouldMarkDailyFileTrashMutationSyncedFromServerState(
+  operation: DailyMutationOperation,
+  activeFiles: readonly FileRecord[],
+  trashFiles: readonly FileRecord[],
+) {
+  if (operation.payload.kind !== "file-trash") {
+    return false;
+  }
+
+  const fileId = operation.payload.fileId;
+  if (activeFiles.some((file) => file.id === fileId)) {
+    return false;
+  }
+  if (trashFiles.some((file) => file.id === fileId)) {
+    return true;
+  }
+  return true;
 }
 
 export function isDailyReorderMutationSatisfiedByServerState(
@@ -532,12 +752,22 @@ export async function cleanupSyncedDailyMutationOperations(
   const syncedOperations = (await listDailyMutationOperations(scope))
     .filter((operation) => operation.status === "synced")
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  const operationIdsToDelete = syncedOperations
-    .filter((operation, index) => index >= maxRetained || Date.parse(operation.updatedAt) < now - retentionMs)
-    .map((operation) => operation.operationId);
-
-  await Promise.all(operationIdsToDelete.map((operationId) => deleteDailyMutationOperation(operationId)));
-  return operationIdsToDelete.length;
+  const operationsToDelete = syncedOperations.filter(
+    (operation, index) => index >= maxRetained || Date.parse(operation.updatedAt) < now - retentionMs,
+  );
+  let deletedCount = 0;
+  await Promise.all(
+    operationsToDelete.map((operation) =>
+      updateDailyMutationOperation(operation.operationId, (current) => {
+        if (!isDailyMutationOperationAttemptCurrent(current, operation)) {
+          return current;
+        }
+        deletedCount += 1;
+        return null;
+      }),
+    ),
+  );
+  return deletedCount;
 }
 
 export async function updateDailyMutationOperation(
@@ -589,6 +819,13 @@ function buildServerIdByTempId(operations: readonly DailyMutationOperation[]) {
     }
   }
   return map;
+}
+
+function readDailyDeleteAffectedTaskIds(payload: Extract<DailyMutationPayload, { kind: "delete" }>) {
+  return new Set([
+    ...(payload.affectedTaskIds ?? []),
+    ...payload.affectedTasks.map((task) => task.id),
+  ]);
 }
 
 function isSetSiblingOrderCommandSatisfiedByServerState(
@@ -797,8 +1034,12 @@ function runStoreRequest<T>(
     const transaction = db.transaction(STORE_NAME, mode);
     const store = transaction.objectStore(STORE_NAME);
     const request = requestFactory(store);
+    let result = undefined as T;
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    transaction.oncomplete = () => resolve(result);
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });

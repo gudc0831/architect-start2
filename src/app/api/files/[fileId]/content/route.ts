@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  resolveFileContentResponsePolicy,
+  type FileContentDisposition,
+} from "@/domains/file/content-security";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
 import { requireCurrentProjectAccess } from "@/lib/auth/project-guards";
 import { requireUser } from "@/lib/auth/require-user";
 import { readFileContent } from "@/use-cases/file-service";
-
-type FileContentDisposition = "inline" | "attachment";
 
 export async function GET(
   request: Request,
@@ -19,13 +21,16 @@ export async function GET(
     const disposition = resolveDisposition(searchParams.get("disposition"));
     const allowDeleted = resolveAllowDeleted(searchParams.get("allowDeleted"));
     const { file, content, contentType } = await readFileContent(fileId, { allowDeleted });
+    const responsePolicy = resolveFileContentResponsePolicy(contentType, disposition);
 
     return new NextResponse(Buffer.from(content), {
       headers: {
         "Cache-Control": "private, no-store",
-        "Content-Disposition": buildContentDisposition(disposition, file.originalName),
+        "Content-Disposition": buildContentDisposition(responsePolicy.disposition, file.originalName),
         "Content-Length": String(content.byteLength),
-        "Content-Type": contentType,
+        "Content-Security-Policy": "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'",
+        "Content-Type": responsePolicy.contentType,
+        "X-Content-Type-Options": "nosniff",
       },
       status: 200,
     });

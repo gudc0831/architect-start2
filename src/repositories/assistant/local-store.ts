@@ -45,6 +45,7 @@ import type {
   ListAssistantUsageEventsForProfileInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
+  UpdateAssistantUsageEventInput,
   UpsertAssistantRunPolicyInput,
 } from "@/repositories/assistant/contracts";
 
@@ -667,6 +668,33 @@ class LocalAssistantRepository implements AssistantRepository {
       { reason: "assistant.usage.create" },
     );
 
+    return event;
+  }
+
+  async updateUsageEvent(input: UpdateAssistantUsageEventInput) {
+    const store = await readStore();
+    const existing = store.usageEvents.find((event) => event.id === input.id);
+    if (!existing) {
+      throw new Error("Assistant usage event not found.");
+    }
+    const event: AssistantUsageEvent = {
+      ...existing,
+      runtimeMode: input.runtimeMode,
+      inputTokens: input.inputTokens,
+      outputTokens: input.outputTokens,
+      estimatedCostCents: input.estimatedCostCents,
+      status: input.status,
+      errorCode: input.errorCode ?? null,
+      metadata: input.metadata ?? {},
+    };
+    await writeLocalStore(
+      "assistant",
+      {
+        ...store,
+        usageEvents: store.usageEvents.map((item) => (item.id === input.id ? event : item)),
+      },
+      { reason: "assistant.usage.update" },
+    );
     return event;
   }
 

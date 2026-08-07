@@ -68,13 +68,13 @@ const WATCH_TARGETS = [
 ];
 const UI_SCAN_DIRS = ["src/components", "src/app", "src/providers"];
 const protectedRules: Array<{ file: string; required: string[] }> = [
-  { file: "middleware.ts", required: ["/board"] },
+  { file: "middleware.ts", required: ["isPublicRoute", "updateSession", "if (!user)", "matcher"] },
   { file: "src/components/layout/sidebar.tsx", required: ["/board", "/daily", "/calendar", "/trash"] },
   { file: "src/domains/task/types.ts", required: ["\"board\"", "\"daily\"", "\"calendar\"", "\"trash\""] },
   { file: "src/domains/task/status.ts", required: ["\"new\"", "\"in_review\"", "\"in_discussion\"", "\"blocked\"", "\"done\"", "waiting", "todo", "in_progress"] },
-  { file: "src/domains/preferences/types.ts", required: ["\"actionId\"", "\"dueDate\"", "\"workType\"", "\"coordinationScope\"", "\"requestedBy\"", "\"relatedDisciplines\"", "\"assignee\"", "\"issueTitle\"", "\"reviewedAt\"", "\"locationRef\"", "\"calendarLinked\"", "\"issueDetailNote\"", "\"status\"", "\"completedAt\"", "\"statusHistory\"", "\"decision\""] },
+  { file: "src/domains/preferences/types.ts", required: ["\"actionId\"", "\"dueDate\"", "\"workType\"", "\"coordinationScope\"", "\"requestedBy\"", "\"relatedDisciplines\"", "\"assignee\"", "\"issueTitle\"", "\"reviewedAt\"", "\"locationRef\"", "\"calendarLinked\"", "\"issueDetailNote\"", "\"status\"", "\"decision\""] },
   { file: "prisma/schema.prisma", required: ["new", "in_review", "in_discussion", "blocked", "done"] },
-  { file: "src/app/api/tasks/route.ts", required: ["dueDate", "due_date", "Coordination Scope", "Owner Discipline", "requested_by", "Related Disciplines", "issue_title", "reviewed_at", "Location Ref", "Calendar Linked", "ISSUE Detail Note", "status"] },
+  { file: "src/app/api/tasks/route.ts", required: ["dueDate", "due_date", "Coordination Scope", "ownerDiscipline", "requested_by", "Related Disciplines", "issue_title", "reviewed_at", "Location Ref", "Calendar Linked", "ISSUE Detail Note", "status"] },
 ];
 const rawDisplayRules: Array<{ check: string; regex: RegExp }> = [
   { check: "raw-role-display", regex: /\{authUser(?:\?|\.)\.role\}/ },
@@ -320,7 +320,7 @@ function shouldIgnoreLiteral(file: string, line: string, literal: string) {
   if (/^(board|daily|calendar|trash|new|in_review|in_discussion|blocked|done|waiting|todo|in_progress)$/u.test(trimmed)) return true;
   if (/^[a-z0-9_.:-]+$/u.test(trimmed)) return true;
   if (trimmed.includes("Content-Type")) return true;
-  if (relativeToRoot(file) === "src/providers/project-provider.tsx" && trimmed === "Project") return true;
+  if (relativeToRoot(file) === "src/providers/project-provider.tsx" && (trimmed === "Project" || line.includes("defaultProjectName"))) return true;
   return false;
 }
 

@@ -32,6 +32,7 @@ import {
 import type { KnowledgeGenerationProfile, StructuredKnowledgeDraft } from "@/domains/knowledge/structured-knowledge";
 import styles from "@/components/admin/knowledge-admin-shell.module.css";
 import { createKnowledgeAdminNavigationHref } from "@/components/admin/use-knowledge-admin-navigation";
+import { t } from "@/lib/ui-copy";
 import { useProjectMeta } from "@/providers/project-provider";
 
 type CandidateState = "candidate" | "pending_review" | "approved" | "rejected" | "not_candidate";
@@ -6239,7 +6240,7 @@ export function KnowledgeAdminShell({
               </div>
               <div className={styles.sourceChips} aria-label="Knowledge capability migration state">
                 <span>{knowledgeCapabilityReport?.allowed ? "지식 관리자 허용됨" : "지식 관리자 차단됨"}</span>
-                <span>매핑 {knowledgeCapabilityReport?.mapping ?? "알 수 없음"}</span>
+                <span>매핑 {knowledgeCapabilityReport?.mapping ?? t("system.unknown")}</span>
                 <span>권한 {knowledgeCapabilityReport?.capabilities.length ?? 0}</span>
                 <span>
                   권한 테이블 {knowledgeCapabilityReport?.migration.profileCapabilityTableReady ? "준비됨" : "대기 중"}
@@ -7975,7 +7976,7 @@ function readApprovalRiskGroups(guardrails: ApprovalGuardrail[]): ApprovalRiskGr
     { key: "metadata", label: "메타데이터", readyCount: 0, warningCount: 0, items: [] },
     { key: "structure", label: "구조", readyCount: 0, warningCount: 0, items: [] },
     { key: "evidence", label: "근거", readyCount: 0, warningCount: 0, items: [] },
-    { key: "state", label: "상태", readyCount: 0, warningCount: 0, items: [] },
+    { key: "state", label: t("fields.status"), readyCount: 0, warningCount: 0, items: [] },
   ];
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
   for (const guardrail of guardrails) {
@@ -8000,7 +8001,13 @@ function readApprovalRiskGroupKey(label: string): ApprovalRiskGroup["key"] {
   if (label.includes("evidence") || label.includes("Evidence") || label.includes("priority") || label.includes("근거") || label.includes("우선순위")) {
     return "evidence";
   }
-  if (label.includes("confidence") || label.includes("Confidence") || label.includes("State") || label.includes("신뢰도") || label.includes("상태")) {
+  if (
+    label.includes("confidence") ||
+    label.includes("Confidence") ||
+    label.includes("State") ||
+    label.includes("신뢰도") ||
+    label.includes(t("fields.status"))
+  ) {
     return "state";
   }
   return "metadata";

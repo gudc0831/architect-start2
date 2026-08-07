@@ -21,6 +21,7 @@ import {
   isCentralizedVerifiedLegalEvidence,
   requiresCentralizedLegalVerification,
 } from "@/domains/legal/legal-verification-intent";
+import { hasLegalChangeEvidenceImpact } from "@/domains/assistant/legal-change-impact";
 import {
   TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION,
   TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION_VERSION,
@@ -262,19 +263,42 @@ export async function saveTaskReviewSessionRecord(
   const task = await requireTaskInSelectedProject(normalizeRequiredSessionText(input.taskId, "taskId"));
   const question = normalizeRequiredSessionText(input.question, "question");
   const answer = normalizeRequiredSessionText(input.answer, "answer");
-  const evidence = sanitizeTaskReviewEvidence(input.evidence ?? []);
-  const lawReport = input.officialLawVerification ?? buildStoredReviewLawReport(evidence);
+  const retrieved = await retrieveAssistantEvidence({
+    taskId: task.id,
+    question,
+    user,
+  });
+  const legalVerificationRequired = requiresCentralizedLegalVerification(question, retrieved.evidence);
+  const evidence = sanitizeTaskReviewEvidence(
+    selectEvidenceForTaskReviewGeneration(retrieved.evidence, legalVerificationRequired),
+  ).sort((left, right) => left.priority - right.priority);
+  const lawReport = buildCentralizedLegalVerificationReport({
+    question,
+    evidence,
+    originalEvidence: retrieved.evidence,
+    evidenceReadinessWarnings: retrieved.evidenceReadinessWarnings,
+    legalVerificationRequired,
+  });
+  const authoritativeReviewSession = buildTaskAssistantReviewSession({
+    taskContext: retrieved.taskContext,
+    question,
+    evidence,
+    legalApplicability: retrieved.legalApplicability,
+    lawStatus: lawReport.status,
+  });
   const providerCallMode = input.generated?.provider?.callMode ?? "mock";
   const executionMode = normalizeTaskReviewSessionExecutionMode(input.executionMode, input.generated);
   const runtimeMode = normalizeTaskReviewSessionRuntimeMode(input.runtimeMode, executionMode, providerCallMode);
-  const confidence = buildGeneratedTaskReviewConfidence({
-    evidence,
-    lawReport,
-    regulationCount: evidence.filter((item) => item.kind === "regulation").length,
-  });
-  const reviewSessionId = input.reviewSession?.id ?? `task-review-session:${task.id}:${new Date().toISOString()}`;
+  const confidence = buildPersistedTaskReviewConfidence(
+    buildGeneratedTaskReviewConfidence({
+      evidence,
+      lawReport,
+      regulationCount: retrieved.evidence.filter((item) => item.kind === "regulation").length,
+    }),
+  );
+  const reviewSessionId = authoritativeReviewSession.id;
   const title = normalizeSessionTitle(input.title) ?? buildReviewSessionTitle(question);
-  const legalApplicability = input.legalApplicability ?? null;
+  const legalApplicability = retrieved.legalApplicability ?? null;
   const record = await assistantRepository.createRecord({
     projectId: task.projectId,
     taskId: task.id,
@@ -297,13 +321,14 @@ export async function saveTaskReviewSessionRecord(
         providerCallMode,
         executionMode,
         runtimeMode,
+        answerBinding: "unverified_client_submission",
         savedBy: "auto",
         reviewRecordKind: "temporary",
         reviewSessionId,
         reviewSessionTitle: title,
         reviewInstructionVersion: TASK_ASSISTANT_DEFAULT_REVIEW_INSTRUCTION_VERSION,
-        candidateFactsMissing: input.reviewSession?.candidateFactsMissing ?? legalApplicability?.candidateImpact.missingFacts ?? [],
-        conclusionMayChange: input.reviewSession?.conclusionMayChange ?? legalApplicability?.candidateImpact.canChangeConclusion ?? false,
+        candidateFactsMissing: authoritativeReviewSession.candidateFactsMissing,
+        conclusionMayChange: authoritativeReviewSession.conclusionMayChange,
         ...(legalApplicability ? { legalApplicability } : {}),
       },
     },
@@ -635,12 +660,35 @@ function buildGeneratedTaskReviewConfidence(input: {
   lawReport: TaskReviewLegalVerificationReport;
 }) {
   const evidenceCoverageBonus = Math.min(5, Math.floor(input.evidence.length / 4));
+  const baseScore = Math.min(95, Math.max(60, 80 + input.regulationCount + evidenceCoverageBonus));
+  if (input.lawReport.status === "failed") {
+    return {
+      score: Math.min(baseScore, 25),
+      reason:
+        "Centralized legal verification failed; confidence is capped at 25% and the review must not be used as verified legal guidance.",
+    };
+  }
+  if (hasLegalChangeEvidenceImpact(input.evidence)) {
+    return {
+      score: Math.min(baseScore, 45),
+      reason:
+        "Legal change detected; confidence is capped at 45% and requires legal-change review before use as current legal basis.",
+    };
+  }
+
   return {
-    score: Math.min(95, Math.max(60, 80 + input.regulationCount + evidenceCoverageBonus)),
+    score: baseScore,
     reason:
       input.lawReport.status === "verified"
         ? "Centralized verified legal evidence succeeded and the answer was generated from the server-verified evidence bundle."
         : "Centralized legal verification was not required and the answer was generated from the server-verified evidence bundle.",
+  };
+}
+
+function buildPersistedTaskReviewConfidence(input: { score: number; reason: string }) {
+  return {
+    score: Math.min(input.score, 40),
+    reason: `${input.reason} The persisted answer was submitted by the client and is not cryptographically bound to the authoritative server evidence bundle, so stored confidence is capped at 40%.`,
   };
 }
 
@@ -743,38 +791,6 @@ function isHistoryEvidence(item: AssistantEvidence) {
 
 function isWikiEvidence(item: AssistantEvidence) {
   return item.kind === "project_wiki" || item.kind === "central_knowledge";
-}
-
-function buildStoredReviewLawReport(evidence: AssistantEvidence[]): TaskReviewLegalVerificationReport {
-  const verifiedLegalEvidence = evidence.filter(isCentralizedVerifiedLegalEvidence);
-  const checkedAt = new Date().toISOString();
-  return {
-    status: verifiedLegalEvidence.length > 0 ? "verified" : "not_required",
-    checkedAt,
-    provider: {
-      name: "Task Assistant saved review session",
-      docsUrl: "",
-    },
-    locators: verifiedLegalEvidence.map((item) => ({
-      lawName: item.lawName ?? item.title,
-      articleLabel: item.articleLabel,
-      articleNumber: item.articleNumber,
-      evidenceId: item.id,
-      sourceUrl: item.sourceUrl,
-    })),
-    sources: verifiedLegalEvidence.map((item) => ({
-      status: "verified" as const,
-      lawName: item.lawName ?? item.title,
-      articleLabel: item.articleLabel,
-      articleNumber: item.articleNumber,
-      apiUrl: item.apiSourceUrl ?? item.sourceUrl ?? "",
-      checkedAt: item.checkedAt ?? checkedAt,
-      evidenceId: item.id,
-      reason: "Stored from Task Assistant temporary review-session save.",
-    })),
-    failures: [],
-    retry: [],
-  };
 }
 
 function readStoredVerdict(record: AssistantRecord) {

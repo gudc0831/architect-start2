@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { hasLegalChangeEvidenceImpact } from "../src/domains/assistant/legal-change-impact";
 import { listLegalChangeItems, mapLegalChangeEventsToItems } from "../src/use-cases/legal-change-service";
 
 const legalChangeWarningText = "인용된 근거 중 변경 감지된 법령이 있습니다. 적용일자와 최신 조문을 확인하세요.";
 
 async function main() {
+  assert.equal(hasLegalChangeEvidenceImpact([{ legal: undefined }]), false);
+  assert.equal(hasLegalChangeEvidenceImpact([{
+    legal: { sourceId: "law-1", stale: false, legalChangeWarnings: [] },
+  }]), false);
+  assert.equal(hasLegalChangeEvidenceImpact([{
+    legal: { sourceId: "law-1", stale: false },
+  }]), true);
+  assert.equal(hasLegalChangeEvidenceImpact([{
+    legal: { sourceId: "law-1", stale: false, legalChangeWarnings: ["amended"] },
+  }]), true);
+  assert.equal(hasLegalChangeEvidenceImpact([{ legal: "malformed" }]), true);
+
   const items = mapLegalChangeEventsToItems([
     {
       eventId: "legal_change:new",
@@ -176,9 +189,6 @@ async function main() {
   assert.match(taskAssistantPanelSource, new RegExp(escapeRegExp(legalChangeWarningText)));
   assert.match(taskAssistantPanelSource, /hasLegalChangeImpactWarning/);
   assert.match(taskAssistantPanelSource, /appendLegalChangeReviewNotice/);
-  assert.match(taskAssistantPanelSource, /buildAssistantRecordConfidenceOverride/);
-  assert.match(taskAssistantPanelSource, /confidenceScore:\s*confidenceOverride\.confidenceScore/);
-  assert.match(taskAssistantPanelSource, /confidenceReason:\s*confidenceOverride\.confidenceReason/);
   assert.match(taskAssistantPanelSource, /requires review/i);
 
   const assistantServiceSource = await readFile(join(process.cwd(), "src", "use-cases", "assistant-service.ts"), "utf8");
@@ -186,6 +196,23 @@ async function main() {
   assert.match(assistantServiceSource, /hasLegalChangeEvidenceImpact/);
   assert.match(assistantServiceSource, /hasLegalChangeEvidenceImpact\(evidence\)\s*\?\s*buildConfidenceReason/);
   assert.match(assistantServiceSource, /requires legal-change review/);
+
+  const taskReviewServiceSource = await readFile(join(process.cwd(), "src", "use-cases", "task-review-service.ts"), "utf8");
+  assert.match(taskReviewServiceSource, /hasLegalChangeEvidenceImpact\(input\.evidence\)/);
+  assert.match(taskReviewServiceSource, /score:\s*Math\.min\(baseScore,\s*45\)/);
+  assert.match(taskReviewServiceSource, /status === "failed"[\s\S]*score:\s*Math\.min\(baseScore,\s*25\)/);
+  assert.match(taskReviewServiceSource, /requires legal-change review before use as current legal basis/);
+  assert.match(
+    taskReviewServiceSource,
+    /saveTaskReviewSessionRecord[\s\S]*retrieveAssistantEvidence\([\s\S]*buildCentralizedLegalVerificationReport/,
+  );
+  assert.match(taskReviewServiceSource, /hasLegalChangeEvidenceImpact/);
+  assert.match(taskReviewServiceSource, /buildPersistedTaskReviewConfidence[\s\S]*Math\.min\(input\.score,\s*40\)/);
+  assert.match(taskReviewServiceSource, /answerBinding:\s*"unverified_client_submission"/);
+  assert.doesNotMatch(
+    taskReviewServiceSource,
+    /const lawReport = input\.officialLawVerification|const legalApplicability = input\.legalApplicability/,
+  );
 
   const assistantSaasModeSource = await readFile(join(process.cwd(), "src", "use-cases", "assistant-saas-mode-service.ts"), "utf8");
   assert.match(assistantSaasModeSource, /answer:\s*appendLegalChangeReviewNotice\(providerResult\.answer,\s*retrievalSnapshot\)/);

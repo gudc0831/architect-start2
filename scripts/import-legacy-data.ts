@@ -210,27 +210,10 @@ async function main() {
   let skippedFiles = 0;
 
   for (const file of [...normalizedFiles].sort((left, right) => left.version - right.version || normalizeDateTime(left.legacy.createdAt, "").localeCompare(normalizeDateTime(right.legacy.createdAt, "")))) {
-    const existing = await prisma.file.findUnique({
-      where: { id: file.id },
-      select: { id: true },
-    });
-
-    let storageBucket = storageProvider.name === "supabase-storage" ? process.env.SUPABASE_STORAGE_BUCKET || "task-files" : "local-dev";
-    let sizeBytes = Number(file.legacy.sizeBytes ?? 0);
-    let originalName = normalizeText(file.legacy.originalName) || "legacy-file";
-    let mimeType = normalizeText(file.legacy.mimeType) || guessMimeType(originalName);
-
-    if (!existing) {
-      const upload = await uploadLegacyFile(file, localUploadRoot, storageProvider.name as ImportStorageName, skipMissingFiles);
-      if (upload.skipped) {
-        skippedFiles += 1;
-        continue;
-      }
-
-      storageBucket = upload.storageBucket;
-      sizeBytes = upload.sizeBytes;
-      originalName = upload.originalName;
-      mimeType = upload.mimeType;
+    const upload = await uploadLegacyFile(file, localUploadRoot, storageProvider.name as ImportStorageName, skipMissingFiles);
+    if (upload.skipped) {
+      skippedFiles += 1;
+      continue;
     }
 
     await prisma.file.upsert({
@@ -239,11 +222,11 @@ async function main() {
         taskId: file.taskId,
         projectId,
         fileGroupId: file.fileGroupId,
-        originalName,
-        mimeType,
-        sizeBytes: BigInt(sizeBytes),
+        originalName: upload.originalName,
+        mimeType: upload.mimeType,
+        sizeBytes: BigInt(upload.sizeBytes),
         storageProvider: storageProvider.name,
-        storageBucket,
+        storageBucket: upload.storageBucket,
         objectPath: file.objectPath,
         version: file.version,
         deletedAt: normalizeText(file.legacy.deletedAt) ? new Date(String(file.legacy.deletedAt)) : null,
@@ -253,11 +236,11 @@ async function main() {
         taskId: file.taskId,
         projectId,
         fileGroupId: file.fileGroupId,
-        originalName,
-        mimeType,
-        sizeBytes: BigInt(sizeBytes),
+        originalName: upload.originalName,
+        mimeType: upload.mimeType,
+        sizeBytes: BigInt(upload.sizeBytes),
         storageProvider: storageProvider.name,
-        storageBucket,
+        storageBucket: upload.storageBucket,
         objectPath: file.objectPath,
         version: file.version,
         createdAt: new Date(normalizeDateTime(file.legacy.createdAt, new Date().toISOString())),
@@ -557,6 +540,38 @@ async function uploadLegacyFile(
     const buffer = await readFile(candidate);
     const originalName = normalizeText(file.legacy.originalName) || basename(candidate) || "legacy-file";
     const mimeType = normalizeText(file.legacy.mimeType) || guessMimeType(originalName);
+    const storageBucket =
+      storageName === "supabase-storage"
+        ? process.env.SUPABASE_STORAGE_BUCKET || "task-files"
+        : "local-dev";
+    const existingObject = await storageProvider.getObjectMetadata({
+      storageBucket,
+      objectPath: file.objectPath,
+    });
+    if (existingObject) {
+      if (existingObject.sizeBytes !== buffer.byteLength) {
+        throw new Error(`Legacy object already exists with a different size: ${file.objectPath}`);
+      }
+      const existingBytes = Buffer.from(
+        await storageProvider.download({
+          storageBucket,
+          objectPath: file.objectPath,
+        }),
+      );
+      const expectedChecksum = createHash("sha256").update(buffer).digest("hex");
+      const existingChecksum = createHash("sha256").update(existingBytes).digest("hex");
+      if (existingChecksum !== expectedChecksum) {
+        throw new Error(`Legacy object already exists with different content: ${file.objectPath}`);
+      }
+
+      return {
+        skipped: false,
+        storageBucket,
+        originalName,
+        mimeType: existingObject.mimeType ?? mimeType,
+        sizeBytes: buffer.byteLength,
+      };
+    }
     const stored = await storageProvider.upload({
       file: new File([buffer], originalName, { type: mimeType }),
       objectPath: file.objectPath,
@@ -619,6 +634,15 @@ async function validateImport(prismaClient: PrismaClient, projectId: string, tas
     acc.set(file.fileGroupId, Math.max(acc.get(file.fileGroupId) ?? 0, file.version));
     return acc;
   }, new Map<string, number>());
+  const versionKeys = new Set<string>();
+  const fileVersionIntegrityOk = latestVersions.every((file) => {
+    const key = `${file.fileGroupId}:${file.version}`;
+    if (!Number.isInteger(file.version) || file.version <= 0 || versionKeys.has(key)) {
+      return false;
+    }
+    versionKeys.add(key);
+    return true;
+  });
 
   return {
     ok:
@@ -626,7 +650,7 @@ async function validateImport(prismaClient: PrismaClient, projectId: string, tas
       taskCount === tasks.length &&
       trashTaskCount === tasks.filter((task) => Boolean(task.legacy.deletedAt)).length &&
       fileCount === expectedFileCount &&
-      latestByGroup.size >= 0,
+      fileVersionIntegrityOk,
     projectCount,
     taskCount,
     trashTaskCount,
@@ -634,6 +658,8 @@ async function validateImport(prismaClient: PrismaClient, projectId: string, tas
     expectedTaskCount: tasks.length,
     expectedTrashTaskCount: tasks.filter((task) => Boolean(task.legacy.deletedAt)).length,
     expectedFileCount,
+    fileGroupCount: latestByGroup.size,
+    fileVersionIntegrityOk,
   };
 }
 

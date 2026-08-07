@@ -103,7 +103,7 @@ assert.doesNotMatch(
   routeSource,
   /formData\.get\("(sourceId|versionId|rawStorageKey|normalizationRuleVersion|parserVersion|status)"\)/,
 );
-assert.match(serviceSource, /requireProjectAccess\(input\.projectId, input\.user\)/);
+assert.match(serviceSource, /requireProjectEditor\(input\.projectId, input\.user\)/);
 assert.match(serviceSource, /PROJECT_CONTEXT_UPLOAD_TASK_PROJECT_MISMATCH/);
 assert.match(serviceSource, /where id = \$\{uploadedTaskId\}::uuid[\s\S]*?and project_id = \$\{projectId\}::uuid/);
 assert.match(serviceSource, /'project_context'/);

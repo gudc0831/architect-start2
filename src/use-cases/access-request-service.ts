@@ -1,6 +1,6 @@
 import type { AuthUser } from "@/domains/auth/types";
 import type { RequestedProjectRole } from "@/lib/auth/project-capabilities";
-import { badRequest, forbidden, notFound } from "@/lib/api/errors";
+import { badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
 import { canApproveAccessRequest, isAssignableProjectRole } from "@/lib/auth/project-capabilities";
 import { requireProjectManager } from "@/lib/auth/project-guards";
 import { prisma } from "@/lib/prisma";
@@ -85,27 +85,46 @@ export async function reviewAccessRequest(input: {
   }
 
   if (request.status !== "pending") {
-    throw forbidden("Access request is not pending", "ACCESS_REQUEST_NOT_PENDING");
+    throw conflict("Access request is not pending", "ACCESS_REQUEST_NOT_PENDING");
+  }
+
+  const requestedProjectId = normalizeOptionalProjectId(input.projectId);
+  if (request.projectId && requestedProjectId && request.projectId !== requestedProjectId) {
+    throw badRequest("projectId does not match the access request", "ACCESS_REQUEST_PROJECT_MISMATCH");
+  }
+
+  const projectId = request.projectId ?? requestedProjectId;
+  let managerContext: Awaited<ReturnType<typeof requireProjectManager>> | null = null;
+  if (input.actor.role !== "admin") {
+    if (!projectId) {
+      throw forbidden("Project manager access is required", "PROJECT_MANAGER_REQUIRED");
+    }
+    managerContext = await requireProjectManager(projectId, input.actor);
   }
 
   if (input.action === "reject") {
-    return prisma.accessRequest.update({
-      where: { id: request.id },
-      data: {
-        status: "rejected",
-        reviewedBy: input.actor.id,
-        reviewedAt: new Date(),
-      },
+    return prisma.$transaction(async (tx) => {
+      const claimed = await tx.accessRequest.updateMany({
+        where: { id: request.id, status: "pending" },
+        data: {
+          status: "rejected",
+          reviewedBy: input.actor.id,
+          reviewedAt: new Date(),
+        },
+      });
+      if (claimed.count !== 1) {
+        throw conflict("Access request is not pending", "ACCESS_REQUEST_NOT_PENDING");
+      }
+
+      return tx.accessRequest.findUniqueOrThrow({ where: { id: request.id } });
     });
   }
 
-  const projectId = normalizeOptionalProjectId(input.projectId) ?? request.projectId;
   if (!projectId) {
     throw badRequest("projectId is required to approve access", "PROJECT_ID_REQUIRED");
   }
 
   const role = resolveApprovedRole(input.role, request.requestedRole);
-  const managerContext = input.actor.role === "admin" ? null : await requireProjectManager(projectId, input.actor);
 
   if (
     !canApproveAccessRequest({
@@ -118,6 +137,20 @@ export async function reviewAccessRequest(input: {
   }
 
   await prisma.$transaction(async (tx) => {
+    const claimed = await tx.accessRequest.updateMany({
+      where: { id: request.id, status: "pending" },
+      data: {
+        projectId,
+        requestedRole: role,
+        status: "approved",
+        reviewedBy: input.actor.id,
+        reviewedAt: new Date(),
+      },
+    });
+    if (claimed.count !== 1) {
+      throw conflict("Access request is not pending", "ACCESS_REQUEST_NOT_PENDING");
+    }
+
     await tx.profile.update({
       where: { id: request.profileId },
       data: { accessStatus: "active" },
@@ -144,17 +177,6 @@ export async function reviewAccessRequest(input: {
         email: request.profile.email,
         createdBy: input.actor.id,
         updatedBy: input.actor.id,
-      },
-    });
-
-    await tx.accessRequest.update({
-      where: { id: request.id },
-      data: {
-        projectId,
-        requestedRole: role,
-        status: "approved",
-        reviewedBy: input.actor.id,
-        reviewedAt: new Date(),
       },
     });
   });

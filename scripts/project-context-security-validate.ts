@@ -14,7 +14,8 @@ const legalSearchServiceSource = readFileSync(join(root, "src", "use-cases", "ve
 
 assert.doesNotMatch(uploadRouteSource, /formData\.get\("projectId"\)/);
 assert.doesNotMatch(uploadRouteSource, /request\.json\(\)/);
-assert.match(uploadServiceSource, /requireProjectAccess\(input\.projectId, input\.user\)/);
+assert.match(uploadRouteSource, /requireProjectEditor\(projectId, user\)[\s\S]*request\.formData\(\)/);
+assert.match(uploadServiceSource, /requireProjectEditor\(input\.projectId, input\.user\)/);
 assert.match(uploadServiceSource, /where id = \$\{uploadedTaskId\}::uuid[\s\S]*?and project_id = \$\{projectId\}::uuid/);
 
 assert.match(approvalServiceSource, /where upload\.project_id = \$\{input\.projectId\}::uuid/);

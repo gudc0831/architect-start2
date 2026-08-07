@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { serviceUnavailable } from "@/lib/api/errors";
 import { backendMode } from "@/lib/backend-mode";
@@ -92,14 +93,29 @@ type SnapshotStoreMeta = {
   path: string;
   exists: boolean;
   recordCount: number;
+  sizeBytes: number;
+  sha256: string | null;
+};
+
+type SnapshotUploadFileMeta = {
+  relativePath: string;
+  sizeBytes: number;
+  sha256: string;
 };
 
 type SnapshotMeta = {
+  manifestVersion: 2;
   id: string;
   createdAt: string;
   reason: string;
   fingerprint: LocalFingerprint;
   stores: SnapshotStoreMeta[];
+  uploads: {
+    exists: boolean;
+    fileCount: number;
+    totalBytes: number;
+    files: SnapshotUploadFileMeta[];
+  };
   details?: Record<string, unknown>;
 };
 
@@ -195,6 +211,27 @@ const storeDefinitions: Record<LocalStoreName, StoreDefinition> = {
     },
   },
 };
+
+const localMutationContext = new AsyncLocalStorage<boolean>();
+let localMutationTail = Promise.resolve();
+
+export async function withLocalDataMutationLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (localMutationContext.getStore()) {
+    return operation();
+  }
+
+  const previous = localMutationTail;
+  let release: () => void = () => undefined;
+  localMutationTail = new Promise<void>((resolvePromise) => {
+    release = resolvePromise;
+  });
+  await previous;
+  try {
+    return await localMutationContext.run(true, operation);
+  } finally {
+    release();
+  }
+}
 
 function defaultState(): LocalGuardState {
   return {
@@ -494,7 +531,7 @@ async function maybeBlockWrite(
   );
 }
 
-async function snapshotStores(reason: string, details?: Record<string, unknown>) {
+async function snapshotStoresUnlocked(reason: string, details?: Record<string, unknown>) {
   await ensureDir(localSnapshotsRoot);
   const id = safeSnapshotId("local");
   const snapshotDir = join(localSnapshotsRoot, id);
@@ -507,11 +544,17 @@ async function snapshotStores(reason: string, details?: Record<string, unknown>)
     const definition = storeDefinitions[store];
     const exists = await pathExists(definition.path);
     let recordCount = 0;
+    let sizeBytes = 0;
+    let sha256: string | null = null;
 
     if (exists) {
-      await copyFile(definition.path, join(snapshotDir, definition.snapshotName));
-      const parsed = await parseJsonOrThrow(definition.path, definition.fallback);
-      recordCount = definition.countRecords(parsed.value);
+      const snapshotPath = join(snapshotDir, definition.snapshotName);
+      await copyFile(definition.path, snapshotPath);
+      const raw = await readFile(snapshotPath);
+      const parsed = JSON.parse(raw.toString("utf8")) as unknown;
+      recordCount = definition.countRecords(parsed);
+      sizeBytes = raw.byteLength;
+      sha256 = createHash("sha256").update(raw).digest("hex");
     }
 
     stores.push({
@@ -519,15 +562,29 @@ async function snapshotStores(reason: string, details?: Record<string, unknown>)
       path: definition.path,
       exists,
       recordCount,
+      sizeBytes,
+      sha256,
     });
   }
 
+  const uploadSnapshotPath = join(snapshotDir, "uploads");
+  const uploadsExist = await pathExists(localUploadRoot);
+  if (uploadsExist) {
+    await cp(localUploadRoot, uploadSnapshotPath, {
+      recursive: true,
+      force: true,
+    });
+  }
+  const uploadStats = await inspectDirectory(uploadSnapshotPath);
+
   const meta: SnapshotMeta = {
+    manifestVersion: 2,
     id,
     createdAt: new Date().toISOString(),
     reason,
     fingerprint,
     stores,
+    uploads: uploadStats,
     details,
   };
 
@@ -552,7 +609,7 @@ async function snapshotStores(reason: string, details?: Record<string, unknown>)
 }
 
 export async function createLocalSnapshot(reason: string, details?: Record<string, unknown>) {
-  return snapshotStores(reason, details);
+  return withLocalDataMutationLock(() => snapshotStoresUnlocked(reason, details));
 }
 
 export async function listLocalSnapshots(limit = 10) {
@@ -576,13 +633,17 @@ export async function readLocalStore<T>(store: LocalStoreName, fallback: T): Pro
 }
 
 export async function writeLocalStore<T>(store: LocalStoreName, nextValue: T, options: WriteOptions) {
+  return withLocalDataMutationLock(() => writeLocalStoreUnlocked(store, nextValue, options));
+}
+
+async function writeLocalStoreUnlocked<T>(store: LocalStoreName, nextValue: T, options: WriteOptions) {
   const definition = storeDefinitions[store];
   const state = await loadState();
   const fingerprint = await computeFingerprint();
   const currentState = await captureStoreState(store);
   const nextRecordCount = definition.countRecords(nextValue);
   const lock = await maybeBlockWrite(store, state, fingerprint, currentState, nextRecordCount);
-  const snapshot = await snapshotStores(`write:${options.reason}`, {
+  const snapshot = await snapshotStoresUnlocked(`write:${options.reason}`, {
     store,
     nextRecordCount,
     currentRecordCount: currentState.recordCount,
@@ -623,10 +684,21 @@ async function writeLocalStoreFile(path: string, value: unknown) {
 
   // Local backend writes only predefined store files under localDataRoot after snapshot and lock checks.
   // codeql[js/http-to-file-access]
-  await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, {
+  await writeTextAtomically(targetPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function writeTextAtomically(targetPath: string, value: string) {
+  const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temporaryPath, value, {
     encoding: "utf8",
     mode: 0o600,
   });
+  try {
+    await rename(temporaryPath, targetPath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
 }
 
 function resolveLocalDataPath(path: string) {
@@ -662,25 +734,78 @@ export async function inspectLocalWriteProtection() {
   };
 }
 
-export async function restoreLocalSnapshot(snapshotId: string) {
-  const targetDir = join(localSnapshotsRoot, snapshotId);
+type ValidatedRestoreStore = {
+  store: LocalStoreName;
+  definition: StoreDefinition;
+  exists: boolean;
+  raw: Buffer | null;
+};
+
+type RestorePlanItem = {
+  label: string;
+  targetPath: string;
+  stagedPath: string | null;
+};
+
+type AppliedRestoreItem = RestorePlanItem & {
+  rollbackPath: string;
+  hadOriginal: boolean;
+};
+
+export async function restoreLocalSnapshot(
+  snapshotId: string,
+  options: { testFailureAfterSwapCount?: number } = {},
+) {
+  return withLocalDataMutationLock(() => restoreLocalSnapshotUnlocked(snapshotId, options));
+}
+
+async function restoreLocalSnapshotUnlocked(
+  snapshotId: string,
+  options: { testFailureAfterSwapCount?: number },
+) {
+  const targetDir = resolveSnapshotDirectory(snapshotId);
 
   if (!(await pathExists(targetDir))) {
     throw new Error(`Snapshot not found: ${snapshotId}`);
   }
 
-  for (const store of Object.keys(storeDefinitions) as LocalStoreName[]) {
-    const definition = storeDefinitions[store];
-    const sourcePath = join(targetDir, definition.snapshotName);
+  const { meta, stores } = await validateLocalSnapshotForRestore(targetDir, snapshotId);
+  const preRestoreSnapshot = await snapshotStoresUnlocked(`pre-restore:${snapshotId}`, {
+    targetSnapshotId: snapshotId,
+  });
+  const restoreRoot = join(localQuarantineRoot, safeSnapshotId("restore-transaction"));
+  const stagedRoot = join(restoreRoot, "staged");
+  await ensureDir(stagedRoot);
+  const plan: RestorePlanItem[] = [];
 
-    if (!(await pathExists(sourcePath))) {
-      continue;
+  for (const input of stores) {
+    const stagedPath = input.exists ? join(stagedRoot, `${input.store}.json`) : null;
+    if (stagedPath && input.raw) {
+      await ensureParent(stagedPath);
+      await writeFile(stagedPath, input.raw, { mode: 0o600 });
     }
-
-    await ensureParent(definition.path);
-    const raw = await readFile(sourcePath, "utf8");
-    await writeFile(definition.path, raw, "utf8");
+    plan.push({
+      label: `store-${input.store}`,
+      targetPath: resolveLocalDataPath(input.definition.path),
+      stagedPath,
+    });
   }
+
+  const snapshotUploadRoot = join(targetDir, "uploads");
+  const stagedUploadRoot = meta.uploads.exists ? join(stagedRoot, "uploads") : null;
+  if (stagedUploadRoot) {
+    await cp(snapshotUploadRoot, stagedUploadRoot, {
+      recursive: true,
+      force: true,
+    });
+  }
+  plan.push({
+    label: "uploads",
+    targetPath: resolve(localUploadRoot),
+    stagedPath: stagedUploadRoot,
+  });
+
+  await applyRestorePlan(plan, restoreRoot, options);
 
   const fingerprint = await computeFingerprint();
   const state = await loadState();
@@ -689,20 +814,279 @@ export async function restoreLocalSnapshot(snapshotId: string) {
     fingerprint,
     stores: await captureAllStoreStates(),
     lastSnapshotId: snapshotId,
-    writeLock: null,
   });
 
   await appendAuditEvent({
     action: "local.snapshot.restored",
     snapshotId,
+    preRestoreSnapshotId: preRestoreSnapshot.id,
   });
 
   return {
     snapshotId,
+    preRestoreSnapshotId: preRestoreSnapshot.id,
+  };
+}
+
+async function validateLocalSnapshotForRestore(targetDir: string, snapshotId: string) {
+  const metaPath = join(targetDir, "meta.json");
+  if (!(await pathExists(metaPath))) {
+    throw new Error(`Snapshot manifest is missing: ${snapshotId}`);
+  }
+
+  let meta: SnapshotMeta;
+  try {
+    meta = JSON.parse(await readFile(metaPath, "utf8")) as SnapshotMeta;
+  } catch {
+    throw new Error(`Snapshot manifest is invalid JSON: ${snapshotId}`);
+  }
+
+  if (meta.manifestVersion !== 2) {
+    throw new Error(`Snapshot manifest version is unsupported or missing: ${snapshotId}`);
+  }
+  if (meta.id !== snapshotId) {
+    throw new Error(`Snapshot manifest id does not match requested snapshot: ${snapshotId}`);
+  }
+  if (!meta.fingerprint || !Array.isArray(meta.stores) || !meta.uploads) {
+    throw new Error(`Snapshot manifest is incomplete: ${snapshotId}`);
+  }
+
+  const snapshotFingerprint = normalizeFingerprint(meta.fingerprint);
+  const currentFingerprint = await computeFingerprint();
+  if (!snapshotFingerprint || snapshotFingerprint.signature !== currentFingerprint.signature) {
+    throw new Error("Snapshot fingerprint does not match the configured local data paths.");
+  }
+
+  const manifestByStore = new Map<LocalStoreName, SnapshotStoreMeta>();
+  for (const item of meta.stores) {
+    if (!item || !(item.store in storeDefinitions) || manifestByStore.has(item.store)) {
+      throw new Error(`Snapshot store manifest is invalid or duplicated: ${String(item?.store)}`);
+    }
+    manifestByStore.set(item.store, item);
+  }
+
+  const stores: ValidatedRestoreStore[] = [];
+  for (const store of Object.keys(storeDefinitions) as LocalStoreName[]) {
+    const definition = storeDefinitions[store];
+    const manifest = manifestByStore.get(store);
+    if (!manifest || resolve(manifest.path) !== resolve(definition.path)) {
+      throw new Error(`Snapshot store manifest is missing or targets a different path: ${store}`);
+    }
+    const sourcePath = join(targetDir, definition.snapshotName);
+    const artifactExists = await pathExists(sourcePath);
+
+    if (!manifest.exists) {
+      if (artifactExists || manifest.recordCount !== 0 || manifest.sizeBytes !== 0 || manifest.sha256 !== null) {
+        throw new Error(`Snapshot empty-store manifest is inconsistent: ${store}`);
+      }
+      stores.push({ store, definition, exists: false, raw: null });
+      continue;
+    }
+
+    if (!artifactExists || !Number.isInteger(manifest.sizeBytes) || manifest.sizeBytes < 0 || !isSha256(manifest.sha256)) {
+      throw new Error(`Snapshot required store artifact is missing or has invalid metadata: ${store}`);
+    }
+    const raw = await readFile(sourcePath);
+    const checksum = createHash("sha256").update(raw).digest("hex");
+    if (raw.byteLength !== manifest.sizeBytes || checksum !== manifest.sha256) {
+      throw new Error(`Snapshot store artifact checksum failed: ${store}`);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString("utf8")) as unknown;
+    } catch {
+      throw new Error(`Snapshot store artifact is invalid JSON: ${store}`);
+    }
+    if (definition.countRecords(parsed) !== manifest.recordCount) {
+      throw new Error(`Snapshot store record count does not match manifest: ${store}`);
+    }
+    stores.push({ store, definition, exists: true, raw });
+  }
+
+  if (manifestByStore.size !== Object.keys(storeDefinitions).length) {
+    throw new Error(`Snapshot store manifest contains unexpected entries: ${snapshotId}`);
+  }
+
+  const snapshotUploadRoot = join(targetDir, "uploads");
+  const uploadArtifactExists = await pathExists(snapshotUploadRoot);
+  if (!meta.uploads.exists) {
+    if (
+      uploadArtifactExists ||
+      meta.uploads.fileCount !== 0 ||
+      meta.uploads.totalBytes !== 0 ||
+      !Array.isArray(meta.uploads.files) ||
+      meta.uploads.files.length !== 0
+    ) {
+      throw new Error("Snapshot empty-upload manifest is inconsistent.");
+    }
+  } else {
+    if (!uploadArtifactExists || !Array.isArray(meta.uploads.files)) {
+      throw new Error("Snapshot required upload artifact is missing.");
+    }
+    const actualUploads = await inspectDirectory(snapshotUploadRoot);
+    if (
+      !actualUploads.exists ||
+      actualUploads.fileCount !== meta.uploads.fileCount ||
+      actualUploads.totalBytes !== meta.uploads.totalBytes ||
+      !areUploadManifestsEqual(actualUploads.files, meta.uploads.files)
+    ) {
+      throw new Error("Snapshot upload artifact manifest or checksum failed.");
+    }
+  }
+
+  return { meta, stores };
+}
+
+async function applyRestorePlan(
+  plan: RestorePlanItem[],
+  restoreRoot: string,
+  options: { testFailureAfterSwapCount?: number },
+) {
+  const rollbackRoot = join(restoreRoot, "rollback");
+  const failedRoot = join(restoreRoot, "failed-apply");
+  const applied: AppliedRestoreItem[] = [];
+
+  try {
+    for (const item of plan) {
+      const rollbackPath = join(rollbackRoot, item.label);
+      const hadOriginal = await pathExists(item.targetPath);
+      if (hadOriginal) {
+        await ensureParent(rollbackPath);
+        await rename(item.targetPath, rollbackPath);
+      }
+
+      try {
+        if (item.stagedPath) {
+          await ensureParent(item.targetPath);
+          await rename(item.stagedPath, item.targetPath);
+        }
+      } catch (error) {
+        if (hadOriginal) {
+          await rename(rollbackPath, item.targetPath).catch(() => undefined);
+        }
+        throw error;
+      }
+
+      applied.push({ ...item, rollbackPath, hadOriginal });
+      if (
+        options.testFailureAfterSwapCount &&
+        applied.length >= options.testFailureAfterSwapCount
+      ) {
+        throw new Error("Simulated restore swap failure.");
+      }
+    }
+  } catch (error) {
+    const rollbackErrors: unknown[] = [];
+    for (const item of [...applied].reverse()) {
+      try {
+        if (await pathExists(item.targetPath)) {
+          const failedPath = join(failedRoot, item.label);
+          await ensureParent(failedPath);
+          await rename(item.targetPath, failedPath);
+        }
+        if (item.hadOriginal && (await pathExists(item.rollbackPath))) {
+          await ensureParent(item.targetPath);
+          await rename(item.rollbackPath, item.targetPath);
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        `Local snapshot restore failed and rollback was incomplete. Recovery artifacts remain at ${restoreRoot}.`,
+      );
+    }
+    await rm(restoreRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  await rm(restoreRoot, { recursive: true, force: true });
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function areUploadManifestsEqual(left: SnapshotUploadFileMeta[], right: SnapshotUploadFileMeta[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((item, index) => {
+    const candidate = right[index];
+    return (
+      candidate?.relativePath === item.relativePath &&
+      candidate.sizeBytes === item.sizeBytes &&
+      candidate.sha256 === item.sha256
+    );
+  });
+}
+
+function resolveSnapshotDirectory(snapshotId: string) {
+  if (!/^local-[A-Za-z0-9._-]+$/.test(snapshotId)) {
+    throw new Error("Snapshot id is invalid.");
+  }
+
+  const root = resolve(localSnapshotsRoot);
+  const target = resolve(root, snapshotId);
+  const relativePath = relative(root, target);
+  if (!relativePath || relativePath.startsWith("..") || relativePath.includes(":")) {
+    throw new Error("Snapshot path must stay under the local snapshot root.");
+  }
+  return target;
+}
+
+async function inspectDirectory(path: string): Promise<SnapshotMeta["uploads"]> {
+  if (!(await pathExists(path))) {
+    return {
+      exists: false,
+      fileCount: 0,
+      totalBytes: 0,
+      files: [],
+    };
+  }
+
+  let fileCount = 0;
+  let totalBytes = 0;
+  const files: SnapshotUploadFileMeta[] = [];
+  const visit = async (currentPath: string) => {
+    const entries = await readdir(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+      } else if (entry.isFile()) {
+        const fileStat = await stat(entryPath);
+        const bytes = await readFile(entryPath);
+        fileCount += 1;
+        totalBytes += fileStat.size;
+        files.push({
+          relativePath: relative(path, entryPath).replace(/\\/g, "/"),
+          sizeBytes: bytes.byteLength,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+        });
+      }
+    }
+  };
+  await visit(path);
+  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+
+  return {
+    exists: true,
+    fileCount,
+    totalBytes,
+    files,
   };
 }
 
 export async function quarantineLocalUpload(objectPath: string) {
+  return withLocalDataMutationLock(() => quarantineLocalUploadUnlocked(objectPath));
+}
+
+async function quarantineLocalUploadUnlocked(objectPath: string) {
   const normalized = objectPath.trim().replace(/\//g, "\\");
   const sourcePath = join(localUploadRoot, normalized);
 

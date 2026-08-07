@@ -118,6 +118,9 @@ function readOperationTaskId(operation: DailyMutationOperation) {
   if (payload.kind === "reorder") {
     return null;
   }
+  if (payload.kind === "file-trash") {
+    return payload.affectedFile.taskId;
+  }
   return payload.taskId;
 }
 

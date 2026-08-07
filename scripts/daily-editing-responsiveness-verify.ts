@@ -15,20 +15,31 @@ import {
   buildDailyMutationOperation,
   buildDailyOptimisticTaskId,
   coalesceDailyReorderOperations,
+  deleteDailyMutationOperation,
   isDailyReorderMutationSatisfiedByServerState,
+  isDailyMutationOperationAttemptCurrent,
+  listDailyMutationOperations,
+  mergeDailyMutationOperationsIntoActiveFiles,
   mergeDailyMutationOperationsIntoActiveTasks,
+  mergeDailyMutationOperationsIntoTrashFiles,
   mergeDailyMutationOperationsIntoTrashTasks,
+  putDailyMutationOperation,
+  rebaseDailySelectionDeleteMutationOperation,
   rebaseDailyReorderMutationOperation,
   rebaseDailyUpdateMutationOperation,
   reconcileDailyMutationCreateSuccess,
   shouldMarkDailyDeleteMutationSyncedFromServerState,
+  shouldMarkDailyFileTrashMutationSyncedFromServerState,
+  shouldMarkDailyFileRestoreMutationSyncedFromServerState,
+  shouldMarkDailyRestoreMutationSyncedFromServerState,
   shouldMarkDailyTrashMutationSyncedFromServerState,
   shouldRecoverLegacyFailedDailyMutation,
   summarizeDailyMutationOperations,
+  updateDailyMutationOperation,
 } from "@/components/tasks/daily-mutation-journal";
 import type { TaskCategoryDefinition, TaskCategoryFieldKey } from "@/domains/admin/task-category-definitions";
 import { buildStoredOrderTaskTree } from "@/domains/task/ordering";
-import type { TaskRecord } from "@/domains/task/types";
+import type { FileRecord, TaskRecord } from "@/domains/task/types";
 import { handleRouteError, isDatabaseConnectivityError } from "@/lib/api/route-error";
 import { resolvePublicSiteUrl } from "@/lib/auth/public-site-url";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
@@ -240,6 +251,28 @@ const baseTask = (id: string, overrides: Partial<TaskRecord> = {}) =>
     fileSummary: { count: 0, latestFileName: null },
     ...overrides,
   }) as TaskRecord;
+const baseFile = (id: string, overrides: Partial<FileRecord> = {}) =>
+  ({
+    id,
+    taskId: "task-1",
+    projectId: "project-1",
+    fileGroupId: `group-${id}`,
+    originalName: `${id}.txt`,
+    mimeType: "text/plain",
+    sizeBytes: 1,
+    storageBucket: "files",
+    objectPath: `project-1/${id}.txt`,
+    version: 1,
+    versionNumber: 1,
+    versionLabel: "v1",
+    createdAt: "2026-05-21T00:00:00.000Z",
+    updatedAt: "2026-05-21T00:00:00.000Z",
+    uploadedBy: "profile-1",
+    deletedAt: "2026-05-21T00:00:00.000Z",
+    purgedAt: null,
+    metadata: {},
+    ...overrides,
+  }) as FileRecord;
 const createClientMutationId = "11111111-1111-4111-8111-111111111111";
 const tempTaskId = buildDailyOptimisticTaskId(createClientMutationId);
 const tempTask = baseTask(tempTaskId, { actionId: 0, issueId: "", issueTitle: "local create" });
@@ -283,6 +316,15 @@ const secondReorderOperation = buildCoalescedDailyReorderOperation({
   desiredTasks: [baseTask("task-1", { siblingOrder: 0 }), baseTask("task-2", { siblingOrder: 1 })],
   now: "2026-05-21T00:00:01.000Z",
 });
+assert.equal(firstReorderOperation.operationId, secondReorderOperation.operationId);
+assert.equal(isDailyMutationOperationAttemptCurrent(secondReorderOperation, firstReorderOperation), false);
+assert.equal(isDailyMutationOperationAttemptCurrent(secondReorderOperation, secondReorderOperation), true);
+let storedReorderOperation = secondReorderOperation;
+if (isDailyMutationOperationAttemptCurrent(storedReorderOperation, firstReorderOperation)) {
+  storedReorderOperation = { ...storedReorderOperation, status: "synced" };
+}
+assert.equal(storedReorderOperation.clientMutationId, secondReorderOperation.clientMutationId);
+assert.equal(storedReorderOperation.status, "pending");
 const reloadReorderReplayOperation = buildCoalescedDailyReorderOperation({
   scope: journalScope,
   command: { action: "set_sibling_order", parentTaskId: null, orderedTaskIds: ["task-3", "task-1"] },
@@ -416,6 +458,75 @@ const firstTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pending
 const secondTrashReplay = mergeDailyMutationOperationsIntoTrashTasks([], [pendingTrashOperation]);
 assert.deepEqual(secondTrashReplay, firstTrashReplay);
 assert.equal(firstTrashReplay[0]?.deletedAt, pendingTrashOperation.createdAt);
+const trashedTask = baseTask("task-restore", { deletedAt: "2026-05-21T00:00:02.000Z" });
+const pendingRestoreOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "restore",
+  now: "2026-05-21T00:00:02.500Z",
+  payload: { kind: "restore", taskId: trashedTask.id, affectedTasks: [trashedTask] },
+});
+assert.equal(mergeDailyMutationOperationsIntoTrashTasks([trashedTask], [pendingRestoreOperation]).length, 0);
+assert.equal(mergeDailyMutationOperationsIntoActiveTasks([], [pendingRestoreOperation])[0]?.deletedAt, null);
+assert.equal(
+  shouldMarkDailyRestoreMutationSyncedFromServerState(
+    pendingRestoreOperation,
+    [baseTask(trashedTask.id, { deletedAt: null })],
+    [],
+  ),
+  true,
+);
+const trashedFile = baseFile("file-restore");
+const pendingFileRestoreOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "restore",
+  now: "2026-05-21T00:00:02.750Z",
+  payload: { kind: "restore", taskId: trashedFile.taskId, affectedTasks: [], affectedFile: trashedFile },
+});
+assert.equal(mergeDailyMutationOperationsIntoTrashFiles([trashedFile], [pendingFileRestoreOperation]).length, 0);
+assert.equal(mergeDailyMutationOperationsIntoActiveFiles([], [pendingFileRestoreOperation])[0]?.deletedAt, null);
+assert.equal(
+  shouldMarkDailyFileRestoreMutationSyncedFromServerState(
+    pendingFileRestoreOperation,
+    [baseFile(trashedFile.id, { deletedAt: null })],
+    [],
+  ),
+  true,
+);
+const activeFileToTrash = baseFile("file-trash", { deletedAt: null });
+const pendingFileTrashOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "file-trash",
+  now: "2026-05-21T00:00:02.875Z",
+  payload: {
+    kind: "file-trash",
+    fileId: activeFileToTrash.id,
+    affectedFile: activeFileToTrash,
+  },
+});
+assert.equal(mergeDailyMutationOperationsIntoActiveFiles([activeFileToTrash], [pendingFileTrashOperation]).length, 0);
+const replayedTrashFiles = mergeDailyMutationOperationsIntoTrashFiles([], [pendingFileTrashOperation]);
+assert.equal(replayedTrashFiles[0]?.id, activeFileToTrash.id);
+assert.equal(replayedTrashFiles[0]?.deletedAt, pendingFileTrashOperation.createdAt);
+assert.equal(
+  shouldMarkDailyFileTrashMutationSyncedFromServerState(
+    pendingFileTrashOperation,
+    [],
+    [baseFile(activeFileToTrash.id)],
+  ),
+  true,
+);
+assert.equal(
+  shouldMarkDailyFileTrashMutationSyncedFromServerState(
+    pendingFileTrashOperation,
+    [activeFileToTrash],
+    [],
+  ),
+  false,
+);
+assert.equal(
+  shouldMarkDailyFileTrashMutationSyncedFromServerState(pendingFileTrashOperation, [], []),
+  true,
+);
 const pendingDeleteOperation = buildDailyMutationOperation({
   scope: journalScope,
   type: "delete",
@@ -433,6 +544,58 @@ assert.equal(
     baseTask("task-1", { deletedAt: "2026-05-21T00:00:02.000Z" }),
   ]),
   false,
+);
+const pendingSelectionDeleteOperation = buildDailyMutationOperation({
+  scope: journalScope,
+  type: "delete",
+  now: "2026-05-21T00:00:03.500Z",
+  payload: {
+    kind: "delete",
+    taskId: "task-2",
+    affectedTasks: [],
+    affectedTaskIds: ["task-2"],
+    affectedFileIds: ["file-2"],
+    request: { target: "selection", taskIds: ["task-2"], fileIds: ["file-2"] },
+  },
+});
+assert.equal(
+  mergeDailyMutationOperationsIntoTrashTasks([baseTask("task-2", { deletedAt: "2026-05-21T00:00:02.000Z" })], [
+    pendingSelectionDeleteOperation,
+  ]).length,
+  0,
+);
+assert.equal(mergeDailyMutationOperationsIntoTrashFiles([baseFile("file-2")], [pendingSelectionDeleteOperation]).length, 0);
+const rebasedSelectionDeleteOperation = rebaseDailySelectionDeleteMutationOperation(
+  {
+    ...pendingSelectionDeleteOperation,
+    payload:
+      pendingSelectionDeleteOperation.payload.kind === "delete"
+        ? {
+            ...pendingSelectionDeleteOperation.payload,
+            affectedTaskIds: ["task-1", "task-2"],
+            affectedFileIds: ["file-1", "file-2"],
+            request: {
+              target: "selection",
+              taskIds: ["task-1", "task-2"],
+              fileIds: ["file-1", "file-2"],
+            },
+          }
+        : pendingSelectionDeleteOperation.payload,
+  },
+  new Set(["task-2"]),
+  new Set(["file-2"]),
+);
+assert.ok(rebasedSelectionDeleteOperation);
+assert.deepEqual(
+  rebasedSelectionDeleteOperation.payload.kind === "delete" &&
+    rebasedSelectionDeleteOperation.payload.request?.target === "selection"
+    ? rebasedSelectionDeleteOperation.payload.request
+    : null,
+  { target: "selection", taskIds: ["task-2"], fileIds: ["file-2"] },
+);
+assert.equal(
+  rebaseDailySelectionDeleteMutationOperation(pendingSelectionDeleteOperation, new Set(), new Set()),
+  null,
 );
 
 const taskRouteSource = readFileSync(resolve("src/app/api/tasks/route.ts"), "utf8");
@@ -475,6 +638,46 @@ const taskReorderActionSource = taskWorkspaceSource.slice(
   taskWorkspaceSource.indexOf("const reorderDailyTasks = useCallback"),
   taskWorkspaceSource.indexOf("const moveTaskByOffset = useCallback"),
 );
+const selectedTaskSaveSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function saveSelectedTask"),
+  taskWorkspaceSource.indexOf("saveSelectedTaskRef.current = saveSelectedTask"),
+);
+const calendarLinkedSaveSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function saveDetailCalendarLinked"),
+  taskWorkspaceSource.indexOf("const saveInlineTaskListField = useCallback"),
+);
+const inlineTaskSaveSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("const saveInlineTaskListField = useCallback"),
+  taskWorkspaceSource.indexOf("const commitInlineTaskCellDocumentField = useCallback"),
+);
+const taskStatusSaveSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function shiftTaskStatus"),
+  taskWorkspaceSource.indexOf("async function moveToTrash"),
+);
+const restoreTaskSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function restoreTask"),
+  taskWorkspaceSource.indexOf("async function uploadFileForTask"),
+);
+const deleteTaskSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function deleteTaskPermanently"),
+  taskWorkspaceSource.indexOf("async function deleteFilePermanently"),
+);
+const bulkDeleteSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function deleteSelectedTrashItems"),
+  taskWorkspaceSource.indexOf("async function emptyTrashItems"),
+);
+const emptyTrashSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function emptyTrashItems"),
+  taskWorkspaceSource.indexOf("function toggleTrashTaskSelection"),
+);
+const moveFileToTrashSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function moveFileToTrash"),
+  taskWorkspaceSource.indexOf("async function restoreFile"),
+);
+const markDailyMutationSyncedSource = taskWorkspaceSource.slice(
+  taskWorkspaceSource.indexOf("async function markDailyMutationSynced"),
+  taskWorkspaceSource.indexOf("async function markDailyMutationPending"),
+);
 assert.match(taskRouteSource, /clientMutationId/);
 assert.match(postgresStoreSource, /const id = input\.id \?\? randomUUID\(\)/);
 assert.match(postgresStoreSource, /findUnique\(\{ where: \{ id \} \}\)/);
@@ -505,7 +708,71 @@ assert.match(
 assert.match(taskWorkspaceSource, /dailyMutationScope && !dailyMutationJournalReady/);
 assert.match(taskWorkspaceSource, /dailyMutationScope && hasActiveDailyReorderJournal/);
 assert.match(taskReorderActionSource, /let journalQueued = false/);
-assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*return true;\s*\}/);
+assert.match(taskReorderActionSource, /if \(journalQueued\) \{\s*void flushDailyMutationJournal\(\);\s*return true;\s*\}/);
+assert.ok(
+  taskReorderActionSource.indexOf("await putDailyJournalOperation") <
+    taskReorderActionSource.indexOf("setActiveTasksForContinuousReorder"),
+  "daily reorder must commit its journal row before rendering the optimistic order",
+);
+assert.match(
+  calendarLinkedSaveSource,
+  /await putDailyJournalOperation[\s\S]*addTaskPendingPatchValues[\s\S]*applyTaskClientUpdate/,
+);
+assert.match(
+  selectedTaskSaveSource,
+  /if \(dailyMutationScope\) \{[\s\S]*await putDailyJournalOperation[\s\S]*applyTaskClientUpdate/,
+);
+assert.match(
+  inlineTaskSaveSource,
+  /if \(dailyMutationScope\) \{[\s\S]*await putDailyJournalOperation[\s\S]*applyTaskClientUpdate/,
+);
+assert.match(
+  taskStatusSaveSource,
+  /if \(dailyMutationScope\) \{[\s\S]*await putDailyJournalOperation[\s\S]*applyTaskClientUpdate/,
+);
+assert.ok(
+  restoreTaskSource.indexOf("await putDailyJournalOperation") <
+    restoreTaskSource.indexOf('removeTaskIdsFromDashboardScope("trash"'),
+  "trash restore must be journaled before its optimistic removal",
+);
+assert.ok(
+  deleteTaskSource.indexOf("await putDailyJournalOperation") <
+    deleteTaskSource.indexOf('removeTaskIdsFromDashboardScope("trash"'),
+  "permanent task delete must be journaled before its optimistic removal",
+);
+assert.ok(
+  bulkDeleteSource.indexOf("await putDailyJournalOperation") <
+    bulkDeleteSource.indexOf('removeTaskIdsFromDashboardScope("trash"'),
+  "bulk trash delete must be journaled before its optimistic removal",
+);
+assert.ok(
+  emptyTrashSource.indexOf("await putDailyJournalOperation") <
+    emptyTrashSource.indexOf('setDashboardScopeTasks("trash", () => [])'),
+  "empty trash must snapshot a journal operation before clearing local state",
+);
+assert.ok(
+  moveFileToTrashSource.indexOf("await putDailyJournalOperation") <
+    moveFileToTrashSource.indexOf('removeFileIdsFromDashboardScope("active"'),
+  "file trash must commit its journal row before rendering the optimistic move",
+);
+assert.match(moveFileToTrashSource, /type: "file-trash"[\s\S]*kind: "file-trash"/);
+assert.match(moveFileToTrashSource, /void flushDailyMutationJournal\(\);\s*return;/);
+assert.match(taskWorkspaceSource, /if \(payload\.kind === "file-trash"\)/);
+assert.match(taskWorkspaceSource, /shouldMarkDailyFileTrashMutationSyncedFromServerState/);
+assert.match(taskWorkspaceSource, /serverTrashFile[\s\S]*removeFileIdsFromDashboardScope\("trash", \[fileId\]\)/);
+assert.match(taskWorkspaceSource, /mode !== "daily" && mode !== "trash"/);
+assert.match(taskWorkspaceSource, /dailyMutationFlushRequestedRef\.current = true/);
+assert.match(taskWorkspaceSource, /flushDailyMutationJournalRef\.current\(\{ manual: shouldFlushManually \}\)/);
+assert.match(taskWorkspaceSource, /rebaseDailySelectionDeleteMutationOperation/);
+assert.match(taskWorkspaceSource, /fetchDailySyncFiles\("active"\)/);
+assert.match(taskWorkspaceSource, /fetchDailySyncFiles\("trash"\)/);
+assert.match(markDailyMutationSyncedSource, /isDailyMutationOperationAttemptCurrent\(current, operation\)/);
+assert.match(taskWorkspaceSource, /preserveLocalOrderFields: !didMarkSynced/);
+assert.match(
+  dailyMutationJournalSource,
+  /request\.onsuccess = \(\) => \{\s*result = request\.result;\s*\};\s*transaction\.oncomplete = \(\) => resolve\(result\);/s,
+);
+assert.doesNotMatch(dailyMutationJournalSource, /request\.onsuccess = \(\) => resolve\(/);
 assert.match(taskWorkspaceSource, /const DAILY_MUTATION_FETCH_TIMEOUT_MS = 45000/);
 assert.match(taskWorkspaceSource, /error\.name === "AbortError"/);
 assert.match(taskRouteSource, /export const maxDuration = 30/);
@@ -612,6 +879,179 @@ assert.equal(
 
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
+
+type InMemoryIdbRequest<T> = {
+  result: T;
+  error: DOMException | null;
+  onsuccess: (() => void) | null;
+  onerror: (() => void) | null;
+};
+
+type InMemoryIdbTransaction = {
+  pending: number;
+  completed: boolean;
+  completionQueued: boolean;
+  error: DOMException | null;
+  oncomplete: (() => void) | null;
+  onerror: (() => void) | null;
+  onabort: (() => void) | null;
+  objectStore: (name: string) => IDBObjectStore;
+};
+
+function installInMemoryIndexedDb() {
+  const records = new Map<string, unknown>();
+  let storeCreated = false;
+
+  const createTransaction = (): IDBTransaction => {
+    const transaction: InMemoryIdbTransaction = {
+      pending: 0,
+      completed: false,
+      completionQueued: false,
+      error: null,
+      oncomplete: null,
+      onerror: null,
+      onabort: null,
+      objectStore: () => createObjectStore(transaction),
+    };
+    return transaction as unknown as IDBTransaction;
+  };
+
+  const completeTransactionWhenIdle = (transaction: InMemoryIdbTransaction) => {
+    if (transaction.pending > 0 || transaction.completed || transaction.completionQueued) {
+      return;
+    }
+    transaction.completionQueued = true;
+    queueMicrotask(() => {
+      transaction.completionQueued = false;
+      if (transaction.pending === 0 && !transaction.completed) {
+        transaction.completed = true;
+        transaction.oncomplete?.();
+      }
+    });
+  };
+
+  const createObjectStore = (transaction: InMemoryIdbTransaction): IDBObjectStore => {
+    const createRequest = <T>(producer: () => T) => {
+      const request: InMemoryIdbRequest<T> = {
+        result: undefined as T,
+        error: null,
+        onsuccess: null,
+        onerror: null,
+      };
+      transaction.pending += 1;
+      queueMicrotask(() => {
+        try {
+          request.result = producer();
+          request.onsuccess?.();
+        } catch (error) {
+          request.error = error instanceof DOMException ? error : new DOMException(String(error));
+          transaction.error = request.error;
+          request.onerror?.();
+          transaction.onerror?.();
+        } finally {
+          transaction.pending -= 1;
+          completeTransactionWhenIdle(transaction);
+        }
+      });
+      return request as unknown as IDBRequest<T>;
+    };
+
+    return {
+      indexNames: { contains: () => false },
+      createIndex: () => ({}) as IDBIndex,
+      getAll: () => createRequest(() => [...records.values()].map((value) => structuredClone(value))),
+      get: (key: IDBValidKey | IDBKeyRange) =>
+        createRequest(() => structuredClone(records.get(String(key)))),
+      put: (value: unknown) =>
+        createRequest(() => {
+          const operationId = (value as { operationId: string }).operationId;
+          records.set(operationId, structuredClone(value));
+          return operationId;
+        }),
+      delete: (key: IDBValidKey | IDBKeyRange) =>
+        createRequest(() => {
+          records.delete(String(key));
+          return undefined;
+        }),
+    } as unknown as IDBObjectStore;
+  };
+
+  const database = {
+    objectStoreNames: { contains: () => storeCreated },
+    createObjectStore: () => {
+      storeCreated = true;
+      return createObjectStore(createTransaction() as unknown as InMemoryIdbTransaction);
+    },
+    transaction: () => createTransaction(),
+    close: () => undefined,
+    onversionchange: null,
+  } as unknown as IDBDatabase;
+
+  const factory = {
+    open: () => {
+      const request = {
+        result: database,
+        error: null,
+        transaction: null,
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+      } as {
+        result: IDBDatabase;
+        error: DOMException | null;
+        transaction: IDBTransaction | null;
+        onupgradeneeded: (() => void) | null;
+        onsuccess: (() => void) | null;
+        onerror: (() => void) | null;
+      };
+      queueMicrotask(() => {
+        if (!storeCreated) {
+          request.onupgradeneeded?.();
+        }
+        request.onsuccess?.();
+      });
+      return request as unknown as IDBOpenDBRequest;
+    },
+  } as unknown as IDBFactory;
+
+  Object.defineProperty(globalThis, "indexedDB", {
+    configurable: true,
+    value: factory,
+  });
+}
+
+async function assertFileTrashJournalReplayAndAck() {
+  installInMemoryIndexedDb();
+  await putDailyMutationOperation(pendingFileTrashOperation);
+
+  const replayOperations = await listDailyMutationOperations(journalScope);
+  assert.equal(replayOperations.length, 1);
+  assert.equal(replayOperations[0]?.status, "pending");
+  assert.equal(
+    mergeDailyMutationOperationsIntoActiveFiles([activeFileToTrash], replayOperations).length,
+    0,
+  );
+  assert.equal(
+    mergeDailyMutationOperationsIntoTrashFiles([], replayOperations)[0]?.id,
+    activeFileToTrash.id,
+  );
+
+  await updateDailyMutationOperation(pendingFileTrashOperation.operationId, (operation) => ({
+    ...operation,
+    status: "synced",
+    updatedAt: "2026-05-21T00:00:03.000Z",
+  }));
+  const acknowledgedOperations = await listDailyMutationOperations(journalScope);
+  assert.equal(acknowledgedOperations[0]?.status, "synced");
+  assert.equal(
+    mergeDailyMutationOperationsIntoActiveFiles([activeFileToTrash], acknowledgedOperations)[0]?.id,
+    activeFileToTrash.id,
+  );
+
+  await deleteDailyMutationOperation(pendingFileTrashOperation.operationId);
+  assert.deepEqual(await listDailyMutationOperations(journalScope), []);
+}
+
 async function assertDatabaseUnavailableRouteError() {
   const routeErrorConsoleErrors: unknown[][] = [];
   try {
@@ -632,7 +1072,7 @@ async function assertDatabaseUnavailableRouteError() {
   }
 }
 
-assertDatabaseUnavailableRouteError()
+Promise.all([assertFileTrashJournalReplayAndAck(), assertDatabaseUnavailableRouteError()])
   .then(() => {
     console.log("daily editing category fallback policy: ok");
     console.log("daily editing optimistic patch policy: ok");

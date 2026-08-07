@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { collection, doc, getDoc, getDocs, getFirestore, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, getFirestore, runTransaction, updateDoc, writeBatch } from "firebase/firestore";
 import { randomUUID } from "node:crypto";
 import { buildProjectIssueId } from "@/domains/task/identifiers";
 import {
@@ -10,6 +10,10 @@ import {
 import { compareTasksBySiblingOrder } from "@/domains/task/ordering";
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { normalizeFileMetadata } from "@/domains/file/analysis";
+import {
+  resolveCanonicalFileStorageBucket,
+  resolveOwnedFileStorageObjects,
+} from "@/domains/file/content-security";
 import { rankFileAnalyses } from "@/domains/file/search";
 import type {
   CreateTaskInput,
@@ -22,6 +26,9 @@ import type {
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
 import { conflict } from "@/lib/api/errors";
+import { getSupabaseStorageBucket } from "@/lib/supabase/config";
+import { storageProvider } from "@/storage";
+import { runDurableFilePurge } from "@/lib/data-guard/file-purge";
 
 function getDb() {
   const app = getFirebaseClientApp();
@@ -147,6 +154,20 @@ const toFileRecord = (id: string, data: Record<string, unknown>): FileRecord => 
   };
 };
 
+function resolveOwnedFileObjects(file: FileRecord) {
+  const objects = resolveOwnedFileStorageObjects({
+    file,
+    canonicalStorageBucket: resolveCanonicalFileStorageBucket(
+      storageProvider.name,
+      getSupabaseStorageBucket(),
+    ),
+  });
+  if (!objects.ok) {
+    throw new Error(`Refusing to purge unowned file storage objects: ${objects.code}`);
+  }
+  return objects.value;
+}
+
 function sequenceDocId(projectId: string) {
   return `${sequenceDocName}-${projectId}`;
 }
@@ -157,10 +178,7 @@ async function nextTaskNumber(projectId: string) {
     throw new Error("Firestore is not configured");
   }
 
-  const [sequenceSnapshot, taskSnapshot] = await Promise.all([
-    getDoc(doc(db, "meta", sequenceDocId(projectId))),
-    getDocs(collection(db, taskCollectionName)),
-  ]);
+  const taskSnapshot = await getDocs(collection(db, taskCollectionName));
 
   const maxExisting = taskSnapshot.docs.reduce((max, entry) => {
     if (String(entry.data().projectId ?? "") !== projectId) {
@@ -169,34 +187,14 @@ async function nextTaskNumber(projectId: string) {
     const value = parseNumeric(entry.data().taskNumber);
     return value ? Math.max(max, value) : max;
   }, 0);
-  const storedCurrent = sequenceSnapshot.exists() ? Number(sequenceSnapshot.data().value ?? 1) : 1;
-  const nextValue = maxExisting > 0 ? Math.max(storedCurrent, maxExisting + 1) : 1;
-
-  await setDoc(doc(db, "meta", sequenceDocId(projectId)), { value: nextValue + 1 }, { merge: true });
-  return nextValue;
-}
-
-async function nextSiblingOrder(projectId: string, parentTaskId: string | null) {
-  const db = getDb();
-  if (!db) {
-    throw new Error("Firestore is not configured");
-  }
-
-  const snapshot = await getDocs(collection(db, taskCollectionName));
-  const siblingOrders = snapshot.docs
-    .filter((entry) => {
-      const data = entry.data();
-      return (
-        String(data.projectId ?? "") === projectId &&
-        !data.deletedAt &&
-        !data.purgedAt &&
-        (typeof data.parentTaskId === "string" && data.parentTaskId ? data.parentTaskId : null) === parentTaskId
-      );
-    })
-    .map((entry) => parseNumeric(entry.data().siblingOrder))
-    .filter((value): value is number => value !== null);
-
-  return siblingOrders.length === 0 ? 0 : Math.max(...siblingOrders) + 1;
+  const sequenceRef = doc(db, "meta", sequenceDocId(projectId));
+  return runTransaction(db, async (transaction) => {
+    const sequenceSnapshot = await transaction.get(sequenceRef);
+    const storedCurrent = sequenceSnapshot.exists() ? Number(sequenceSnapshot.data().value ?? 1) : 1;
+    const nextValue = maxExisting > 0 ? Math.max(storedCurrent, maxExisting + 1) : storedCurrent;
+    transaction.set(sequenceRef, { value: nextValue + 1 }, { merge: true });
+    return nextValue;
+  });
 }
 
 class FirestoreTaskRepository implements TaskRepository {
@@ -242,52 +240,98 @@ class FirestoreTaskRepository implements TaskRepository {
     }
 
     const ref = input.id ? doc(db, taskCollectionName, input.id) : doc(collection(db, taskCollectionName));
-    const existing = await getDoc(ref);
-    if (existing.exists()) {
-      return toTaskRecord(ref.id, existing.data());
-    }
-    const actionId = await nextTaskNumber(input.projectId);
+    const taskSnapshot = await getDocs(collection(db, taskCollectionName));
+    const maxExisting = taskSnapshot.docs.reduce((max, entry) => {
+      if (String(entry.data().projectId ?? "") !== input.projectId) {
+        return max;
+      }
+      const value = parseNumeric(entry.data().taskNumber);
+      return value ? Math.max(max, value) : max;
+    }, 0);
     const parentTaskId = input.parentTaskId ?? null;
-    const siblingOrder = input.siblingOrder ?? (await nextSiblingOrder(input.projectId, parentTaskId));
+    const maxSiblingOrder = taskSnapshot.docs.reduce((max, entry) => {
+      const data = entry.data();
+      const entryParentTaskId =
+        typeof data.parentTaskId === "string" && data.parentTaskId ? String(data.parentTaskId) : null;
+      if (
+        String(data.projectId ?? "") !== input.projectId ||
+        data.deletedAt ||
+        data.purgedAt ||
+        entryParentTaskId !== parentTaskId
+      ) {
+        return max;
+      }
+      return Math.max(max, parseNumeric(data.siblingOrder) ?? -1);
+    }, -1);
     const timestamp = new Date().toISOString();
-    const record = {
-      projectId: input.projectId,
-      taskNumber: actionId,
-      actionId,
-      issueId: buildProjectIssueId(input.projectName, actionId),
-      parentTaskId,
-      rootTaskId: input.rootTaskId?.trim() || ref.id,
-      depth: input.depth ?? 0,
-      siblingOrder,
-      dueDate: input.dueDate,
-      workType: requireStoredTaskWorkTypeValue(input.workType),
-      coordinationScope: input.coordinationScope,
-      ownerDiscipline: input.ownerDiscipline,
-      requestedBy: input.requestedBy,
-      relatedDisciplines: input.relatedDisciplines,
-      assignee: input.assignee,
-      assigneeProfileId: input.assigneeProfileId ?? null,
-      issueTitle: input.issueTitle,
-      reviewedAt: input.reviewedAt ?? "",
-      createdAt: normalizeStoredDate(input.createdAt),
-      createdBy: input.createdBy ?? null,
-      isDaily: input.isDaily,
-      locationRef: input.locationRef,
-      calendarLinked: input.calendarLinked,
-      issueDetailNote: input.issueDetailNote,
-      status: normalizeStatus(input.status),
-      statusHistory: canonicalizeTaskStatusHistory(input.statusHistory, normalizeStatus(input.status), timestamp),
-      decision: input.decision,
-      completedAt: input.completedAt ?? null,
-      version: 1,
-      updatedAt: timestamp,
-      updatedBy: input.updatedBy ?? input.createdBy ?? null,
-      deletedAt: null,
-      purgedAt: null,
-    };
+    const sequenceRef = doc(db, "meta", sequenceDocId(input.projectId));
+    return runTransaction(db, async (transaction) => {
+      const [existing, sequenceSnapshot] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(sequenceRef),
+      ]);
+      if (existing.exists()) {
+        const existingRecord = toTaskRecord(ref.id, existing.data());
+        if (existingRecord.projectId !== input.projectId) {
+          throw conflict(
+            "clientMutationId is already associated with another project.",
+            "CLIENT_MUTATION_SCOPE_CONFLICT",
+          );
+        }
+        return existingRecord;
+      }
 
-    await setDoc(ref, record);
-    return toTaskRecord(ref.id, record);
+      const sequenceData = sequenceSnapshot.exists() ? sequenceSnapshot.data() : {};
+      const actionId = Math.max(Number(sequenceData.value ?? 1), maxExisting + 1);
+      const siblingKey = parentTaskId ?? "__root__";
+      const siblingOrders =
+        sequenceData.siblingOrders && typeof sequenceData.siblingOrders === "object"
+          ? { ...sequenceData.siblingOrders }
+          : {};
+      const siblingOrder =
+        input.siblingOrder ??
+        Math.max(Number(siblingOrders[siblingKey] ?? 0), maxSiblingOrder + 1);
+      siblingOrders[siblingKey] = siblingOrder + 1;
+      const record = {
+        projectId: input.projectId,
+        taskNumber: actionId,
+        actionId,
+        issueId: buildProjectIssueId(input.projectName, actionId),
+        parentTaskId,
+        rootTaskId: input.rootTaskId?.trim() || ref.id,
+        depth: input.depth ?? 0,
+        siblingOrder,
+        dueDate: input.dueDate,
+        workType: requireStoredTaskWorkTypeValue(input.workType),
+        coordinationScope: input.coordinationScope,
+        ownerDiscipline: input.ownerDiscipline,
+        requestedBy: input.requestedBy,
+        relatedDisciplines: input.relatedDisciplines,
+        assignee: input.assignee,
+        assigneeProfileId: input.assigneeProfileId ?? null,
+        issueTitle: input.issueTitle,
+        reviewedAt: input.reviewedAt ?? "",
+        createdAt: normalizeStoredDate(input.createdAt),
+        createdBy: input.createdBy ?? null,
+        isDaily: input.isDaily,
+        locationRef: input.locationRef,
+        calendarLinked: input.calendarLinked,
+        issueDetailNote: input.issueDetailNote,
+        status: normalizeStatus(input.status),
+        statusHistory: canonicalizeTaskStatusHistory(input.statusHistory, normalizeStatus(input.status), timestamp),
+        decision: input.decision,
+        completedAt: input.completedAt ?? null,
+        version: 1,
+        updatedAt: timestamp,
+        updatedBy: input.updatedBy ?? input.createdBy ?? null,
+        deletedAt: null,
+        purgedAt: null,
+      };
+
+      transaction.set(sequenceRef, { value: actionId + 1, siblingOrders }, { merge: true });
+      transaction.set(ref, record);
+      return toTaskRecord(ref.id, record);
+    });
   }
 
   async updateTask(taskId: string, input: UpdateTaskInput) {
@@ -337,14 +381,45 @@ class FirestoreTaskRepository implements TaskRepository {
   }
 
   async updateTaskWithVersion(taskId: string, input: VersionedTaskUpdateInput) {
-    const current = await this.findTaskById(taskId);
-    if (!current || current.version !== input.expectedVersion) {
-      return null;
+    const db = getDb();
+    if (!db) {
+      throw new Error("Firestore is not configured");
     }
+    const targetRef = doc(db, taskCollectionName, taskId);
+    return runTransaction(db, async (transaction) => {
+      const currentSnapshot = await transaction.get(targetRef);
+      if (!currentSnapshot.exists()) {
+        return null;
+      }
+      const current = toTaskRecord(currentSnapshot.id, currentSnapshot.data());
+      if (current.purgedAt || current.version !== input.expectedVersion) {
+        return null;
+      }
 
-    return this.updateTask(taskId, {
-      ...input,
-      version: undefined,
+      const { parentTaskNumber: _parentTaskNumber, expectedVersion: _expectedVersion, ...persistedInput } = input;
+      const updatedAt = new Date().toISOString();
+      const nextStatus = normalizeStatus(persistedInput.status ?? current.status);
+      const patch = {
+        ...persistedInput,
+        workType:
+          persistedInput.workType === undefined
+            ? undefined
+            : requireStoredTaskWorkTypeValue(persistedInput.workType),
+        status: nextStatus,
+        statusHistory: canonicalizeTaskStatusHistory(
+          persistedInput.statusHistory ?? current.statusHistory,
+          nextStatus,
+          updatedAt,
+        ),
+        updatedAt,
+        updatedBy: persistedInput.updatedBy ?? current.updatedBy,
+        version: current.version + 1,
+      };
+      transaction.update(targetRef, patch);
+      return toTaskRecord(targetRef.id, {
+        ...currentSnapshot.data(),
+        ...patch,
+      });
     });
   }
 
@@ -541,18 +616,6 @@ class FirestoreFileRepository implements FileRepository {
     const versionNumber = input.versionNumber ?? input.version ?? 1;
     const version = input.version ?? versionNumber;
     const fileGroupId = input.fileGroupId ?? randomUUID();
-    const existingSnapshot = await getDocs(collection(db, fileCollectionName));
-    const duplicate = existingSnapshot.docs.some((entry) => {
-      const data = entry.data();
-      return String(data.fileGroupId ?? "") === fileGroupId && Number(data.version ?? data.versionNumber ?? 1) === version;
-    });
-    if (duplicate) {
-      throw conflict(
-        "Another upload created this file version first. Reload the latest files and try again.",
-        "FILE_VERSION_CONFLICT",
-      );
-    }
-
     const record = {
       taskId: input.taskId,
       projectId: input.projectId,
@@ -573,9 +636,18 @@ class FirestoreFileRepository implements FileRepository {
       metadata: {},
     };
 
-    const ref = doc(collection(db, fileCollectionName));
-    await setDoc(ref, record);
-    return toFileRecord(ref.id, record);
+    const ref = doc(db, fileCollectionName, `${fileGroupId}-v${version}`);
+    return runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (existing.exists()) {
+        throw conflict(
+          "Another upload created this file version first. Reload the latest files and try again.",
+          "FILE_VERSION_CONFLICT",
+        );
+      }
+      transaction.set(ref, record);
+      return toFileRecord(ref.id, record);
+    });
   }
 
   async moveFileToTrash(fileId: string) {
@@ -618,7 +690,34 @@ class FirestoreFileRepository implements FileRepository {
       throw new Error("Firestore is not configured");
     }
 
-    await updateDoc(doc(db, fileCollectionName, fileId), { purgedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    const targetRef = doc(db, fileCollectionName, fileId);
+    const snapshot = await getDoc(targetRef);
+    if (!snapshot.exists()) {
+      return;
+    }
+    const file = toFileRecord(snapshot.id, snapshot.data());
+    if (file.purgedAt) {
+      return;
+    }
+    const objects = resolveOwnedFileObjects(file);
+    await runDurableFilePurge({
+      file,
+      objects,
+      deleteObject: (object) => storageProvider.delete(object),
+      persistPendingMetadata: async (metadata) => {
+        await updateDoc(targetRef, {
+          metadata: normalizeFileMetadata(metadata),
+          updatedAt: new Date().toISOString(),
+        });
+      },
+      completePurge: async (metadata, purgedAt) => {
+        await updateDoc(targetRef, {
+          metadata: normalizeFileMetadata(metadata),
+          purgedAt,
+          updatedAt: purgedAt,
+        });
+      },
+    });
   }
 
   async moveFilesToTrashByTask(taskId: string) {

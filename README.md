@@ -25,9 +25,9 @@ Architect Start2 now runs with a guarded data workflow. Local JSON state, local 
 - `npm run data:doctor`
   - Shows local write protection state, latest snapshots, active lock token, and cloud backup status.
 - `npm run data:backup`
-  - Creates a local snapshot and, when cloud mode is configured, exports core Postgres tables.
+  - Creates a local snapshot and, in cloud mode, a fixed-snapshot PostgreSQL custom dump plus verified table/Storage artifacts.
 - `npm run data:restore -- --snapshot=<id>`
-  - Restores tracked local JSON stores from a saved snapshot.
+  - Restores tracked local data or performs a read-only cloud backup verification. Cloud database-only apply requires the explicit flags documented in `docs/data-guard-cloud-restore.md`.
 
 `DATA_GUARD_MODE=strict` is the default. When a path or data fingerprint changes, the app blocks writes and exposes a one-time `DATA_GUARD_CONFIRM` token through `data:doctor` and `/api/system/status`.
 

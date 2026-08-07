@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { badRequest } from "@/lib/api/errors";
 import { handleRouteError } from "@/lib/api/route-error";
+import { requireProjectEditor } from "@/lib/auth/project-guards";
 import { assertRequestIntegrity } from "@/lib/auth/request-integrity";
 import { requireUser } from "@/lib/auth/require-user";
 import { backendMode } from "@/lib/backend-mode";
@@ -33,6 +34,7 @@ export async function POST(
     assertRequestIntegrity(request);
     const user = await requireUser();
     const { projectId } = await context.params;
+    await requireProjectEditor(projectId, user);
     const formData = await request.formData();
     const file = formData.get("file");
     const uploadedTaskIdValue = formData.get("uploadedTaskId");

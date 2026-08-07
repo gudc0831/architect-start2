@@ -19,15 +19,40 @@ import type {
 import type { FileRecord, TaskRecord, TaskStatus } from "@/domains/task/types";
 import { normalizeFileMetadata } from "@/domains/file/analysis";
 import type { FileMetadata } from "@/domains/file/analysis";
+import {
+  resolveCanonicalFileStorageBucket,
+  resolveOwnedFileStorageObjects,
+} from "@/domains/file/content-security";
 import { rankFileAnalyses } from "@/domains/file/search";
-import { conflict, serviceUnavailable } from "@/lib/api/errors";
+import { conflict } from "@/lib/api/errors";
 import { localUploadRoot } from "@/lib/runtime-config";
-import { readLocalStore, writeLocalStore } from "@/lib/data-guard/local";
+import { readLocalStore, withLocalDataMutationLock, writeLocalStore } from "@/lib/data-guard/local";
 import { requireStoredTaskWorkTypeValue } from "@/lib/task-work-type-write";
+import { getSupabaseStorageBucket } from "@/lib/supabase/config";
+import { storageProvider } from "@/storage";
+import { runDurableFilePurge } from "@/lib/data-guard/file-purge";
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const nextId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+async function withMemoryMutation<T>(operation: () => Promise<T>) {
+  return withLocalDataMutationLock(operation);
+}
+
+function serializeRepositoryMutations<T extends object>(repository: T, methodNames: readonly string[]): T {
+  const mutations = new Set(methodNames);
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof property !== "string" || typeof value !== "function" || !mutations.has(property)) {
+        return value;
+      }
+
+      return (...args: unknown[]) =>
+        withMemoryMutation(() => Reflect.apply(value, receiver, args));
+    },
+  });
+}
 
 type SequenceState = {
   current?: number;
@@ -184,6 +209,12 @@ class MemoryTaskRepository implements TaskRepository {
     const id = input.id ?? nextId("task");
     const existing = tasks.find((task) => task.id === id && !task.purgedAt);
     if (existing) {
+      if (existing.projectId !== input.projectId) {
+        throw conflict(
+          "clientMutationId is already associated with another project.",
+          "CLIENT_MUTATION_SCOPE_CONFLICT",
+        );
+      }
       return existing;
     }
     const taskNumber = await nextTaskNumber(input.projectId, tasks);
@@ -442,6 +473,20 @@ async function readFiles() {
   return normalizeFileRecords(files);
 }
 
+function resolveOwnedFileObjects(file: FileRecord) {
+  const objects = resolveOwnedFileStorageObjects({
+    file,
+    canonicalStorageBucket: resolveCanonicalFileStorageBucket(
+      storageProvider.name,
+      getSupabaseStorageBucket(),
+    ),
+  });
+  if (!objects.ok) {
+    throw new Error(`Refusing to purge unowned file storage objects: ${objects.code}`);
+  }
+  return objects.value;
+}
+
 class MemoryFileRepository implements FileRepository {
   async listActiveFiles(taskId?: string) {
     const files = await readFiles();
@@ -566,9 +611,40 @@ class MemoryFileRepository implements FileRepository {
       throw new Error("File not found");
     }
 
-    const timestamp = now();
-    const next = files.map((file) => (file.id === fileId ? { ...file, purgedAt: timestamp, updatedAt: timestamp } : file));
-    await writeLocalStore("files", next, { reason: "files.delete" });
+    if (found.purgedAt) {
+      return;
+    }
+    const objects = resolveOwnedFileObjects(found);
+    await runDurableFilePurge({
+      file: found,
+      objects,
+      deleteObject: (object) => storageProvider.delete(object),
+      persistPendingMetadata: async (metadata) => {
+        const index = files.findIndex((file) => file.id === fileId && !file.purgedAt);
+        if (index === -1) {
+          throw new Error("File purge state could not be persisted.");
+        }
+        files[index] = {
+          ...files[index],
+          metadata: normalizeFileMetadata(metadata),
+          updatedAt: now(),
+        };
+        await writeLocalStore("files", files, { reason: "files.purge-pending" });
+      },
+      completePurge: async (metadata, purgedAt) => {
+        const index = files.findIndex((file) => file.id === fileId && !file.purgedAt);
+        if (index === -1) {
+          throw new Error("File purge completion could not be persisted.");
+        }
+        files[index] = {
+          ...files[index],
+          metadata: normalizeFileMetadata(metadata),
+          purgedAt,
+          updatedAt: purgedAt,
+        };
+        await writeLocalStore("files", files, { reason: "files.purge-completed" });
+      },
+    });
   }
 
   async moveFilesToTrashByTask(taskId: string) {
@@ -604,5 +680,23 @@ class MemoryFileRepository implements FileRepository {
   }
 }
 
-export const memoryTaskRepository = new MemoryTaskRepository();
-export const memoryFileRepository = new MemoryFileRepository();
+export const memoryTaskRepository = serializeRepositoryMutations(new MemoryTaskRepository(), [
+  "getNextTaskNumber",
+  "createTask",
+  "updateTask",
+  "updateTaskWithVersion",
+  "updateTaskOrders",
+  "syncProjectTaskIssueIds",
+  "moveTaskToTrash",
+  "restoreTask",
+  "deleteTask",
+]);
+export const memoryFileRepository = serializeRepositoryMutations(new MemoryFileRepository(), [
+  "attachFile",
+  "moveFileToTrash",
+  "restoreFile",
+  "deleteFile",
+  "moveFilesToTrashByTask",
+  "restoreFilesByTask",
+  "updateFileMetadata",
+]);

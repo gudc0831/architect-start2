@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import type { AuthUser } from "@/domains/auth/types";
 import { getActiveProjectContextRuleSet, type ProjectContextRuleSet } from "@/domains/project-context/policy";
 import { badRequest, unprocessable } from "@/lib/api/errors";
-import { requireProjectAccess } from "@/lib/auth/project-guards";
+import { requireProjectEditor } from "@/lib/auth/project-guards";
 import { prisma } from "@/lib/prisma";
 import {
   deleteProjectContextRawObject,
@@ -188,7 +188,7 @@ export function validateProjectContextUploadFile(
 
 export async function createProjectContextUpload(input: CreateProjectContextUploadInput): Promise<ProjectContextUploadRecord> {
   const policy = getActiveProjectContextRuleSet();
-  await requireProjectAccess(input.projectId, input.user);
+  await requireProjectEditor(input.projectId, input.user);
 
   const batchValidation = validateProjectContextUploadBatch({
     filesPerUpload: 1,

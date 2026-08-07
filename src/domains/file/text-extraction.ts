@@ -16,12 +16,21 @@ const MAX_EXTRACTED_TEXT_LENGTH = 12000;
 const MAX_SUMMARY_LENGTH = 600;
 const MAX_XLSX_ROWS_PER_SHEET = 120;
 const MAX_XLSX_CELLS_PER_ROW = 30;
+const MAX_EXTRACTION_TIME_MS = 5_000;
+const MAX_ZIP_ENTRIES = 2_048;
+const MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
+const MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_ZIP_COMPRESSION_RATIO = 100;
+const MAX_PDF_STREAMS = 256;
+const MAX_PDF_DECOMPRESSED_STREAM_BYTES = 8 * 1024 * 1024;
+const MAX_PDF_TOTAL_DECOMPRESSED_BYTES = 32 * 1024 * 1024;
 const ZIP_EOCD_SIGNATURE = 0x06054b50;
 const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const ZIP_LOCAL_FILE_SIGNATURE = 0x04034b50;
 const PDF_TEXT_STREAM_PATTERN = /BT[\s\S]*?ET/g;
 
 export async function extractTextFromStoredFile(file: FileRecord, content: Uint8Array): Promise<FileTextExtractionResult> {
+  const startedAt = Date.now();
   const extension = extname(file.originalName).replace(/^\./, "").toLowerCase();
   const contentType = resolveFileContentType(file).split(";")[0]?.trim().toLowerCase() ?? "";
 
@@ -41,7 +50,7 @@ export async function extractTextFromStoredFile(file: FileRecord, content: Uint8
     return buildExtractionResult({
       file,
       format: "XLSX",
-      text: await extractXlsxText(content),
+      text: await extractXlsxText(content, startedAt),
       tags: ["auto-extracted", "xlsx", "spreadsheet"],
     });
   }
@@ -50,7 +59,7 @@ export async function extractTextFromStoredFile(file: FileRecord, content: Uint8
     return buildExtractionResult({
       file,
       format: "DOCX",
-      text: extractDocxText(content),
+      text: extractDocxText(content, startedAt),
       tags: ["auto-extracted", "docx", "document"],
     });
   }
@@ -59,7 +68,7 @@ export async function extractTextFromStoredFile(file: FileRecord, content: Uint8
     return buildExtractionResult({
       file,
       format: "PDF",
-      text: extractPdfText(content),
+      text: extractPdfText(content, startedAt),
       tags: ["auto-extracted", "pdf", "text-pdf"],
     });
   }
@@ -93,17 +102,21 @@ function decodeUtf8(content: Uint8Array) {
   return new TextDecoder("utf-8", { fatal: false }).decode(content);
 }
 
-async function extractXlsxText(content: Uint8Array) {
+async function extractXlsxText(content: Uint8Array, startedAt: number) {
+  assertZipArchiveIsWithinResourceLimits(Buffer.from(content), startedAt);
   const workbook = new ExcelJS.Workbook();
   const workbookInput = Buffer.from(content) as unknown as Parameters<typeof workbook.xlsx.load>[0];
   await workbook.xlsx.load(workbookInput);
+  assertExtractionDeadline(startedAt);
 
   const chunks: string[] = [];
   for (const worksheet of workbook.worksheets) {
+    assertExtractionDeadline(startedAt);
     chunks.push(`# Sheet: ${worksheet.name}`);
     let capturedRows = 0;
 
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      assertExtractionDeadline(startedAt);
       if (capturedRows >= MAX_XLSX_ROWS_PER_SHEET) {
         return;
       }
@@ -130,8 +143,9 @@ async function extractXlsxText(content: Uint8Array) {
   return chunks.join("\n");
 }
 
-function extractDocxText(content: Uint8Array) {
+function extractDocxText(content: Uint8Array, startedAt: number) {
   const archive = Buffer.from(content);
+  assertZipArchiveIsWithinResourceLimits(archive, startedAt);
   const partNames = [
     "word/document.xml",
     "word/footnotes.xml",
@@ -140,11 +154,12 @@ function extractDocxText(content: Uint8Array) {
     "word/header1.xml",
     "word/footer1.xml",
   ];
-  const parts = partNames.map((partName) => readZipEntryText(archive, partName)).filter(Boolean);
+  const parts = partNames.map((partName) => readZipEntryText(archive, partName, startedAt)).filter(Boolean);
   return parts.map(wordXmlToText).filter(Boolean).join("\n");
 }
 
-function readZipEntryText(archive: Buffer, entryName: string) {
+function readZipEntryText(archive: Buffer, entryName: string, startedAt: number) {
+  assertExtractionDeadline(startedAt);
   const entry = findZipEntry(archive, entryName);
   if (!entry) {
     return "";
@@ -163,8 +178,26 @@ function readZipEntryText(archive: Buffer, entryName: string) {
   const fileNameLength = archive.readUInt16LE(localHeaderOffset + 26);
   const extraLength = archive.readUInt16LE(localHeaderOffset + 28);
   const dataOffset = localHeaderOffset + 30 + fileNameLength + extraLength;
+  if (dataOffset < 0 || dataOffset + entry.compressedSize > archive.length) {
+    throw unprocessable("Compressed document entry is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
   const compressed = archive.subarray(dataOffset, dataOffset + entry.compressedSize);
-  const inflated = entry.compressionMethod === 8 ? inflateRawSync(compressed) : compressed;
+  let inflated: Buffer;
+  try {
+    inflated =
+      entry.compressionMethod === 8
+        ? inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES })
+        : compressed;
+  } catch (error) {
+    if (isInflateOutputLimitError(error)) {
+      throwExtractionResourceLimit("Compressed document entry exceeds the allowed size.");
+    }
+    throw unprocessable("Compressed document entry is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+  if (inflated.byteLength > entry.uncompressedSize || inflated.byteLength > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES) {
+    throwExtractionResourceLimit("Compressed document entry exceeded its declared or allowed size.");
+  }
+  assertExtractionDeadline(startedAt);
   return inflated.toString("utf8");
 }
 
@@ -179,26 +212,159 @@ function findZipEntry(archive: Buffer, entryName: string) {
   let offset = centralDirectoryOffset;
   const end = centralDirectoryOffset + centralDirectorySize;
 
-  while (offset < end && archive.readUInt32LE(offset) === ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
+  while (offset + 46 <= end && offset + 46 <= archive.length && archive.readUInt32LE(offset) === ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
     const compressionMethod = archive.readUInt16LE(offset + 10);
     const compressedSize = archive.readUInt32LE(offset + 20);
+    const uncompressedSize = archive.readUInt32LE(offset + 24);
     const fileNameLength = archive.readUInt16LE(offset + 28);
     const extraLength = archive.readUInt16LE(offset + 30);
     const commentLength = archive.readUInt16LE(offset + 32);
     const localHeaderOffset = archive.readUInt32LE(offset + 42);
+    const nextOffset = offset + 46 + fileNameLength + extraLength + commentLength;
+    if (nextOffset > end || nextOffset > archive.length) {
+      return null;
+    }
     const fileName = archive.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
 
     if (fileName === entryName) {
-      return { compressionMethod, compressedSize, localHeaderOffset };
+      return { compressionMethod, compressedSize, uncompressedSize, localHeaderOffset };
     }
 
-    offset += 46 + fileNameLength + extraLength + commentLength;
+    offset = nextOffset;
   }
 
   return null;
 }
 
+function assertZipArchiveIsWithinResourceLimits(archive: Buffer, startedAt: number) {
+  const eocdOffset = findEndOfCentralDirectory(archive);
+  if (eocdOffset < 0 || eocdOffset + 22 > archive.length) {
+    throw unprocessable("Compressed document archive is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+
+  const entryCount = archive.readUInt16LE(eocdOffset + 10);
+  const centralDirectorySize = archive.readUInt32LE(eocdOffset + 12);
+  const centralDirectoryOffset = archive.readUInt32LE(eocdOffset + 16);
+  const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+  if (
+    entryCount > MAX_ZIP_ENTRIES ||
+    centralDirectoryOffset < 0 ||
+    centralDirectoryEnd > eocdOffset ||
+    centralDirectoryEnd > archive.length
+  ) {
+    throwExtractionResourceLimit("Compressed document archive exceeds entry or directory limits.");
+  }
+
+  let offset = centralDirectoryOffset;
+  let inspectedEntries = 0;
+  let totalUncompressedBytes = 0;
+  while (inspectedEntries < entryCount) {
+    assertExtractionDeadline(startedAt);
+    if (
+      offset + 46 > centralDirectoryEnd ||
+      archive.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE
+    ) {
+      throw unprocessable("Compressed document central directory is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+    }
+
+    const compressedSize = archive.readUInt32LE(offset + 20);
+    const uncompressedSize = archive.readUInt32LE(offset + 24);
+    const generalPurposeFlags = archive.readUInt16LE(offset + 8);
+    const compressionMethod = archive.readUInt16LE(offset + 10);
+    const fileNameLength = archive.readUInt16LE(offset + 28);
+    const extraLength = archive.readUInt16LE(offset + 30);
+    const commentLength = archive.readUInt16LE(offset + 32);
+    const localHeaderOffset = archive.readUInt32LE(offset + 42);
+    const nextOffset = offset + 46 + fileNameLength + extraLength + commentLength;
+    if ((generalPurposeFlags & 0x1) !== 0 || (compressionMethod !== 0 && compressionMethod !== 8)) {
+      throw unprocessable("Encrypted or unsupported compressed document entries are not allowed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+    }
+    if (
+      uncompressedSize > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES ||
+      nextOffset > centralDirectoryEnd
+    ) {
+      throwExtractionResourceLimit("Compressed document archive exceeds expansion limits.");
+    }
+
+    const actualUncompressedSize = validateZipEntryExpansion({
+      archive,
+      localHeaderOffset,
+      compressionMethod,
+      compressedSize,
+      declaredUncompressedSize: uncompressedSize,
+      startedAt,
+    });
+    const compressionRatio = actualUncompressedSize / Math.max(1, compressedSize);
+    totalUncompressedBytes += actualUncompressedSize;
+    if (
+      totalUncompressedBytes > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES ||
+      compressionRatio > MAX_ZIP_COMPRESSION_RATIO
+    ) {
+      throwExtractionResourceLimit("Compressed document archive exceeds expansion limits.");
+    }
+
+    offset = nextOffset;
+    inspectedEntries += 1;
+  }
+
+  if (offset !== centralDirectoryEnd) {
+    throw unprocessable("Compressed document central directory is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+}
+
+function validateZipEntryExpansion(input: {
+  archive: Buffer;
+  localHeaderOffset: number;
+  compressionMethod: number;
+  compressedSize: number;
+  declaredUncompressedSize: number;
+  startedAt: number;
+}) {
+  if (
+    input.localHeaderOffset < 0 ||
+    input.localHeaderOffset + 30 > input.archive.length ||
+    input.archive.readUInt32LE(input.localHeaderOffset) !== ZIP_LOCAL_FILE_SIGNATURE
+  ) {
+    throw unprocessable("Compressed document local entry is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+
+  const localCompressionMethod = input.archive.readUInt16LE(input.localHeaderOffset + 8);
+  const fileNameLength = input.archive.readUInt16LE(input.localHeaderOffset + 26);
+  const extraLength = input.archive.readUInt16LE(input.localHeaderOffset + 28);
+  const dataOffset = input.localHeaderOffset + 30 + fileNameLength + extraLength;
+  if (
+    localCompressionMethod !== input.compressionMethod ||
+    dataOffset < 0 ||
+    dataOffset + input.compressedSize > input.archive.length
+  ) {
+    throw unprocessable("Compressed document local entry is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+
+  const compressed = input.archive.subarray(dataOffset, dataOffset + input.compressedSize);
+  let expanded: Buffer;
+  try {
+    expanded =
+      input.compressionMethod === 8
+        ? inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES })
+        : compressed;
+  } catch (error) {
+    if (isInflateOutputLimitError(error)) {
+      throwExtractionResourceLimit("Compressed document entry exceeds the allowed size.");
+    }
+    throw unprocessable("Compressed document entry is malformed.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+
+  assertExtractionDeadline(input.startedAt);
+  if (expanded.byteLength !== input.declaredUncompressedSize) {
+    throw unprocessable("Compressed document entry size does not match its directory.", "FILE_AUTO_EXTRACTION_ARCHIVE_INVALID");
+  }
+  return expanded.byteLength;
+}
+
 function findEndOfCentralDirectory(archive: Buffer) {
+  if (archive.length < 22) {
+    return -1;
+  }
   const minimumOffset = Math.max(0, archive.length - 65557);
   for (let offset = archive.length - 22; offset >= minimumOffset; offset -= 1) {
     if (archive.readUInt32LE(offset) === ZIP_EOCD_SIGNATURE) {
@@ -257,22 +423,30 @@ function wordTagTextSeparator(rawTag: string) {
   return "";
 }
 
-function extractPdfText(content: Uint8Array) {
+function extractPdfText(content: Uint8Array, startedAt: number) {
   const pdf = Buffer.from(content);
-  const streamTexts = extractPdfStreamTexts(pdf);
+  const streamTexts = extractPdfStreamTexts(pdf, startedAt);
   const fallbackText = streamTexts.length > 0 ? "" : extractPdfTextOperators(pdf.toString("latin1"));
+  assertExtractionDeadline(startedAt);
   return [...streamTexts, fallbackText].filter(Boolean).join("\n");
 }
 
-function extractPdfStreamTexts(pdf: Buffer) {
+function extractPdfStreamTexts(pdf: Buffer, startedAt: number) {
   const document = pdf.toString("latin1");
   const texts: string[] = [];
   let searchOffset = 0;
+  let streamCount = 0;
+  let totalDecompressedBytes = 0;
 
   while (searchOffset < document.length) {
+    assertExtractionDeadline(startedAt);
     const streamStart = document.indexOf("stream", searchOffset);
     if (streamStart < 0) {
       break;
+    }
+    streamCount += 1;
+    if (streamCount > MAX_PDF_STREAMS) {
+      throwExtractionResourceLimit("PDF contains too many streams.");
     }
 
     const dataStart = skipPdfLineBreak(document, streamStart + "stream".length);
@@ -285,6 +459,10 @@ function extractPdfStreamTexts(pdf: Buffer) {
     const dictionary = document.slice(dictionaryStart, streamStart);
     const rawStream = pdf.subarray(dataStart, trimPdfStreamEnd(document, dataStart, streamEnd));
     const streamText = decodePdfStream(rawStream, dictionary);
+    totalDecompressedBytes += Buffer.byteLength(streamText, "latin1");
+    if (totalDecompressedBytes > MAX_PDF_TOTAL_DECOMPRESSED_BYTES) {
+      throwExtractionResourceLimit("PDF decompressed stream total exceeds the allowed limit.");
+    }
     const extracted = streamText ? extractPdfTextOperators(streamText) : "";
     if (extracted) {
       texts.push(extracted);
@@ -316,22 +494,51 @@ function trimPdfStreamEnd(document: string, dataStart: number, streamEnd: number
 
 function decodePdfStream(stream: Buffer, dictionary: string) {
   if (!dictionary.includes("/Filter")) {
+    if (stream.byteLength > MAX_PDF_DECOMPRESSED_STREAM_BYTES) {
+      throwExtractionResourceLimit("PDF stream exceeds the allowed size.");
+    }
     return stream.toString("latin1");
   }
 
   if (dictionary.includes("/FlateDecode") || dictionary.includes("/Fl")) {
     try {
-      return inflateSync(stream).toString("latin1");
-    } catch {
+      return inflateSync(stream, { maxOutputLength: MAX_PDF_DECOMPRESSED_STREAM_BYTES }).toString("latin1");
+    } catch (error) {
+      if (isInflateOutputLimitError(error)) {
+        throwExtractionResourceLimit("PDF decompressed stream exceeds the allowed size.");
+      }
       try {
-        return inflateRawSync(stream).toString("latin1");
-      } catch {
+        return inflateRawSync(stream, { maxOutputLength: MAX_PDF_DECOMPRESSED_STREAM_BYTES }).toString("latin1");
+      } catch (fallbackError) {
+        if (isInflateOutputLimitError(fallbackError)) {
+          throwExtractionResourceLimit("PDF decompressed stream exceeds the allowed size.");
+        }
         return "";
       }
     }
   }
 
   return "";
+}
+
+function isInflateOutputLimitError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  const message = error instanceof Error ? error.message : "";
+  return code === "ERR_BUFFER_TOO_LARGE" || /maxOutputLength|larger than.*Buffer/i.test(message);
+}
+
+function assertExtractionDeadline(startedAt: number) {
+  if (Date.now() - startedAt > MAX_EXTRACTION_TIME_MS) {
+    throwExtractionResourceLimit("Document extraction exceeded the allowed processing time.");
+  }
+}
+
+function throwExtractionResourceLimit(reason: string): never {
+  throw unprocessable(reason, "FILE_AUTO_EXTRACTION_RESOURCE_LIMIT");
 }
 
 function extractPdfTextOperators(value: string) {

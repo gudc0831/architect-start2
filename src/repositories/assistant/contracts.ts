@@ -128,6 +128,17 @@ export type CreateAssistantUsageEventInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type UpdateAssistantUsageEventInput = {
+  id: string;
+  runtimeMode: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostCents: number;
+  status: AssistantUsageStatus;
+  errorCode?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 export type ListAssistantUsageEventsInput = {
   projectId: string;
   month?: string;
@@ -219,6 +230,7 @@ export interface AssistantRepository {
   getRunPolicy(projectId: string): Promise<AssistantRunPolicy | null>;
   upsertRunPolicy(input: UpsertAssistantRunPolicyInput): Promise<AssistantRunPolicy>;
   createUsageEvent(input: CreateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
+  updateUsageEvent(input: UpdateAssistantUsageEventInput): Promise<AssistantUsageEvent>;
   listUsageEvents(input: ListAssistantUsageEventsInput): Promise<AssistantUsageEvent[]>;
   listUsageEventsForProfile(input: ListAssistantUsageEventsForProfileInput): Promise<AssistantUsageEvent[]>;
   createAuditEvent(input: CreateAssistantAuditEventInput): Promise<AssistantAuditEvent>;

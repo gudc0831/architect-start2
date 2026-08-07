@@ -1096,8 +1096,12 @@ async function main() {
   assert.match(taskAssistantPanelSource, /requestedExecutionMode === "saas-api"/);
   assert.match(taskAssistantPanelSource, /postTaskReviewJson\(\{[\s\S]*?mode:\s*"generate"/);
   assert.match(taskAssistantPanelSource, /normalizeGeneratedRetrieval\(review\.generated\?\.retrieval\)\s*\?\?/);
-  assert.match(taskAssistantPanelSource, /setPendingTaskReview\(review\)/);
-  assert.match(taskAssistantPanelSource, /postJson<AssistantReviewSessionItem>\("\/api\/assistant\/review-sessions"/);
+  assert.match(taskAssistantPanelSource, /setRetrieveResult\(reviewRetrieval\)/);
+  assert.match(
+    taskAssistantPanelSource,
+    /buildSaveReviewSessionPayload\(\{[\s\S]*?retrieval:\s*reviewRetrieval,[\s\S]*?taskReview:\s*review/,
+  );
+  assert.match(taskAssistantPanelSource, /postJson<AssistantReviewSessionItem>\(\s*"\/api\/assistant\/review-sessions"/);
   assert.match(taskAssistantPanelSource, /const retrieveForRecord = generated\.retrieval \?\? verifiedRetrieval/);
   assert.doesNotMatch(taskAssistantPanelSource, /postJson<AssistantGenerateResponse>\("\/api\/assistant\/generate"/);
   assert.doesNotMatch(taskAssistantPanelSource, /appendLegalChangeReviewNotice\(generated\.answer,\s*generated\.retrieval\)/);
@@ -1119,7 +1123,7 @@ async function main() {
     /if \(reviewRequestId === undefined \|\| reviewRequestSeqRef\.current === reviewRequestId\) \{[\s\S]*?setRecordHistoryLoading\(false\);[\s\S]*?\}/,
   );
   assert.match(taskAssistantPanelSource, /setRetrieveResult\(retrieveForRecord\)/);
-  assert.match(taskAssistantPanelSource, /evidence:\s*retrieveResult\.evidence/);
+  assert.match(taskAssistantPanelSource, /evidence:\s*input\.retrieval\.evidence/);
   const retrieveRouteSource = await readFile(join(process.cwd(), "src", "app", "api", "assistant", "retrieve", "route.ts"), "utf8");
   assert.match(retrieveRouteSource, /taskId:\s*String\(body\.taskId/);
   assert.match(retrieveRouteSource, /question:\s*String\(body\.question/);

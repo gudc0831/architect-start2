@@ -49,6 +49,7 @@ import type {
   ListAssistantUsageEventsForProfileInput,
   ReviewKnowledgeCandidateInput,
   SaveAssistantWorkSummaryDraftInput,
+  UpdateAssistantUsageEventInput,
   UpsertAssistantRunPolicyInput,
 } from "@/repositories/assistant/contracts";
 
@@ -961,6 +962,22 @@ class PostgresAssistantRepository implements AssistantRepository {
       throw error;
     }
 
+    return toUsageEvent(event);
+  }
+
+  async updateUsageEvent(input: UpdateAssistantUsageEventInput) {
+    const event = await assistantPrisma.assistantUsageEvent.update({
+      where: { id: input.id },
+      data: {
+        runtimeMode: input.runtimeMode,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        estimatedCostCents: input.estimatedCostCents,
+        status: input.status,
+        errorCode: input.errorCode ?? null,
+        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
     return toUsageEvent(event);
   }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { AppError } from "@/lib/api/errors";
 
@@ -23,19 +24,27 @@ const databaseConnectivityErrorCodes = new Set([
   "57014",
 ]);
 
-function getErrorDetails(error: unknown) {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      code: "code" in error ? (error as { code?: unknown }).code : undefined,
-      clientVersion: "clientVersion" in error ? (error as { clientVersion?: unknown }).clientVersion : undefined,
-      meta: "meta" in error ? (error as { meta?: unknown }).meta : undefined,
-    };
-  }
+function getErrorLogContext(error: unknown, correlationId: string) {
+  const meta = error && typeof error === "object" && "meta" in error ? (error as { meta?: unknown }).meta : null;
+  const metaCode =
+    meta && typeof meta === "object" && "code" in meta
+      ? normalizeDiagnosticCode((meta as { code?: unknown }).code)
+      : undefined;
 
-  return { value: error };
+  return {
+    correlationId,
+    name: error instanceof Error ? normalizeDiagnosticCode(error.name) ?? "Error" : "UnknownError",
+    code:
+      error && typeof error === "object" && "code" in error
+        ? normalizeDiagnosticCode((error as { code?: unknown }).code)
+        : undefined,
+    metaCode,
+  };
+}
+
+function normalizeDiagnosticCode(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return /^[A-Za-z0-9_-]{1,80}$/.test(normalized) ? normalized : undefined;
 }
 
 export function isDatabaseConnectivityError(error: unknown) {
@@ -68,10 +77,6 @@ export function isDatabaseConnectivityError(error: unknown) {
   );
 }
 
-function shouldExposePreviewErrorDetails() {
-  return process.env.VERCEL_ENV === "preview";
-}
-
 export function handleRouteError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json(
@@ -85,29 +90,31 @@ export function handleRouteError(error: unknown) {
     );
   }
 
-  const details = getErrorDetails(error);
+  const correlationId = randomUUID();
+  const logContext = getErrorLogContext(error, correlationId);
 
   if (isDatabaseConnectivityError(error)) {
-    console.warn("[route-error] database connectivity error", details);
+    console.warn("[route-error] database connectivity error", logContext);
     return NextResponse.json(
       {
         error: {
           code: "DATABASE_UNAVAILABLE",
           message: "Database connection is temporarily unavailable",
+          correlationId,
         },
-        ...(shouldExposePreviewErrorDetails() ? { debug: details } : {}),
       },
       { status: 503 },
     );
   }
 
+  console.error("[route-error] unexpected error", logContext);
   return NextResponse.json(
     {
       error: {
         code: "INTERNAL_SERVER_ERROR",
         message: "Unexpected server error",
+        correlationId,
       },
-      ...(shouldExposePreviewErrorDetails() ? { debug: details } : {}),
     },
     { status: 500 },
   );

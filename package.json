@@ -16,6 +16,8 @@
     "db:push": "node scripts/blocked-direct-command.mjs db:push \"Use npm run db:migrate:safe instead.\"",
     "db:migrate": "tsx scripts/db-migrate-safe.ts",
     "db:migrate:safe": "tsx scripts/db-migrate-safe.ts",
+    "db:bootstrap:safe": "tsx scripts/db-bootstrap-safe.ts",
+    "db:bootstrap:validate": "tsx scripts/db-bootstrap-validate.ts",
     "db:apply-sql:safe": "tsx scripts/apply-sql-file-safe.ts",
     "db:seed": "tsx scripts/db-seed-safe.ts",
     "db:seed:safe": "tsx scripts/db-seed-safe.ts",
@@ -83,6 +85,7 @@
     "ocr:provider:validate": "tsx scripts/ocr-provider-validate.ts",
     "data:doctor": "tsx scripts/data-doctor.ts",
     "data:backup": "tsx scripts/data-backup.ts",
+    "data:guard:validate": "tsx scripts/local-data-guard-validate.ts && tsx scripts/data-integrity-contract-validate.ts",
     "data:rekey-issue-ids": "tsx scripts/rekey-project-issue-ids.ts",
     "data:restore": "tsx scripts/data-restore.ts",
     "task-export:verify": "tsx scripts/task-export-verify.ts",
@@ -98,8 +101,8 @@
     "ui-copy:report": "node --experimental-strip-types scripts/ui-copy-report.ts"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.0",
     "@tanstack/react-virtual": "^3.13.12",
@@ -107,20 +110,20 @@
     "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.8.0",
-    "firebase": "^12.14.0",
-    "next": "^16.2.7",
+    "firebase": "^12.17.0",
+    "next": "^16.2.12",
     "pg": "^8.21.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "yjs": "^13.6.31"
   },
   "overrides": {
-    "@hono/node-server": "1.19.13",
     "@protobufjs/utf8": "1.1.1",
-    "fast-uri": "3.1.2",
-    "hono": "4.12.25",
-    "postcss": "8.5.14",
-    "protobufjs": "7.6.3",
+    "fast-uri": "3.1.5",
+    "postcss": "8.5.25",
+    "protobufjs": "7.6.5",
+    "sharp": "0.35.3",
+    "websocket-driver": "0.7.5",
     "exceljs": {
       "uuid": "^11.1.1"
     }
@@ -130,11 +133,11 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.36.0",
-    "eslint-config-next": "^16.2.4",
+    "eslint-config-next": "^16.2.12",
     "playwright": "^1.60.0",
     "prettier": "^3.6.2",
-    "prisma": "^7.7.0",
-    "tsx": "^4.21.0",
+    "prisma": "^7.9.1",
+    "tsx": "^4.23.5",
     "typescript": "^5.9.3"
   }
 }

@@ -48,6 +48,12 @@ import { storageProvider } from "@/storage";
 import { getFileAnalysisEntries, normalizeFileMetadata } from "@/domains/file/analysis";
 import type { FileMetadata } from "@/domains/file/analysis";
 import {
+  resolveCanonicalFileStorageBucket,
+  resolveOwnedFileStorageObjects,
+} from "@/domains/file/content-security";
+import { getSupabaseStorageBucket } from "@/lib/supabase/config";
+import { runDurableFilePurge } from "@/lib/data-guard/file-purge";
+import {
   buildFileAnalysisChunks,
   compareFileAnalysisSearchResults,
   rankFileAnalyses,
@@ -202,6 +208,20 @@ function toFileRecord(file: {
     purgedAt: file.purgedAt ? file.purgedAt.toISOString() : null,
     metadata: normalizeFileMetadata(file.metadata),
   };
+}
+
+function resolveOwnedFileObjects(file: FileRecord) {
+  const objects = resolveOwnedFileStorageObjects({
+    file,
+    canonicalStorageBucket: resolveCanonicalFileStorageBucket(
+      storageProvider.name,
+      getSupabaseStorageBucket(),
+    ),
+  });
+  if (!objects.ok) {
+    throw new Error(`Refusing to purge unowned file storage objects: ${objects.code}`);
+  }
+  return objects.value;
 }
 
 type PostgresFileAnalysisSearchRow = {
@@ -427,6 +447,12 @@ class PostgresTaskRepository implements TaskRepository {
         const existing = await tx.task.findUnique({ where: { id } });
         recordTiming?.("repository.existingIdLookup", performance.now() - existingStart);
         if (existing && !existing.purgedAt) {
+          if (existing.projectId !== input.projectId) {
+            throw conflict(
+              "clientMutationId is already associated with another project.",
+              "CLIENT_MUTATION_SCOPE_CONFLICT",
+            );
+          }
           return existing;
         }
       }
@@ -1220,10 +1246,38 @@ class PostgresFileRepository implements FileRepository {
   }
 
   async deleteFile(fileId: string) {
-    await prisma.file.update({
-      where: { id: fileId },
-      data: {
-        purgedAt: new Date(),
+    const file = await prisma.file.findUnique({ where: { id: fileId } });
+    if (!file || file.purgedAt) {
+      return;
+    }
+    const fileRecord = toFileRecord(file);
+    const objects = resolveOwnedFileObjects(fileRecord);
+    await runDurableFilePurge({
+      file: fileRecord,
+      objects,
+      deleteObject: (object) => storageProvider.delete(object),
+      persistPendingMetadata: async (metadata) => {
+        const result = await prisma.file.updateMany({
+          where: { id: fileId, purgedAt: null },
+          data: {
+            metadata: normalizeFileMetadata(metadata) as Prisma.InputJsonValue,
+          },
+        });
+        if (result.count !== 1) {
+          throw new Error("File purge state could not be persisted.");
+        }
+      },
+      completePurge: async (metadata, purgedAt) => {
+        const result = await prisma.file.updateMany({
+          where: { id: fileId, purgedAt: null },
+          data: {
+            metadata: normalizeFileMetadata(metadata) as Prisma.InputJsonValue,
+            purgedAt: new Date(purgedAt),
+          },
+        });
+        if (result.count !== 1) {
+          throw new Error("File purge completion could not be persisted.");
+        }
       },
     });
   }

@@ -4,6 +4,7 @@ import {
   type KnowledgeSourceRef,
 } from "@/domains/knowledge/structured-knowledge";
 import styles from "@/components/admin/knowledge-admin-shell.module.css";
+import { t } from "@/lib/ui-copy";
 
 export type KnowledgeSourceBucketView = {
   kind: KnowledgeSourceKind;
@@ -16,7 +17,7 @@ export type KnowledgeSourceBucketView = {
 export const sourceBucketLabels = {
   legal_evidence: "법규 근거",
   task_context: "Task 맥락",
-  project_document: "프로젝트 자료",
+  project_document: t("materials.title"),
   approved_wiki: "기존 승인 WIKI",
   local_wiki: "로컬 WIKI",
   external_evidence: "외부 근거",

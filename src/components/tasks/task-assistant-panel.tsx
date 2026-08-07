@@ -12,6 +12,7 @@ import type {
 } from "@/domains/assistant/saas-api-mode";
 import type { AiSettingsPreference } from "@/domains/preferences/types";
 import { DEFAULT_AI_SETTINGS_PREFERENCE, sanitizeAiSettingsPreference } from "@/domains/preferences/types";
+import { t } from "@/lib/ui-copy";
 
 type AssistantEvidence = {
   id: string;
@@ -118,7 +119,6 @@ type LocalCodexUsageMetadata = {
 };
 
 type EvidenceReadinessWarning = { code: string; message: string };
-type AssistantRecordConfidenceOverride = { confidenceScore?: number; confidenceReason?: string };
 const LEGAL_CHANGE_IMPACT_WARNING =
   "인용된 근거 중 변경 감지된 법령이 있습니다. 적용일자와 최신 조문을 확인하세요.";
 
@@ -2341,7 +2341,7 @@ export function TaskAssistantPanel({
                     onClick={() => setHistoryExpanded((current) => !current)}
                     type="button"
                   >
-                    {historyExpanded ? "접기" : recordHistoryLoading ? "불러오는 중" : `보기 ${reviewHistoryGroups.length}`}
+                    {historyExpanded ? t("actions.collapse") : recordHistoryLoading ? "불러오는 중" : `보기 ${reviewHistoryGroups.length}`}
                   </button>
                 </div>
                 {!historyExpanded ? (
@@ -2450,7 +2450,7 @@ export function TaskAssistantPanel({
                     onClick={() => setFilesExpanded((current) => !current)}
                     type="button"
                   >
-                    {filesExpanded ? "접기" : filesLoading ? "불러오는 중" : `보기 ${taskFiles.length}`}
+                    {filesExpanded ? t("actions.collapse") : filesLoading ? "불러오는 중" : `보기 ${taskFiles.length}`}
                   </button>
                 </div>
                 {filesExpanded ? (
@@ -2673,7 +2673,7 @@ export function TaskAssistantPanel({
                     onClick={() => setExternalExpanded((current) => !current)}
                     type="button"
                   >
-                    {externalExpanded ? "접기" : `추가 ${externalLoading ? "" : externalEvidence.length}`}
+                    {externalExpanded ? t("actions.collapse") : `추가 ${externalLoading ? "" : externalEvidence.length}`}
                   </button>
                 </div>
                 {!externalExpanded ? (
@@ -2815,7 +2815,7 @@ export function TaskAssistantPanel({
                     onClick={() => setDiagnosticsExpanded((current) => !current)}
                     type="button"
                   >
-                    {diagnosticsExpanded ? "접기" : "상태 확인"}
+                    {diagnosticsExpanded ? t("actions.collapse") : "상태 확인"}
                   </button>
                 </div>
                 {diagnosticsExpanded ? (
@@ -2895,7 +2895,7 @@ export function TaskAssistantPanel({
                     onClick={() => setEvidenceExpanded((current) => !current)}
                     type="button"
                   >
-                    {evidenceExpanded ? "접기" : `보기 ${retrieveResult.evidence.length}`}
+                    {evidenceExpanded ? t("actions.collapse") : `보기 ${retrieveResult.evidence.length}`}
                   </button>
                 </div>
                 {evidenceExpanded ? (
@@ -4892,18 +4892,6 @@ function appendLegalChangeReviewNotice(answer: string, retrieval: RetrieveRespon
       "Confidence is lowered and the answer requires review.",
     ].join("\n"),
   ].join("\n\n");
-}
-
-function buildAssistantRecordConfidenceOverride(result: RetrieveResponse): AssistantRecordConfidenceOverride {
-  if (!hasLegalChangeImpactWarning(result)) {
-    return {};
-  }
-
-  return {
-    confidenceScore: 45,
-    confidenceReason:
-      "Legal change detected; confidence is capped at 45% and requires legal-change review before use as current legal basis.",
-  };
 }
 
 function hasLegalChangeImpactWarning(result: RetrieveResponse | null | undefined): boolean {
